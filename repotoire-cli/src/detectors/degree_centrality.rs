@@ -60,12 +60,7 @@ impl DegreeCentralityDetector {
     }
 
     /// Calculate severity based on metrics and function role
-    fn calculate_severity(
-        &self,
-        fan_in: usize,
-        fan_out: usize,
-        role: FunctionRole,
-    ) -> Severity {
+    fn calculate_severity(&self, fan_in: usize, fan_out: usize, role: FunctionRole) -> Severity {
         let total = fan_in + fan_out;
 
         // Base severity from raw metrics
@@ -101,30 +96,72 @@ impl DegreeCentralityDetector {
                 // Leaf functions shouldn't have high coupling
                 base_severity.min(Severity::Medium)
             }
-            FunctionRole::Test => {
-                Severity::Low
-            }
+            FunctionRole::Test => Severity::Low,
             FunctionRole::Hub => {
                 // Hubs are genuine coupling concerns
                 base_severity
             }
-            FunctionRole::EntryPoint | FunctionRole::Unknown => {
-                base_severity
-            }
+            FunctionRole::EntryPoint | FunctionRole::Unknown => base_severity,
         }
     }
 
     /// Legacy name-based skip check (fallback when no context available)
     fn should_skip_by_name(&self, name: &str) -> bool {
         const SKIP_NAMES: &[&str] = &[
-            "new", "default", "from", "into", "create", "build", "make", "with",
-            "clone", "drop", "fmt", "eq", "hash", "cmp", "partial_cmp",
-            "get", "set", "instance", "global", "shared", "current",
-            "run", "main", "init", "setup", "start", "execute", "dispatch", "handle",
-            "read", "write", "parse", "format", "render", "display", "detect", "analyze",
-            "iter", "next", "map", "filter", "fold",
-            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
-            "calculate_", "compute_", "scan_", "extract_", "normalize_",
+            "new",
+            "default",
+            "from",
+            "into",
+            "create",
+            "build",
+            "make",
+            "with",
+            "clone",
+            "drop",
+            "fmt",
+            "eq",
+            "hash",
+            "cmp",
+            "partial_cmp",
+            "get",
+            "set",
+            "instance",
+            "global",
+            "shared",
+            "current",
+            "run",
+            "main",
+            "init",
+            "setup",
+            "start",
+            "execute",
+            "dispatch",
+            "handle",
+            "read",
+            "write",
+            "parse",
+            "format",
+            "render",
+            "display",
+            "detect",
+            "analyze",
+            "iter",
+            "next",
+            "map",
+            "filter",
+            "fold",
+            "is_",
+            "has_",
+            "check_",
+            "validate_",
+            "should_",
+            "can_",
+            "find_",
+            "calculate_",
+            "compute_",
+            "scan_",
+            "extract_",
+            "normalize_",
         ];
 
         let name_lower = name.to_lowercase();
@@ -138,8 +175,15 @@ impl DegreeCentralityDetector {
     /// Check if path is a natural hub file
     fn is_hub_file(&self, path: &str) -> bool {
         const SKIP_PATHS: &[&str] = &[
-            "/mod.rs", "/lib.rs", "/main.rs", "/cli/", "/handlers/",
-            "/mcp/", "/parsers/", "/server.rs", "/router.rs",
+            "/mod.rs",
+            "/lib.rs",
+            "/main.rs",
+            "/cli/",
+            "/handlers/",
+            "/mcp/",
+            "/parsers/",
+            "/server.rs",
+            "/router.rs",
         ];
         SKIP_PATHS.iter().any(|&pat| path.contains(pat))
     }
@@ -178,22 +222,17 @@ impl DegreeCentralityDetector {
         );
 
         let suggested_fix = match role {
-            FunctionRole::Utility => {
-                "This utility is more coupled than expected. Consider:\n\
+            FunctionRole::Utility => "This utility is more coupled than expected. Consider:\n\
                 - Breaking into smaller, focused helpers\n\
                 - Reducing its dependencies on other modules"
-                    .to_string()
-            }
-            FunctionRole::Hub => {
-                "This is a coupling hotspot. Consider:\n\
+                .to_string(),
+            FunctionRole::Hub => "This is a coupling hotspot. Consider:\n\
                 - Introducing abstraction layers\n\
                 - Applying facade pattern\n\
                 - Splitting by responsibility"
-                    .to_string()
-            }
+                .to_string(),
             _ => {
-                "Consider breaking into smaller functions or using dependency injection"
-                    .to_string()
+                "Consider breaking into smaller functions or using dependency injection".to_string()
             }
         };
 
@@ -411,7 +450,7 @@ mod tests {
         // Hub with high both = Medium (total=40, needs 60+ for High)
         let sev = detector.calculate_severity(20, 20, FunctionRole::Hub);
         assert_eq!(sev, Severity::Medium);
-        
+
         // Hub with very high both = High
         let sev = detector.calculate_severity(35, 35, FunctionRole::Hub);
         assert_eq!(sev, Severity::High);

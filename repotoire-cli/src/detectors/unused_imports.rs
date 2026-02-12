@@ -21,15 +21,11 @@ static JS_IMPORT: OnceLock<Regex> = OnceLock::new();
 static WORD: OnceLock<Regex> = OnceLock::new();
 
 fn python_import() -> &'static Regex {
-    PYTHON_IMPORT.get_or_init(|| {
-        Regex::new(r"(?:from\s+[\w.]+\s+)?import\s+(.+)").unwrap()
-    })
+    PYTHON_IMPORT.get_or_init(|| Regex::new(r"(?:from\s+[\w.]+\s+)?import\s+(.+)").unwrap())
 }
 
 fn js_import() -> &'static Regex {
-    JS_IMPORT.get_or_init(|| {
-        Regex::new(r#"import\s+(?:\{([^}]+)\}|(\w+))\s+from"#).unwrap()
-    })
+    JS_IMPORT.get_or_init(|| Regex::new(r#"import\s+(?:\{([^}]+)\}|(\w+))\s+from"#).unwrap())
 }
 
 fn word() -> &'static Regex {
@@ -55,7 +51,7 @@ impl UnusedImportsDetector {
     /// Extract imported symbols from Python import line
     fn extract_python_imports(line: &str) -> Vec<(String, Option<String>)> {
         let mut symbols = Vec::new();
-        
+
         // Handle "from x import a, b, c" and "import x, y"
         if let Some(caps) = python_import().captures(line) {
             if let Some(imports) = caps.get(1) {
@@ -64,7 +60,10 @@ impl UnusedImportsDetector {
                     if part.contains(" as ") {
                         let parts: Vec<&str> = part.split(" as ").collect();
                         if parts.len() == 2 {
-                            symbols.push((parts[1].trim().to_string(), Some(parts[0].trim().to_string())));
+                            symbols.push((
+                                parts[1].trim().to_string(),
+                                Some(parts[0].trim().to_string()),
+                            ));
                         }
                     } else {
                         // Handle "from x import *" - skip these
@@ -76,14 +75,14 @@ impl UnusedImportsDetector {
                 }
             }
         }
-        
+
         symbols
     }
 
     /// Extract imported symbols from JS/TS import line
     fn extract_js_imports(line: &str) -> Vec<(String, Option<String>)> {
         let mut symbols = Vec::new();
-        
+
         if let Some(caps) = js_import().captures(line) {
             // Named imports: { a, b, c }
             if let Some(named) = caps.get(1) {
@@ -92,7 +91,10 @@ impl UnusedImportsDetector {
                     if part.contains(" as ") {
                         let parts: Vec<&str> = part.split(" as ").collect();
                         if parts.len() == 2 {
-                            symbols.push((parts[1].trim().to_string(), Some(parts[0].trim().to_string())));
+                            symbols.push((
+                                parts[1].trim().to_string(),
+                                Some(parts[0].trim().to_string()),
+                            ));
                         }
                     } else {
                         symbols.push((part.to_string(), None));
@@ -104,22 +106,24 @@ impl UnusedImportsDetector {
                 symbols.push((default.as_str().to_string(), None));
             }
         }
-        
+
         symbols
     }
 
     /// Check if a symbol is used in the content after the import
     fn is_symbol_used(content: &str, symbol: &str, import_line: usize) -> bool {
         let lines: Vec<&str> = content.lines().collect();
-        
+
         // Skip common false positives
         if symbol == "_" || symbol == "annotations" || symbol == "TYPE_CHECKING" {
             return true;
         }
-        
+
         for (i, line) in lines.iter().enumerate() {
-            if i <= import_line { continue; }
-            
+            if i <= import_line {
+                continue;
+            }
+
             // Check for word boundary match
             for m in word().find_iter(line) {
                 if m.as_str() == symbol {
@@ -127,7 +131,7 @@ impl UnusedImportsDetector {
                 }
             }
         }
-        
+
         false
     }
 }
@@ -154,25 +158,35 @@ impl Detector for UnusedImportsDetector {
     fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut unused_per_file: HashMap<PathBuf, Vec<(String, u32)>> = HashMap::new();
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx") { continue; }
-            
-            // Skip __init__.py (often re-exports)
-            if path.file_name().map(|n| n.to_string_lossy().contains("__init__")).unwrap_or(false) {
+            if !path.is_file() {
                 continue;
             }
-            
+
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx") {
+                continue;
+            }
+
+            // Skip __init__.py (often re-exports)
+            if path
+                .file_name()
+                .map(|n| n.to_string_lossy().contains("__init__"))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
             // Skip type stub files
             if path.to_string_lossy().ends_with(".pyi") {
                 continue;
@@ -180,20 +194,20 @@ impl Detector for UnusedImportsDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (line_num, line) in lines.iter().enumerate() {
                     let trimmed = line.trim();
-                    
+
                     // Skip comments
                     if trimmed.starts_with("#") || trimmed.starts_with("//") {
                         continue;
                     }
-                    
+
                     // Skip TYPE_CHECKING blocks (type-only imports)
                     if trimmed.contains("TYPE_CHECKING") {
                         continue;
                     }
-                    
+
                     let imports = if ext == "py" {
                         if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
                             Self::extract_python_imports(trimmed)
@@ -205,7 +219,7 @@ impl Detector for UnusedImportsDetector {
                     } else {
                         continue;
                     };
-                    
+
                     for (symbol, _alias) in imports {
                         if !Self::is_symbol_used(&content, &symbol, line_num) {
                             unused_per_file
@@ -217,39 +231,41 @@ impl Detector for UnusedImportsDetector {
                 }
             }
         }
-        
+
         // Create findings grouped by file
         for (file_path, unused) in unused_per_file {
-            if unused.is_empty() { continue; }
-            
+            if unused.is_empty() {
+                continue;
+            }
+
             // Group closely located imports
             let mut i = 0;
             while i < unused.len() {
                 let (symbol, line) = &unused[i];
-                
+
                 // Find consecutive unused imports
                 let mut group = vec![symbol.clone()];
                 let first_line = *line;
                 let mut last_line = *line;
-                
+
                 while i + 1 < unused.len() && unused[i + 1].1 <= last_line + 3 {
                     i += 1;
                     group.push(unused[i].0.clone());
                     last_line = unused[i].1;
                 }
-                
+
                 let severity = if group.len() >= 5 {
-                    Severity::Medium  // Many unused imports = messier code
+                    Severity::Medium // Many unused imports = messier code
                 } else {
                     Severity::Low
                 };
-                
+
                 let symbols_str = if group.len() > 3 {
                     format!("{} and {} others", group[..3].join(", "), group.len() - 3)
                 } else {
                     group.join(", ")
                 };
-                
+
                 findings.push(Finding {
                     id: Uuid::new_v4().to_string(),
                     detector: "UnusedImportsDetector".to_string(),
@@ -280,11 +296,11 @@ impl Detector for UnusedImportsDetector {
                     ),
                     ..Default::default()
                 });
-                
+
                 i += 1;
             }
         }
-        
+
         info!("UnusedImportsDetector found {} findings", findings.len());
         Ok(findings)
     }

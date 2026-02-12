@@ -181,10 +181,7 @@ impl FixPromptBuilder {
                 .take(3)
                 .map(|code| format!("```{}\n{}\n```", code_marker, code))
                 .collect();
-            format!(
-                "\n## Related Code Context\n{}\n",
-                snippets.join("\n\n")
-            )
+            format!("\n## Related Code Context\n{}\n", snippets.join("\n\n"))
         };
 
         let error_feedback = self

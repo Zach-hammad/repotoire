@@ -7,7 +7,6 @@
 //! - Check for sanitization in call chain
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,6 +14,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static DESERIALIZE_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -25,26 +25,47 @@ fn deserialize_pattern() -> &'static Regex {
 /// Categorize the deserialization method
 fn categorize_deserialize(line: &str) -> (&'static str, &'static str, Severity) {
     let lower = line.to_lowercase();
-    
+
     if lower.contains("objectinputstream") {
-        return ("Java ObjectInputStream", "Can execute arbitrary code", Severity::Critical);
+        return (
+            "Java ObjectInputStream",
+            "Can execute arbitrary code",
+            Severity::Critical,
+        );
     }
     if lower.contains("marshal.load") {
-        return ("Ruby Marshal.load", "Can execute arbitrary code", Severity::Critical);
+        return (
+            "Ruby Marshal.load",
+            "Can execute arbitrary code",
+            Severity::Critical,
+        );
     }
     if lower.contains("unserialize") && !lower.contains("safe_unserialize") {
-        return ("PHP unserialize", "Can execute arbitrary code via magic methods", Severity::Critical);
+        return (
+            "PHP unserialize",
+            "Can execute arbitrary code via magic methods",
+            Severity::Critical,
+        );
     }
-    if lower.contains("yaml.load") && !lower.contains("safe_load") && !lower.contains("safeloader") {
-        return ("YAML unsafe load", "Can execute arbitrary code via YAML tags", Severity::High);
+    if lower.contains("yaml.load") && !lower.contains("safe_load") && !lower.contains("safeloader")
+    {
+        return (
+            "YAML unsafe load",
+            "Can execute arbitrary code via YAML tags",
+            Severity::High,
+        );
     }
     if lower.contains("eval") {
         return ("eval()", "Direct code execution", Severity::Critical);
     }
     if lower.contains("json.parse") {
-        return ("JSON.parse", "Generally safe but may cause issues with __proto__", Severity::Low);
+        return (
+            "JSON.parse",
+            "Generally safe but may cause issues with __proto__",
+            Severity::Low,
+        );
     }
-    
+
     ("Deserialization", "May be unsafe", Severity::Medium)
 }
 
@@ -55,28 +76,36 @@ pub struct InsecureDeserializeDetector {
 
 impl InsecureDeserializeDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Find containing function and context
-    fn find_function_context(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, usize, bool)> {
-        graph.get_functions()
+    fn find_function_context(
+        graph: &GraphStore,
+        file_path: &str,
+        line: u32,
+    ) -> Option<(String, usize, bool)> {
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| {
                 let callers = graph.get_callers(&f.qualified_name);
                 let name_lower = f.name.to_lowercase();
-                
+
                 // Check if this is a route handler
-                let is_handler = name_lower.contains("handler") ||
-                    name_lower.contains("route") ||
-                    name_lower.contains("api") ||
-                    name_lower.contains("endpoint") ||
-                    name_lower.starts_with("get") ||
-                    name_lower.starts_with("post") ||
-                    name_lower.starts_with("put") ||
-                    name_lower.starts_with("delete");
-                
+                let is_handler = name_lower.contains("handler")
+                    || name_lower.contains("route")
+                    || name_lower.contains("api")
+                    || name_lower.contains("endpoint")
+                    || name_lower.starts_with("get")
+                    || name_lower.starts_with("post")
+                    || name_lower.starts_with("put")
+                    || name_lower.starts_with("delete");
+
                 (f.name, callers.len(), is_handler)
             })
     }
@@ -86,58 +115,84 @@ impl InsecureDeserializeDetector {
         let start = current_line.saturating_sub(10);
         let end = (current_line + 5).min(lines.len());
         let context = lines[start..end].join(" ").to_lowercase();
-        
-        context.contains("validate") || context.contains("sanitize") ||
-        context.contains("schema") || context.contains("allowlist") ||
-        context.contains("whitelist") || context.contains("instanceof") ||
-        context.contains("typeof ") || context.contains("zod.") ||
-        context.contains("joi.") || context.contains("yup.")
+
+        context.contains("validate")
+            || context.contains("sanitize")
+            || context.contains("schema")
+            || context.contains("allowlist")
+            || context.contains("whitelist")
+            || context.contains("instanceof")
+            || context.contains("typeof ")
+            || context.contains("zod.")
+            || context.contains("joi.")
+            || context.contains("yup.")
     }
 }
 
 impl Detector for InsecureDeserializeDetector {
-    fn name(&self) -> &'static str { "insecure-deserialize" }
-    fn description(&self) -> &'static str { "Detects insecure deserialization" }
+    fn name(&self) -> &'static str {
+        "insecure-deserialize"
+    }
+    fn description(&self) -> &'static str {
+        "Detects insecure deserialization"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") || path_str.contains("spec") { continue; }
-            
+            if path_str.contains("test") || path_str.contains("spec") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"php"|"rb") { continue; }
+            if !matches!(ext, "py" | "js" | "ts" | "java" | "php" | "rb") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     if deserialize_pattern().is_match(line) {
-                        let has_user_input = line.contains("req.") || line.contains("request") ||
-                            line.contains("body") || line.contains("input") || line.contains("params") ||
-                            line.contains("data") || line.contains("payload");
-                        
+                        let has_user_input = line.contains("req.")
+                            || line.contains("request")
+                            || line.contains("body")
+                            || line.contains("input")
+                            || line.contains("params")
+                            || line.contains("data")
+                            || line.contains("payload");
+
                         // Skip if no user input indicator
-                        if !has_user_input { continue; }
-                        
+                        if !has_user_input {
+                            continue;
+                        }
+
                         let line_num = (i + 1) as u32;
                         let (method, risk_desc, base_severity) = categorize_deserialize(line);
-                        
+
                         // Graph-enhanced analysis
                         let func_context = Self::find_function_context(graph, &path_str, line_num);
                         let has_validation = Self::has_validation(&lines, i);
-                        
+
                         // Calculate severity
                         let mut severity = base_severity;
-                        
+
                         // Reduce if validation found
                         if has_validation {
                             severity = match severity {
@@ -146,37 +201,43 @@ impl Detector for InsecureDeserializeDetector {
                                 _ => Severity::Low,
                             };
                         }
-                        
+
                         // Boost if in route handler (direct user input)
                         if let Some((_, _, is_handler)) = &func_context {
                             if *is_handler && !has_validation {
                                 severity = Severity::Critical;
                             }
                         }
-                        
+
                         // Skip JSON.parse unless in critical context
                         if method == "JSON.parse" && severity == Severity::Low {
                             continue;
                         }
-                        
+
                         // Build notes
                         let mut notes = Vec::new();
                         notes.push(format!("🔧 Method: {}", method));
                         notes.push(format!("⚠️ Risk: {}", risk_desc));
-                        
+
                         if let Some((func_name, callers, is_handler)) = &func_context {
-                            notes.push(format!("📦 In function: `{}` ({} callers)", func_name, callers));
+                            notes.push(format!(
+                                "📦 In function: `{}` ({} callers)",
+                                func_name, callers
+                            ));
                             if *is_handler {
-                                notes.push("🌐 In route handler (receives user input directly)".to_string());
+                                notes.push(
+                                    "🌐 In route handler (receives user input directly)"
+                                        .to_string(),
+                                );
                             }
                         }
-                        
+
                         if has_validation {
                             notes.push("✅ Validation/schema check found nearby".to_string());
                         }
-                        
+
                         let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                        
+
                         let suggestion = match method {
                             "Java ObjectInputStream" => 
                                 "Use a safer alternative:\n\
@@ -214,7 +275,7 @@ impl Detector for InsecureDeserializeDetector {
                                  ```".to_string(),
                             _ => "Validate schema before deserializing user input.".to_string(),
                         };
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "InsecureDeserializeDetector".to_string(),
@@ -244,8 +305,11 @@ impl Detector for InsecureDeserializeDetector {
                 }
             }
         }
-        
-        info!("InsecureDeserializeDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "InsecureDeserializeDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

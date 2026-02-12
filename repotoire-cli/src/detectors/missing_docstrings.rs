@@ -6,12 +6,12 @@
 //! - Suggest docstring format based on language
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
+use uuid::Uuid;
 
 pub struct MissingDocstringsDetector {
     repository_path: PathBuf,
@@ -21,14 +21,18 @@ pub struct MissingDocstringsDetector {
 
 impl MissingDocstringsDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 100, min_lines: 5 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 100,
+            min_lines: 5,
+        }
     }
 
     /// Check if function is an API endpoint or entry point
     fn is_entry_point(func_name: &str, file_path: &str) -> bool {
         let name_lower = func_name.to_lowercase();
         let path_lower = file_path.to_lowercase();
-        
+
         // API endpoints
         name_lower.starts_with("get_") || name_lower.starts_with("post_") ||
         name_lower.starts_with("put_") || name_lower.starts_with("delete_") ||
@@ -46,7 +50,7 @@ impl MissingDocstringsDetector {
     /// Generate docstring template based on function
     fn generate_template(func_name: &str, param_count: Option<i64>, ext: &str) -> String {
         let params = param_count.unwrap_or(0) as usize;
-        
+
         match ext {
             "py" => {
                 let mut template = format!(
@@ -65,22 +69,25 @@ impl MissingDocstringsDetector {
                 template.push_str("\n    Returns:\n        Description of return value.\n");
                 template.push_str("\"\"\"\n```");
                 template
-            },
+            }
             "js" | "ts" => {
                 let mut template = "```javascript\n\
                      /**\n\
                      * Brief description of what the function does.\n\
-                     *\n".to_string();
+                     *\n"
+                .to_string();
                 if params > 0 {
                     for i in 0..params.min(3) {
-                        template.push_str(&format!(" * @param {{type}} param{} - Description.\n", i + 1));
+                        template.push_str(&format!(
+                            " * @param {{type}} param{} - Description.\n",
+                            i + 1
+                        ));
                     }
                 }
                 template.push_str(" * @returns {{type}} Description of return value.\n */\n```");
                 template
-            },
-            "rs" => {
-                "```rust\n\
+            }
+            "rs" => "```rust\n\
                      /// Brief description of what the function does.\n\
                      ///\n\
                      /// # Arguments\n\
@@ -90,8 +97,8 @@ impl MissingDocstringsDetector {
                      /// # Returns\n\
                      ///\n\
                      /// Description of return value.\n\
-                     ```".to_string()
-            },
+                     ```"
+            .to_string(),
             "go" => {
                 format!(
                     "```go\n\
@@ -104,39 +111,54 @@ impl MissingDocstringsDetector {
                      ```",
                     func_name
                 )
-            },
-            _ => "Add a docstring describing the function's purpose, parameters, and return value.".to_string()
+            }
+            _ => "Add a docstring describing the function's purpose, parameters, and return value."
+                .to_string(),
         }
     }
 }
 
 impl Detector for MissingDocstringsDetector {
-    fn name(&self) -> &'static str { "missing-docstrings" }
-    fn description(&self) -> &'static str { "Detects functions without documentation" }
+    fn name(&self) -> &'static str {
+        "missing-docstrings"
+    }
+    fn description(&self) -> &'static str {
+        "Detects functions without documentation"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         for func in graph.get_functions() {
-            if findings.len() >= self.max_findings { break; }
-            
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
             let lines = func.line_end.saturating_sub(func.line_start);
-            if lines < self.min_lines { continue; }
-            
+            if lines < self.min_lines {
+                continue;
+            }
+
             // Skip private functions (single underscore prefix)
-            if func.name.starts_with('_') && !func.name.starts_with("__") { continue; }
+            if func.name.starts_with('_') && !func.name.starts_with("__") {
+                continue;
+            }
             // Skip test functions
-            if func.name.starts_with("test_") || func.file_path.contains("test") { continue; }
+            if func.name.starts_with("test_") || func.file_path.contains("test") {
+                continue;
+            }
             // Skip generated/vendor code
-            if func.file_path.contains("vendor") || func.file_path.contains("node_modules") { continue; }
+            if func.file_path.contains("vendor") || func.file_path.contains("node_modules") {
+                continue;
+            }
 
             // Get caller count for prioritization
             let callers = graph.get_callers(&func.qualified_name);
             let caller_count = callers.len();
-            
+
             // Check if entry point
             let is_entry = Self::is_entry_point(&func.name, &func.file_path);
-            
+
             // Determine file extension
             let ext = func.file_path.rsplit('.').next().unwrap_or("");
 
@@ -146,27 +168,32 @@ impl Detector for MissingDocstringsDetector {
                 let file_lines: Vec<&str> = content.lines().collect();
                 let start = (func.line_start as usize).saturating_sub(1);
                 let end = (start + 5).min(file_lines.len());
-                
-                let has_doc = file_lines.get(start..end).map(|s| {
-                    s.iter().any(|l| {
-                        l.contains("\"\"\"") || l.contains("'''") ||
-                        l.contains("///") || l.contains("/**") ||
-                        l.trim().starts_with("//") && l.len() > 10  // Meaningful comment
+
+                let has_doc = file_lines
+                    .get(start..end)
+                    .map(|s| {
+                        s.iter().any(|l| {
+                            l.contains("\"\"\"")
+                                || l.contains("'''")
+                                || l.contains("///")
+                                || l.contains("/**")
+                                || l.trim().starts_with("//") && l.len() > 10 // Meaningful comment
+                        })
                     })
-                }).unwrap_or(false);
+                    .unwrap_or(false);
 
                 if !has_doc {
                     // Calculate severity based on importance
                     let severity = if is_entry {
-                        Severity::Medium  // Entry points/APIs should be documented
+                        Severity::Medium // Entry points/APIs should be documented
                     } else if caller_count >= 5 {
-                        Severity::Medium  // Highly used functions
+                        Severity::Medium // Highly used functions
                     } else if caller_count >= 2 {
                         Severity::Low
                     } else {
                         Severity::Low
                     };
-                    
+
                     // Build context notes
                     let mut notes = Vec::new();
                     notes.push(format!("📏 {} lines", lines));
@@ -179,11 +206,11 @@ impl Detector for MissingDocstringsDetector {
                     if let Some(pc) = func.param_count() {
                         notes.push(format!("📝 {} parameters", pc));
                     }
-                    
+
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                    
+
                     let template = Self::generate_template(&func.name, func.param_count(), ext);
-                    
+
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "MissingDocstringsDetector".to_string(),
@@ -218,11 +245,14 @@ impl Detector for MissingDocstringsDetector {
                 }
             }
         }
-        
+
         // Sort by severity (most important first)
         findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-        
-        info!("MissingDocstringsDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "MissingDocstringsDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

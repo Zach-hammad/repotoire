@@ -41,19 +41,52 @@ impl Default for LazyClassThresholds {
 /// Patterns to exclude from lazy class detection
 const EXCLUDE_PATTERNS: &[&str] = &[
     // Design patterns (intentionally small)
-    "Adapter", "Wrapper", "Proxy", "Decorator", "Facade", "Bridge",
+    "Adapter",
+    "Wrapper",
+    "Proxy",
+    "Decorator",
+    "Facade",
+    "Bridge",
     // Data classes (supposed to be simple)
-    "Config", "Settings", "Options", "DTO", "Entity", "Model", "Schema",
-    "Request", "Response", "Params", "Args", "Event", "Message",
+    "Config",
+    "Settings",
+    "Options",
+    "DTO",
+    "Entity",
+    "Model",
+    "Schema",
+    "Request",
+    "Response",
+    "Params",
+    "Args",
+    "Event",
+    "Message",
     // Exceptions
-    "Exception", "Error",
+    "Exception",
+    "Error",
     // Base/abstract (extended elsewhere)
-    "Base", "Abstract", "Interface", "Mixin", "Protocol", "Trait",
+    "Base",
+    "Abstract",
+    "Interface",
+    "Mixin",
+    "Protocol",
+    "Trait",
     // Test infrastructure
-    "Test", "Mock", "Stub", "Fake", "Fixture",
+    "Test",
+    "Mock",
+    "Stub",
+    "Fake",
+    "Fixture",
     // Framework conventions
-    "Serializer", "Validator", "Handler", "Listener", "Observer",
-    "Factory", "Builder", "Provider", "Service",
+    "Serializer",
+    "Validator",
+    "Handler",
+    "Listener",
+    "Observer",
+    "Factory",
+    "Builder",
+    "Provider",
+    "Service",
 ];
 
 /// Detects classes that do minimal work and aren't used much
@@ -84,19 +117,22 @@ impl LazyClassDetector {
     /// Check if class name matches an exclusion pattern
     fn should_exclude(&self, class_name: &str) -> bool {
         let lower = class_name.to_lowercase();
-        EXCLUDE_PATTERNS.iter().any(|p| lower.contains(&p.to_lowercase()))
+        EXCLUDE_PATTERNS
+            .iter()
+            .any(|p| lower.contains(&p.to_lowercase()))
     }
 
     /// Count unique external callers of a class's methods
     fn count_external_callers(&self, graph: &GraphStore, class: &crate::graph::CodeNode) -> usize {
         let functions = graph.get_functions();
-        
+
         // Find methods belonging to this class (by file + line range)
-        let class_methods: Vec<&crate::graph::CodeNode> = functions.iter()
+        let class_methods: Vec<&crate::graph::CodeNode> = functions
+            .iter()
             .filter(|f| {
-                f.file_path == class.file_path &&
-                f.line_start >= class.line_start &&
-                f.line_end <= class.line_end
+                f.file_path == class.file_path
+                    && f.line_start >= class.line_start
+                    && f.line_end <= class.line_end
             })
             .collect();
 
@@ -106,14 +142,14 @@ impl LazyClassDetector {
 
         // Collect all unique external callers
         let mut external_callers: HashSet<String> = HashSet::new();
-        
+
         for method in &class_methods {
             for caller in graph.get_callers(&method.qualified_name) {
                 // External = not in same file or not in class line range
-                let is_external = caller.file_path != class.file_path ||
-                    caller.line_start < class.line_start ||
-                    caller.line_end > class.line_end;
-                
+                let is_external = caller.file_path != class.file_path
+                    || caller.line_start < class.line_start
+                    || caller.line_end > class.line_end;
+
                 if is_external {
                     external_callers.insert(caller.qualified_name.clone());
                 }
@@ -124,11 +160,16 @@ impl LazyClassDetector {
     }
 
     /// Calculate usage ratio (callers per method)
-    fn calculate_usage_ratio(&self, graph: &GraphStore, class: &crate::graph::CodeNode, method_count: usize) -> f64 {
+    fn calculate_usage_ratio(
+        &self,
+        graph: &GraphStore,
+        class: &crate::graph::CodeNode,
+        method_count: usize,
+    ) -> f64 {
         if method_count == 0 {
             return 0.0;
         }
-        
+
         let callers = self.count_external_callers(graph, class);
         callers as f64 / method_count as f64
     }
@@ -159,27 +200,28 @@ impl Detector for LazyClassDetector {
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         for class in graph.get_classes() {
             // Skip interfaces and type aliases
-            if class.qualified_name.contains("::interface::") 
-                || class.qualified_name.contains("::type::") {
+            if class.qualified_name.contains("::interface::")
+                || class.qualified_name.contains("::type::")
+            {
                 continue;
             }
-            
+
             // Skip excluded patterns
             if self.should_exclude(&class.name) {
                 continue;
             }
-            
+
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
             let loc = class.loc() as usize;
-            
+
             // Must have few methods and be small
             if method_count > self.thresholds.max_methods || loc > self.thresholds.max_loc {
                 continue;
             }
-            
+
             // Skip tiny classes (likely incomplete or placeholders)
             if loc < 5 {
                 continue;
@@ -187,7 +229,7 @@ impl Detector for LazyClassDetector {
 
             // KEY GRAPH CHECK: Is this class actually used?
             let external_callers = self.count_external_callers(graph, &class);
-            
+
             // If the class has many callers, it's not lazy - it's well-used!
             if external_callers >= self.thresholds.min_callers_to_skip {
                 debug!(
@@ -196,18 +238,21 @@ impl Detector for LazyClassDetector {
                 );
                 continue;
             }
-            
+
             // Calculate severity based on usage
             let severity = if external_callers == 0 {
                 Severity::Medium // Completely unused
             } else {
                 Severity::Low // Used but not much
             };
-            
+
             let usage_note = if external_callers == 0 {
                 "No external code calls this class's methods.".to_string()
             } else {
-                format!("Only {} external caller(s) use this class.", external_callers)
+                format!(
+                    "Only {} external caller(s) use this class.",
+                    external_callers
+                )
             };
 
             findings.push(Finding {
@@ -229,7 +274,7 @@ impl Detector for LazyClassDetector {
                      2. Merge with a related class\n\
                      3. Convert to standalone functions\n\
                      4. If intentional, add documentation explaining the design choice"
-                        .to_string()
+                        .to_string(),
                 ),
                 estimated_effort: Some("Small (30 min)".to_string()),
                 category: Some("design".to_string()),
@@ -237,7 +282,7 @@ impl Detector for LazyClassDetector {
                 why_it_matters: Some(
                     "Lazy classes add cognitive overhead without providing value. \
                      They increase indirection and make code harder to navigate."
-                        .to_string()
+                        .to_string(),
                 ),
                 ..Default::default()
             });
@@ -251,18 +296,18 @@ impl Detector for LazyClassDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, CodeEdge, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode, GraphStore};
 
     #[test]
     fn test_should_exclude() {
         let detector = LazyClassDetector::new();
-        
+
         assert!(detector.should_exclude("UserAdapter"));
         assert!(detector.should_exclude("DatabaseConfig"));
         assert!(detector.should_exclude("CustomException"));
         assert!(detector.should_exclude("BaseClass"));
         assert!(detector.should_exclude("TestHelper"));
-        
+
         assert!(!detector.should_exclude("OrderProcessor"));
         assert!(!detector.should_exclude("Calculator"));
     }
@@ -270,55 +315,68 @@ mod tests {
     #[test]
     fn test_skip_heavily_used_class() {
         let graph = GraphStore::in_memory();
-        
+
         // Create a small class
-        graph.add_node(CodeNode::class("SmallClass", "src/small.py")
-            .with_qualified_name("small::SmallClass")
-            .with_lines(1, 20)
-            .with_property("methodCount", 2i64));
-        
+        graph.add_node(
+            CodeNode::class("SmallClass", "src/small.py")
+                .with_qualified_name("small::SmallClass")
+                .with_lines(1, 20)
+                .with_property("methodCount", 2i64),
+        );
+
         // Add a method
-        graph.add_node(CodeNode::function("do_thing", "src/small.py")
-            .with_qualified_name("small::SmallClass::do_thing")
-            .with_lines(5, 10));
-        
+        graph.add_node(
+            CodeNode::function("do_thing", "src/small.py")
+                .with_qualified_name("small::SmallClass::do_thing")
+                .with_lines(5, 10),
+        );
+
         // Add many callers from outside
         for i in 0..10 {
             let caller_name = format!("caller_{}", i);
-            graph.add_node(CodeNode::function(&caller_name, "src/callers.py")
-                .with_qualified_name(&format!("callers::{}", caller_name))
-                .with_lines(i * 10, i * 10 + 5));
+            graph.add_node(
+                CodeNode::function(&caller_name, "src/callers.py")
+                    .with_qualified_name(&format!("callers::{}", caller_name))
+                    .with_lines(i * 10, i * 10 + 5),
+            );
             graph.add_edge_by_name(
                 &format!("callers::{}", caller_name),
                 "small::SmallClass::do_thing",
-                CodeEdge::calls()
+                CodeEdge::calls(),
             );
         }
-        
+
         let detector = LazyClassDetector::new();
         let findings = detector.detect(&graph).unwrap();
-        
+
         // Should NOT flag - class has many callers
-        assert!(findings.is_empty(), "Heavily-used class should not be flagged as lazy");
+        assert!(
+            findings.is_empty(),
+            "Heavily-used class should not be flagged as lazy"
+        );
     }
 
     #[test]
     fn test_flag_unused_class() {
         let graph = GraphStore::in_memory();
-        
+
         // Create a small class with no callers
-        graph.add_node(CodeNode::class("UnusedClass", "src/unused.py")
-            .with_qualified_name("unused::UnusedClass")
-            .with_lines(1, 20)
-            .with_property("methodCount", 1i64));
-        
-        graph.add_node(CodeNode::function("lonely_method", "src/unused.py")
-            .with_qualified_name("unused::UnusedClass::lonely_method")
-            .with_lines(5, 15));
-        
+        graph.add_node(
+            CodeNode::class("UnusedClass", "src/unused.py")
+                .with_qualified_name("unused::UnusedClass")
+                .with_lines(1, 20)
+                .with_property("methodCount", 1i64),
+        );
+
+        graph.add_node(
+            CodeNode::function("lonely_method", "src/unused.py")
+                .with_qualified_name("unused::UnusedClass::lonely_method")
+                .with_lines(5, 15),
+        );
+
         let detector = LazyClassDetector::new();
         let findings = detector.detect(&graph).unwrap();
-        
+
         // Should flag - unused class
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("UnusedClass"));

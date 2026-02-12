@@ -19,7 +19,7 @@ pub fn run(path: &Path) -> Result<()> {
     // Create cache directory (~/.cache/repotoire/<repo-hash>/)
     let cache_dir = crate::cache::ensure_cache_dir(&repo_path)
         .with_context(|| "Failed to create cache directory")?;
-    
+
     println!(
         "{} Cache directory: {}",
         style("[OK]").green(),
@@ -58,10 +58,7 @@ show_fixes = true
 "#;
         std::fs::write(&config_path, default_config)
             .with_context(|| "Failed to create config file")?;
-        println!(
-            "{} Created config.toml",
-            style("[OK]").green()
-        );
+        println!("{} Created config.toml", style("[OK]").green());
     }
 
     // Check for .repotoireignore (optional, stays in repo)
@@ -73,11 +70,17 @@ show_fixes = true
         );
     }
 
-    println!("\n{} Repository initialized!\n", style("[DONE]").green().bold());
+    println!(
+        "\n{} Repository initialized!\n",
+        style("[DONE]").green().bold()
+    );
     println!("Cache stored in: {}", style(cache_dir.display()).dim());
     println!("\nNext steps:");
     println!("  {} Run analysis", style("repotoire analyze .").cyan());
-    println!("  {} View findings interactively", style("repotoire findings -i").cyan());
+    println!(
+        "  {} View findings interactively",
+        style("repotoire findings -i").cyan()
+    );
     println!("  {} Get AI fixes", style("repotoire fix <id>").cyan());
 
     Ok(())

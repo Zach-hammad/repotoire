@@ -83,9 +83,10 @@ def generate(model: str, prompt: str, system: str = "") -> str:
         return ""
 
 
-def run_command(cmd: str, cwd: str) -> tuple[int, str]:
+def run_command(cmd: str, cwd: str, quiet: bool = False) -> tuple[int, str]:
     """Run a shell command."""
-    print(f"🔧 Running: {cmd}", flush=True)
+    if not quiet:
+        print(f"🔧 Running: {cmd}", flush=True)
     result = subprocess.run(
         cmd,
         shell=True,
@@ -94,12 +95,99 @@ def run_command(cmd: str, cwd: str) -> tuple[int, str]:
         text=True,
     )
     output = result.stdout + result.stderr
-    if result.returncode != 0:
+    if result.returncode != 0 and not quiet:
         print(f"   Exit code: {result.returncode}", flush=True)
     return result.returncode, output
 
 
-def fix_finding(finding: dict, repo_path: str, model: str) -> None:
+def check_repo_dirty(repo_path: str) -> bool:
+    """Check if repo has uncommitted changes."""
+    code, output = run_command("git status --porcelain", repo_path, quiet=True)
+    return code == 0 and bool(output.strip())
+
+
+def stash_changes(repo_path: str) -> bool:
+    """Stash uncommitted changes. Returns True if stash was created."""
+    code, output = run_command("git stash push -m 'fix-agent-auto-stash'", repo_path)
+    if code != 0:
+        print(f"❌ Failed to stash changes: {output}", flush=True)
+        return False
+    # Check if stash was actually created (vs "No local changes to save")
+    return "No local changes" not in output
+
+
+def pop_stash(repo_path: str) -> None:
+    """Pop the most recent stash."""
+    code, output = run_command("git stash pop", repo_path)
+    if code != 0:
+        print(f"⚠️ Failed to restore stash: {output}", flush=True)
+        print("   Your changes are still in 'git stash list'", flush=True)
+
+
+def check_remote_exists(repo_path: str, remote: str = "origin") -> bool:
+    """Check if a git remote exists."""
+    code, output = run_command(f"git remote get-url {remote}", repo_path, quiet=True)
+    return code == 0
+
+
+def check_gh_installed() -> bool:
+    """Check if GitHub CLI (gh) is installed and authenticated."""
+    result = subprocess.run(
+        ["which", "gh"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    # Check if authenticated
+    result = subprocess.run(
+        ["gh", "auth", "status"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def verify_finding_fixed(finding: dict, repo_path: str) -> bool:
+    """Run repotoire analyze and check if the specific finding is gone."""
+    finding_id = finding.get("id")
+    finding_title = finding.get("title", "")
+    file_path = finding.get("affected_files", [""])[0] if finding.get("affected_files") else ""
+    line_start = finding.get("line_start", 0)
+    
+    print(f"🔍 Verifying fix with repotoire analyze...", flush=True)
+    code, output = run_command("repotoire analyze --json", repo_path)
+    
+    if code != 0:
+        print(f"⚠️ repotoire analyze failed, skipping verification", flush=True)
+        return True  # Can't verify, assume OK
+    
+    try:
+        results = json.loads(output)
+        findings = results.get("findings", [])
+        
+        # Check if the same finding still exists
+        for f in findings:
+            f_files = f.get("affected_files", [])
+            f_line = f.get("line_start", 0)
+            f_title = f.get("title", "")
+            f_id = f.get("id")
+            
+            # Match by ID if available, otherwise by file/line/title
+            if finding_id and f_id == finding_id:
+                return False
+            elif (file_path in f_files and 
+                  abs(f_line - line_start) <= 5 and  # Allow small line drift
+                  f_title == finding_title):
+                return False
+        
+        return True  # Finding not found = fixed!
+    except json.JSONDecodeError:
+        print(f"⚠️ Could not parse repotoire output, skipping verification", flush=True)
+        return True  # Can't verify, assume OK
+
+
+def fix_finding(finding: dict, repo_path: str, model: str, verify: bool = True) -> None:
     """Use Ollama to fix a finding."""
     
     file_path = finding.get("affected_files", ["unknown"])[0] if finding.get("affected_files") else "unknown"
@@ -121,9 +209,9 @@ def fix_finding(finding: dict, repo_path: str, model: str) -> None:
     
     lines = content.split('\n')
     
-    # Get context around the issue (±10 lines)
-    start = max(0, line_start - 11)
-    end = min(len(lines), line_end + 10)
+    # Get context around the issue (±20 lines)
+    start = max(0, line_start - 21)
+    end = min(len(lines), line_end + 20)
     context_lines = lines[start:end]
     context_with_numbers = "\n".join(
         f"{start + i + 1:4} | {line}" 
@@ -191,46 +279,112 @@ Output ONLY the fixed code for lines {line_start} to {line_end}. No explanations
     full_path.write_text(new_content)
     print(f"✅ Fixed {file_path}", flush=True)
     
+    # Verification step
+    if verify:
+        print("-" * 60, flush=True)
+        if not verify_finding_fixed(finding, repo_path):
+            print(f"❌ Verification failed: finding still exists after fix!", flush=True)
+            print(f"⚠️ Reverting changes and skipping commit", flush=True)
+            # Revert the file
+            full_path.write_text(content)
+            return
+        print(f"✅ Verification passed: finding is fixed!", flush=True)
+    
     # Git operations
     print("-" * 60, flush=True)
     branch_name = f"fix/finding-{finding_index}"
+    stashed = False
+    
+    # Check for uncommitted changes before starting git operations
+    if check_repo_dirty(repo_path):
+        print("⚠️ Repository has uncommitted changes", flush=True)
+        print("   Stashing changes to proceed safely...", flush=True)
+        stashed = stash_changes(repo_path)
+        if not stashed:
+            print("❌ Cannot proceed with dirty repository", flush=True)
+            print("   Please commit or stash your changes manually", flush=True)
+            return
     
     # Check if we're on main/master
-    code, current_branch = run_command("git rev-parse --abbrev-ref HEAD", repo_path)
+    code, current_branch = run_command("git rev-parse --abbrev-ref HEAD", repo_path, quiet=True)
+    if code != 0:
+        print("❌ Failed to get current branch. Is this a git repository?", flush=True)
+        if stashed:
+            pop_stash(repo_path)
+        return
     current_branch = current_branch.strip()
     
     # Create branch
-    code, _ = run_command(f"git checkout -b {branch_name}", repo_path)
+    code, output = run_command(f"git checkout -b {branch_name}", repo_path)
     if code != 0:
-        # Branch might exist, try switching
-        run_command(f"git checkout {branch_name}", repo_path)
+        if "already exists" in output:
+            # Branch exists, try switching
+            code, _ = run_command(f"git checkout {branch_name}", repo_path)
+            if code != 0:
+                print(f"❌ Failed to switch to branch {branch_name}", flush=True)
+                if stashed:
+                    run_command(f"git checkout {current_branch}", repo_path, quiet=True)
+                    pop_stash(repo_path)
+                return
+        else:
+            print(f"❌ Failed to create branch: {output}", flush=True)
+            if stashed:
+                pop_stash(repo_path)
+            return
     
     # Stage and commit
     run_command(f"git add {file_path}", repo_path)
     commit_msg = f"fix: {finding.get('title', 'code issue')}"
-    code, _ = run_command(f'git commit -m "{commit_msg}"', repo_path)
+    code, output = run_command(f'git commit -m "{commit_msg}"', repo_path)
     
     if code == 0:
         print(f"✅ Committed: {commit_msg}", flush=True)
         
-        # Try to push
-        code, output = run_command(f"git push -u origin {branch_name}", repo_path)
-        if code == 0:
-            print(f"✅ Pushed to origin/{branch_name}", flush=True)
-            
-            # Try to create PR
-            code, output = run_command(
-                f'gh pr create --title "{commit_msg}" --body "Fixes finding #{finding_index}\n\n{finding.get("description", "")}"',
-                repo_path
-            )
-            if code == 0:
-                print(f"✅ Created PR!", flush=True)
-            else:
-                print(f"⚠️ Could not create PR (gh not configured?)", flush=True)
+        # Check if remote 'origin' exists before pushing
+        if not check_remote_exists(repo_path, "origin"):
+            print("⚠️ Remote 'origin' not found - skipping push", flush=True)
+            print("   Add a remote with: git remote add origin <url>", flush=True)
         else:
-            print(f"⚠️ Could not push (no remote access?)", flush=True)
+            # Try to push
+            code, output = run_command(f"git push -u origin {branch_name}", repo_path)
+            if code == 0:
+                print(f"✅ Pushed to origin/{branch_name}", flush=True)
+                
+                # Check if gh CLI is installed before trying to create PR
+                if not check_gh_installed():
+                    print("⚠️ GitHub CLI (gh) not installed or not authenticated", flush=True)
+                    print("   Install: https://cli.github.com/", flush=True)
+                    print("   Authenticate: gh auth login", flush=True)
+                else:
+                    # Try to create PR
+                    code, output = run_command(
+                        f'gh pr create --title "{commit_msg}" --body "Fixes finding #{finding_index}\n\n{finding.get("description", "")}"',
+                        repo_path
+                    )
+                    if code == 0:
+                        print(f"✅ Created PR!", flush=True)
+                    else:
+                        print(f"⚠️ Could not create PR: {output.strip()}", flush=True)
+            else:
+                if "permission denied" in output.lower() or "authentication" in output.lower():
+                    print("❌ Push failed: Authentication error", flush=True)
+                    print("   Check your git credentials or SSH key", flush=True)
+                elif "remote rejected" in output.lower():
+                    print("❌ Push failed: Remote rejected the push", flush=True)
+                    print("   Check branch protection rules", flush=True)
+                else:
+                    print(f"⚠️ Could not push: {output.strip()}", flush=True)
     else:
-        print(f"⚠️ Nothing to commit (no changes?)", flush=True)
+        if "nothing to commit" in output.lower():
+            print("⚠️ Nothing to commit - file may not have changed", flush=True)
+        else:
+            print(f"⚠️ Commit failed: {output.strip()}", flush=True)
+    
+    # Restore stashed changes if we stashed earlier
+    if stashed:
+        print("📦 Restoring stashed changes...", flush=True)
+        run_command(f"git checkout {current_branch}", repo_path, quiet=True)
+        pop_stash(repo_path)
     
     print("-" * 60, flush=True)
     print(f"✅ Agent completed!", flush=True)
@@ -241,6 +395,8 @@ def main():
     parser.add_argument("--finding-json", required=True, help="Finding as JSON string")
     parser.add_argument("--repo-path", required=True, help="Path to the repository")
     parser.add_argument("--model", default="codellama", help="Ollama model to use")
+    parser.add_argument("--verify", action=argparse.BooleanOptionalAction, default=True,
+                        help="Verify fix with repotoire analyze before committing (default: True)")
     args = parser.parse_args()
     
     # Check Ollama is running
@@ -269,7 +425,7 @@ def main():
         sys.exit(1)
     
     # Run the fix
-    fix_finding(finding, args.repo_path, args.model)
+    fix_finding(finding, args.repo_path, args.model, verify=args.verify)
 
 
 if __name__ == "__main__":

@@ -232,10 +232,7 @@ pub fn run_js_tool(
 }
 
 /// Run process without timeout
-fn run_without_timeout(
-    child: std::process::Child,
-    tool_name: &str,
-) -> ExternalToolResult {
+fn run_without_timeout(child: std::process::Child, tool_name: &str) -> ExternalToolResult {
     let output = match child.wait_with_output() {
         Ok(output) => output,
         Err(e) => {
@@ -272,7 +269,11 @@ fn run_with_timeout(
                     .take()
                     .map(|s| {
                         let reader = BufReader::new(s);
-                        reader.lines().filter_map(|l| l.ok()).collect::<Vec<_>>().join("\n")
+                        reader
+                            .lines()
+                            .filter_map(|l| l.ok())
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     })
                     .unwrap_or_default();
 
@@ -281,7 +282,11 @@ fn run_with_timeout(
                     .take()
                     .map(|s| {
                         let reader = BufReader::new(s);
-                        reader.lines().filter_map(|l| l.ok()).collect::<Vec<_>>().join("\n")
+                        reader
+                            .lines()
+                            .filter_map(|l| l.ok())
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     })
                     .unwrap_or_default();
 
@@ -298,7 +303,10 @@ fn run_with_timeout(
                 thread::sleep(Duration::from_millis(100));
             }
             Err(e) => {
-                return ExternalToolResult::failure(format!("Failed to wait for {}: {}", tool_name, e));
+                return ExternalToolResult::failure(format!(
+                    "Failed to wait for {}: {}",
+                    tool_name, e
+                ));
             }
         }
     }
@@ -351,7 +359,7 @@ pub fn batch_get_graph_context(
     file_paths: &[String],
 ) -> HashMap<String, GraphContext> {
     let mut contexts = HashMap::new();
-    
+
     for path in file_paths {
         if let Some(file_node) = graph.get_node(path) {
             contexts.insert(
@@ -365,7 +373,7 @@ pub fn batch_get_graph_context(
             );
         }
     }
-    
+
     contexts
 }
 

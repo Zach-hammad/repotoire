@@ -3,6 +3,7 @@
 mod analyze;
 mod clean;
 mod doctor;
+mod embedded_scripts;
 mod findings;
 mod fix;
 mod graph;
@@ -17,7 +18,9 @@ use std::path::PathBuf;
 
 /// Parse and validate workers count (1-64)
 fn parse_workers(s: &str) -> Result<usize, String> {
-    let n: usize = s.parse().map_err(|_| format!("'{}' is not a valid number", s))?;
+    let n: usize = s
+        .parse()
+        .map_err(|_| format!("'{}' is not a valid number", s))?;
     if n == 0 {
         Err("workers must be at least 1".to_string())
     } else if n > 64 {
@@ -88,7 +91,7 @@ pub enum Commands {
         /// Run thorough analysis (slower)
         #[arg(long)]
         thorough: bool,
-        
+
         /// Relaxed mode: filter to high/critical findings only (display filter, does not affect grade)
         #[arg(long)]
         relaxed: bool,
@@ -105,7 +108,7 @@ pub enum Commands {
         /// Disable emoji in output (cleaner for CI logs)
         #[arg(long)]
         no_emoji: bool,
-        
+
         /// Explain the scoring formula with full breakdown
         #[arg(long)]
         explain_score: bool,
@@ -236,10 +239,35 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
-            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers, fail_on, no_emoji, false, None, explain_score)
+            analyze::run(
+                &cli.path,
+                &format,
+                output.as_deref(),
+                effective_severity,
+                top,
+                page,
+                per_page,
+                skip_detector,
+                thorough,
+                no_git,
+                cli.workers,
+                fail_on,
+                no_emoji,
+                false,
+                None,
+                explain_score,
+            )
         }
 
-        Some(Commands::Findings { index, json, top, severity, page, per_page, interactive }) => {
+        Some(Commands::Findings {
+            index,
+            json,
+            top,
+            severity,
+            page,
+            per_page,
+            interactive,
+        }) => {
             if interactive {
                 findings::run_interactive(&cli.path)
             } else {
@@ -283,23 +311,41 @@ pub fn run(cli: Cli) -> Result<()> {
                     println!("📁 Config paths:");
                     if let Some(user_path) = UserConfig::user_config_path() {
                         let exists = user_path.exists();
-                        println!("  User:    {} {}", user_path.display(), if exists { "✓" } else { "(not found)" });
+                        println!(
+                            "  User:    {} {}",
+                            user_path.display(),
+                            if exists { "✓" } else { "(not found)" }
+                        );
                     }
-                    println!("  Project: ./repotoire.toml {}", if std::path::Path::new("repotoire.toml").exists() { "✓" } else { "(not found)" });
+                    println!(
+                        "  Project: ./repotoire.toml {}",
+                        if std::path::Path::new("repotoire.toml").exists() {
+                            "✓"
+                        } else {
+                            "(not found)"
+                        }
+                    );
                     println!();
                     println!("🤖 AI Backend: {}", config.ai_backend());
                     if config.use_ollama() {
                         println!("  Ollama URL:   {}", config.ollama_url());
                         println!("  Ollama Model: {}", config.ollama_model());
                     } else {
-                        println!("  ANTHROPIC_API_KEY: {}", if config.has_ai_key() { "✓ configured" } else { "✗ not set" });
+                        println!(
+                            "  ANTHROPIC_API_KEY: {}",
+                            if config.has_ai_key() {
+                                "✓ configured"
+                            } else {
+                                "✗ not set"
+                            }
+                        );
                     }
                     Ok(())
                 }
                 ConfigAction::Set { key, value } => {
                     let config_path = UserConfig::user_config_path()
                         .ok_or_else(|| anyhow::anyhow!("Could not determine config path"))?;
-                    
+
                     // Read existing or create new
                     let mut content = if config_path.exists() {
                         std::fs::read_to_string(&config_path)?
@@ -307,18 +353,20 @@ pub fn run(cli: Cli) -> Result<()> {
                         UserConfig::init_user_config()?;
                         std::fs::read_to_string(&config_path)?
                     };
-                    
+
                     // Simple key replacement (supports ai.anthropic_api_key format)
                     let toml_key = key.replace('.', "_").replace("ai_", "");
                     if content.contains(&format!("# {} =", toml_key)) {
                         content = content.replace(
                             &format!("# {} =", toml_key),
-                            &format!("{} = \"{}\" #", toml_key, value)
+                            &format!("{} = \"{}\" #", toml_key, value),
                         );
                     } else if content.contains(&format!("{} =", toml_key)) {
                         // Replace existing value
                         let re = regex::Regex::new(&format!(r#"{}\s*=\s*"[^"]*""#, toml_key))?;
-                        content = re.replace(&content, format!("{} = \"{}\"", toml_key, value)).to_string();
+                        content = re
+                            .replace(&content, format!("{} = \"{}\"", toml_key, value))
+                            .to_string();
                     } else {
                         // Append under [ai] section
                         if !content.contains("[ai]") {
@@ -326,7 +374,7 @@ pub fn run(cli: Cli) -> Result<()> {
                         }
                         content.push_str(&format!("{} = \"{}\"\n", toml_key, value));
                     }
-                    
+
                     std::fs::write(&config_path, content)?;
                     println!("✅ Set {} in {}", key, config_path.display());
                     Ok(())
@@ -337,9 +385,16 @@ pub fn run(cli: Cli) -> Result<()> {
         None => {
             // Check if the path looks like an unknown subcommand
             let path_str = cli.path.to_string_lossy();
-            if !cli.path.exists() && !path_str.contains('/') && !path_str.contains('\\') && !path_str.starts_with('.') {
+            if !cli.path.exists()
+                && !path_str.contains('/')
+                && !path_str.contains('\\')
+                && !path_str.starts_with('.')
+            {
                 // Looks like user tried to use an unknown subcommand
-                let known_commands = ["init", "analyze", "findings", "fix", "graph", "stats", "status", "doctor", "clean", "version", "serve"];
+                let known_commands = [
+                    "init", "analyze", "findings", "fix", "graph", "stats", "status", "doctor",
+                    "clean", "version", "serve",
+                ];
                 if !known_commands.contains(&path_str.as_ref()) {
                     anyhow::bail!(
                         "Unknown command '{}'. Run 'repotoire --help' for available commands.\n\nDid you mean one of: {}?",
@@ -349,7 +404,24 @@ pub fn run(cli: Cli) -> Result<()> {
                 }
             }
             // Default: run analyze with pagination (page 1, 20 per page)
-            analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers, None, false, false, None, false)
+            analyze::run(
+                &cli.path,
+                "text",
+                None,
+                None,
+                None,
+                1,
+                20,
+                vec![],
+                false,
+                false,
+                cli.workers,
+                None,
+                false,
+                false,
+                None,
+                false,
+            )
         }
     }
 }

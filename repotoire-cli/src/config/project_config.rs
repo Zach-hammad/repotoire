@@ -321,8 +321,12 @@ fn load_yaml_config(path: &Path) -> anyhow::Result<ProjectConfig> {
     // Use serde_yaml if available, otherwise fall back to JSON-compatible subset
     // For now, we'll try parsing as JSON (YAML is a superset of JSON)
     // In a real implementation, add serde_yaml dependency
-    let config: ProjectConfig = serde_json::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("YAML parsing not fully supported yet (tried JSON fallback): {}", e))?;
+    let config: ProjectConfig = serde_json::from_str(&content).map_err(|e| {
+        anyhow::anyhow!(
+            "YAML parsing not fully supported yet (tried JSON fallback): {}",
+            e
+        )
+    })?;
     Ok(config)
 }
 
@@ -331,7 +335,7 @@ impl ProjectConfig {
     pub fn is_detector_enabled(&self, name: &str) -> bool {
         // Normalize detector name for lookup (support both kebab-case and snake_case)
         let normalized = normalize_detector_name(name);
-        
+
         self.detectors
             .get(&normalized)
             .or_else(|| self.detectors.get(name))
@@ -342,7 +346,7 @@ impl ProjectConfig {
     /// Get severity override for a detector (if any)
     pub fn get_severity_override(&self, name: &str) -> Option<&str> {
         let normalized = normalize_detector_name(name);
-        
+
         self.detectors
             .get(&normalized)
             .or_else(|| self.detectors.get(name))
@@ -350,9 +354,13 @@ impl ProjectConfig {
     }
 
     /// Get threshold value for a detector
-    pub fn get_threshold(&self, detector_name: &str, threshold_name: &str) -> Option<&ThresholdValue> {
+    pub fn get_threshold(
+        &self,
+        detector_name: &str,
+        threshold_name: &str,
+    ) -> Option<&ThresholdValue> {
         let normalized = normalize_detector_name(detector_name);
-        
+
         self.detectors
             .get(&normalized)
             .or_else(|| self.detectors.get(detector_name))
@@ -374,31 +382,31 @@ impl ProjectConfig {
     /// Check if a path should be excluded
     pub fn should_exclude(&self, path: &Path) -> bool {
         let path_str = path.to_string_lossy();
-        
+
         for pattern in &self.exclude.paths {
             // Simple glob matching (supports * and **)
             if glob_match(pattern, &path_str) {
                 return true;
             }
         }
-        
+
         false
     }
 
     /// Get all detector names that should be skipped
     pub fn get_disabled_detectors(&self) -> Vec<String> {
         let mut disabled = Vec::new();
-        
+
         // From explicit enabled: false
         for (name, config) in &self.detectors {
             if config.enabled == Some(false) {
                 disabled.push(name.clone());
             }
         }
-        
+
         // From defaults.skip_detectors
         disabled.extend(self.defaults.skip_detectors.clone());
-        
+
         disabled
     }
 }
@@ -410,21 +418,21 @@ pub fn normalize_detector_name(name: &str) -> String {
     // SQLInjectionDetector -> sql-injection
     // god_class -> god-class
     // god-class -> god-class
-    
+
     let mut result = String::new();
     let chars: Vec<char> = name.chars().collect();
-    
+
     for (i, c) in chars.iter().enumerate() {
         if c.is_uppercase() {
             // Add hyphen if:
             // 1. Not first char AND previous is lowercase (e.g., godClass -> god-class)
             // 2. Not first char AND previous is uppercase AND next is lowercase (e.g., SQLInjection -> sql-injection)
             let prev_is_lower = i > 0 && chars[i - 1].is_lowercase();
-            let is_acronym_end = i > 0 
-                && chars[i - 1].is_uppercase() 
-                && i + 1 < chars.len() 
+            let is_acronym_end = i > 0
+                && chars[i - 1].is_uppercase()
+                && i + 1 < chars.len()
                 && chars[i + 1].is_lowercase();
-            
+
             if prev_is_lower || is_acronym_end {
                 result.push('-');
             }
@@ -435,11 +443,9 @@ pub fn normalize_detector_name(name: &str) -> String {
             result.push(*c);
         }
     }
-    
+
     // Remove common suffixes
-    result
-        .trim_end_matches("-detector")
-        .to_string()
+    result.trim_end_matches("-detector").to_string()
 }
 
 /// Simple glob pattern matching
@@ -448,31 +454,31 @@ fn glob_match(pattern: &str, path: &str) -> bool {
     if pattern.starts_with("**/") && pattern.ends_with("/**") {
         let middle = pattern.trim_start_matches("**/").trim_end_matches("/**");
         // Check if path contains /middle/ or starts with middle/
-        return path.contains(&format!("/{}/", middle)) 
+        return path.contains(&format!("/{}/", middle))
             || path.starts_with(&format!("{}/", middle));
     }
-    
+
     // Handle ** (match any path segments)
     if pattern.contains("**") {
         let parts: Vec<&str> = pattern.split("**").collect();
         if parts.len() == 2 {
             let prefix = parts[0].trim_end_matches('/');
             let suffix = parts[1].trim_start_matches('/');
-            
+
             // Check prefix
             if !prefix.is_empty() && !path.starts_with(prefix) {
                 return false;
             }
-            
+
             // Check suffix
             if !suffix.is_empty() && !path.ends_with(suffix) {
                 return false;
             }
-            
+
             return true;
         }
     }
-    
+
     // Handle single * (match within segment)
     if pattern.contains('*') {
         let parts: Vec<&str> = pattern.split('*').collect();
@@ -482,7 +488,7 @@ fn glob_match(pattern: &str, path: &str) -> bool {
             return path.starts_with(prefix) && path.ends_with(suffix);
         }
     }
-    
+
     // Exact match or prefix match (for directories)
     path.starts_with(pattern) || path == pattern
 }
@@ -497,7 +503,10 @@ mod tests {
         assert_eq!(normalize_detector_name("god_class"), "god-class");
         assert_eq!(normalize_detector_name("god-class"), "god-class");
         // Consecutive uppercase stays together: SQL -> sql
-        assert_eq!(normalize_detector_name("SQLInjectionDetector"), "sql-injection");
+        assert_eq!(
+            normalize_detector_name("SQLInjectionDetector"),
+            "sql-injection"
+        );
         assert_eq!(normalize_detector_name("NPlusOneDetector"), "n-plus-one");
     }
 
@@ -507,7 +516,7 @@ mod tests {
         assert!(glob_match("**/vendor/**", "src/vendor/lib/foo.py"));
         assert!(glob_match("generated/", "generated/model.py"));
         assert!(glob_match("*.test.ts", "foo.test.ts"));
-        
+
         // Prefix patterns
         assert!(glob_match("vendor/", "vendor/lib/foo.py"));
         assert!(!glob_match("vendor/", "src/vendor/foo.py"));
@@ -562,14 +571,14 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = ProjectConfig::default();
-        
+
         // All detectors enabled by default
         assert!(config.is_detector_enabled("god-class"));
         assert!(config.is_detector_enabled("unknown-detector"));
-        
+
         // No severity overrides
         assert!(config.get_severity_override("god-class").is_none());
-        
+
         // Default scoring
         assert!((config.scoring.security_multiplier - 3.0).abs() < 0.001);
         assert!(config.scoring.pillar_weights.is_valid());
@@ -604,25 +613,31 @@ skip_detectors = ["debug-code"]
 "#;
 
         let config: ProjectConfig = toml::from_str(toml_content).unwrap();
-        
+
         // Check detectors
         assert!(config.is_detector_enabled("god-class"));
         assert!(!config.is_detector_enabled("sql-injection"));
         assert_eq!(config.get_severity_override("sql-injection"), Some("high"));
-        assert_eq!(config.get_threshold_i64("god-class", "method_count"), Some(30));
+        assert_eq!(
+            config.get_threshold_i64("god-class", "method_count"),
+            Some(30)
+        );
         assert_eq!(config.get_threshold_i64("god-class", "loc"), Some(600));
-        
+
         // Check scoring
         assert!((config.scoring.security_multiplier - 5.0).abs() < 0.001);
         assert!((config.scoring.pillar_weights.structure - 0.3).abs() < 0.001);
-        
+
         // Check exclude
         assert_eq!(config.exclude.paths.len(), 2);
         assert!(config.should_exclude(Path::new("generated/foo.py")));
-        
+
         // Check defaults
         assert_eq!(config.defaults.format, Some("json".to_string()));
         assert_eq!(config.defaults.workers, Some(4));
-        assert!(config.defaults.skip_detectors.contains(&"debug-code".to_string()));
+        assert!(config
+            .defaults
+            .skip_detectors
+            .contains(&"debug-code".to_string()));
     }
 }

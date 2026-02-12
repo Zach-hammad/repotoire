@@ -27,7 +27,9 @@ fn infinite_while() -> &'static Regex {
 }
 
 fn break_return() -> &'static Regex {
-    BREAK_RETURN.get_or_init(|| Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b").unwrap())
+    BREAK_RETURN.get_or_init(|| {
+        Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b").unwrap()
+    })
 }
 
 /// Detects potential infinite loops
@@ -58,12 +60,12 @@ impl InfiniteLoopDetector {
     fn has_exit_in_body(lines: &[&str], loop_start: usize, indent: usize) -> bool {
         for line in lines.iter().skip(loop_start + 1) {
             let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
-            
+
             // Stop if we've exited the loop (dedented)
             if !line.trim().is_empty() && current_indent <= indent {
                 break;
             }
-            
+
             if break_return().is_match(line) {
                 return true;
             }
@@ -75,33 +77,44 @@ impl InfiniteLoopDetector {
     fn is_intentional_loop(lines: &[&str], loop_start: usize, path: &str) -> bool {
         // Common intentional infinite loop patterns
         let path_lower = path.to_lowercase();
-        if path_lower.contains("server") || path_lower.contains("main") || 
-           path_lower.contains("daemon") || path_lower.contains("worker") ||
-           path_lower.contains("event") || path_lower.contains("run") {
+        if path_lower.contains("server")
+            || path_lower.contains("main")
+            || path_lower.contains("daemon")
+            || path_lower.contains("worker")
+            || path_lower.contains("event")
+            || path_lower.contains("run")
+        {
             return true;
         }
-        
+
         // Check surrounding context
         let start = loop_start.saturating_sub(5);
         for line in lines.get(start..loop_start).unwrap_or(&[]) {
             let lower = line.to_lowercase();
-            if lower.contains("server") || lower.contains("main loop") ||
-               lower.contains("event loop") || lower.contains("forever") ||
-               lower.contains("daemon") {
+            if lower.contains("server")
+                || lower.contains("main loop")
+                || lower.contains("event loop")
+                || lower.contains("forever")
+                || lower.contains("daemon")
+            {
                 return true;
             }
         }
-        
+
         // Check loop body for server-like operations
         for line in lines.iter().skip(loop_start).take(20) {
             let lower = line.to_lowercase();
-            if lower.contains("accept(") || lower.contains("recv(") ||
-               lower.contains("listen") || lower.contains("await") ||
-               lower.contains("poll") || lower.contains("select(") {
+            if lower.contains("accept(")
+                || lower.contains("recv(")
+                || lower.contains("listen")
+                || lower.contains("await")
+                || lower.contains("poll")
+                || lower.contains("select(")
+            {
                 return true;
             }
         }
-        
+
         false
     }
 
@@ -109,14 +122,14 @@ impl InfiniteLoopDetector {
     fn find_called_functions(lines: &[&str], loop_start: usize, indent: usize) -> Vec<String> {
         let call_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
         let mut calls = Vec::new();
-        
+
         for line in lines.iter().skip(loop_start + 1) {
             let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
-            
+
             if !line.trim().is_empty() && current_indent <= indent {
                 break;
             }
-            
+
             for cap in call_re.captures_iter(line) {
                 if let Some(m) = cap.get(1) {
                     let name = m.as_str();
@@ -126,24 +139,27 @@ impl InfiniteLoopDetector {
                 }
             }
         }
-        
+
         calls
     }
 
     /// Check if any called function contains break/return/raise
     fn calls_exit_function(calls: &[String], graph: &GraphStore) -> Vec<String> {
         let mut exit_funcs = Vec::new();
-        
+
         for call in calls {
             if let Some(func) = graph.get_functions().into_iter().find(|f| f.name == *call) {
                 if let Ok(content) = std::fs::read_to_string(&func.file_path) {
                     let lines: Vec<&str> = content.lines().collect();
                     let start = func.line_start.saturating_sub(1) as usize;
                     let end = (func.line_end as usize).min(lines.len());
-                    
+
                     for line in lines.get(start..end).unwrap_or(&[]) {
-                        if line.contains("raise") || line.contains("return") || 
-                           line.contains("exit") || line.contains("sys.exit") {
+                        if line.contains("raise")
+                            || line.contains("return")
+                            || line.contains("exit")
+                            || line.contains("sys.exit")
+                        {
                             exit_funcs.push(call.clone());
                             break;
                         }
@@ -151,7 +167,7 @@ impl InfiniteLoopDetector {
                 }
             }
         }
-        
+
         exit_funcs
     }
 }
@@ -183,44 +199,61 @@ impl Detector for InfiniteLoopDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") { continue; }
-            
+            if path_str.contains("test") {
+                continue;
+            }
+
             // Skip detector files (contain analysis loops, not infinite loops)
-            if path_str.contains("/detectors/") { continue; }
-            
+            if path_str.contains("/detectors/") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rs"|"rb"|"c"|"cpp") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "java" | "go" | "rs" | "rb" | "c" | "cpp"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     if infinite_while().is_match(line) {
                         let indent = line.chars().take_while(|c| c.is_whitespace()).count();
-                        
+
                         // Check for direct break/return in body
                         let has_direct_exit = Self::has_exit_in_body(&lines, i, indent);
-                        
+
                         // Check if intentional (server, event loop)
                         let is_intentional = Self::is_intentional_loop(&lines, i, &path_str);
-                        
-                        if is_intentional { continue; }
-                        
+
+                        if is_intentional {
+                            continue;
+                        }
+
                         // Find called functions and check if they exit
                         let calls = Self::find_called_functions(&lines, i, indent);
                         let exit_funcs = Self::calls_exit_function(&calls, graph);
-                        
+
                         let has_exit = has_direct_exit || !exit_funcs.is_empty();
-                        
-                        if has_exit { continue; }  // Has an exit path, probably fine
-                        
+
+                        if has_exit {
+                            continue;
+                        } // Has an exit path, probably fine
+
                         // Build context
                         let mut notes = Vec::new();
                         if !calls.is_empty() {
@@ -228,9 +261,9 @@ impl Detector for InfiniteLoopDetector {
                             notes.push(format!("📞 Calls: {}", call_list.join(", ")));
                         }
                         notes.push("⚠️ No break/return found in loop body".to_string());
-                        
+
                         let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "InfiniteLoopDetector".to_string(),
@@ -255,7 +288,8 @@ impl Detector for InfiniteLoopDetector {
                                      if data is None:\n\
                                          break  # Exit condition\n\
                                      process(data)\n\
-                                 ```".to_string()
+                                 ```"
+                                .to_string(),
                             ),
                             estimated_effort: Some("10 minutes".to_string()),
                             category: Some("bug-risk".to_string()),
@@ -263,7 +297,8 @@ impl Detector for InfiniteLoopDetector {
                             why_it_matters: Some(
                                 "Infinite loops without exit conditions will hang the program \
                                  and consume 100% CPU. Even intentional infinite loops (servers) \
-                                 should have shutdown mechanisms.".to_string()
+                                 should have shutdown mechanisms."
+                                    .to_string(),
                             ),
                             ..Default::default()
                         });
@@ -271,8 +306,11 @@ impl Detector for InfiniteLoopDetector {
                 }
             }
         }
-        
-        info!("InfiniteLoopDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "InfiniteLoopDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

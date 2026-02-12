@@ -23,12 +23,7 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 /// Dangerous code execution functions (without parens - used in regex)
-const CODE_EXEC_FUNCTIONS: &[&str] = &[
-    "eval",
-    "exec",
-    "__import__",
-    "import_module",
-];
+const CODE_EXEC_FUNCTIONS: &[&str] = &["eval", "exec", "__import__", "import_module"];
 
 /// Patterns that require a module prefix to avoid false positives
 /// e.g. subprocess.run() is dangerous, but plugins.run() is not
@@ -114,35 +109,25 @@ impl EvalDetector {
         ))
         .expect("Invalid regex");
 
-        let fstring_arg_pattern = Regex::new(&format!(
-            r#"({func_names})\s*\(\s*f["']"#
-        ))
-        .expect("Invalid regex");
+        let fstring_arg_pattern =
+            Regex::new(&format!(r#"({func_names})\s*\(\s*f["']"#)).expect("Invalid regex");
 
-        let concat_arg_pattern = Regex::new(&format!(
-            r"({func_names})\s*\([^)]*\+"
-        ))
-        .expect("Invalid regex");
+        let concat_arg_pattern =
+            Regex::new(&format!(r"({func_names})\s*\([^)]*\+")).expect("Invalid regex");
 
-        let format_arg_pattern = Regex::new(&format!(
-            r"({func_names})\s*\([^)]*\.format\s*\("
-        ))
-        .expect("Invalid regex");
+        let format_arg_pattern =
+            Regex::new(&format!(r"({func_names})\s*\([^)]*\.format\s*\(")).expect("Invalid regex");
 
-        let percent_arg_pattern = Regex::new(&format!(
-            r"({func_names})\s*\([^)]*%\s*"
-        ))
-        .expect("Invalid regex");
+        let percent_arg_pattern =
+            Regex::new(&format!(r"({func_names})\s*\([^)]*%\s*")).expect("Invalid regex");
 
-        let shell_true_pattern = Regex::new(
-            r"(?i)\b(call|run|Popen|check_output|check_call)\s*\([^)]*shell\s*=\s*True"
-        )
-        .expect("Invalid regex");
+        let shell_true_pattern =
+            Regex::new(r"(?i)\b(call|run|Popen|check_output|check_call)\s*\([^)]*shell\s*=\s*True")
+                .expect("Invalid regex");
 
-        let literal_string_pattern = Regex::new(&format!(
-            r#"\b({func_names})\s*\(\s*["'][^"']*["']\s*[,)]"#
-        ))
-        .expect("Invalid regex");
+        let literal_string_pattern =
+            Regex::new(&format!(r#"\b({func_names})\s*\(\s*["'][^"']*["']\s*[,)]"#))
+                .expect("Invalid regex");
 
         Self {
             config,
@@ -193,7 +178,7 @@ impl EvalDetector {
         if stripped.starts_with('#') {
             return None;
         }
-        
+
         // Skip safe framework-specific patterns that use these function names safely
         let lower = line.to_lowercase();
         if lower.contains("torch.compile") ||           // PyTorch JIT compiler
@@ -206,7 +191,9 @@ impl EvalDetector {
            lower.contains("compiler.compile") ||        // Generic compilers
            lower.contains("model.compile") ||           // Keras model.compile
            lower.contains("literal_eval") ||            // ast.literal_eval is SAFE (only parses literals)
-           lower.contains("importlib.import_module") {  // Standard library import (safer than __import__)
+           lower.contains("importlib.import_module")
+        {
+            // Standard library import (safer than __import__)
             return None;
         }
 
@@ -224,17 +211,20 @@ impl EvalDetector {
         // Skip if it's a safe literal-only pattern
         if self.literal_string_pattern.is_match(line)
             && !self.variable_arg_pattern.is_match(line)
-                && !self.fstring_arg_pattern.is_match(line)
-                && !self.concat_arg_pattern.is_match(line)
-            {
-                return None;
-            }
+            && !self.fstring_arg_pattern.is_match(line)
+            && !self.concat_arg_pattern.is_match(line)
+        {
+            return None;
+        }
 
         // Check for shell=True (high severity for subprocess calls)
         if let Some(caps) = self.shell_true_pattern.captures(line) {
             return Some(PatternMatch {
                 pattern_type: "shell_true".to_string(),
-                function: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                function: caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
             });
         }
 
@@ -242,7 +232,10 @@ impl EvalDetector {
         if let Some(caps) = self.fstring_arg_pattern.captures(line) {
             return Some(PatternMatch {
                 pattern_type: "f-string".to_string(),
-                function: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                function: caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
             });
         }
 
@@ -250,7 +243,10 @@ impl EvalDetector {
         if let Some(caps) = self.concat_arg_pattern.captures(line) {
             return Some(PatternMatch {
                 pattern_type: "concatenation".to_string(),
-                function: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                function: caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
             });
         }
 
@@ -258,7 +254,10 @@ impl EvalDetector {
         if let Some(caps) = self.format_arg_pattern.captures(line) {
             return Some(PatternMatch {
                 pattern_type: "format".to_string(),
-                function: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                function: caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
             });
         }
 
@@ -266,7 +265,10 @@ impl EvalDetector {
         if let Some(caps) = self.percent_arg_pattern.captures(line) {
             return Some(PatternMatch {
                 pattern_type: "percent_format".to_string(),
-                function: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                function: caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
             });
         }
 
@@ -279,7 +281,10 @@ impl EvalDetector {
             }
             return Some(PatternMatch {
                 pattern_type: "variable_arg".to_string(),
-                function: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                function: caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
             });
         }
 
@@ -289,7 +294,7 @@ impl EvalDetector {
     /// Scan source files for dangerous patterns
     fn scan_source_files(&self) -> Vec<Finding> {
         use crate::detectors::walk_source_files;
-        
+
         let mut findings = Vec::new();
         let mut seen_locations: HashSet<(String, u32)> = HashSet::new();
 
@@ -322,9 +327,13 @@ impl EvalDetector {
             let lines: Vec<&str> = content.lines().collect();
             for (line_no, line) in lines.iter().enumerate() {
                 let line_num = (line_no + 1) as u32;
-                
+
                 // Check for suppression comments
-                let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                let prev_line = if line_no > 0 {
+                    Some(lines[line_no - 1])
+                } else {
+                    None
+                };
                 if crate::detectors::is_line_suppressed(line, prev_line) {
                     continue;
                 }
@@ -379,8 +388,16 @@ impl EvalDetector {
             .unwrap_or("dynamic code construction");
 
         // Determine CWE based on function type
-        let (cwe, cwe_name) = if ["system", "popen", "call", "run", "Popen", "check_output", "check_call"]
-            .contains(&callee_name)
+        let (cwe, cwe_name) = if [
+            "system",
+            "popen",
+            "call",
+            "run",
+            "Popen",
+            "check_output",
+            "check_call",
+        ]
+        .contains(&callee_name)
         {
             ("CWE-78", "OS Command Injection")
         } else if ["__import__", "import_module"].contains(&callee_name) {
@@ -408,7 +425,7 @@ impl EvalDetector {
         let severity = if ["__import__", "import_module"].contains(&callee_name) {
             // Dynamic imports in framework internals (Flask, Django, etc.) are expected
             // and typically used for extension loading, not user input
-            if file_lower.contains("/flask/") 
+            if file_lower.contains("/flask/")
                 || file_lower.contains("/django/")
                 || file_lower.contains("/werkzeug/")
                 || file_lower.contains("/celery/")
@@ -418,12 +435,12 @@ impl EvalDetector {
                 || file_lower.contains("importer")
                 || file_lower.contains("plugin")
             {
-                Severity::Low  // Framework internal - expected usage
+                Severity::Low // Framework internal - expected usage
             } else {
-                Severity::High  // Still concerning but not critical for imports
+                Severity::High // Still concerning but not critical for imports
             }
         } else {
-            Severity::Critical  // eval/exec are always critical
+            Severity::Critical // eval/exec are always critical
         };
 
         Finding {
@@ -475,7 +492,7 @@ impl EvalDetector {
                  ```python\n\
                  import shlex\n\
                  subprocess.call(f\"command {shlex.quote(user_input)}\", shell=True)\n\
-                 ```\n"
+                 ```\n",
             );
         } else if ["eval", "exec"].contains(&callee_name) {
             recommendation.push_str(
@@ -492,7 +509,7 @@ impl EvalDetector {
                  ```python\n\
                  import json\n\
                  data = json.loads(user_string)\n\
-                 ```\n"
+                 ```\n",
             );
         }
 
@@ -530,15 +547,19 @@ impl Detector for EvalDetector {
         let mut findings = self.scan_source_files();
 
         // Run taint analysis to adjust severity based on data flow
-        let taint_results = self.taint_analyzer.trace_taint(graph, TaintCategory::CodeInjection);
-        
+        let taint_results = self
+            .taint_analyzer
+            .trace_taint(graph, TaintCategory::CodeInjection);
+
         // Adjust severity based on taint analysis
         for finding in &mut findings {
-            let file_path = finding.affected_files.first()
+            let file_path = finding
+                .affected_files
+                .first()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
             let line = finding.line_start.unwrap_or(0);
-            
+
             // Check if this finding has a confirmed taint path
             for taint in &taint_results {
                 if taint.sink_file == file_path && taint.sink_line == line {
@@ -563,7 +584,10 @@ impl Detector for EvalDetector {
         // Filter out Low severity (sanitized) findings
         findings.retain(|f| f.severity != Severity::Low);
 
-        info!("EvalDetector found {} potential vulnerabilities", findings.len());
+        info!(
+            "EvalDetector found {} potential vulnerabilities",
+            findings.len()
+        );
 
         Ok(findings)
     }
@@ -574,4 +598,3 @@ struct PatternMatch {
     pattern_type: String,
     function: String,
 }
-

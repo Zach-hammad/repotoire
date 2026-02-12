@@ -6,7 +6,6 @@
 //! - Categorize test patterns (mocks, assertions, fixtures)
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,6 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static TEST_IMPORT: OnceLock<Regex> = OnceLock::new();
 static TEST_USAGE: OnceLock<Regex> = OnceLock::new();
@@ -34,7 +34,10 @@ fn test_usage() -> &'static Regex {
 
 fn debug_pattern() -> &'static Regex {
     DEBUG_PATTERN.get_or_init(|| {
-        Regex::new(r"(?i)(DEBUG\s*=\s*True|if\s+__debug__|if\s+DEBUG|#\s*TODO.*test|#\s*FIXME.*test)").unwrap()
+        Regex::new(
+            r"(?i)(DEBUG\s*=\s*True|if\s+__debug__|if\s+DEBUG|#\s*TODO.*test|#\s*FIXME.*test)",
+        )
+        .unwrap()
     })
 }
 
@@ -45,13 +48,16 @@ pub struct TestInProductionDetector {
 
 impl TestInProductionDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Categorize what kind of test code was found
     fn categorize_test_code(line: &str) -> (&'static str, &'static str) {
         let lower = line.to_lowercase();
-        
+
         if lower.contains("mock") || lower.contains("patch") || lower.contains("stub") {
             return ("mock", "Mock/stub objects");
         }
@@ -67,17 +73,18 @@ impl TestInProductionDetector {
         if lower.contains("spy") {
             return ("spy", "Spy functions");
         }
-        
+
         ("unknown", "Test code")
     }
 
     /// Check if this file is imported by production code
     fn is_imported_by_production(graph: &GraphStore, file_path: &str) -> bool {
-        let funcs: Vec<_> = graph.get_functions()
+        let funcs: Vec<_> = graph
+            .get_functions()
             .into_iter()
             .filter(|f| f.file_path == file_path)
             .collect();
-        
+
         for func in funcs {
             for caller in graph.get_callers(&func.qualified_name) {
                 // Check if caller is not a test file
@@ -87,13 +94,14 @@ impl TestInProductionDetector {
                 }
             }
         }
-        
+
         false
     }
 
     /// Find containing function
     fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
-        graph.get_functions()
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| f.name)
@@ -101,88 +109,111 @@ impl TestInProductionDetector {
 }
 
 impl Detector for TestInProductionDetector {
-    fn name(&self) -> &'static str { "test-in-production" }
-    fn description(&self) -> &'static str { "Detects test code in production files" }
+    fn name(&self) -> &'static str {
+        "test-in-production"
+    }
+    fn description(&self) -> &'static str {
+        "Detects test code in production files"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut issues_per_file: HashMap<PathBuf, Vec<(u32, String, String)>> = HashMap::new();
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
-            let path_str = path.to_string_lossy().to_string();
-            
-            // Skip actual test files
-            if path_str.contains("test") || path_str.contains("spec") || 
-               path_str.contains("__tests__") || path_str.contains("fixtures") ||
-               path_str.contains("conftest") {
+            if !path.is_file() {
                 continue;
             }
-            
+
+            let path_str = path.to_string_lossy().to_string();
+
+            // Skip actual test files
+            if path_str.contains("test")
+                || path_str.contains("spec")
+                || path_str.contains("__tests__")
+                || path_str.contains("fixtures")
+                || path_str.contains("conftest")
+            {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"java"|"rb"|"go") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "jsx" | "tsx" | "java" | "rb" | "go"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut file_issues = Vec::new();
-                
+
                 // Check for test imports
                 let has_test_import = lines.iter().any(|l| test_import().is_match(l));
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     // Skip comments
                     let trimmed = line.trim();
-                    if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") {
+                    if trimmed.starts_with("//")
+                        || trimmed.starts_with("#")
+                        || trimmed.starts_with("*")
+                    {
                         continue;
                     }
-                    
+
                     // Check for test code usage
                     if test_usage().is_match(line) {
                         let (category, desc) = Self::categorize_test_code(line);
                         file_issues.push(((i + 1) as u32, category.to_string(), desc.to_string()));
                     }
-                    
+
                     // Check for debug flags
                     if debug_pattern().is_match(line) {
-                        file_issues.push(((i + 1) as u32, "debug".to_string(), "Debug flag".to_string()));
+                        file_issues.push((
+                            (i + 1) as u32,
+                            "debug".to_string(),
+                            "Debug flag".to_string(),
+                        ));
                     }
                 }
-                
+
                 if !file_issues.is_empty() || has_test_import {
                     issues_per_file.insert(path.to_path_buf(), file_issues);
                 }
             }
         }
-        
+
         // Create findings with graph context
         for (file_path, issues) in issues_per_file {
             let path_str = file_path.to_string_lossy().to_string();
-            
+
             // Check if this file is used by production code
             let is_used = Self::is_imported_by_production(graph, &path_str);
-            
+
             // Group issues by type
             let mut by_type: HashMap<String, Vec<u32>> = HashMap::new();
             for (line, category, _) in &issues {
                 by_type.entry(category.clone()).or_default().push(*line);
             }
-            
+
             let severity = if is_used {
-                Severity::High  // Test code that's actually imported by production
+                Severity::High // Test code that's actually imported by production
             } else if by_type.contains_key("mock") || by_type.contains_key("assertion") {
                 Severity::Medium
             } else {
                 Severity::Low
             };
-            
+
             // Build notes
             let mut notes = Vec::new();
             for (category, lines) in &by_type {
@@ -195,19 +226,31 @@ impl Detector for TestInProductionDetector {
                     "debug" => "Debug flags",
                     _ => "Test code",
                 };
-                notes.push(format!("• {} (line{})", desc, 
-                    if lines.len() > 1 { format!("s {}", lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")) }
-                    else { format!(" {}", lines[0]) }
+                notes.push(format!(
+                    "• {} (line{})",
+                    desc,
+                    if lines.len() > 1 {
+                        format!(
+                            "s {}",
+                            lines
+                                .iter()
+                                .map(|l| l.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    } else {
+                        format!(" {}", lines[0])
+                    }
                 ));
             }
             if is_used {
                 notes.push("⚠️ This file is imported by production code!".to_string());
             }
-            
+
             let context_notes = format!("\n\n**Found:**\n{}", notes.join("\n"));
-            
+
             let first_line = issues.first().map(|(l, _, _)| *l).unwrap_or(1);
-            
+
             findings.push(Finding {
                 id: Uuid::new_v4().to_string(),
                 detector: "TestInProductionDetector".to_string(),
@@ -252,8 +295,11 @@ impl Detector for TestInProductionDetector {
                 ..Default::default()
             });
         }
-        
-        info!("TestInProductionDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "TestInProductionDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

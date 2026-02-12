@@ -33,7 +33,8 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             },
             SecretPattern {
                 name: "AWS Secret Access Key",
-                pattern: Regex::new(r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{40}").unwrap(),
+                pattern: Regex::new(r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{40}")
+                    .unwrap(),
                 severity: Severity::Critical,
             },
             // GitHub
@@ -50,13 +51,15 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             },
             SecretPattern {
                 name: "Generic Secret",
-                pattern: Regex::new(r"(?i)(secret|password|passwd|pwd)\s*[=:]\s*[^\s]{8,}").unwrap(),
+                pattern: Regex::new(r"(?i)(secret|password|passwd|pwd)\s*[=:]\s*[^\s]{8,}")
+                    .unwrap(),
                 severity: Severity::High,
             },
             // Private keys
             SecretPattern {
                 name: "Private Key",
-                pattern: Regex::new(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----").unwrap(),
+                pattern: Regex::new(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")
+                    .unwrap(),
                 severity: Severity::Critical,
             },
             // Slack
@@ -108,21 +111,21 @@ impl SecretDetector {
             .unwrap_or(path)
             .to_path_buf()
     }
-    
+
     /// Check if a Python os.environ.get() or os.getenv() call has a fallback (second argument)
     /// Pattern: os.environ.get("KEY", "fallback") or os.getenv("KEY", "fallback")
     fn has_python_env_fallback(line: &str) -> bool {
         // Look for the pattern: os.environ.get( or os.getenv( followed by args with a comma
         // This indicates a default value is provided
         let line_lower = line.to_lowercase();
-        
+
         for pattern in ["os.environ.get(", "os.getenv("] {
             if let Some(start) = line_lower.find(pattern) {
                 let after_pattern = &line[start + pattern.len()..];
                 // Count parentheses to find the matching close
                 let mut depth = 1;
                 let mut found_comma_at_depth_1 = false;
-                
+
                 for ch in after_pattern.chars() {
                     match ch {
                         '(' => depth += 1,
@@ -139,16 +142,16 @@ impl SecretDetector {
                         _ => {}
                     }
                 }
-                
+
                 if found_comma_at_depth_1 {
                     return true;
                 }
             }
         }
-        
+
         false
     }
-    
+
     /// Check if a Go os.Getenv() call has fallback handling on the same line
     /// Common patterns:
     /// - `if val := os.Getenv("X"); val == "" { ... }` (short variable declaration with check)
@@ -159,21 +162,21 @@ impl SecretDetector {
         // Check for common fallback indicators on the same line
         let has_empty_check = line.contains(r#"== """#) || line.contains(r#"!= """#);
         let has_if_statement = line.contains("if ");
-        let has_fallback_helper = line.to_lowercase().contains("getenvdefault") 
+        let has_fallback_helper = line.to_lowercase().contains("getenvdefault")
             || line.to_lowercase().contains("getenvor")
             || line.to_lowercase().contains("envdefault");
-        
+
         has_fallback_helper || (has_empty_check && has_if_statement)
     }
-    
+
     fn scan_file(&self, path: &Path) -> Vec<Finding> {
         let mut findings = vec![];
-        
+
         // Skip test files - they often contain test certificates/keys
         if is_test_file(path) {
             return findings;
         }
-        
+
         // Use global cache for file content
         let content = match crate::cache::global_cache().get_content(path) {
             Some(c) => c,
@@ -195,7 +198,7 @@ impl SecretDetector {
             for pattern in get_patterns() {
                 if let Some(m) = pattern.pattern.find(line) {
                     let matched = m.as_str();
-                    
+
                     // Skip obvious false positives
                     if matched.len() < 10 {
                         continue;
@@ -206,10 +209,10 @@ impl SecretDetector {
                     if matched.contains("placeholder") || matched.contains("xxxx") {
                         continue;
                     }
-                    
+
                     // Skip placeholder patterns (setup templates, documentation)
                     let matched_lower = matched.to_lowercase();
-                    if matched_lower.contains("your-") 
+                    if matched_lower.contains("your-")
                         || matched_lower.contains("-here")
                         || matched_lower.contains("changeme")
                         || matched_lower.contains("replace")
@@ -217,42 +220,46 @@ impl SecretDetector {
                         || matched_lower.contains("fixme")
                         || matched == "sk-your-openai-key"
                         || matched_lower.starts_with("xxx")
-                        || matched_lower.ends_with("xxx") {
+                        || matched_lower.ends_with("xxx")
+                    {
                         continue;
                     }
-                    
+
                     // Skip shell variable substitutions: ${VAR_NAME}
                     // Docker Compose, shell scripts use ${SECRET} as variable reference, not hardcoded
                     if line.contains(&format!("${{{}", &matched.split('=').next().unwrap_or(""))) {
                         continue;
                     }
-                    
+
                     // Skip when value is reading from process.env (not hardcoding)
                     // Pattern: const secret = process.env.SECRET
                     if line.contains("= process.env.") || line.contains("=process.env.") {
                         continue;
                     }
-                    
+
                     // Determine effective severity based on context
                     let line_lower = line.to_lowercase();
                     let mut effective_severity = pattern.severity;
-                    
+
                     // Dev fallback pattern: process.env.X || 'fallback' or process.env.X ?? 'fallback'
                     // These are typically local dev defaults, not production credentials
-                    if line_lower.contains("process.env") && (line.contains("||") || line.contains("??")) {
+                    if line_lower.contains("process.env")
+                        && (line.contains("||") || line.contains("??"))
+                    {
                         effective_severity = Severity::Low;
                     }
                     // Python fallback patterns: os.environ.get("KEY", "fallback") or os.getenv("KEY", "fallback")
                     // The second argument is the default value, indicating a fallback
-                    else if (line_lower.contains("os.environ.get(") || line_lower.contains("os.getenv(")) 
-                        && Self::has_python_env_fallback(line) 
+                    else if (line_lower.contains("os.environ.get(")
+                        || line_lower.contains("os.getenv("))
+                        && Self::has_python_env_fallback(line)
                     {
                         effective_severity = Severity::Low;
                     }
                     // Go fallback patterns: os.Getenv with fallback handling
                     // os.LookupEnv returns (value, found) - implies fallback handling
                     // Also check for common inline fallback patterns
-                    else if line.contains("os.LookupEnv(") 
+                    else if line.contains("os.LookupEnv(")
                         || (line.contains("os.Getenv(") && Self::has_go_env_fallback(line))
                     {
                         effective_severity = Severity::Low;
@@ -264,7 +271,7 @@ impl SecretDetector {
                     // Check file path for seed/script/test/example patterns
                     else if let Some(rel_path) = path.to_str() {
                         let rel_lower = rel_path.to_lowercase();
-                        if rel_lower.contains("/seed") 
+                        if rel_lower.contains("/seed")
                             || rel_lower.contains("/script")
                             || rel_lower.contains("/fixture")
                             || rel_lower.contains("/examples/")
@@ -280,7 +287,7 @@ impl SecretDetector {
                             effective_severity = Severity::Low;
                         }
                     }
-                    
+
                     let line_start = line_num as u32 + 1;
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
@@ -312,20 +319,25 @@ impl SecretDetector {
 
 impl SecretDetector {
     /// Find containing function
-    fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, usize, bool)> {
-        graph.get_functions()
+    fn find_containing_function(
+        graph: &GraphStore,
+        file_path: &str,
+        line: u32,
+    ) -> Option<(String, usize, bool)> {
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| {
                 let callers = graph.get_callers(&f.qualified_name);
                 let name_lower = f.name.to_lowercase();
-                
+
                 // Check if this is a config/init function
-                let is_config = name_lower.contains("config") ||
-                    name_lower.contains("init") ||
-                    name_lower.contains("setup") ||
-                    name_lower.contains("settings");
-                
+                let is_config = name_lower.contains("config")
+                    || name_lower.contains("init")
+                    || name_lower.contains("setup")
+                    || name_lower.contains("settings");
+
                 (f.name, callers.len(), is_config)
             })
     }
@@ -342,7 +354,7 @@ impl Detector for SecretDetector {
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
@@ -360,7 +372,7 @@ impl Detector for SecretDetector {
 
             // Skip certain directories
             let path_str = path.to_string_lossy();
-            if path_str.contains("node_modules") 
+            if path_str.contains("node_modules")
                 || path_str.contains(".git")
                 || path_str.contains("vendor")
                 || path_str.contains("target")
@@ -375,13 +387,36 @@ impl Detector for SecretDetector {
 
             // Only scan text files
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let scannable = matches!(ext, 
-                "py" | "js" | "ts" | "jsx" | "tsx" | "rs" | "go" | "java" | 
-                "rb" | "php" | "cs" | "cpp" | "c" | "h" | "hpp" |
-                "yaml" | "yml" | "json" | "toml" | "env" | "conf" | "config" |
-                "sh" | "bash" | "zsh" | "properties" | "xml"
+            let scannable = matches!(
+                ext,
+                "py" | "js"
+                    | "ts"
+                    | "jsx"
+                    | "tsx"
+                    | "rs"
+                    | "go"
+                    | "java"
+                    | "rb"
+                    | "php"
+                    | "cs"
+                    | "cpp"
+                    | "c"
+                    | "h"
+                    | "hpp"
+                    | "yaml"
+                    | "yml"
+                    | "json"
+                    | "toml"
+                    | "env"
+                    | "conf"
+                    | "config"
+                    | "sh"
+                    | "bash"
+                    | "zsh"
+                    | "properties"
+                    | "xml"
             );
-            
+
             if !scannable {
                 continue;
             }
@@ -392,13 +427,20 @@ impl Detector for SecretDetector {
 
         // Enrich findings with graph context
         for finding in &mut findings {
-            if let (Some(file_path), Some(line)) = (finding.affected_files.first(), finding.line_start) {
+            if let (Some(file_path), Some(line)) =
+                (finding.affected_files.first(), finding.line_start)
+            {
                 let path_str = file_path.to_string_lossy().to_string();
-                
-                if let Some((func_name, callers, is_config)) = Self::find_containing_function(graph, &path_str, line) {
+
+                if let Some((func_name, callers, is_config)) =
+                    Self::find_containing_function(graph, &path_str, line)
+                {
                     let mut notes = Vec::new();
-                    notes.push(format!("📦 In function: `{}` ({} callers)", func_name, callers));
-                    
+                    notes.push(format!(
+                        "📦 In function: `{}` ({} callers)",
+                        func_name, callers
+                    ));
+
                     if is_config {
                         notes.push("⚙️ In config/setup function".to_string());
                         // Config functions with secrets are more expected but still bad
@@ -406,13 +448,17 @@ impl Detector for SecretDetector {
                             finding.severity = Severity::High;
                         }
                     }
-                    
+
                     // Boost severity if function has many callers (widely used)
                     if callers > 10 && finding.severity == Severity::High {
                         finding.severity = Severity::Critical;
                     }
-                    
-                    finding.description = format!("{}\n\n**Context:**\n{}", finding.description, notes.join("\n"));
+
+                    finding.description = format!(
+                        "{}\n\n**Context:**\n{}",
+                        finding.description,
+                        notes.join("\n")
+                    );
                 }
             }
         }

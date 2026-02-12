@@ -53,18 +53,18 @@ impl Default for GodClassThresholds {
 
 /// Patterns for legitimate large classes (fallback when graph analysis unavailable)
 const EXCLUDED_PATTERNS: &[&str] = &[
-    r".*Client$",       // Database/API clients
-    r".*Connection$",   // Connection managers
-    r".*Session$",      // Session handlers
-    r".*Pipeline$",     // Data pipelines
-    r".*Engine$",       // Workflow engines
-    r".*Generator$",    // Code generators
-    r".*Builder$",      // Builder pattern
-    r".*Factory$",      // Factory pattern
-    r".*Manager$",      // Resource managers
-    r".*Controller$",   // MVC controllers
-    r".*Adapter$",      // Adapter pattern
-    r".*Facade$",       // Facade pattern
+    r".*Client$",     // Database/API clients
+    r".*Connection$", // Connection managers
+    r".*Session$",    // Session handlers
+    r".*Pipeline$",   // Data pipelines
+    r".*Engine$",     // Workflow engines
+    r".*Generator$",  // Code generators
+    r".*Builder$",    // Builder pattern
+    r".*Factory$",    // Factory pattern
+    r".*Manager$",    // Resource managers
+    r".*Controller$", // MVC controllers
+    r".*Adapter$",    // Adapter pattern
+    r".*Facade$",     // Facade pattern
 ];
 
 /// Detects god classes (classes with too many responsibilities)
@@ -102,11 +102,13 @@ impl GodClassDetector {
     /// Create with custom config
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = GodClassThresholds {
-            max_methods: config.get_option("max_methods")
+            max_methods: config
+                .get_option("max_methods")
                 .or_else(|| config.get_option("method_count"))
                 .unwrap_or(20),
             critical_methods: config.get_option_or("critical_methods", 30),
-            max_lines: config.get_option("max_lines")
+            max_lines: config
+                .get_option("max_lines")
                 .or_else(|| config.get_option("loc"))
                 .unwrap_or(500),
             critical_lines: config.get_option_or("critical_lines", 1000),
@@ -136,7 +138,9 @@ impl GodClassDetector {
         if !self.use_pattern_exclusions {
             return false;
         }
-        self.excluded_patterns.iter().any(|p| p.is_match(class_name))
+        self.excluded_patterns
+            .iter()
+            .any(|p| p.is_match(class_name))
     }
 
     /// Determine if metrics indicate a god class, given adjusted thresholds
@@ -258,7 +262,10 @@ impl GodClassDetector {
         loc: usize,
         role_note: Option<&str>,
     ) -> String {
-        let mut suggestions = vec![format!("Refactor '{}' to reduce its responsibilities:\n", name)];
+        let mut suggestions = vec![format!(
+            "Refactor '{}' to reduce its responsibilities:\n",
+            name
+        )];
 
         if let Some(note) = role_note {
             suggestions.push(format!("**Note:** {}\n\n", note));
@@ -458,7 +465,9 @@ impl Detector for GodClassDetector {
             let loc = class.loc() as usize;
 
             // Get class context if available
-            let ctx = class_contexts.as_ref().and_then(|c| c.get(&class.qualified_name));
+            let ctx = class_contexts
+                .as_ref()
+                .and_then(|c| c.get(&class.qualified_name));
 
             // Check if we should skip this class entirely based on graph analysis
             if let Some(ctx) = ctx {
@@ -479,12 +488,22 @@ impl Detector for GodClassDetector {
 
             // Get adjusted thresholds based on role
             let (max_methods, max_lines) = ctx
-                .map(|c| c.adjusted_thresholds(self.thresholds.max_methods, self.thresholds.max_lines))
+                .map(|c| {
+                    c.adjusted_thresholds(self.thresholds.max_methods, self.thresholds.max_lines)
+                })
                 .unwrap_or((self.thresholds.max_methods, self.thresholds.max_lines));
 
             let (critical_methods, critical_lines) = ctx
-                .map(|c| c.adjusted_thresholds(self.thresholds.critical_methods, self.thresholds.critical_lines))
-                .unwrap_or((self.thresholds.critical_methods, self.thresholds.critical_lines));
+                .map(|c| {
+                    c.adjusted_thresholds(
+                        self.thresholds.critical_methods,
+                        self.thresholds.critical_lines,
+                    )
+                })
+                .unwrap_or((
+                    self.thresholds.critical_methods,
+                    self.thresholds.critical_lines,
+                ));
 
             // Check if it's a god class with adjusted thresholds
             if let Some(reason) = self.is_god_class(

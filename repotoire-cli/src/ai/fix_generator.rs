@@ -132,11 +132,7 @@ impl FixGenerator {
     }
 
     /// Generate a fix for a finding
-    pub async fn generate_fix(
-        &self,
-        finding: &Finding,
-        repo_path: &Path,
-    ) -> AiResult<FixProposal> {
+    pub async fn generate_fix(&self, finding: &Finding, repo_path: &Path) -> AiResult<FixProposal> {
         // Determine language from file extension
         let language = finding
             .affected_files
@@ -279,9 +275,8 @@ impl FixGenerator {
             .map(|m| m.as_str())
             .unwrap_or(response);
 
-        let data: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
-            AiError::ParseError(format!("Failed to parse JSON response: {}", e))
-        })?;
+        let data: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| AiError::ParseError(format!("Failed to parse JSON response: {}", e)))?;
 
         // Extract changes
         let changes: Vec<CodeChange> = data
@@ -291,9 +286,7 @@ impl FixGenerator {
                 arr.iter()
                     .filter_map(|change| {
                         Some(CodeChange {
-                            file_path: PathBuf::from(
-                                change.get("file_path")?.as_str()?,
-                            ),
+                            file_path: PathBuf::from(change.get("file_path")?.as_str()?),
                             original_code: change.get("original_code")?.as_str()?.to_string(),
                             fixed_code: change.get("fixed_code")?.as_str()?.to_string(),
                             start_line: change.get("start_line")?.as_u64()? as u32,
@@ -310,11 +303,14 @@ impl FixGenerator {
             .unwrap_or_default();
 
         // Extract evidence
-        let evidence = data.get("evidence").map(|e| Evidence {
-            similar_patterns: extract_string_array(e, "similar_patterns"),
-            documentation_refs: extract_string_array(e, "documentation_refs"),
-            best_practices: extract_string_array(e, "best_practices"),
-        }).unwrap_or_default();
+        let evidence = data
+            .get("evidence")
+            .map(|e| Evidence {
+                similar_patterns: extract_string_array(e, "similar_patterns"),
+                documentation_refs: extract_string_array(e, "documentation_refs"),
+                best_practices: extract_string_array(e, "best_practices"),
+            })
+            .unwrap_or_default();
 
         // Calculate confidence
         let confidence = calculate_confidence(&data, finding, &changes);
@@ -508,7 +504,12 @@ fn calculate_confidence(
 
     // Boost for having evidence
     if let Some(evidence) = data.get("evidence") {
-        if evidence.get("best_practices").and_then(|b| b.as_array()).map(|a| !a.is_empty()).unwrap_or(false) {
+        if evidence
+            .get("best_practices")
+            .and_then(|b| b.as_array())
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+        {
             score += 0.1;
         }
     }

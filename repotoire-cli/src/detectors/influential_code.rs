@@ -93,9 +93,7 @@ impl InfluentialCodeDetector {
                 // Entry points are expected to be influential
                 base_severity.min(Severity::Medium)
             }
-            FunctionRole::Test => {
-                Severity::Low
-            }
+            FunctionRole::Test => Severity::Low,
             _ => base_severity,
         }
     }
@@ -103,11 +101,41 @@ impl InfluentialCodeDetector {
     /// Legacy name-based skip check (fallback when no context available)
     fn should_skip_by_name(&self, name: &str) -> bool {
         const SKIP_NAMES: &[&str] = &[
-            "new", "default", "from", "into", "create", "build", "make", "with",
-            "get", "set", "run", "main", "init", "setup", "start", "execute",
-            "handle", "process", "parse", "format", "render", "display", "detect",
-            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
-            "calculate_", "compute_", "scan_", "extract_", "normalize_",
+            "new",
+            "default",
+            "from",
+            "into",
+            "create",
+            "build",
+            "make",
+            "with",
+            "get",
+            "set",
+            "run",
+            "main",
+            "init",
+            "setup",
+            "start",
+            "execute",
+            "handle",
+            "process",
+            "parse",
+            "format",
+            "render",
+            "display",
+            "detect",
+            "is_",
+            "has_",
+            "check_",
+            "validate_",
+            "should_",
+            "can_",
+            "find_",
+            "calculate_",
+            "compute_",
+            "scan_",
+            "extract_",
+            "normalize_",
         ];
 
         let name_lower = name.to_lowercase();
@@ -157,22 +185,17 @@ impl InfluentialCodeDetector {
         }
 
         let suggested_fix = match role {
-            FunctionRole::Utility => {
-                "This utility is influential but complex. Consider:\n\
+            FunctionRole::Utility => "This utility is influential but complex. Consider:\n\
                 - Breaking into smaller, focused helpers\n\
                 - Adding comprehensive tests"
-                    .to_string()
-            }
-            FunctionRole::Hub => {
-                "This is a critical hub. Consider:\n\
+                .to_string(),
+            FunctionRole::Hub => "This is a critical hub. Consider:\n\
                 - Ensuring comprehensive test coverage\n\
                 - Adding monitoring and observability\n\
                 - Documenting thoroughly"
-                    .to_string()
-            }
+                .to_string(),
             _ => {
-                "Consider refactoring to reduce complexity while maintaining interface"
-                    .to_string()
+                "Consider refactoring to reduce complexity while maintaining interface".to_string()
             }
         };
 
@@ -345,10 +368,7 @@ impl Detector for InfluentialCodeDetector {
             }
         }
 
-        debug!(
-            "InfluentialCodeDetector: found {} findings",
-            findings.len()
-        );
+        debug!("InfluentialCodeDetector: found {} findings", findings.len());
         Ok(findings)
     }
 }
@@ -383,7 +403,7 @@ mod tests {
         assert!(detector.should_skip_by_name("new"));
         assert!(detector.should_skip_by_name("check_pattern"));
         assert!(detector.should_skip_by_name("process_orders")); // "process" prefix
-        
+
         // These should NOT be skipped
         assert!(!detector.should_skip_by_name("order_processor")); // not a prefix
         assert!(!detector.should_skip_by_name("transform_data"));

@@ -35,11 +35,16 @@ impl McpServer {
         let reader = BufReader::new(stdin.lock());
 
         // Print startup message to stderr (visible to users)
-        eprintln!("🎼 Repotoire MCP server started ({})", self.state.mode_description());
+        eprintln!(
+            "🎼 Repotoire MCP server started ({})",
+            self.state.mode_description()
+        );
         eprintln!("   Transport: stdio (JSON-RPC 2.0)");
         eprintln!("   Repository: {}", self.state.repo_path.display());
         if !self.state.is_pro() && !self.state.has_ai() {
-            eprintln!("   AI features disabled. Set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable.");
+            eprintln!(
+                "   AI features disabled. Set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable."
+            );
         }
         eprintln!();
         eprintln!("   Ready. Waiting for JSON-RPC messages on stdin...");
@@ -87,8 +92,8 @@ impl McpServer {
     }
 
     fn handle_message(&mut self, message: &str) -> Result<Option<Value>> {
-        let request: JsonRpcRequest = serde_json::from_str(message)
-            .context("Invalid JSON-RPC request")?;
+        let request: JsonRpcRequest =
+            serde_json::from_str(message).context("Invalid JSON-RPC request")?;
 
         // Handle based on method
         let result = match request.method.as_str() {
@@ -144,16 +149,13 @@ impl McpServer {
 
     fn handle_call_tool(&mut self, params: &Option<Value>) -> Result<Value> {
         let params = params.as_ref().context("Missing params for tools/call")?;
-        
+
         let name = params
             .get("name")
             .and_then(|v| v.as_str())
             .context("Missing tool name")?;
 
-        let arguments = params
-            .get("arguments")
-            .cloned()
-            .unwrap_or(json!({}));
+        let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
         debug!("Calling tool: {} with args: {}", name, arguments);
 
@@ -163,14 +165,14 @@ impl McpServer {
             "query_graph" => super::handlers::handle_query_graph(&mut self.state, &arguments),
             "get_findings" => super::handlers::handle_get_findings(&mut self.state, &arguments),
             "get_file" => super::handlers::handle_get_file(&self.state, &arguments),
-            "get_architecture" => super::handlers::handle_get_architecture(&mut self.state, &arguments),
+            "get_architecture" => {
+                super::handlers::handle_get_architecture(&mut self.state, &arguments)
+            }
             "list_detectors" => super::handlers::handle_list_detectors(&self.state, &arguments),
             "get_hotspots" => super::handlers::handle_get_hotspots(&mut self.state, &arguments),
-            
+
             // PRO tools (async)
-            "search_code" | "ask" | "generate_fix" => {
-                Ok(self.handle_async_tool(name, &arguments)?)
-            }
+            "search_code" | "ask" | "generate_fix" => Ok(self.handle_async_tool(name, &arguments)?),
 
             _ => return Err(anyhow::anyhow!("Unknown tool: {}", name)),
         };
@@ -200,7 +202,9 @@ impl McpServer {
             match name {
                 "search_code" => super::handlers::handle_search_code(&self.state, arguments).await,
                 "ask" => super::handlers::handle_ask(&self.state, arguments).await,
-                "generate_fix" => super::handlers::handle_generate_fix(&self.state, arguments).await,
+                "generate_fix" => {
+                    super::handlers::handle_generate_fix(&self.state, arguments).await
+                }
                 _ => Err(anyhow::anyhow!("Unknown async tool: {}", name)),
             }
         })
@@ -233,7 +237,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let server = McpServer::new(dir.path().to_path_buf(), false);
         let result = server.handle_initialize(&None).unwrap();
-        
+
         assert!(result.get("protocolVersion").is_some());
         assert!(result.get("serverInfo").is_some());
     }
@@ -243,7 +247,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let server = McpServer::new(dir.path().to_path_buf(), false);
         let result = server.handle_list_tools(&None).unwrap();
-        
+
         let tools = result.get("tools").unwrap().as_array().unwrap();
         assert!(!tools.is_empty());
     }

@@ -439,16 +439,21 @@ impl Detector for AINamingPatternDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
-        let generic_names = ["temp", "data", "result", "value", "item", "obj", "x", "y", "val", "tmp", "ret"];
-        
+
+        let generic_names = [
+            "temp", "data", "result", "value", "item", "obj", "x", "y", "val", "tmp", "ret",
+        ];
+
         for func in graph.get_functions() {
             // Check function name
             let name_lower = func.name.to_lowercase();
-            let is_generic = generic_names.iter().any(|g| name_lower == *g || name_lower.starts_with(&format!("{}_", g)));
-            
+            let is_generic = generic_names
+                .iter()
+                .any(|g| name_lower == *g || name_lower.starts_with(&format!("{}_", g)));
+
             if is_generic && func.loc() > 10 {
                 findings.push(Finding {
                     id: Uuid::new_v4().to_string(),
@@ -471,7 +476,7 @@ impl Detector for AINamingPatternDetector {
                 });
             }
         }
-        
+
         findings.truncate(30);
         Ok(findings)
     }

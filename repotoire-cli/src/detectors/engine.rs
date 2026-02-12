@@ -20,8 +20,10 @@
 //! └─────────────────────────────────────────────────────────┘
 //! ```
 
-use crate::detectors::base::{is_test_file, DetectionSummary, Detector, DetectorResult, ProgressCallback};
-use crate::detectors::function_context::{FunctionContextMap, FunctionContextBuilder};
+use crate::detectors::base::{
+    is_test_file, DetectionSummary, Detector, DetectorResult, ProgressCallback,
+};
+use crate::detectors::function_context::{FunctionContextBuilder, FunctionContextMap};
 use crate::graph::GraphStore;
 use crate::models::Finding;
 use anyhow::Result;
@@ -111,7 +113,7 @@ impl DetectorEngine {
         if let Some(ref ctx) = self.function_contexts {
             return Arc::clone(ctx);
         }
-        
+
         info!("Building function contexts from graph...");
         let contexts = FunctionContextBuilder::new(graph).build();
         let arc = Arc::new(contexts);
@@ -169,7 +171,8 @@ impl DetectorEngine {
         let contexts = self.get_or_build_contexts(graph);
 
         // Partition detectors into independent and dependent
-        let (independent, dependent): (Vec<_>, Vec<_>) = self.detectors
+        let (independent, dependent): (Vec<_>, Vec<_>) = self
+            .detectors
             .iter()
             .cloned()
             .partition(|d| !d.is_dependent());
@@ -195,13 +198,13 @@ impl DetectorEngine {
                 .par_iter()
                 .map(|detector| {
                     let result = self.run_single_detector(detector, graph, &contexts_for_parallel);
-                    
+
                     // Update progress
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
                     if let Some(ref callback) = self.progress_callback {
                         callback(detector.name(), done, total);
                     }
-                    
+
                     result
                 })
                 .collect()
@@ -224,13 +227,13 @@ impl DetectorEngine {
         // TODO: Build dependency graph and run in topological order
         for detector in dependent {
             let result = self.run_single_detector(&detector, graph, &contexts);
-            
+
             // Update progress
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
             if let Some(ref callback) = self.progress_callback {
                 callback(detector.name(), done, total);
             }
-            
+
             summary.add_result(&result);
             if result.success {
                 all_findings.extend(result.findings);
@@ -278,14 +281,18 @@ impl DetectorEngine {
     ///
     /// Unlike `run()`, this returns individual results for each detector,
     /// useful for debugging and detailed reporting.
-    pub fn run_detailed(&mut self, graph: &GraphStore) -> Result<(Vec<DetectorResult>, DetectionSummary)> {
+    pub fn run_detailed(
+        &mut self,
+        graph: &GraphStore,
+    ) -> Result<(Vec<DetectorResult>, DetectionSummary)> {
         let start = Instant::now();
-        
+
         // Build function contexts
         let contexts = self.get_or_build_contexts(graph);
-        
+
         // Partition detectors
-        let (independent, dependent): (Vec<_>, Vec<_>) = self.detectors
+        let (independent, dependent): (Vec<_>, Vec<_>) = self
+            .detectors
             .iter()
             .cloned()
             .partition(|d| !d.is_dependent());
@@ -312,10 +319,15 @@ impl DetectorEngine {
         if self.skip_test_files {
             for result in &mut all_results {
                 let before_count = result.findings.len();
-                result.findings.retain(|finding| !self.is_test_file_finding(finding));
+                result
+                    .findings
+                    .retain(|finding| !self.is_test_file_finding(finding));
                 let filtered = before_count - result.findings.len();
                 if filtered > 0 {
-                    debug!("Filtered {} test file findings from {}", filtered, result.detector_name);
+                    debug!(
+                        "Filtered {} test file findings from {}",
+                        filtered, result.detector_name
+                    );
                 }
             }
         }
@@ -366,7 +378,7 @@ impl DetectorEngine {
         match detect_result {
             Ok(Ok(mut findings)) => {
                 let duration = start.elapsed().as_millis() as u64;
-                
+
                 // Apply per-detector finding limit if configured
                 if let Some(config) = detector.config() {
                     if let Some(max) = config.max_findings {
@@ -556,13 +568,13 @@ mod tests {
     #[test]
     fn test_register_detectors() {
         let mut engine = DetectorEngine::new(2);
-        
+
         engine.register(Arc::new(MockDetector {
             name: "Detector1",
             findings_count: 5,
             dependent: false,
         }));
-        
+
         engine.register(Arc::new(MockDetector {
             name: "Detector2",
             findings_count: 3,

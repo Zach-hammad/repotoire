@@ -5,7 +5,7 @@
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
-use crate::graph::{GraphStore, NodeKind, EdgeKind};
+use crate::graph::{EdgeKind, GraphStore, NodeKind};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
 
@@ -29,18 +29,21 @@ pub enum ClassRole {
 impl ClassRole {
     /// Whether this role justifies large size
     pub fn allows_large_size(&self) -> bool {
-        matches!(self, ClassRole::FrameworkCore | ClassRole::Facade | ClassRole::EntryPoint)
+        matches!(
+            self,
+            ClassRole::FrameworkCore | ClassRole::Facade | ClassRole::EntryPoint
+        )
     }
 
     /// Severity multiplier for god class findings
     pub fn severity_multiplier(&self) -> f64 {
         match self {
-            ClassRole::FrameworkCore => 0.0,  // Don't flag at all
-            ClassRole::Facade => 0.3,          // Greatly reduce
-            ClassRole::EntryPoint => 0.5,      // Reduce
-            ClassRole::Utility => 0.7,         // Slightly reduce
-            ClassRole::DataClass => 0.6,       // Data classes can be big
-            ClassRole::Application => 1.0,     // Normal
+            ClassRole::FrameworkCore => 0.0, // Don't flag at all
+            ClassRole::Facade => 0.3,        // Greatly reduce
+            ClassRole::EntryPoint => 0.5,    // Reduce
+            ClassRole::Utility => 0.7,       // Slightly reduce
+            ClassRole::DataClass => 0.6,     // Data classes can be big
+            ClassRole::Application => 1.0,   // Normal
         }
     }
 }
@@ -48,24 +51,41 @@ impl ClassRole {
 /// Known framework class names that are intentionally large
 const FRAMEWORK_CORE_NAMES: &[&str] = &[
     // Python frameworks
-    "Flask", "Sanic", "FastAPI", "Django", "Bottle", "Tornado",
-    "Application", "App",
+    "Flask",
+    "Sanic",
+    "FastAPI",
+    "Django",
+    "Bottle",
+    "Tornado",
+    "Application",
+    "App",
     // Flask internals
-    "Blueprint", "Scaffold",
+    "Blueprint",
+    "Scaffold",
     // JavaScript/Node
-    "Express", "Koa", "Hapi", "Fastify", "NestFactory",
+    "Express",
+    "Koa",
+    "Hapi",
+    "Fastify",
+    "NestFactory",
     // Java
-    "SpringApplication", "Application",
+    "SpringApplication",
+    "Application",
     // Go
-    "Gin", "Echo", "Fiber", "Mux", "Server",
+    "Gin",
+    "Echo",
+    "Fiber",
+    "Mux",
+    "Server",
     // General patterns
-    "Router", "Server", "Gateway", "Proxy",
+    "Router",
+    "Server",
+    "Gateway",
+    "Proxy",
 ];
 
 /// Patterns that indicate framework-like classes
-const FRAMEWORK_PATTERNS: &[&str] = &[
-    "Application", "Framework", "Server", "Gateway", "Router",
-];
+const FRAMEWORK_PATTERNS: &[&str] = &["Application", "Framework", "Server", "Gateway", "Router"];
 
 /// Rich context for a class computed from graph analysis
 #[derive(Debug, Clone)]
@@ -76,9 +96,8 @@ pub struct ClassContext {
     pub name: String,
     /// File path
     pub file_path: String,
-    
+
     // === Metrics ===
-    
     /// Number of methods
     pub method_count: usize,
     /// Total lines of code
@@ -97,9 +116,8 @@ pub struct ClassContext {
     pub external_dependencies: usize,
     /// How many other classes use this one
     pub usages: usize,
-    
+
     // === Inferred properties ===
-    
     /// Inferred architectural role
     pub role: ClassRole,
     /// Is in a test file
@@ -122,7 +140,10 @@ impl ClassContext {
             ClassRole::FrameworkCore => (usize::MAX, usize::MAX),
             ClassRole::Facade => (base_methods * 3, base_loc * 3),
             ClassRole::EntryPoint => (base_methods * 2, base_loc * 2),
-            ClassRole::Utility => ((base_methods as f64 * 1.5) as usize, (base_loc as f64 * 1.5) as usize),
+            ClassRole::Utility => (
+                (base_methods as f64 * 1.5) as usize,
+                (base_loc as f64 * 1.5) as usize,
+            ),
             ClassRole::DataClass => (base_methods * 2, base_loc * 2), // Data classes can have many getters/setters
             ClassRole::Application => (base_methods, base_loc),
         }
@@ -145,18 +166,18 @@ impl<'a> ClassContextBuilder<'a> {
     pub fn new(graph: &'a GraphStore) -> Self {
         Self {
             graph,
-            thin_wrapper_complexity: 3.0,    // Avg complexity <= 3 = thin methods
-            facade_delegation_ratio: 0.6,     // 60%+ methods delegate = facade
+            thin_wrapper_complexity: 3.0, // Avg complexity <= 3 = thin methods
+            facade_delegation_ratio: 0.6, // 60%+ methods delegate = facade
         }
     }
 
     /// Build context map for all classes
     pub fn build(&self) -> ClassContextMap {
         let start = std::time::Instant::now();
-        
+
         let classes = self.graph.get_classes();
         let class_count = classes.len();
-        
+
         if class_count == 0 {
             return HashMap::new();
         }
@@ -166,12 +187,14 @@ impl<'a> ClassContextBuilder<'a> {
         // Get all functions to map methods to classes
         let functions = self.graph.get_functions();
         let calls = self.graph.get_calls();
-        
+
         // Build call lookup: function qn -> set of called qns
         let call_map: HashMap<&str, HashSet<&str>> = {
             let mut map: HashMap<&str, HashSet<&str>> = HashMap::new();
             for (caller, callee) in &calls {
-                map.entry(caller.as_str()).or_default().insert(callee.as_str());
+                map.entry(caller.as_str())
+                    .or_default()
+                    .insert(callee.as_str());
             }
             map
         };
@@ -179,15 +202,17 @@ impl<'a> ClassContextBuilder<'a> {
         // Build class method map: class qn -> vec of method qns
         let class_methods: HashMap<&str, Vec<&crate::graph::CodeNode>> = {
             let mut map: HashMap<&str, Vec<&crate::graph::CodeNode>> = HashMap::new();
-            
+
             for func in &functions {
                 // Methods belong to a class if they share file and are within class line range
                 for class in &classes {
-                    if func.file_path == class.file_path 
-                        && func.line_start >= class.line_start 
-                        && func.line_end <= class.line_end 
+                    if func.file_path == class.file_path
+                        && func.line_start >= class.line_start
+                        && func.line_end <= class.line_end
                     {
-                        map.entry(class.qualified_name.as_str()).or_default().push(func);
+                        map.entry(class.qualified_name.as_str())
+                            .or_default()
+                            .push(func);
                         break;
                     }
                 }
@@ -198,31 +223,32 @@ impl<'a> ClassContextBuilder<'a> {
         // Build class usage map: how many other classes use each class
         let class_usages: HashMap<&str, usize> = {
             let mut usages: HashMap<&str, usize> = HashMap::new();
-            
+
             // Count calls from methods of other classes to this class's methods
             for class in &classes {
                 let my_methods: HashSet<&str> = class_methods
                     .get(class.qualified_name.as_str())
                     .map(|m| m.iter().map(|f| f.qualified_name.as_str()).collect())
                     .unwrap_or_default();
-                
+
                 for other in &classes {
                     if other.qualified_name == class.qualified_name {
                         continue;
                     }
-                    
+
                     let other_methods: Vec<&str> = class_methods
                         .get(other.qualified_name.as_str())
                         .map(|m| m.iter().map(|f| f.qualified_name.as_str()).collect())
                         .unwrap_or_default();
-                    
+
                     // Check if any method of other class calls any method of this class
                     let calls_my_class = other_methods.iter().any(|method| {
-                        call_map.get(method)
+                        call_map
+                            .get(method)
                             .map(|callees| callees.iter().any(|c| my_methods.contains(c)))
                             .unwrap_or(false)
                     });
-                    
+
                     if calls_my_class {
                         *usages.entry(class.qualified_name.as_str()).or_insert(0) += 1;
                     }
@@ -235,34 +261,34 @@ impl<'a> ClassContextBuilder<'a> {
 
         for class in &classes {
             let qn = &class.qualified_name;
-            
+
             let methods = class_methods.get(qn.as_str()).cloned().unwrap_or_default();
             // Use methodCount property if available (from parser), fall back to graph count
-            let method_count = class.get_i64("methodCount")
+            let method_count = class
+                .get_i64("methodCount")
                 .map(|n| n as usize)
                 .unwrap_or_else(|| methods.len());
-            
+
             // Calculate aggregate complexity
-            let total_complexity: i64 = methods.iter()
-                .filter_map(|m| m.complexity())
-                .sum();
-            
+            let total_complexity: i64 = methods.iter().filter_map(|m| m.complexity()).sum();
+
             let avg_complexity = if method_count > 0 {
                 total_complexity as f64 / method_count as f64
             } else {
                 0.0
             };
-            
+
             // Calculate delegation: methods that call external code
             let mut delegating_count = 0;
             let mut external_deps: HashSet<String> = HashSet::new();
-            
+
             for method in &methods {
                 if let Some(callees) = call_map.get(method.qualified_name.as_str()) {
-                    let external_calls: Vec<_> = callees.iter()
+                    let external_calls: Vec<_> = callees
+                        .iter()
                         .filter(|c| !methods.iter().any(|m| &m.qualified_name.as_str() == *c))
                         .collect();
-                    
+
                     if !external_calls.is_empty() {
                         delegating_count += 1;
                         for ext in external_calls {
@@ -274,22 +300,20 @@ impl<'a> ClassContextBuilder<'a> {
                     }
                 }
             }
-            
+
             let delegation_ratio = if method_count > 0 {
                 delegating_count as f64 / method_count as f64
             } else {
                 0.0
             };
-            
+
             // Count public methods (heuristic: doesn't start with _)
-            let public_methods = methods.iter()
-                .filter(|m| !m.name.starts_with('_'))
-                .count();
-            
+            let public_methods = methods.iter().filter(|m| !m.name.starts_with('_')).count();
+
             let usages = *class_usages.get(qn.as_str()).unwrap_or(&0);
             let is_test = self.is_test_path(&class.file_path);
             let is_framework_path = self.is_framework_path(&class.file_path);
-            
+
             // Infer role
             let (role, role_reason) = self.infer_role(
                 &class.name,
@@ -300,25 +324,28 @@ impl<'a> ClassContextBuilder<'a> {
                 is_test,
                 is_framework_path,
             );
-            
-            contexts.insert(qn.clone(), ClassContext {
-                qualified_name: qn.clone(),
-                name: class.name.clone(),
-                file_path: class.file_path.clone(),
-                method_count,
-                loc: class.loc() as usize,
-                complexity: total_complexity as usize,
-                avg_method_complexity: avg_complexity,
-                delegating_methods: delegating_count,
-                delegation_ratio,
-                public_methods,
-                external_dependencies: external_deps.len(),
-                usages,
-                role,
-                is_test,
-                is_framework_path,
-                role_reason,
-            });
+
+            contexts.insert(
+                qn.clone(),
+                ClassContext {
+                    qualified_name: qn.clone(),
+                    name: class.name.clone(),
+                    file_path: class.file_path.clone(),
+                    method_count,
+                    loc: class.loc() as usize,
+                    complexity: total_complexity as usize,
+                    avg_method_complexity: avg_complexity,
+                    delegating_methods: delegating_count,
+                    delegation_ratio,
+                    public_methods,
+                    external_dependencies: external_deps.len(),
+                    usages,
+                    role,
+                    is_test,
+                    is_framework_path,
+                    role_reason,
+                },
+            );
         }
 
         let elapsed = start.elapsed();
@@ -347,54 +374,74 @@ impl<'a> ClassContextBuilder<'a> {
     ) -> (ClassRole, String) {
         // Framework core: known names or patterns
         if FRAMEWORK_CORE_NAMES.contains(&name) {
-            return (ClassRole::FrameworkCore, format!("Known framework class: {}", name));
+            return (
+                ClassRole::FrameworkCore,
+                format!("Known framework class: {}", name),
+            );
         }
-        
+
         if FRAMEWORK_PATTERNS.iter().any(|p| name.contains(p)) {
-            return (ClassRole::FrameworkCore, format!("Framework pattern in name: {}", name));
+            return (
+                ClassRole::FrameworkCore,
+                format!("Framework pattern in name: {}", name),
+            );
         }
-        
+
         // Framework path check
         if is_framework_path {
-            return (ClassRole::FrameworkCore, "In framework/vendor path".to_string());
+            return (
+                ClassRole::FrameworkCore,
+                "In framework/vendor path".to_string(),
+            );
         }
-        
+
         // Facade: large API surface + thin methods + high delegation
-        if method_count >= 10 
-            && avg_complexity <= self.thin_wrapper_complexity 
-            && delegation_ratio >= self.facade_delegation_ratio 
+        if method_count >= 10
+            && avg_complexity <= self.thin_wrapper_complexity
+            && delegation_ratio >= self.facade_delegation_ratio
         {
-            return (ClassRole::Facade, format!(
-                "Facade pattern: {} methods, avg complexity {:.1}, {:.0}% delegate",
-                method_count, avg_complexity, delegation_ratio * 100.0
-            ));
+            return (
+                ClassRole::Facade,
+                format!(
+                    "Facade pattern: {} methods, avg complexity {:.1}, {:.0}% delegate",
+                    method_count,
+                    avg_complexity,
+                    delegation_ratio * 100.0
+                ),
+            );
         }
-        
+
         // Entry point: heavily used, many public methods
         if usages >= 5 && method_count >= 10 {
-            return (ClassRole::EntryPoint, format!(
-                "Entry point: used by {} other classes",
-                usages
-            ));
+            return (
+                ClassRole::EntryPoint,
+                format!("Entry point: used by {} other classes", usages),
+            );
         }
-        
+
         // Data class: mostly properties/getters, low complexity
         if avg_complexity <= 1.5 && method_count <= 20 {
-            return (ClassRole::DataClass, format!(
-                "Data class: avg complexity {:.1}",
-                avg_complexity
-            ));
+            return (
+                ClassRole::DataClass,
+                format!("Data class: avg complexity {:.1}", avg_complexity),
+            );
         }
-        
+
         // Utility: low method count, high reuse
         if method_count <= 15 && usages >= 3 {
-            return (ClassRole::Utility, format!(
-                "Utility class: {} methods, used by {} others",
-                method_count, usages
-            ));
+            return (
+                ClassRole::Utility,
+                format!(
+                    "Utility class: {} methods, used by {} others",
+                    method_count, usages
+                ),
+            );
         }
-        
-        (ClassRole::Application, "Standard application class".to_string())
+
+        (
+            ClassRole::Application,
+            "Standard application class".to_string(),
+        )
     }
 
     /// Check if path is a test file
@@ -432,10 +479,10 @@ mod tests {
     fn test_framework_core_detection() {
         let store = crate::graph::GraphStore::in_memory();
         let builder = ClassContextBuilder::new(&store);
-        
+
         let (role, _) = builder.infer_role("Flask", 50, 5.0, 0.8, 10, false, false);
         assert_eq!(role, ClassRole::FrameworkCore);
-        
+
         let (role, _) = builder.infer_role("MyApplication", 30, 3.0, 0.5, 5, false, false);
         assert_eq!(role, ClassRole::FrameworkCore);
     }
@@ -444,7 +491,7 @@ mod tests {
     fn test_facade_detection() {
         let store = crate::graph::GraphStore::in_memory();
         let builder = ClassContextBuilder::new(&store);
-        
+
         // High method count, low complexity, high delegation
         let (role, _) = builder.infer_role("ApiClient", 20, 2.0, 0.7, 2, false, false);
         assert_eq!(role, ClassRole::Facade);
@@ -454,7 +501,7 @@ mod tests {
     fn test_data_class_detection() {
         let store = crate::graph::GraphStore::in_memory();
         let builder = ClassContextBuilder::new(&store);
-        
+
         let (role, _) = builder.infer_role("UserDTO", 10, 1.0, 0.1, 2, false, false);
         assert_eq!(role, ClassRole::DataClass);
     }

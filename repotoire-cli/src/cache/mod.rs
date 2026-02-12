@@ -9,7 +9,10 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-pub use paths::{get_cache_dir, get_findings_cache_path, get_git_cache_path, get_graph_db_path, get_graph_stats_path, ensure_cache_dir};
+pub use paths::{
+    ensure_cache_dir, get_cache_dir, get_findings_cache_path, get_git_cache_path,
+    get_graph_db_path, get_graph_stats_path,
+};
 
 /// Global file cache instance
 static GLOBAL_CACHE: OnceLock<FileCache> = OnceLock::new();

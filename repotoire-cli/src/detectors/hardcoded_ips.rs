@@ -7,7 +7,6 @@
 //! - Identify the context (connection string, URL, etc.)
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -16,6 +15,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static IP_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -30,38 +30,52 @@ pub struct HardcodedIpsDetector {
 
 impl HardcodedIpsDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Analyze context of the hardcoded IP
     fn analyze_context(line: &str) -> (String, bool) {
         let line_lower = line.to_lowercase();
-        
+
         // Database connection patterns
-        if line_lower.contains("postgres") || line_lower.contains("mysql") || 
-           line_lower.contains("mongo") || line_lower.contains("redis") ||
-           line_lower.contains("jdbc") || line_lower.contains("database") {
+        if line_lower.contains("postgres")
+            || line_lower.contains("mysql")
+            || line_lower.contains("mongo")
+            || line_lower.contains("redis")
+            || line_lower.contains("jdbc")
+            || line_lower.contains("database")
+        {
             return ("Database connection".to_string(), true);
         }
-        
+
         // API/HTTP patterns
-        if line_lower.contains("http") || line_lower.contains("api") ||
-           line_lower.contains("endpoint") || line_lower.contains("url") {
+        if line_lower.contains("http")
+            || line_lower.contains("api")
+            || line_lower.contains("endpoint")
+            || line_lower.contains("url")
+        {
             return ("API endpoint".to_string(), true);
         }
-        
+
         // Network patterns
-        if line_lower.contains("connect") || line_lower.contains("socket") ||
-           line_lower.contains("host") || line_lower.contains("server") {
+        if line_lower.contains("connect")
+            || line_lower.contains("socket")
+            || line_lower.contains("host")
+            || line_lower.contains("server")
+        {
             return ("Network connection".to_string(), true);
         }
-        
+
         ("General usage".to_string(), false)
     }
 
     /// Find containing function for context
     fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
-        graph.get_functions()
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| f.name)
@@ -69,19 +83,33 @@ impl HardcodedIpsDetector {
 }
 
 impl Detector for HardcodedIpsDetector {
-    fn name(&self) -> &'static str { "hardcoded-ips" }
-    fn description(&self) -> &'static str { "Detects hardcoded IPs and localhost" }
+    fn name(&self) -> &'static str {
+        "hardcoded-ips"
+    }
+    fn description(&self) -> &'static str {
+        "Detects hardcoded IPs and localhost"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut ip_occurrences: HashMap<String, usize> = HashMap::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         // First pass: count IP occurrences
-        for entry in ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build().filter_map(|e| e.ok()) {
+        for entry in ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build()
+            .filter_map(|e| e.ok())
+        {
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for line in content.lines() {
                     if let Some(m) = ip_pattern().find(line) {
@@ -92,46 +120,69 @@ impl Detector for HardcodedIpsDetector {
         }
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             // Skip config files where this is expected
             let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if fname.contains("config") || fname.contains("test") || fname.contains(".env") { continue; }
-            if fname.contains("detector") || fname.contains("scanner") { continue; }
-            
+            if fname.contains("config") || fname.contains("test") || fname.contains(".env") {
+                continue;
+            }
+            if fname.contains("detector") || fname.contains("scanner") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rs"|"rb"|"php"|"cs") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "java" | "go" | "rs" | "rb" | "php" | "cs"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let path_str = path.to_string_lossy().to_string();
-                
+
                 for (i, line) in content.lines().enumerate() {
                     let trimmed = line.trim();
-                    if trimmed.starts_with("//") || trimmed.starts_with("#") { continue; }
-                    
+                    if trimmed.starts_with("//") || trimmed.starts_with("#") {
+                        continue;
+                    }
+
                     let lower = line.to_lowercase();
-                    if lower.contains("ollama") || lower.contains("local") || 
-                       lower.contains("dev") || lower.contains("default") ||
-                       lower.contains(":11434") || lower.contains(":3000") ||
-                       lower.contains(":8080") || lower.contains(":5000") { continue; }
+                    if lower.contains("ollama")
+                        || lower.contains("local")
+                        || lower.contains("dev")
+                        || lower.contains("default")
+                        || lower.contains(":11434")
+                        || lower.contains(":3000")
+                        || lower.contains(":8080")
+                        || lower.contains(":5000")
+                    {
+                        continue;
+                    }
 
                     if let Some(m) = ip_pattern().find(line) {
                         let ip = m.as_str().to_string();
                         let occurrences = ip_occurrences.get(&ip).copied().unwrap_or(1);
                         let (context, is_risky) = Self::analyze_context(line);
-                        let containing_func = Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-                        
+                        let containing_func =
+                            Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+
                         // Calculate severity based on context
                         let severity = if is_risky {
-                            Severity::High  // Database/API connections with hardcoded IPs
+                            Severity::High // Database/API connections with hardcoded IPs
                         } else if occurrences > 3 {
-                            Severity::Medium  // Used in multiple places
+                            Severity::Medium // Used in multiple places
                         } else {
                             Severity::Low
                         };
-                        
+
                         let mut notes = Vec::new();
                         notes.push(format!("📍 Context: {}", context));
                         if occurrences > 1 {
@@ -140,9 +191,9 @@ impl Detector for HardcodedIpsDetector {
                         if let Some(func) = containing_func {
                             notes.push(format!("📦 In function: `{}`", func));
                         }
-                        
+
                         let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                        
+
                         let suggestion = if occurrences > 3 {
                             format!(
                                 "This IP appears {} times. Create a centralized config:\n\
@@ -167,7 +218,7 @@ impl Detector for HardcodedIpsDetector {
                         } else {
                             "Use environment variables or config files.".to_string()
                         };
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "HardcodedIpsDetector".to_string(),
@@ -194,8 +245,11 @@ impl Detector for HardcodedIpsDetector {
                 }
             }
         }
-        
-        info!("HardcodedIpsDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "HardcodedIpsDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

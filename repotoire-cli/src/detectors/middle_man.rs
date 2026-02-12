@@ -40,9 +40,19 @@ impl Default for MiddleManThresholds {
 
 /// Patterns to exclude (legitimate delegation patterns)
 const EXCLUDE_PATTERNS: &[&str] = &[
-    "Adapter", "Wrapper", "Proxy", "Decorator", "Facade", "Bridge",
-    "Controller", "Handler", "Router", "Dispatcher",
-    "Test", "Mock", "Stub",
+    "Adapter",
+    "Wrapper",
+    "Proxy",
+    "Decorator",
+    "Facade",
+    "Bridge",
+    "Controller",
+    "Handler",
+    "Router",
+    "Dispatcher",
+    "Test",
+    "Mock",
+    "Stub",
 ];
 
 /// Detects classes that mostly delegate to other classes
@@ -72,19 +82,26 @@ impl MiddleManDetector {
 
     fn should_exclude(&self, class_name: &str) -> bool {
         let lower = class_name.to_lowercase();
-        EXCLUDE_PATTERNS.iter().any(|p| lower.contains(&p.to_lowercase()))
+        EXCLUDE_PATTERNS
+            .iter()
+            .any(|p| lower.contains(&p.to_lowercase()))
     }
 
     /// Analyze delegation pattern for a class
-    fn analyze_delegation(&self, graph: &GraphStore, class: &crate::graph::CodeNode) -> Option<DelegationAnalysis> {
+    fn analyze_delegation(
+        &self,
+        graph: &GraphStore,
+        class: &crate::graph::CodeNode,
+    ) -> Option<DelegationAnalysis> {
         let functions = graph.get_functions();
-        
+
         // Find methods belonging to this class
-        let methods: Vec<_> = functions.iter()
+        let methods: Vec<_> = functions
+            .iter()
             .filter(|f| {
-                f.file_path == class.file_path &&
-                f.line_start >= class.line_start &&
-                f.line_end <= class.line_end
+                f.file_path == class.file_path
+                    && f.line_start >= class.line_start
+                    && f.line_end <= class.line_end
             })
             .collect();
 
@@ -94,15 +111,15 @@ impl MiddleManDetector {
 
         let mut delegation_count = 0;
         let mut delegation_targets: HashMap<String, usize> = HashMap::new();
-        
+
         for method in &methods {
             let callees = graph.get_callees(&method.qualified_name);
             let complexity = method.complexity().unwrap_or(1);
-            
+
             // Pure delegation: single callee, low complexity
             if callees.len() == 1 && complexity <= self.thresholds.max_delegation_complexity {
                 delegation_count += 1;
-                
+
                 // Track which class/module we're delegating to
                 let target = &callees[0];
                 let target_module = Self::extract_module(&target.file_path);
@@ -111,7 +128,7 @@ impl MiddleManDetector {
         }
 
         let delegation_ratio = delegation_count as f64 / methods.len() as f64;
-        
+
         if delegation_ratio < self.thresholds.delegation_threshold {
             return None;
         }
@@ -143,7 +160,7 @@ impl MiddleManDetector {
         // Concentrated delegation (all to one target) is worse
         let concentration = if analysis.target_count == 1 { 1.5 } else { 1.0 };
         let effective_ratio = analysis.delegation_ratio * concentration;
-        
+
         if effective_ratio >= 0.95 {
             Severity::High
         } else if effective_ratio >= 0.8 {
@@ -187,14 +204,15 @@ impl Detector for MiddleManDetector {
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         for class in graph.get_classes() {
             // Skip interfaces
-            if class.qualified_name.contains("::interface::") 
-                || class.qualified_name.contains("::type::") {
+            if class.qualified_name.contains("::interface::")
+                || class.qualified_name.contains("::type::")
+            {
                 continue;
             }
-            
+
             // Skip excluded patterns
             if self.should_exclude(&class.name) {
                 continue;
@@ -207,7 +225,7 @@ impl Detector for MiddleManDetector {
             };
 
             let severity = self.calculate_severity(&analysis);
-            
+
             let target_info = match &analysis.primary_target {
                 Some((target, count)) => format!(
                     "primarily to '{}' ({} of {} delegations)",
@@ -245,7 +263,8 @@ impl Detector for MiddleManDetector {
                      1. Remove the middle man - have callers use {} directly\n\
                      2. Add meaningful logic to justify the class's existence\n\
                      3. If this is intentional (Facade/Adapter), document the reason",
-                    analysis.primary_target
+                    analysis
+                        .primary_target
                         .as_ref()
                         .map(|(t, _)| t.as_str())
                         .unwrap_or("the delegate")
@@ -257,7 +276,7 @@ impl Detector for MiddleManDetector {
                     "Middle man classes add unnecessary indirection. They increase \
                      call stack depth, make code harder to trace, and add maintenance \
                      overhead without providing value."
-                        .to_string()
+                        .to_string(),
                 ),
                 ..Default::default()
             });
@@ -271,16 +290,16 @@ impl Detector for MiddleManDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, CodeEdge, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode, GraphStore};
 
     #[test]
     fn test_should_exclude() {
         let detector = MiddleManDetector::new();
-        
+
         assert!(detector.should_exclude("UserAdapter"));
         assert!(detector.should_exclude("OrderProxy"));
         assert!(detector.should_exclude("TestHelper"));
-        
+
         assert!(!detector.should_exclude("OrderManager"));
         assert!(!detector.should_exclude("UserService"));
     }
@@ -288,36 +307,42 @@ mod tests {
     #[test]
     fn test_detect_middle_man() {
         let graph = GraphStore::in_memory();
-        
+
         // Create a middle man class
-        graph.add_node(CodeNode::class("MiddleClass", "src/middle.py")
-            .with_qualified_name("middle::MiddleClass")
-            .with_lines(1, 50)
-            .with_property("methodCount", 4i64));
-        
+        graph.add_node(
+            CodeNode::class("MiddleClass", "src/middle.py")
+                .with_qualified_name("middle::MiddleClass")
+                .with_lines(1, 50)
+                .with_property("methodCount", 4i64),
+        );
+
         // Add methods that delegate
         for i in 0..4 {
             let method = format!("method_{}", i);
-            graph.add_node(CodeNode::function(&method, "src/middle.py")
-                .with_qualified_name(&format!("middle::MiddleClass::{}", method))
-                .with_lines(i * 10 + 5, i * 10 + 10)
-                .with_property("complexity", 1i64));
-            
+            graph.add_node(
+                CodeNode::function(&method, "src/middle.py")
+                    .with_qualified_name(&format!("middle::MiddleClass::{}", method))
+                    .with_lines(i * 10 + 5, i * 10 + 10)
+                    .with_property("complexity", 1i64),
+            );
+
             // Each method delegates to the same target
-            graph.add_node(CodeNode::function(&format!("real_{}", i), "src/real.py")
-                .with_qualified_name(&format!("real::RealClass::{}", format!("real_{}", i)))
-                .with_lines(i * 10, i * 10 + 5));
-            
+            graph.add_node(
+                CodeNode::function(&format!("real_{}", i), "src/real.py")
+                    .with_qualified_name(&format!("real::RealClass::{}", format!("real_{}", i)))
+                    .with_lines(i * 10, i * 10 + 5),
+            );
+
             graph.add_edge_by_name(
                 &format!("middle::MiddleClass::{}", method),
                 &format!("real::RealClass::real_{}", i),
-                CodeEdge::calls()
+                CodeEdge::calls(),
             );
         }
-        
+
         let detector = MiddleManDetector::new();
         let findings = detector.detect(&graph).unwrap();
-        
+
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("MiddleClass"));
         assert!(findings[0].description.contains("100%")); // All methods delegate

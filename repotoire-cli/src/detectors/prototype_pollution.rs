@@ -6,7 +6,6 @@
 //! - Check for sanitization in the call chain
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -14,6 +13,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static POLLUTION_PATTERN: OnceLock<Regex> = OnceLock::new();
 static USER_INPUT: OnceLock<Regex> = OnceLock::new();
@@ -70,7 +70,10 @@ pub struct PrototypePollutionDetector {
 
 impl PrototypePollutionDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Check if user input flows into this line
@@ -81,7 +84,7 @@ impl PrototypePollutionDetector {
                 return (true, Some(m.as_str().to_string()));
             }
         }
-        
+
         // Check previous lines for variable assignments from user input
         let start = current_line.saturating_sub(15);
         for line in &lines[start..current_line] {
@@ -92,7 +95,7 @@ impl PrototypePollutionDetector {
                 }
             }
         }
-        
+
         (false, None)
     }
 
@@ -108,8 +111,13 @@ impl PrototypePollutionDetector {
     }
 
     /// Find containing function
-    fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, usize)> {
-        graph.get_functions()
+    fn find_containing_function(
+        graph: &GraphStore,
+        file_path: &str,
+        line: u32,
+    ) -> Option<(String, usize)> {
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| {
@@ -121,13 +129,20 @@ impl PrototypePollutionDetector {
     /// Check if function receives external data
     fn receives_external_data(graph: &GraphStore, func_name: &str, file_path: &str) -> bool {
         // Check if function is called from route handlers
-        if let Some(func) = graph.get_functions().into_iter().find(|f| f.file_path == file_path && f.name == func_name) {
+        if let Some(func) = graph
+            .get_functions()
+            .into_iter()
+            .find(|f| f.file_path == file_path && f.name == func_name)
+        {
             let callers = graph.get_callers(&func.qualified_name);
             for caller in callers {
                 let caller_lower = caller.name.to_lowercase();
-                if caller_lower.contains("route") || caller_lower.contains("handle") ||
-                   caller_lower.contains("api") || caller_lower.contains("controller") ||
-                   caller_lower.contains("endpoint") {
+                if caller_lower.contains("route")
+                    || caller_lower.contains("handle")
+                    || caller_lower.contains("api")
+                    || caller_lower.contains("controller")
+                    || caller_lower.contains("endpoint")
+                {
                     return true;
                 }
             }
@@ -137,8 +152,12 @@ impl PrototypePollutionDetector {
 }
 
 impl Detector for PrototypePollutionDetector {
-    fn name(&self) -> &'static str { "prototype-pollution" }
-    fn description(&self) -> &'static str { "Detects prototype pollution vulnerabilities" }
+    fn name(&self) -> &'static str {
+        "prototype-pollution"
+    }
+    fn description(&self) -> &'static str {
+        "Detects prototype pollution vulnerabilities"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
@@ -148,53 +167,71 @@ impl Detector for PrototypePollutionDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test/vendor
-            if path_str.contains("test") || path_str.contains("node_modules") { continue; }
-            
+            if path_str.contains("test") || path_str.contains("node_modules") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js"|"ts"|"jsx"|"tsx") { continue; }
+            if !matches!(ext, "js" | "ts" | "jsx" | "tsx") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     // Skip comments
                     let trimmed = line.trim();
-                    if trimmed.starts_with("//") || trimmed.starts_with("*") { continue; }
-                    
-                    if !pollution_pattern().is_match(line) { continue; }
-                    
+                    if trimmed.starts_with("//") || trimmed.starts_with("*") {
+                        continue;
+                    }
+
+                    if !pollution_pattern().is_match(line) {
+                        continue;
+                    }
+
                     let (pattern_type, pattern_desc) = categorize_pattern(line);
                     let (has_input, input_source) = Self::has_user_input_flow(&lines, i);
                     let has_sanitization = Self::has_sanitization(&lines, i);
-                    let containing_func = Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-                    
+                    let containing_func =
+                        Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+
                     // Check if function receives external data via graph
-                    let receives_external = containing_func.as_ref()
+                    let receives_external = containing_func
+                        .as_ref()
                         .map(|(name, _)| Self::receives_external_data(graph, name, &path_str))
                         .unwrap_or(false);
-                    
+
                     // Skip if no user input and no external data
-                    if !has_input && !receives_external { continue; }
-                    
+                    if !has_input && !receives_external {
+                        continue;
+                    }
+
                     // Skip if sanitized
-                    if has_sanitization { continue; }
-                    
+                    if has_sanitization {
+                        continue;
+                    }
+
                     // Calculate severity
                     let severity = if has_input {
-                        Severity::Critical  // Direct user input flow
+                        Severity::Critical // Direct user input flow
                     } else if receives_external {
-                        Severity::High  // Called from route handlers
+                        Severity::High // Called from route handlers
                     } else {
                         Severity::Medium
                     };
-                    
+
                     // Build notes
                     let mut notes = Vec::new();
                     notes.push(format!("🔍 Pattern: {}", pattern_desc));
@@ -202,14 +239,19 @@ impl Detector for PrototypePollutionDetector {
                         notes.push(format!("⚠️ User input from: `{}`", source));
                     }
                     if receives_external {
-                        notes.push("🌐 Function receives external data via route handler".to_string());
+                        notes.push(
+                            "🌐 Function receives external data via route handler".to_string(),
+                        );
                     }
                     if let Some((func_name, callers)) = &containing_func {
-                        notes.push(format!("📦 In function: `{}` ({} callers)", func_name, callers));
+                        notes.push(format!(
+                            "📦 In function: `{}` ({} callers)",
+                            func_name, callers
+                        ));
                     }
-                    
+
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                    
+
                     let suggestion = match pattern_type {
                         "lodash" => 
                             "Lodash <= 4.17.11 is vulnerable (CVE-2019-10744). Options:\n\n\
@@ -255,7 +297,7 @@ impl Detector for PrototypePollutionDetector {
                              }\n\
                              ```".to_string(),
                     };
-                    
+
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "PrototypePollutionDetector".to_string(),
@@ -285,8 +327,11 @@ impl Detector for PrototypePollutionDetector {
                 }
             }
         }
-        
-        info!("PrototypePollutionDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "PrototypePollutionDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

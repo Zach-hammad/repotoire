@@ -46,9 +46,9 @@ pub struct InappropriateIntimacyThresholds {
 impl Default for InappropriateIntimacyThresholds {
     fn default() -> Self {
         Self {
-            threshold_high: 40,      // Increased from 20
-            threshold_medium: 20,    // Increased from 10
-            min_mutual_access: 8,    // Increased from 5
+            threshold_high: 40,   // Increased from 20
+            threshold_medium: 20, // Increased from 10
+            min_mutual_access: 8, // Increased from 5
         }
     }
 }
@@ -214,23 +214,32 @@ impl Detector for InappropriateIntimacyDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         use std::collections::HashMap;
-        
+
         // Expected architectural layers - these calling down is normal, not intimacy
         fn is_expected_layer_dependency(from: &str, _to: &str) -> bool {
             // CLI can call anything
-            if from.contains("/cli/") { return true; }
+            if from.contains("/cli/") {
+                return true;
+            }
             // Handlers can call core modules
-            if from.contains("/handlers/") || from.contains("/mcp/") { return true; }
+            if from.contains("/handlers/") || from.contains("/mcp/") {
+                return true;
+            }
             // Tests can call anything
-            if from.contains("/tests/") || from.contains("_test.rs") { return true; }
+            if from.contains("/tests/") || from.contains("_test.rs") {
+                return true;
+            }
             // mod.rs files often re-export or orchestrate
-            if from.ends_with("/mod.rs") { return true; }
+            if from.ends_with("/mod.rs") {
+                return true;
+            }
             false
         }
-        
+
         // Check if files are in the same domain/module (legitimate close coupling)
         fn same_domain(file_a: &str, file_b: &str) -> bool {
             // Same parent directory = same module
@@ -238,79 +247,95 @@ impl Detector for InappropriateIntimacyDetector {
             let dir_b = file_b.rsplit('/').nth(1).unwrap_or("");
             dir_a == dir_b && !dir_a.is_empty()
         }
-        
+
         // Check if one file is the interface and other is implementation
         fn is_interface_impl_pair(file_a: &str, file_b: &str) -> bool {
             let name_a = file_a.rsplit('/').next().unwrap_or("");
             let name_b = file_b.rsplit('/').next().unwrap_or("");
-            
+
             // Common patterns: base.rs/impl.rs, interface.py/implementation.py
             let interface_patterns = ["base", "interface", "abstract", "types", "protocol"];
             let impl_patterns = ["impl", "concrete", "default", "standard"];
-            
+
             let a_is_interface = interface_patterns.iter().any(|p| name_a.contains(p));
             let b_is_impl = impl_patterns.iter().any(|p| name_b.contains(p));
             let b_is_interface = interface_patterns.iter().any(|p| name_b.contains(p));
             let a_is_impl = impl_patterns.iter().any(|p| name_a.contains(p));
-            
+
             (a_is_interface && b_is_impl) || (b_is_interface && a_is_impl)
         }
-        
+
         // Count DIRECTIONAL calls between files
         let mut a_to_b: HashMap<(String, String), usize> = HashMap::new();
         let mut b_to_a: HashMap<(String, String), usize> = HashMap::new();
-        
+
         // Track which functions are called (for interface analysis)
         let mut a_to_b_funcs: HashMap<(String, String), HashSet<String>> = HashMap::new();
         let mut b_to_a_funcs: HashMap<(String, String), HashSet<String>> = HashMap::new();
-        
+
         for (caller, callee) in graph.get_calls() {
-            if let (Some(caller_node), Some(callee_node)) = (graph.get_node(&caller), graph.get_node(&callee)) {
+            if let (Some(caller_node), Some(callee_node)) =
+                (graph.get_node(&caller), graph.get_node(&callee))
+            {
                 if caller_node.file_path != callee_node.file_path {
                     // Skip expected layered architecture dependencies
-                    if is_expected_layer_dependency(&caller_node.file_path, &callee_node.file_path) {
+                    if is_expected_layer_dependency(&caller_node.file_path, &callee_node.file_path)
+                    {
                         continue;
                     }
-                    
+
                     let key = if caller_node.file_path < callee_node.file_path {
                         (caller_node.file_path.clone(), callee_node.file_path.clone())
                     } else {
                         (callee_node.file_path.clone(), caller_node.file_path.clone())
                     };
-                    
+
                     // Track direction and functions called
                     if caller_node.file_path < callee_node.file_path {
                         *a_to_b.entry(key.clone()).or_insert(0) += 1;
-                        a_to_b_funcs.entry(key).or_default().insert(callee_node.name.clone());
+                        a_to_b_funcs
+                            .entry(key)
+                            .or_default()
+                            .insert(callee_node.name.clone());
                     } else {
                         *b_to_a.entry(key.clone()).or_insert(0) += 1;
-                        b_to_a_funcs.entry(key).or_default().insert(callee_node.name.clone());
+                        b_to_a_funcs
+                            .entry(key)
+                            .or_default()
+                            .insert(callee_node.name.clone());
                     }
                 }
             }
         }
-        
+
         // Flag only BIDIRECTIONAL coupling (true intimacy, not layered dependency)
         for ((file_a, file_b), count_a_to_b) in &a_to_b {
-            let count_b_to_a = b_to_a.get(&(file_a.clone(), file_b.clone())).copied().unwrap_or(0);
-            
+            let count_b_to_a = b_to_a
+                .get(&(file_a.clone(), file_b.clone()))
+                .copied()
+                .unwrap_or(0);
+
             // Must have significant calls in BOTH directions to be "intimacy"
             if count_a_to_b >= &8 && count_b_to_a >= 8 {
                 let total = count_a_to_b + count_b_to_a;
-                
+
                 // Check for legitimate patterns
                 let is_same_domain = same_domain(file_a, file_b);
                 let is_interface_pair = is_interface_impl_pair(file_a, file_b);
-                
+
                 // Get unique functions called in each direction
-                let funcs_a_to_b = a_to_b_funcs.get(&(file_a.clone(), file_b.clone()))
-                    .map(|s| s.len()).unwrap_or(0);
-                let funcs_b_to_a = b_to_a_funcs.get(&(file_a.clone(), file_b.clone()))
-                    .map(|s| s.len()).unwrap_or(0);
-                
+                let funcs_a_to_b = a_to_b_funcs
+                    .get(&(file_a.clone(), file_b.clone()))
+                    .map(|s| s.len())
+                    .unwrap_or(0);
+                let funcs_b_to_a = b_to_a_funcs
+                    .get(&(file_a.clone(), file_b.clone()))
+                    .map(|s| s.len())
+                    .unwrap_or(0);
+
                 // Concentrated coupling (few functions, many calls) is worse
                 let is_concentrated = (funcs_a_to_b + funcs_b_to_a) < 6 && total >= 30;
-                
+
                 // Calculate severity with graph-aware adjustments
                 let mut severity = if total >= 50 && count_b_to_a >= 15 && *count_a_to_b >= 15 {
                     Severity::High
@@ -319,7 +344,7 @@ impl Detector for InappropriateIntimacyDetector {
                 } else {
                     Severity::Low
                 };
-                
+
                 // Reduce severity for legitimate patterns
                 if is_same_domain || is_interface_pair {
                     severity = match severity {
@@ -327,9 +352,12 @@ impl Detector for InappropriateIntimacyDetector {
                         Severity::Medium => Severity::Low,
                         _ => Severity::Low,
                     };
-                    debug!("Reduced severity for legitimate pattern: {} <-> {}", file_a, file_b);
+                    debug!(
+                        "Reduced severity for legitimate pattern: {} <-> {}",
+                        file_a, file_b
+                    );
                 }
-                
+
                 // Increase severity for concentrated coupling
                 if is_concentrated && !is_same_domain {
                     severity = match severity {
@@ -338,7 +366,7 @@ impl Detector for InappropriateIntimacyDetector {
                         _ => severity,
                     };
                 }
-                
+
                 // Build notes about the coupling pattern
                 let mut notes = Vec::new();
                 if is_same_domain {
@@ -348,21 +376,24 @@ impl Detector for InappropriateIntimacyDetector {
                     notes.push("🔌 Interface/implementation pair detected".to_string());
                 }
                 if is_concentrated {
-                    notes.push(format!("⚠️ Concentrated: {} functions called {} times", 
-                                      funcs_a_to_b + funcs_b_to_a, total));
+                    notes.push(format!(
+                        "⚠️ Concentrated: {} functions called {} times",
+                        funcs_a_to_b + funcs_b_to_a,
+                        total
+                    ));
                 }
-                
+
                 let pattern_notes = if notes.is_empty() {
                     String::new()
                 } else {
                     format!("\n\n**Analysis:**\n{}", notes.join("\n"))
                 };
-                
+
                 // Skip very low severity findings for same-domain files
                 if is_same_domain && severity == Severity::Low {
                     continue;
                 }
-                
+
                 findings.push(Finding {
                     id: Uuid::new_v4().to_string(),
                     detector: "InappropriateIntimacyDetector".to_string(),
@@ -413,8 +444,11 @@ impl Detector for InappropriateIntimacyDetector {
                 });
             }
         }
-        
-        info!("InappropriateIntimacyDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "InappropriateIntimacyDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

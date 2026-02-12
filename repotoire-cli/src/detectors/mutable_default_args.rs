@@ -6,7 +6,6 @@
 //! - Detects the specific mutable type for better suggestions
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -14,6 +13,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static MUTABLE_DEFAULT: OnceLock<Regex> = OnceLock::new();
 static FUNC_NAME: OnceLock<Regex> = OnceLock::new();
@@ -69,12 +69,16 @@ pub struct MutableDefaultArgsDetector {
 
 impl MutableDefaultArgsDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Find function info from graph
     fn get_function_info(graph: &GraphStore, file_path: &str, func_name: &str) -> (usize, bool) {
-        if let Some(func) = graph.get_functions()
+        if let Some(func) = graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.name == func_name)
         {
@@ -87,18 +91,24 @@ impl MutableDefaultArgsDetector {
     }
 
     /// Check if function modifies the default arg (makes bug more likely)
-    fn modifies_default(content: &str, func_start: usize, func_end: usize, param_name: &str) -> bool {
+    fn modifies_default(
+        content: &str,
+        func_start: usize,
+        func_end: usize,
+        param_name: &str,
+    ) -> bool {
         let lines: Vec<&str> = content.lines().collect();
-        
+
         for line in lines.get(func_start..func_end).unwrap_or(&[]) {
             let trimmed = line.trim();
             // Check for mutations: .append, .extend, []=, .update, .add, etc.
-            if trimmed.contains(&format!("{}.append", param_name)) ||
-               trimmed.contains(&format!("{}.extend", param_name)) ||
-               trimmed.contains(&format!("{}.insert", param_name)) ||
-               trimmed.contains(&format!("{}.update", param_name)) ||
-               trimmed.contains(&format!("{}.add", param_name)) ||
-               trimmed.contains(&format!("{}[", param_name)) && trimmed.contains("=") {
+            if trimmed.contains(&format!("{}.append", param_name))
+                || trimmed.contains(&format!("{}.extend", param_name))
+                || trimmed.contains(&format!("{}.insert", param_name))
+                || trimmed.contains(&format!("{}.update", param_name))
+                || trimmed.contains(&format!("{}.add", param_name))
+                || trimmed.contains(&format!("{}[", param_name)) && trimmed.contains("=")
+            {
                 return true;
             }
         }
@@ -107,8 +117,12 @@ impl MutableDefaultArgsDetector {
 }
 
 impl Detector for MutableDefaultArgsDetector {
-    fn name(&self) -> &'static str { "mutable-default-args" }
-    fn description(&self) -> &'static str { "Detects mutable default arguments in Python" }
+    fn name(&self) -> &'static str {
+        "mutable-default-args"
+    }
+    fn description(&self) -> &'static str {
+        "Detects mutable default arguments in Python"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
@@ -118,72 +132,86 @@ impl Detector for MutableDefaultArgsDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" { continue; }
-            
+            if ext != "py" {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     if let Some(caps) = mutable_default().captures(line) {
                         let func_name = caps.get(1).map(|m| m.as_str()).unwrap_or("unknown");
                         let param_name = caps.get(2).map(|m| m.as_str()).unwrap_or("arg");
                         let mutable_type = caps.get(3).map(|m| m.as_str()).unwrap_or("[]");
-                        
+
                         // Get function info from graph
-                        let (caller_count, is_public) = Self::get_function_info(graph, &path_str, func_name);
-                        
+                        let (caller_count, is_public) =
+                            Self::get_function_info(graph, &path_str, func_name);
+
                         // Find function end for mutation check
-                        let func_end = graph.get_functions()
+                        let func_end = graph
+                            .get_functions()
                             .into_iter()
                             .find(|f| f.file_path == path_str && f.name == func_name)
                             .map(|f| f.line_end as usize)
                             .unwrap_or(i + 20);
-                        
+
                         let modifies = Self::modifies_default(&content, i, func_end, param_name);
-                        
+
                         // Calculate severity
                         let severity = if modifies && caller_count > 5 {
-                            Severity::High  // Mutates + called often = high risk
+                            Severity::High // Mutates + called often = high risk
                         } else if modifies || caller_count > 3 {
                             Severity::Medium
                         } else if is_public {
-                            Severity::Medium  // Public functions could be called from anywhere
+                            Severity::Medium // Public functions could be called from anywhere
                         } else {
-                            Severity::Low  // Private, rarely called
+                            Severity::Low // Private, rarely called
                         };
-                        
+
                         // Build context notes
                         let mut notes = Vec::new();
                         if caller_count > 0 {
                             notes.push(format!("📞 Called {} times in codebase", caller_count));
                         }
                         if modifies {
-                            notes.push(format!("⚠️ Function modifies `{}` - bug will definitely manifest!", param_name));
+                            notes.push(format!(
+                                "⚠️ Function modifies `{}` - bug will definitely manifest!",
+                                param_name
+                            ));
                         }
                         if is_public {
-                            notes.push("🌐 Public function (could be called from external code)".to_string());
+                            notes.push(
+                                "🌐 Public function (could be called from external code)"
+                                    .to_string(),
+                            );
                         }
-                        
+
                         let context_notes = if notes.is_empty() {
                             String::new()
                         } else {
                             format!("\n\n**Analysis:**\n{}", notes.join("\n"))
                         };
-                        
+
                         let type_name = match mutable_type {
                             "[]" | "list()" => "list",
-                            "{}" | "dict()" => "dict", 
+                            "{}" | "dict()" => "dict",
                             "set()" => "set",
                             _ => "mutable object",
                         };
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "MutableDefaultArgsDetector".to_string(),
@@ -216,8 +244,11 @@ impl Detector for MutableDefaultArgsDetector {
                 }
             }
         }
-        
-        info!("MutableDefaultArgsDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "MutableDefaultArgsDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

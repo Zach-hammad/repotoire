@@ -69,7 +69,7 @@ impl DetectorConfig {
     }
 
     /// Create a config populated from project-level detector thresholds
-    /// 
+    ///
     /// Looks up the detector by name in the project config and copies
     /// any threshold values into the options map.
     pub fn from_project_config(
@@ -77,12 +77,14 @@ impl DetectorConfig {
         project_config: &crate::config::ProjectConfig,
     ) -> Self {
         let mut config = Self::new();
-        
+
         // Normalize detector name for lookup (GodClassDetector -> god-class)
         let normalized = crate::config::normalize_detector_name(detector_name);
-        
+
         // Look up detector config in project config
-        if let Some(detector_override) = project_config.detectors.get(&normalized)
+        if let Some(detector_override) = project_config
+            .detectors
+            .get(&normalized)
             .or_else(|| project_config.detectors.get(detector_name))
         {
             // Copy thresholds to options
@@ -96,7 +98,7 @@ impl DetectorConfig {
                 config.options.insert(key.clone(), json_value);
             }
         }
-        
+
         config
     }
 
@@ -138,11 +140,12 @@ impl DetectorConfig {
 /// Used by security detectors to avoid flagging test certificates, test fixtures, etc.
 pub fn is_test_file(path: &std::path::Path) -> bool {
     let path_str = path.to_string_lossy().to_lowercase();
-    let filename = path.file_name()
+    let filename = path
+        .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_lowercase();
-    
+
     // Go test files
     path_str.ends_with("_test.go") ||
     // Python test files
@@ -362,24 +365,24 @@ mod tests {
     #[test]
     fn test_detection_summary() {
         let mut summary = DetectionSummary::default();
-        
+
         let result1 = DetectorResult::success("D1".to_string(), vec![], 100);
         let result2 = DetectorResult::failure("D2".to_string(), "err".to_string(), 50);
-        
+
         summary.add_result(&result1);
         summary.add_result(&result2);
-        
+
         assert_eq!(summary.detectors_run, 2);
         assert_eq!(summary.detectors_succeeded, 1);
         assert_eq!(summary.detectors_failed, 1);
         assert_eq!(summary.total_duration_ms, 150);
     }
-    
+
     #[test]
     fn test_is_test_file() {
         use super::is_test_file;
         use std::path::Path;
-        
+
         assert!(is_test_file(Path::new("foo_test.go")));
         assert!(is_test_file(Path::new("test_foo.py")));
         assert!(is_test_file(Path::new("src/tests/helper.py")));

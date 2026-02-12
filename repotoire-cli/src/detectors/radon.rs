@@ -79,11 +79,28 @@ impl RadonDetector {
                         for item in arr {
                             results.push(CcResult {
                                 file: file_path.clone(),
-                                name: item.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(),
-                                complexity: item.get("complexity").and_then(|c| c.as_u64()).unwrap_or(0) as u32,
-                                rank: item.get("rank").and_then(|r| r.as_str()).unwrap_or("A").to_string(),
-                                lineno: item.get("lineno").and_then(|l| l.as_u64()).unwrap_or(0) as u32,
-                                entity_type: item.get("type").and_then(|t| t.as_str()).unwrap_or("function").to_string(),
+                                name: item
+                                    .get("name")
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                complexity: item
+                                    .get("complexity")
+                                    .and_then(|c| c.as_u64())
+                                    .unwrap_or(0)
+                                    as u32,
+                                rank: item
+                                    .get("rank")
+                                    .and_then(|r| r.as_str())
+                                    .unwrap_or("A")
+                                    .to_string(),
+                                lineno: item.get("lineno").and_then(|l| l.as_u64()).unwrap_or(0)
+                                    as u32,
+                                entity_type: item
+                                    .get("type")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("function")
+                                    .to_string(),
                             });
                         }
                     }
@@ -113,21 +130,24 @@ impl RadonDetector {
         }
 
         match result.json_output() {
-            Some(JsonValue::Object(obj)) => {
-                obj.into_iter()
-                    .filter_map(|(file_path, data)| {
-                        let mi = data.get("mi")?.as_f64()?;
-                        if mi >= self.maintainability_threshold {
-                            return None;
-                        }
-                        Some(MiResult {
-                            file: file_path,
-                            mi,
-                            rank: data.get("rank").and_then(|r| r.as_str()).unwrap_or("A").to_string(),
-                        })
+            Some(JsonValue::Object(obj)) => obj
+                .into_iter()
+                .filter_map(|(file_path, data)| {
+                    let mi = data.get("mi")?.as_f64()?;
+                    if mi >= self.maintainability_threshold {
+                        return None;
+                    }
+                    Some(MiResult {
+                        file: file_path,
+                        mi,
+                        rank: data
+                            .get("rank")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("A")
+                            .to_string(),
                     })
-                    .collect()
-            }
+                })
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -135,9 +155,9 @@ impl RadonDetector {
     /// Map complexity grade to severity
     fn cc_severity(rank: &str) -> Option<Severity> {
         match rank.to_uppercase().as_str() {
-            "A" | "B" => None,      // Simple, no issue
-            "C" => Some(Severity::Low),    // Somewhat complex
-            "D" => Some(Severity::Medium), // More complex
+            "A" | "B" => None,                 // Simple, no issue
+            "C" => Some(Severity::Low),        // Somewhat complex
+            "D" => Some(Severity::Medium),     // More complex
             "E" | "F" => Some(Severity::High), // Too complex
             _ => None,
         }
@@ -185,7 +205,9 @@ impl RadonDetector {
             description.push_str(&format!("**File Size**: {} LOC\n", loc));
         }
 
-        description.push_str("\n**Impact**: High complexity makes code harder to test, understand, and maintain.\n");
+        description.push_str(
+            "\n**Impact**: High complexity makes code harder to test, understand, and maintain.\n",
+        );
 
         Some(Finding {
             id: Uuid::new_v4().to_string(),
@@ -237,7 +259,9 @@ impl RadonDetector {
             description.push_str(&format!("**File Size**: {} LOC\n", loc));
         }
 
-        description.push_str("\n**Impact**: Low maintainability increases bug risk and slows development.\n");
+        description.push_str(
+            "\n**Impact**: Low maintainability increases bug risk and slows development.\n",
+        );
 
         Some(Finding {
             id: Uuid::new_v4().to_string(),
@@ -331,7 +355,10 @@ impl Detector for RadonDetector {
             }
         }
 
-        info!("Created {} complexity/maintainability findings", findings.len());
+        info!(
+            "Created {} complexity/maintainability findings",
+            findings.len()
+        );
         Ok(findings.into_iter().take(self.max_findings).collect())
     }
 

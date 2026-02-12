@@ -299,7 +299,8 @@ impl IncrementalCache {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let cached_findings: Vec<CachedFinding> = findings.iter().map(CachedFinding::from).collect();
+        let cached_findings: Vec<CachedFinding> =
+            findings.iter().map(CachedFinding::from).collect();
 
         self.cache.files.insert(
             path_key,
@@ -365,7 +366,8 @@ impl IncrementalCache {
 
     /// Store findings from a graph-level detector
     pub fn cache_graph_findings(&mut self, detector_name: &str, findings: &[Finding]) {
-        let cached_findings: Vec<CachedFinding> = findings.iter().map(CachedFinding::from).collect();
+        let cached_findings: Vec<CachedFinding> =
+            findings.iter().map(CachedFinding::from).collect();
 
         self.cache
             .graph

@@ -338,34 +338,35 @@ impl Detector for AIComplexitySpikeDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         // Calculate baseline complexity
         let functions = graph.get_functions();
-        let complexities: Vec<i64> = functions.iter()
-            .filter_map(|f| f.complexity())
-            .collect();
-        
+        let complexities: Vec<i64> = functions.iter().filter_map(|f| f.complexity()).collect();
+
         if complexities.is_empty() {
             return Ok(vec![]);
         }
-        
+
         let avg: f64 = complexities.iter().sum::<i64>() as f64 / complexities.len() as f64;
-        let variance: f64 = complexities.iter()
+        let variance: f64 = complexities
+            .iter()
             .map(|&c| (c as f64 - avg).powi(2))
-            .sum::<f64>() / complexities.len() as f64;
+            .sum::<f64>()
+            / complexities.len() as f64;
         let std_dev = variance.sqrt();
-        
+
         // Find outliers (>2 standard deviations above mean)
         let threshold = avg + 2.0 * std_dev;
-        
+
         for func in functions {
             // Skip detector files (they have inherently complex parsing logic)
             if func.file_path.contains("/detectors/") {
                 continue;
             }
-            
+
             // Skip parser files (parsing code is naturally complex)
             if func.file_path.contains("/parsers/") {
                 continue;
@@ -374,13 +375,13 @@ impl Detector for AIComplexitySpikeDetector {
             if let Some(complexity) = func.complexity() {
                 if complexity as f64 > threshold && complexity > 20 {
                     let z_score = (complexity as f64 - avg) / std_dev;
-                    
+
                     let severity = if z_score > 3.0 {
                         Severity::High
                     } else {
                         Severity::Medium
                     };
-                    
+
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "AIComplexitySpikeDetector".to_string(),
@@ -403,7 +404,7 @@ impl Detector for AIComplexitySpikeDetector {
                 }
             }
         }
-        
+
         Ok(findings)
     }
 }

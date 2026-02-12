@@ -3,12 +3,12 @@
 //! This module provides language-specific parsers for extracting code entities
 //! (functions, classes, imports) and relationships (calls) from source files.
 
+mod csharp;
+mod go;
+mod java;
 pub mod python;
 mod rust;
 mod typescript;
-mod go;
-mod java;
-mod csharp;
 // mod kotlin;
 mod c;
 mod cpp;
@@ -23,31 +23,31 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
     match ext {
         // Python
         "py" | "pyi" => python::parse(path),
-        
+
         // TypeScript/JavaScript
         "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => typescript::parse(path),
-        
+
         // Rust
         "rs" => rust::parse(path),
-        
+
         // Go
         "go" => go::parse(path),
-        
+
         // Java
         "java" => java::parse(path),
-        
+
         // C#
         "cs" => csharp::parse(path),
-        
+
         // Kotlin
         "kt" | "kts" => Ok(ParseResult::default()), // kotlin disabled
-        
+
         // C
         "c" | "h" => c::parse(path),
-        
+
         // C++
         "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => cpp::parse(path),
-        
+
         // Unknown extension
         _ => Ok(ParseResult::default()),
     }
@@ -75,14 +75,14 @@ pub fn language_for_extension(ext: &str) -> Option<&'static str> {
 #[allow(dead_code)] // Public API helper
 pub fn supported_extensions() -> &'static [&'static str] {
     &[
-        "py", "pyi",                                    // Python
-        "ts", "tsx", "js", "jsx", "mjs", "cjs",         // TypeScript/JavaScript
-        "rs",                                           // Rust
-        "go",                                           // Go
-        "java",                                         // Java
-        "cs",                                           // C#
-        "kt", "kts",                                    // Kotlin
-        "c", "h",                                       // C
+        "py", "pyi", // Python
+        "ts", "tsx", "js", "jsx", "mjs", "cjs",  // TypeScript/JavaScript
+        "rs",   // Rust
+        "go",   // Go
+        "java", // Java
+        "cs",   // C#
+        "kt", "kts", // Kotlin
+        "c", "h", // C
         "cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", // C++
     ]
 }
@@ -99,12 +99,18 @@ pub struct ImportInfo {
 impl ImportInfo {
     /// Create a runtime import (not type-only)
     pub fn runtime(path: impl Into<String>) -> Self {
-        Self { path: path.into(), is_type_only: false }
+        Self {
+            path: path.into(),
+            is_type_only: false,
+        }
     }
-    
+
     /// Create a type-only import
     pub fn type_only(path: impl Into<String>) -> Self {
-        Self { path: path.into(), is_type_only: true }
+        Self {
+            path: path.into(),
+            is_type_only: true,
+        }
     }
 }
 

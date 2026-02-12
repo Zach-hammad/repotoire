@@ -119,15 +119,13 @@ impl GitBlame {
     pub fn open(path: &Path) -> Result<Self> {
         let repo = Repository::discover(path)
             .with_context(|| format!("Failed to open git repository at {:?}", path))?;
-        let repo_path = repo.workdir()
-            .unwrap_or(repo.path())
-            .to_path_buf();
-        
+        let repo_path = repo.workdir().unwrap_or(repo.path()).to_path_buf();
+
         // Load disk cache from ~/.cache/repotoire/<repo>/git_cache.json
         let cache_path = crate::cache::get_git_cache_path(&repo_path);
         let disk_cache = GitCache::load(&cache_path);
-        
-        Ok(Self { 
+
+        Ok(Self {
             repo,
             repo_path,
             file_cache: Arc::new(DashMap::new()),
@@ -148,16 +146,16 @@ impl GitBlame {
         let mem_cache = Arc::clone(&self.file_cache);
         let disk_cache = Arc::clone(&self.disk_cache);
         let repo_path = self.repo_path.clone();
-        
+
         let cache_hits = std::sync::atomic::AtomicUsize::new(0);
         let computed = std::sync::atomic::AtomicUsize::new(0);
-        
+
         file_paths.par_iter().for_each(|file_path| {
             // Skip if already in memory cache
             if mem_cache.contains_key(file_path) {
                 return;
             }
-            
+
             // Check disk cache first
             {
                 let dc = disk_cache.read().unwrap();
@@ -169,21 +167,24 @@ impl GitBlame {
                     }
                 }
             }
-            
+
             // Compute fresh blame
             if let Ok(repo) = Repository::discover(&repo_path) {
                 if let Ok(entries) = blame_file_with_repo(&repo, file_path) {
                     mem_cache.insert(file_path.clone(), entries.clone());
-                    
+
                     // Update disk cache
                     if let Ok(meta) = fs::metadata(repo_path.join(file_path)) {
                         if let Ok(mtime) = meta.modified() {
                             if let Ok(duration) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
                                 let mut dc = disk_cache.write().unwrap();
-                                dc.files.insert(file_path.clone(), CachedBlame {
-                                    entries,
-                                    mtime_secs: duration.as_secs(),
-                                });
+                                dc.files.insert(
+                                    file_path.clone(),
+                                    CachedBlame {
+                                        entries,
+                                        mtime_secs: duration.as_secs(),
+                                    },
+                                );
                             }
                         }
                     }
@@ -191,14 +192,16 @@ impl GitBlame {
                 }
             }
         });
-        
+
         // Save disk cache after warming
         if let Ok(dc) = disk_cache.read() {
             let _ = dc.save(&self.cache_path);
         }
-        
-        (cache_hits.load(std::sync::atomic::Ordering::Relaxed), 
-         computed.load(std::sync::atomic::Ordering::Relaxed))
+
+        (
+            cache_hits.load(std::sync::atomic::Ordering::Relaxed),
+            computed.load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// Get blame information for a specific line range.
@@ -348,10 +351,11 @@ impl GitBlame {
         if let Some(cached) = self.file_cache.get(file_path) {
             return Ok(cached.clone());
         }
-        
+
         // Compute and cache
         let entries = self.blame_file(file_path)?;
-        self.file_cache.insert(file_path.to_string(), entries.clone());
+        self.file_cache
+            .insert(file_path.to_string(), entries.clone());
         Ok(entries)
     }
 

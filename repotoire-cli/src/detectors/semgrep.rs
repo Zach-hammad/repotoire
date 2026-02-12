@@ -99,20 +99,32 @@ impl SemgrepDetector {
 
         match result.json_output() {
             Some(json) => {
-                let results = json.get("results").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+                let results = json
+                    .get("results")
+                    .and_then(|r| r.as_array())
+                    .cloned()
+                    .unwrap_or_default();
 
                 // Filter by severity threshold
                 let severity_order = ["INFO", "WARNING", "ERROR"];
-                let threshold_level = severity_order.iter().position(|&s| s == self.severity_threshold.to_uppercase()).unwrap_or(0);
+                let threshold_level = severity_order
+                    .iter()
+                    .position(|&s| s == self.severity_threshold.to_uppercase())
+                    .unwrap_or(0);
 
                 results
                     .into_iter()
                     .filter(|r| {
-                        let severity = r.get("extra")
+                        let severity = r
+                            .get("extra")
                             .and_then(|e| e.get("severity"))
                             .and_then(|s| s.as_str())
                             .unwrap_or("INFO");
-                        severity_order.iter().position(|&s| s == severity).unwrap_or(0) >= threshold_level
+                        severity_order
+                            .iter()
+                            .position(|&s| s == severity)
+                            .unwrap_or(0)
+                            >= threshold_level
                     })
                     .collect()
             }
@@ -144,7 +156,11 @@ impl SemgrepDetector {
 
         let start = result.get("start")?;
         let start_line = start.get("line")?.as_u64()? as u32;
-        let end_line = result.get("end").and_then(|e| e.get("line")).and_then(|l| l.as_u64()).unwrap_or(start_line as u64) as u32;
+        let end_line = result
+            .get("end")
+            .and_then(|e| e.get("line"))
+            .and_then(|l| l.as_u64())
+            .unwrap_or(start_line as u64) as u32;
 
         // Convert to relative path
         let rel_path = Path::new(path)
@@ -182,7 +198,9 @@ impl SemgrepDetector {
             description.push_str(&format!("**File Size**: {} LOC\n", loc));
         }
 
-        description.push_str("\n**Impact**: Security vulnerability detected by Semgrep pattern matching.\n");
+        description.push_str(
+            "\n**Impact**: Security vulnerability detected by Semgrep pattern matching.\n",
+        );
 
         // Extract rule name from check_id
         let rule_name = check_id.split('.').next_back().unwrap_or(check_id);
@@ -238,7 +256,8 @@ impl SemgrepDetector {
         } else if msg_lower.contains("path") || msg_lower.contains("traversal") {
             "Validate and sanitize file paths, use allowlist approach".to_string()
         } else {
-            "Review the code and apply security best practices as per Semgrep recommendation".to_string()
+            "Review the code and apply security best practices as per Semgrep recommendation"
+                .to_string()
         }
     }
 

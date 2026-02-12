@@ -24,7 +24,7 @@ mod fix_generator;
 mod prompts;
 
 pub use client::{AiClient, AiConfig, LlmBackend, Message, Role};
-pub use fix_generator::{CodeChange, FixGenerator, FixProposal, FixConfidence, FixType};
+pub use fix_generator::{CodeChange, FixConfidence, FixGenerator, FixProposal, FixType};
 pub use prompts::{FixPromptBuilder, PromptTemplate};
 
 use thiserror::Error;

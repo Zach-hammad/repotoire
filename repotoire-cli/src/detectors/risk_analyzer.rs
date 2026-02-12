@@ -111,7 +111,10 @@ impl RiskAnalyzer {
     }
 
     /// Create with custom thresholds
-    pub fn with_thresholds(complexity_threshold: i32, security_severity_threshold: Severity) -> Self {
+    pub fn with_thresholds(
+        complexity_threshold: i32,
+        security_severity_threshold: Severity,
+    ) -> Self {
         Self {
             complexity_threshold,
             security_severity_threshold,

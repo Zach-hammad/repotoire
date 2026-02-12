@@ -84,28 +84,28 @@ impl MypyDetector {
             "attr-defined" | "name-defined" | "call-arg" | "return-value" => Severity::High,
             "arg-type" | "return" | "override" | "type-arg" | "assignment" => Severity::Medium,
             "no-untyped-def" | "no-any-return" | "redundant-cast" | "misc" => Severity::Low,
-            _ => {
-                match mypy_severity {
-                    "error" => Severity::Medium,
-                    "warning" => Severity::Low,
-                    _ => Severity::Info,
-                }
-            }
+            _ => match mypy_severity {
+                "error" => Severity::Medium,
+                "warning" => Severity::Low,
+                _ => Severity::Info,
+            },
         }
     }
 
     /// Create finding from mypy result
-    fn create_finding(
-        &self,
-        result: &JsonValue,
-        graph: &GraphStore,
-    ) -> Option<Finding> {
+    fn create_finding(&self, result: &JsonValue, graph: &GraphStore) -> Option<Finding> {
         let file_path = result.get("file")?.as_str()?;
         let line = result.get("line")?.as_u64()? as u32;
         let _column = result.get("column").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
         let message = result.get("message")?.as_str()?;
-        let error_code = result.get("code").and_then(|c| c.as_str()).unwrap_or("misc");
-        let mypy_severity = result.get("severity").and_then(|s| s.as_str()).unwrap_or("error");
+        let error_code = result
+            .get("code")
+            .and_then(|c| c.as_str())
+            .unwrap_or("misc");
+        let mypy_severity = result
+            .get("severity")
+            .and_then(|s| s.as_str())
+            .unwrap_or("error");
 
         // Convert to relative path
         let rel_path = if Path::new(file_path).is_absolute() {
@@ -139,7 +139,12 @@ impl MypyDetector {
         if !ctx.affected_nodes.is_empty() {
             description.push_str(&format!(
                 "**Affected**: {}\n",
-                ctx.affected_nodes.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                ctx.affected_nodes
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
@@ -165,7 +170,9 @@ impl MypyDetector {
 
     fn suggest_fix(error_code: &str, _message: &str) -> String {
         match error_code {
-            "attr-defined" => "Add the missing attribute or check if the object type is correct".to_string(),
+            "attr-defined" => {
+                "Add the missing attribute or check if the object type is correct".to_string()
+            }
             "name-defined" => "Define the name before using it or check for typos".to_string(),
             "call-arg" => "Check function signature and provide correct arguments".to_string(),
             "return-value" => "Ensure return value matches the declared return type".to_string(),
@@ -173,7 +180,8 @@ impl MypyDetector {
             "arg-type" => "Ensure argument types match the function signature".to_string(),
             "no-untyped-def" => "Add type annotations to function signature".to_string(),
             "no-any-return" => "Specify a more specific return type instead of Any".to_string(),
-            _ => "Review the type error and add appropriate type hints or fix the type mismatch".to_string(),
+            _ => "Review the type error and add appropriate type hints or fix the type mismatch"
+                .to_string(),
         }
     }
 
@@ -243,9 +251,21 @@ mod tests {
 
     #[test]
     fn test_severity_mapping() {
-        assert_eq!(MypyDetector::map_severity("attr-defined", "error"), Severity::High);
-        assert_eq!(MypyDetector::map_severity("arg-type", "error"), Severity::Medium);
-        assert_eq!(MypyDetector::map_severity("no-untyped-def", "warning"), Severity::Low);
-        assert_eq!(MypyDetector::map_severity("unknown", "note"), Severity::Info);
+        assert_eq!(
+            MypyDetector::map_severity("attr-defined", "error"),
+            Severity::High
+        );
+        assert_eq!(
+            MypyDetector::map_severity("arg-type", "error"),
+            Severity::Medium
+        );
+        assert_eq!(
+            MypyDetector::map_severity("no-untyped-def", "warning"),
+            Severity::Low
+        );
+        assert_eq!(
+            MypyDetector::map_severity("unknown", "note"),
+            Severity::Info
+        );
     }
 }

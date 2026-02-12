@@ -1,7 +1,7 @@
 //! Command Injection Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::detectors::taint::{TaintAnalyzer, TaintAnalysisResult, TaintCategory};
+use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -33,7 +33,8 @@ fn go_exec() -> &'static Regex {
 fn js_exec_direct() -> &'static Regex {
     // Direct exec() call pattern for JavaScript - matches exec( but not .exec( to avoid RegExp.exec
     // This catches: exec(something), execSync(something), execAsync(something)
-    JS_EXEC_DIRECT.get_or_init(|| Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).unwrap())
+    JS_EXEC_DIRECT
+        .get_or_init(|| Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).unwrap())
 }
 
 pub struct CommandInjectionDetector {
@@ -44,13 +45,13 @@ pub struct CommandInjectionDetector {
 
 impl CommandInjectionDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { 
-            repository_path: repository_path.into(), 
+        Self {
+            repository_path: repository_path.into(),
             max_findings: 50,
             taint_analyzer: TaintAnalyzer::new(),
         }
     }
-    
+
     /// Convert absolute path to relative path for consistent output
     fn relative_path(&self, path: &Path) -> PathBuf {
         path.strip_prefix(&self.repository_path)
@@ -60,29 +61,47 @@ impl CommandInjectionDetector {
 }
 
 impl Detector for CommandInjectionDetector {
-    fn name(&self) -> &'static str { "command-injection" }
-    fn description(&self) -> &'static str { "Detects command injection vulnerabilities" }
+    fn name(&self) -> &'static str {
+        "command-injection"
+    }
+    fn description(&self) -> &'static str {
+        "Detects command injection vulnerabilities"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         // Run taint analysis for command injection
-        let taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::CommandInjection);
+        let taint_paths = self
+            .taint_analyzer
+            .trace_taint(graph, TaintCategory::CommandInjection);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"rb"|"php"|"java"|"go"|"sh") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "rb" | "php" | "java" | "go" | "sh"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let file_str = path.to_string_lossy();
-                
+
                 // First pass: find template literals with RISKY interpolation stored in variables
                 // e.g., const cmd = `echo ${userId}`;  // userId could be user input
                 // But NOT: const cmd = `echo ${CONSTANT}`;  // All-caps likely safe
@@ -90,20 +109,25 @@ impl Detector for CommandInjectionDetector {
                 for line in &lines {
                     // Match: const/let/var VARNAME = `...${...}...`
                     if (line.contains("const ") || line.contains("let ") || line.contains("var "))
-                        && line.contains("`") && line.contains("${") {
+                        && line.contains("`")
+                        && line.contains("${")
+                    {
                         // Check if the interpolated content looks like user input
                         // Look for: params, req, request, body, query, input, userId, id, args, etc.
                         let lower = line.to_lowercase();
-                        let has_risky_interpolation = 
-                            lower.contains("${") && (
-                                lower.contains("id}") || lower.contains("id,") ||
-                                lower.contains("param") || lower.contains("input") ||
-                                lower.contains("user") || lower.contains("name}") ||
-                                lower.contains("args") || lower.contains("arg}") ||
-                                lower.contains("req.") || lower.contains("body") ||
-                                lower.contains("query")
-                            );
-                        
+                        let has_risky_interpolation = lower.contains("${")
+                            && (lower.contains("id}")
+                                || lower.contains("id,")
+                                || lower.contains("param")
+                                || lower.contains("input")
+                                || lower.contains("user")
+                                || lower.contains("name}")
+                                || lower.contains("args")
+                                || lower.contains("arg}")
+                                || lower.contains("req.")
+                                || lower.contains("body")
+                                || lower.contains("query"));
+
                         if has_risky_interpolation {
                             // Extract variable name
                             if let Some(eq_pos) = line.find('=') {
@@ -116,17 +140,17 @@ impl Detector for CommandInjectionDetector {
                         }
                     }
                 }
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     let line_num = (i + 1) as u32;
-                    
+
                     // Helper to check taint and adjust severity
                     let check_taint = |base_desc: &str| -> (Severity, String) {
                         let matching_taint = taint_result.paths.iter().find(|p| {
-                            (p.sink_file == file_str || p.source_file == file_str) &&
-                            (p.sink_line == line_num || p.source_line == line_num)
+                            (p.sink_file == file_str || p.source_file == file_str)
+                                && (p.sink_line == line_num || p.source_line == line_num)
                         });
-                        
+
                         match matching_taint {
                             Some(taint_path) if taint_path.is_sanitized => {
                                 (Severity::Low, format!(
@@ -147,38 +171,46 @@ impl Detector for CommandInjectionDetector {
                             None => (Severity::Critical, base_desc.to_string())
                         }
                     };
-                    
+
                     // Check for direct shell execution with template literal
                     if shell_exec().is_match(line) {
                         // Check for user input sources
-                        let has_user_input = line.contains("req.") || line.contains("request.") ||
-                            line.contains("params.") || line.contains("params[") ||
-                            line.contains("query.") || line.contains("body.") ||
-                            line.contains("input") || line.contains("argv") || line.contains("args");
-                        
+                        let has_user_input = line.contains("req.")
+                            || line.contains("request.")
+                            || line.contains("params.")
+                            || line.contains("params[")
+                            || line.contains("query.")
+                            || line.contains("body.")
+                            || line.contains("input")
+                            || line.contains("argv")
+                            || line.contains("args");
+
                         // Check for string interpolation ON THIS LINE
-                        let has_interpolation = line.contains("f\"") || line.contains("${") || 
-                            line.contains("+ ") || line.contains(".format(");
-                        
+                        let has_interpolation = line.contains("f\"")
+                            || line.contains("${")
+                            || line.contains("+ ")
+                            || line.contains(".format(");
+
                         // Check for template literal with interpolation ON THIS LINE
                         let has_template_interpolation = line.contains("`") && line.contains("${");
-                        
+
                         // Check if exec is using a dangerous variable we identified earlier
                         let uses_dangerous_var = dangerous_vars.iter().any(|v| line.contains(v));
-                        
+
                         // Python subprocess shell=True is always dangerous
-                        let has_shell_true = line.contains("shell=True") || line.contains("shell: true");
-                        
+                        let has_shell_true =
+                            line.contains("shell=True") || line.contains("shell: true");
+
                         // HIGH RISK conditions:
                         // 1. shell=True (Python) - always dangerous
                         // 2. exec with user input AND interpolation on same line
                         // 3. exec with template literal + ${} on same line (obvious injection)
                         // 4. exec using a variable that was built from template with ${}
-                        let is_risky = has_shell_true 
+                        let is_risky = has_shell_true
                             || (has_user_input && has_interpolation)
                             || has_template_interpolation
                             || uses_dangerous_var;
-                        
+
                         if is_risky {
                             let base_desc = if has_template_interpolation {
                                 "Template literal with interpolation passed directly to shell execution. Variables are inserted unsanitized."
@@ -189,9 +221,9 @@ impl Detector for CommandInjectionDetector {
                             } else {
                                 "Shell command execution with potential user input."
                             };
-                            
+
                             let (severity, description) = check_taint(base_desc);
-                            
+
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
@@ -210,15 +242,17 @@ impl Detector for CommandInjectionDetector {
                             });
                         }
                     }
-                    
                     // Fallback: Also flag template literals with ${} passed directly to exec-like functions
                     // but ONLY if shell_exec() didn't already match (avoid duplicates)
-                    else if line.contains("exec(") || line.contains("execSync(") || line.contains("execAsync(") {
+                    else if line.contains("exec(")
+                        || line.contains("execSync(")
+                        || line.contains("execAsync(")
+                    {
                         if line.contains("`") && line.contains("${") {
                             let (severity, description) = check_taint(
                                 "Template literal with variable interpolation passed to exec(). This is a classic command injection pattern."
                             );
-                            
+
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
@@ -237,11 +271,13 @@ impl Detector for CommandInjectionDetector {
                             });
                         }
                         // Also check if it's using a variable we identified as dangerous (built from template literal)
-                        else if dangerous_vars.iter().any(|v| line.contains(&format!("({})", v)) || line.contains(&format!("({},", v))) {
+                        else if dangerous_vars.iter().any(|v| {
+                            line.contains(&format!("({})", v)) || line.contains(&format!("({},", v))
+                        }) {
                             let (severity, description) = check_taint(
                                 "Shell execution using a command string that was built with template literal interpolation. User input may flow into the shell command."
                             );
-                            
+
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
@@ -260,19 +296,22 @@ impl Detector for CommandInjectionDetector {
                             });
                         }
                     }
-                    
+
                     // Check for direct exec(req.body.command) pattern in JavaScript
                     // This catches exec(userInput) without template literals
                     if js_exec_direct().is_match(line) {
-                        let has_direct_user_input = line.contains("req.body") || line.contains("req.query") ||
-                            line.contains("req.params") || line.contains("request.body") ||
-                            line.contains("request.query") || line.contains("request.params");
-                        
+                        let has_direct_user_input = line.contains("req.body")
+                            || line.contains("req.query")
+                            || line.contains("req.params")
+                            || line.contains("request.body")
+                            || line.contains("request.query")
+                            || line.contains("request.params");
+
                         if has_direct_user_input {
                             let (severity, description) = check_taint(
                                 "User-controlled input (req.body/query/params) passed directly to shell execution function. This allows arbitrary command execution."
                             );
-                            
+
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
@@ -291,28 +330,34 @@ impl Detector for CommandInjectionDetector {
                             });
                         }
                     }
-                    
+
                     // Check for Go exec.Command with user input
                     if go_exec().is_match(line) {
-                        let has_user_input = line.contains("r.") || line.contains("req.") || 
-                            line.contains("request.") || line.contains("c.") ||
-                            line.contains("ctx.") || line.contains("Param") ||
-                            line.contains("Query") || line.contains("FormValue") ||
-                            line.contains("PostForm") || line.contains("userInput") ||
-                            line.contains("input") || line.contains("cmd") ||
-                            line.contains("command");
-                        
+                        let has_user_input = line.contains("r.")
+                            || line.contains("req.")
+                            || line.contains("request.")
+                            || line.contains("c.")
+                            || line.contains("ctx.")
+                            || line.contains("Param")
+                            || line.contains("Query")
+                            || line.contains("FormValue")
+                            || line.contains("PostForm")
+                            || line.contains("userInput")
+                            || line.contains("input")
+                            || line.contains("cmd")
+                            || line.contains("command");
+
                         // Also flag if variable names suggest user input
-                        let has_risky_var = line.to_lowercase().contains("userinput") ||
-                            line.to_lowercase().contains("user_input") ||
-                            line.to_lowercase().contains("usercmd") ||
-                            line.to_lowercase().contains("user_cmd");
-                        
+                        let has_risky_var = line.to_lowercase().contains("userinput")
+                            || line.to_lowercase().contains("user_input")
+                            || line.to_lowercase().contains("usercmd")
+                            || line.to_lowercase().contains("user_cmd");
+
                         if has_user_input || has_risky_var {
                             let (severity, description) = check_taint(
                                 "exec.Command called with potentially user-controlled input. If the command or arguments come from user input, this allows arbitrary command execution."
                             );
-                            
+
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
@@ -334,10 +379,10 @@ impl Detector for CommandInjectionDetector {
                 }
             }
         }
-        
+
         // Filter out Low severity (sanitized) findings
         findings.retain(|f| f.severity != Severity::Low);
-        
+
         Ok(findings)
     }
 }

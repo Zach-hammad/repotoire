@@ -7,7 +7,6 @@
 //! - Find hidden N+1 patterns across function boundaries
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -16,6 +15,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::{debug, info};
+use uuid::Uuid;
 
 static LOOP: OnceLock<Regex> = OnceLock::new();
 static QUERY: OnceLock<Regex> = OnceLock::new();
@@ -40,26 +40,31 @@ pub struct NPlusOneDetector {
 
 impl NPlusOneDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Find functions that contain database queries
     fn find_query_functions(&self, graph: &GraphStore) -> HashSet<String> {
         let mut query_funcs = HashSet::new();
-        
+
         for func in graph.get_functions() {
             // Check if function name suggests it does queries
             if query_func_pattern().is_match(&func.name) {
                 query_funcs.insert(func.qualified_name.clone());
                 continue;
             }
-            
+
             // Check function content for query patterns
-            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+            if let Some(content) =
+                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+            {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = func.line_start.saturating_sub(1) as usize;
                 let end = (func.line_end as usize).min(lines.len());
-                
+
                 for line in lines.get(start..end).unwrap_or(&[]) {
                     if query_pattern().is_match(line) {
                         query_funcs.insert(func.qualified_name.clone());
@@ -68,7 +73,7 @@ impl NPlusOneDetector {
                 }
             }
         }
-        
+
         debug!("Found {} potential query functions", query_funcs.len());
         query_funcs
     }
@@ -80,28 +85,32 @@ impl NPlusOneDetector {
         func_qn: &str,
         query_funcs: &HashSet<String>,
         depth: usize,
-        visited: &mut HashSet<String>
+        visited: &mut HashSet<String>,
     ) -> Option<String> {
         if depth > 5 || visited.contains(func_qn) {
             return None;
         }
         visited.insert(func_qn.to_string());
-        
+
         let callees = graph.get_callees(func_qn);
         for callee in &callees {
             // Direct call to query function
             if query_funcs.contains(&callee.qualified_name) {
                 return Some(callee.name.clone());
             }
-            
+
             // Recursive check
             if let Some(query_name) = self.calls_query_transitively(
-                graph, &callee.qualified_name, query_funcs, depth + 1, visited
+                graph,
+                &callee.qualified_name,
+                query_funcs,
+                depth + 1,
+                visited,
             ) {
                 return Some(format!("{} → {}", callee.name, query_name));
             }
         }
-        
+
         None
     }
 
@@ -109,85 +118,96 @@ impl NPlusOneDetector {
     fn find_graph_n_plus_one(&self, graph: &GraphStore) -> Vec<Finding> {
         let mut findings = Vec::new();
         let query_funcs = self.find_query_functions(graph);
-        
+
         if query_funcs.is_empty() {
             return findings;
         }
 
         // Find functions that look like they iterate over collections
         for func in graph.get_functions() {
-            if findings.len() >= self.max_findings { break; }
-            
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
             // Skip test files
             if func.file_path.contains("/test") || func.file_path.contains("_test.") {
                 continue;
             }
-            
+
             // Skip detector files (they iterate over graph nodes, not DB)
             if func.file_path.contains("/detectors/") {
                 continue;
             }
-            
+
             // Skip CLI files (they orchestrate analysis, expected patterns)
             if func.file_path.contains("/cli/") {
                 continue;
             }
-            
+
             // Skip parsers (they need to iterate to parse)
             if func.file_path.contains("/parsers/") {
                 continue;
             }
-            
+
             // Skip MCP handlers (they handle requests, expected to query)
             if func.file_path.contains("/mcp/") {
                 continue;
             }
-            
+
             // Skip git operations (they need to iterate over commits)
             if func.file_path.contains("/git/") {
                 continue;
             }
-            
+
             // Skip AI code (it generates fixes iteratively)
             if func.file_path.contains("/ai/") {
                 continue;
             }
-            
+
             // Skip reporters (they iterate over findings to generate reports)
             if func.file_path.contains("/reporters/") {
                 continue;
             }
-            
+
             // Skip scoring (it iterates over graph nodes)
             if func.file_path.contains("/scoring/") {
                 continue;
             }
-            
+
             // Skip graph store (it naturally iterates over graph data)
             if func.file_path.contains("/graph/") {
                 continue;
             }
-            
+
             // Check if this function contains a loop
-            let has_loop = if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+            let has_loop = if let Some(content) =
+                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+            {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = func.line_start.saturating_sub(1) as usize;
                 let end = (func.line_end as usize).min(lines.len());
-                
-                lines.get(start..end)
+
+                lines
+                    .get(start..end)
                     .map(|slice| slice.iter().any(|line| loop_pattern().is_match(line)))
                     .unwrap_or(false)
             } else {
                 false
             };
-            
-            if !has_loop { continue; }
-            
+
+            if !has_loop {
+                continue;
+            }
+
             // Check if any called function (transitively) does a query
             let mut visited = HashSet::new();
             for callee in graph.get_callees(&func.qualified_name) {
                 if let Some(query_chain) = self.calls_query_transitively(
-                    graph, &callee.qualified_name, &query_funcs, 0, &mut visited
+                    graph,
+                    &callee.qualified_name,
+                    &query_funcs,
+                    0,
+                    &mut visited,
                 ) {
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
@@ -225,49 +245,67 @@ impl NPlusOneDetector {
                 }
             }
         }
-        
+
         findings
     }
 }
 
 impl Detector for NPlusOneDetector {
-    fn name(&self) -> &'static str { "n-plus-one" }
-    fn description(&self) -> &'static str { "Detects N+1 query patterns" }
+    fn name(&self) -> &'static str {
+        "n-plus-one"
+    }
+    fn description(&self) -> &'static str {
+        "Detects N+1 query patterns"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        
+
         // === Source-based detection (direct queries in loops) ===
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy();
-            if path_str.contains("test") || path_str.contains("spec") { continue; }
-            
+            if path_str.contains("test") || path_str.contains("spec") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"rb"|"java"|"go") { continue; }
+            if !matches!(ext, "py" | "js" | "ts" | "rb" | "java" | "go") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
-                
+
                 for (i, line) in content.lines().enumerate() {
                     if loop_pattern().is_match(line) {
                         in_loop = true;
                         loop_line = i + 1;
                         brace_depth = 0;
                     }
-                    
+
                     if in_loop {
                         brace_depth += line.matches('{').count() as i32;
                         brace_depth -= line.matches('}').count() as i32;
-                        if brace_depth < 0 { in_loop = false; continue; }
-                        
+                        if brace_depth < 0 {
+                            in_loop = false;
+                            continue;
+                        }
+
                         if query_pattern().is_match(line) {
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
@@ -282,11 +320,15 @@ impl Detector for NPlusOneDetector {
                                 affected_files: vec![path.to_path_buf()],
                                 line_start: Some((i + 1) as u32),
                                 line_end: Some((i + 1) as u32),
-                                suggested_fix: Some("Use bulk fetch before loop or eager loading.".to_string()),
+                                suggested_fix: Some(
+                                    "Use bulk fetch before loop or eager loading.".to_string(),
+                                ),
                                 estimated_effort: Some("45 minutes".to_string()),
                                 category: Some("performance".to_string()),
                                 cwe_id: None,
-                                why_it_matters: Some("Causes N database calls instead of 1.".to_string()),
+                                why_it_matters: Some(
+                                    "Causes N database calls instead of 1.".to_string(),
+                                ),
                                 ..Default::default()
                             });
                             in_loop = false;
@@ -295,26 +337,38 @@ impl Detector for NPlusOneDetector {
                 }
             }
         }
-        
+
         // === Graph-based detection (hidden N+1 across function boundaries) ===
         let graph_findings = self.find_graph_n_plus_one(graph);
-        
+
         // Deduplicate: skip graph findings that overlap with source findings
-        let existing_locations: HashSet<(String, u32)> = findings.iter()
-            .flat_map(|f| f.affected_files.iter().map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))))
+        let existing_locations: HashSet<(String, u32)> = findings
+            .iter()
+            .flat_map(|f| {
+                f.affected_files
+                    .iter()
+                    .map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0)))
+            })
             .collect();
-        
+
         for finding in graph_findings {
             let key = (
-                finding.affected_files.first().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-                finding.line_start.unwrap_or(0)
+                finding
+                    .affected_files
+                    .first()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+                finding.line_start.unwrap_or(0),
             );
             if !existing_locations.contains(&key) && findings.len() < self.max_findings {
                 findings.push(finding);
             }
         }
-        
-        info!("NPlusOneDetector found {} findings (source + graph)", findings.len());
+
+        info!(
+            "NPlusOneDetector found {} findings (source + graph)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

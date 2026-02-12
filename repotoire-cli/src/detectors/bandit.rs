@@ -105,18 +105,17 @@ impl BanditDetector {
     }
 
     /// Create finding from bandit result
-    fn create_finding(
-        &self,
-        result: &JsonValue,
-        graph: &GraphStore,
-    ) -> Option<Finding> {
+    fn create_finding(&self, result: &JsonValue, graph: &GraphStore) -> Option<Finding> {
         let file_path = result.get("filename")?.as_str()?;
         let line = result.get("line_number")?.as_u64()? as u32;
         let test_id = result.get("test_id")?.as_str().unwrap_or("");
         let test_name = result.get("test_name")?.as_str().unwrap_or("");
         let issue_severity = result.get("issue_severity")?.as_str().unwrap_or("MEDIUM");
         let issue_confidence = result.get("issue_confidence")?.as_str().unwrap_or("MEDIUM");
-        let issue_text = result.get("issue_text")?.as_str().unwrap_or("Security issue");
+        let issue_text = result
+            .get("issue_text")?
+            .as_str()
+            .unwrap_or("Security issue");
         let code = result.get("code").and_then(|c| c.as_str()).unwrap_or("");
 
         // Convert absolute path to relative
@@ -145,12 +144,20 @@ impl BanditDetector {
         if !ctx.affected_nodes.is_empty() {
             description.push_str(&format!(
                 "**Affected Code**: {}\n",
-                ctx.affected_nodes.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                ctx.affected_nodes
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
         if !code.is_empty() {
-            description.push_str(&format!("\n**Code Snippet**:\n```python\n{}\n```\n", code.trim()));
+            description.push_str(&format!(
+                "\n**Code Snippet**:\n```python\n{}\n```\n",
+                code.trim()
+            ));
         }
 
         Some(Finding {
@@ -188,7 +195,10 @@ impl BanditDetector {
             "B601" => "Avoid shell=True in subprocess calls; use list arguments".to_string(),
             "B602" => "Validate and sanitize shell command inputs".to_string(),
             "B608" => "Avoid SQL string concatenation; use parameterized queries".to_string(),
-            _ => format!("Review security best practices for {}: {}", test_name, issue_text),
+            _ => format!(
+                "Review security best practices for {}: {}",
+                test_name, issue_text
+            ),
         }
     }
 
@@ -207,7 +217,7 @@ impl BanditDetector {
             "B303" | "B304" | "B311" => Some("CWE-330".to_string()), // Weak crypto
             "B501" | "B502" => Some("CWE-295".to_string()), // Certificate validation
             "B601" | "B602" | "B603" | "B604" => Some("CWE-78".to_string()), // Command injection
-            "B608" | "B609" => Some("CWE-89".to_string()), // SQL injection
+            "B608" | "B609" => Some("CWE-89".to_string()),  // SQL injection
             _ => None,
         }
     }
@@ -257,9 +267,18 @@ mod tests {
 
     #[test]
     fn test_severity_mapping() {
-        assert_eq!(BanditDetector::map_severity("HIGH", "HIGH"), Severity::Critical);
+        assert_eq!(
+            BanditDetector::map_severity("HIGH", "HIGH"),
+            Severity::Critical
+        );
         assert_eq!(BanditDetector::map_severity("HIGH", "LOW"), Severity::High);
-        assert_eq!(BanditDetector::map_severity("MEDIUM", "HIGH"), Severity::High);
-        assert_eq!(BanditDetector::map_severity("LOW", "HIGH"), Severity::Medium);
+        assert_eq!(
+            BanditDetector::map_severity("MEDIUM", "HIGH"),
+            Severity::High
+        );
+        assert_eq!(
+            BanditDetector::map_severity("LOW", "HIGH"),
+            Severity::Medium
+        );
     }
 }

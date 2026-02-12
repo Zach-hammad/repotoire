@@ -19,30 +19,84 @@ static RETURN_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn return_pattern() -> &'static Regex {
     RETURN_PATTERN.get_or_init(|| {
-        Regex::new(r"^\s*(return\b|throw\b|raise\b|exit\(|sys\.exit|process\.exit|break;|continue;)")
-            .unwrap()
+        Regex::new(
+            r"^\s*(return\b|throw\b|raise\b|exit\(|sys\.exit|process\.exit|break;|continue;)",
+        )
+        .unwrap()
     })
 }
 
 /// Entry point patterns - these functions are called externally
 const ENTRY_POINT_PATTERNS: &[&str] = &[
-    "main", "test_", "setup", "teardown", "run", "start", "init",
-    "handle", "on_", "get_", "post_", "put_", "delete_", "patch_",
-    "__init__", "__new__", "__call__", "__enter__", "__exit__",
-    "configure", "register", "setup_", "create_app",
+    "main",
+    "test_",
+    "setup",
+    "teardown",
+    "run",
+    "start",
+    "init",
+    "handle",
+    "on_",
+    "get_",
+    "post_",
+    "put_",
+    "delete_",
+    "patch_",
+    "__init__",
+    "__new__",
+    "__call__",
+    "__enter__",
+    "__exit__",
+    "configure",
+    "register",
+    "setup_",
+    "create_app",
     // Rust trait methods (called via trait dispatch, not visible in call graph)
-    "detect", "name", "description", "category", "config",
-    "new", "default", "from", "into", "try_from", "try_into",
-    "clone", "fmt", "eq", "cmp", "hash", "drop", "deref",
-    "serialize", "deserialize", "build", "parse", "validate",
+    "detect",
+    "name",
+    "description",
+    "category",
+    "config",
+    "new",
+    "default",
+    "from",
+    "into",
+    "try_from",
+    "try_into",
+    "clone",
+    "fmt",
+    "eq",
+    "cmp",
+    "hash",
+    "drop",
+    "deref",
+    "serialize",
+    "deserialize",
+    "build",
+    "parse",
+    "validate",
     // Builder pattern methods (called on builder instances, not tracked in graph)
-    "with_", "set_", "add_", "find", "calculate", "analyze",
+    "with_",
+    "set_",
+    "add_",
+    "find",
+    "calculate",
+    "analyze",
 ];
 
 /// Paths that indicate entry points
 const ENTRY_POINT_PATHS: &[&str] = &[
-    "/cli/", "/cmd/", "/main", "/handlers/", "/routes/", "/views/",
-    "/api/", "/endpoints/", "/__main__", "/tests/", "_test.",
+    "/cli/",
+    "/cmd/",
+    "/main",
+    "/handlers/",
+    "/routes/",
+    "/views/",
+    "/api/",
+    "/endpoints/",
+    "/__main__",
+    "/tests/",
+    "_test.",
 ];
 
 pub struct UnreachableCodeDetector {
@@ -61,19 +115,27 @@ impl UnreachableCodeDetector {
     /// Check if function is likely an entry point (called externally)
     fn is_entry_point(&self, func_name: &str, file_path: &str) -> bool {
         let name_lower = func_name.to_lowercase();
-        
+
         // Check name patterns
-        if ENTRY_POINT_PATTERNS.iter().any(|p| name_lower.starts_with(p) || name_lower == *p) {
+        if ENTRY_POINT_PATTERNS
+            .iter()
+            .any(|p| name_lower.starts_with(p) || name_lower == *p)
+        {
             return true;
         }
-        
+
         // Check path patterns
         if ENTRY_POINT_PATHS.iter().any(|p| file_path.contains(p)) {
             return true;
         }
 
         // Exported functions (capitalized in Go, pub in Rust implied by graph)
-        if func_name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        if func_name
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+        {
             return true;
         }
 
@@ -86,14 +148,15 @@ impl UnreachableCodeDetector {
         let functions = graph.get_functions();
 
         // Build set of all called functions
-        let called_functions: HashSet<String> = graph.get_calls()
+        let called_functions: HashSet<String> = graph
+            .get_calls()
             .into_iter()
             .map(|(_, callee)| callee)
             .collect();
 
         // First pass: find directly dead functions
         let mut directly_dead: HashSet<String> = HashSet::new();
-        
+
         for func in &functions {
             // Skip if it's called somewhere
             if called_functions.contains(&func.qualified_name) {
@@ -106,15 +169,21 @@ impl UnreachableCodeDetector {
             }
 
             // Skip test files for this check
-            if func.file_path.contains("/test") || func.file_path.contains("_test.") 
-                || func.file_path.contains("/tests/") || func.file_path.contains("conftest")
-                || func.file_path.contains("type_check") {
+            if func.file_path.contains("/test")
+                || func.file_path.contains("_test.")
+                || func.file_path.contains("/tests/")
+                || func.file_path.contains("conftest")
+                || func.file_path.contains("type_check")
+            {
                 continue;
             }
-            
+
             // Skip CLI-related functions (often entry points)
-            if func.file_path.contains("/cli") || func.name.contains("locate") 
-                || func.name.contains("app") || func.name.contains("create") {
+            if func.file_path.contains("/cli")
+                || func.name.contains("locate")
+                || func.name.contains("app")
+                || func.name.contains("create")
+            {
                 continue;
             }
 
@@ -130,7 +199,9 @@ impl UnreachableCodeDetector {
             }
 
             // Check if method is called via self.method() in same file (Rust parser limitation)
-            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+            if let Some(content) =
+                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+            {
                 let self_call = format!("self.{}(", func.name);
                 if content.contains(&self_call) {
                     continue;
@@ -152,10 +223,11 @@ impl UnreachableCodeDetector {
 
             // Check how many functions this dead function calls (impact)
             let callees = graph.get_callees(&func.qualified_name);
-            let dead_callees: Vec<_> = callees.iter()
+            let dead_callees: Vec<_> = callees
+                .iter()
                 .filter(|c| transitively_dead.contains(&c.qualified_name))
                 .collect();
-            
+
             let cascade_note = if !dead_callees.is_empty() {
                 format!(
                     "\n\n⚠️ **Cascade**: Removing this also removes {} transitively dead function(s):\n{}",
@@ -171,13 +243,16 @@ impl UnreachableCodeDetector {
             findings.push(Finding {
                 id: Uuid::new_v4().to_string(),
                 detector: "UnreachableCodeDetector".to_string(),
-                severity: if !dead_callees.is_empty() { Severity::High } else { Severity::Medium },
+                severity: if !dead_callees.is_empty() {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                },
                 title: format!("Dead function: {}", func.name),
                 description: format!(
                     "Function '{}' has **zero callers** in the codebase.\n\n\
                      This function is never called and may be dead code that can be removed.{}",
-                    func.name,
-                    cascade_note
+                    func.name, cascade_note
                 ),
                 affected_files: vec![func.file_path.clone().into()],
                 line_start: Some(func.line_start),
@@ -187,7 +262,7 @@ impl UnreachableCodeDetector {
                      1. Remove the dead function\n\
                      2. If it's an entry point, add it to exports or ensure it's registered\n\
                      3. If it's a callback, ensure it's passed to the caller"
-                        .to_string()
+                        .to_string(),
                 ),
                 estimated_effort: Some(if !dead_callees.is_empty() {
                     "15 minutes".to_string()
@@ -199,7 +274,7 @@ impl UnreachableCodeDetector {
                 why_it_matters: Some(
                     "Dead functions add maintenance burden without providing value. \
                      They can confuse developers and increase cognitive load."
-                        .to_string()
+                        .to_string(),
                 ),
                 ..Default::default()
             });
@@ -215,9 +290,13 @@ impl UnreachableCodeDetector {
             }
 
             // Find which dead function(s) call this one
-            let dead_callers: Vec<_> = graph.get_callers(&func.qualified_name)
+            let dead_callers: Vec<_> = graph
+                .get_callers(&func.qualified_name)
                 .into_iter()
-                .filter(|c| directly_dead.contains(&c.qualified_name) || transitively_dead.contains(&c.qualified_name))
+                .filter(|c| {
+                    directly_dead.contains(&c.qualified_name)
+                        || transitively_dead.contains(&c.qualified_name)
+                })
                 .collect();
 
             findings.push(Finding {
@@ -229,21 +308,25 @@ impl UnreachableCodeDetector {
                     "Function '{}' is only called by dead function(s):\n{}\n\n\
                      Removing the dead callers will make this removable too.",
                     func.name,
-                    dead_callers.iter().take(3).map(|c| format!("  - {}", c.name)).collect::<Vec<_>>().join("\n")
+                    dead_callers
+                        .iter()
+                        .take(3)
+                        .map(|c| format!("  - {}", c.name))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 ),
                 affected_files: vec![func.file_path.clone().into()],
                 line_start: Some(func.line_start),
                 line_end: Some(func.line_end),
                 suggested_fix: Some(
                     "This function will become removable after its dead callers are removed."
-                        .to_string()
+                        .to_string(),
                 ),
                 estimated_effort: Some("5 minutes".to_string()),
                 category: Some("dead-code".to_string()),
                 cwe_id: Some("CWE-561".to_string()),
                 why_it_matters: Some(
-                    "Transitively dead code is only reachable through other dead code."
-                        .to_string()
+                    "Transitively dead code is only reachable through other dead code.".to_string(),
                 ),
                 ..Default::default()
             });
@@ -253,48 +336,56 @@ impl UnreachableCodeDetector {
     }
 
     /// Find functions that are transitively dead (only called by dead functions)
-    fn find_transitively_dead(&self, graph: &GraphStore, directly_dead: &HashSet<String>) -> HashSet<String> {
+    fn find_transitively_dead(
+        &self,
+        graph: &GraphStore,
+        directly_dead: &HashSet<String>,
+    ) -> HashSet<String> {
         let mut transitively_dead: HashSet<String> = HashSet::new();
         let mut changed = true;
         let mut iterations = 0;
-        
+
         // Iterate until no new dead functions found
         while changed && iterations < 10 {
             changed = false;
             iterations += 1;
-            
+
             for func in graph.get_functions() {
                 // Skip if already marked dead
-                if directly_dead.contains(&func.qualified_name) 
-                    || transitively_dead.contains(&func.qualified_name) {
+                if directly_dead.contains(&func.qualified_name)
+                    || transitively_dead.contains(&func.qualified_name)
+                {
                     continue;
                 }
-                
+
                 // Skip entry points
                 if self.is_entry_point(&func.name, &func.file_path) {
                     continue;
                 }
-                
+
                 // Get all callers
                 let callers = graph.get_callers(&func.qualified_name);
                 if callers.is_empty() {
                     continue; // Would have been caught as directly dead
                 }
-                
+
                 // Check if ALL callers are dead
-                let all_callers_dead = callers.iter().all(|c| 
-                    directly_dead.contains(&c.qualified_name) 
-                    || transitively_dead.contains(&c.qualified_name)
-                );
-                
+                let all_callers_dead = callers.iter().all(|c| {
+                    directly_dead.contains(&c.qualified_name)
+                        || transitively_dead.contains(&c.qualified_name)
+                });
+
                 if all_callers_dead {
                     transitively_dead.insert(func.qualified_name.clone());
                     changed = true;
                 }
             }
         }
-        
-        debug!("Found {} transitively dead functions", transitively_dead.len());
+
+        debug!(
+            "Found {} transitively dead functions",
+            transitively_dead.len()
+        );
         transitively_dead
     }
 
@@ -310,7 +401,7 @@ impl UnreachableCodeDetector {
             if findings.len() >= self.max_findings {
                 break;
             }
-            
+
             let path = entry.path();
             if !path.is_file() {
                 continue;
@@ -321,7 +412,10 @@ impl UnreachableCodeDetector {
             if ext == "rs" {
                 continue;
             }
-            if !matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx" | "java" | "go" | "rb" | "php") {
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "jsx" | "tsx" | "java" | "go" | "rb" | "php"
+            ) {
                 continue;
             }
 
@@ -350,17 +444,21 @@ impl UnreachableCodeDetector {
                         || next.starts_with("default")
                         || next.starts_with(")")  // Multi-line function call closing
                         || next.starts_with("ctx")  // Common continuation pattern
-                        || next.starts_with("param")  // Common continuation pattern
+                        || next.starts_with("param")
+                    // Common continuation pattern
                     {
                         continue;
                     }
-                    
+
                     // Skip if current line is inside a multi-line statement
                     if line.trim().ends_with(",") || line.trim().ends_with("(") {
                         continue;
                     }
 
-                    if return_pattern().is_match(line) && !line.contains("if") && !line.contains("?") {
+                    if return_pattern().is_match(line)
+                        && !line.contains("if")
+                        && !line.contains("?")
+                    {
                         let curr_indent = line.len() - line.trim_start().len();
                         let next_indent = lines[i + 1].len() - next.len();
 
@@ -429,7 +527,7 @@ impl Detector for UnreachableCodeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, CodeEdge, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode, GraphStore};
 
     #[test]
     fn test_is_entry_point() {

@@ -8,7 +8,6 @@
 //! - Use graph to check component hierarchy
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -16,6 +15,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static HOOK_CALL: OnceLock<Regex> = OnceLock::new();
 static CONDITIONAL: OnceLock<Regex> = OnceLock::new();
@@ -32,11 +32,15 @@ fn hook_call() -> &'static Regex {
 }
 
 fn conditional() -> &'static Regex {
-    CONDITIONAL.get_or_init(|| Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$)").unwrap())
+    CONDITIONAL.get_or_init(|| {
+        Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$)").unwrap()
+    })
 }
 
 fn loop_pattern() -> &'static Regex {
-    LOOP.get_or_init(|| Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\()").unwrap())
+    LOOP.get_or_init(|| {
+        Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\()").unwrap()
+    })
 }
 
 fn nested_func() -> &'static Regex {
@@ -52,7 +56,8 @@ fn component() -> &'static Regex {
 #[allow(dead_code)] // Reserved for future hook dependency analysis
 fn use_effect() -> &'static Regex {
     USE_EFFECT.get_or_init(|| {
-        Regex::new(r"(useEffect|useMemo|useCallback)\s*\(\s*(?:\([^)]*\)|[^,]+)\s*,\s*\[([^\]]*)\]").unwrap()
+        Regex::new(r"(useEffect|useMemo|useCallback)\s*\(\s*(?:\([^)]*\)|[^,]+)\s*,\s*\[([^\]]*)\]")
+            .unwrap()
     })
 }
 
@@ -67,7 +72,11 @@ fn extract_hook_name(line: &str) -> Option<String> {
 }
 
 /// Categorize the violation type
-fn categorize_violation(in_conditional: bool, in_loop: bool, in_nested: bool) -> (&'static str, &'static str) {
+fn categorize_violation(
+    in_conditional: bool,
+    in_loop: bool,
+    in_nested: bool,
+) -> (&'static str, &'static str) {
     if in_loop {
         return ("loop", "Hook called inside a loop");
     }
@@ -87,32 +96,48 @@ pub struct ReactHooksDetector {
 
 impl ReactHooksDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Find containing component from graph
     fn find_component(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
-        graph.get_functions()
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| {
-                f.file_path == file_path && 
-                f.line_start <= line && 
-                f.line_end >= line &&
-                f.name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                f.file_path == file_path
+                    && f.line_start <= line
+                    && f.line_end >= line
+                    && f.name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false)
             })
             .map(|f| f.name)
     }
 
     /// Check for custom hooks (functions starting with 'use')
     fn is_custom_hook(func_name: &str) -> bool {
-        func_name.starts_with("use") && 
-        func_name.chars().nth(3).map(|c| c.is_uppercase()).unwrap_or(false)
+        func_name.starts_with("use")
+            && func_name
+                .chars()
+                .nth(3)
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
     }
 }
 
 impl Detector for ReactHooksDetector {
-    fn name(&self) -> &'static str { "react-hooks" }
-    fn description(&self) -> &'static str { "Detects React hooks rules violations" }
+    fn name(&self) -> &'static str {
+        "react-hooks"
+    }
+    fn description(&self) -> &'static str {
+        "Detects React hooks rules violations"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
@@ -122,22 +147,32 @@ impl Detector for ReactHooksDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") || path_str.contains("spec") { continue; }
-            
+            if path_str.contains("test") || path_str.contains("spec") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js"|"jsx"|"ts"|"tsx") { continue; }
+            if !matches!(ext, "js" | "jsx" | "ts" | "tsx") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 // Skip if no React hooks
-                if !hook_call().is_match(&content) { continue; }
-                
+                if !hook_call().is_match(&content) {
+                    continue;
+                }
+
                 let lines: Vec<&str> = content.lines().collect();
                 let mut in_conditional = false;
                 let mut in_loop = false;
@@ -146,13 +181,13 @@ impl Detector for ReactHooksDetector {
                 let mut loop_depth = 0;
                 let mut nested_depth = 0;
                 let mut component_depth = 0;
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     // Track component boundaries
                     if component().is_match(line) {
                         component_depth = 0;
                     }
-                    
+
                     // Track conditional blocks
                     if conditional().is_match(line) {
                         in_conditional = true;
@@ -161,20 +196,25 @@ impl Detector for ReactHooksDetector {
                     if in_conditional {
                         cond_depth += line.matches('{').count() as i32;
                         cond_depth -= line.matches('}').count() as i32;
-                        if cond_depth <= 0 { in_conditional = false; }
+                        if cond_depth <= 0 {
+                            in_conditional = false;
+                        }
                     }
-                    
+
                     // Track loops
                     if loop_pattern().is_match(line) {
                         in_loop = true;
-                        loop_depth = line.matches('{').count() as i32 + line.matches('(').count() as i32;
+                        loop_depth =
+                            line.matches('{').count() as i32 + line.matches('(').count() as i32;
                     }
                     if in_loop {
                         loop_depth += line.matches('{').count() as i32;
                         loop_depth -= line.matches('}').count() as i32;
-                        if loop_depth <= 0 { in_loop = false; }
+                        if loop_depth <= 0 {
+                            in_loop = false;
+                        }
                     }
-                    
+
                     // Track nested functions (not at component level)
                     if nested_func().is_match(line) && component_depth > 0 {
                         in_nested_func = true;
@@ -183,21 +223,26 @@ impl Detector for ReactHooksDetector {
                     if in_nested_func {
                         nested_depth += line.matches('{').count() as i32;
                         nested_depth -= line.matches('}').count() as i32;
-                        if nested_depth <= 0 { in_nested_func = false; }
+                        if nested_depth <= 0 {
+                            in_nested_func = false;
+                        }
                     }
-                    
+
                     component_depth += line.matches('{').count() as i32;
                     component_depth -= line.matches('}').count() as i32;
-                    
+
                     // Check for hooks violations
                     if hook_call().is_match(line) {
                         let is_violation = in_conditional || in_loop || in_nested_func;
-                        
+
                         if is_violation {
-                            let hook_name = extract_hook_name(line).unwrap_or_else(|| "useHook".to_string());
-                            let component_name = Self::find_component(graph, &path_str, (i + 1) as u32);
-                            let (violation_type, violation_desc) = categorize_violation(in_conditional, in_loop, in_nested_func);
-                            
+                            let hook_name =
+                                extract_hook_name(line).unwrap_or_else(|| "useHook".to_string());
+                            let component_name =
+                                Self::find_component(graph, &path_str, (i + 1) as u32);
+                            let (violation_type, violation_desc) =
+                                categorize_violation(in_conditional, in_loop, in_nested_func);
+
                             // Build notes
                             let mut notes = Vec::new();
                             notes.push(format!("🪝 Hook: `{}`", hook_name));
@@ -205,14 +250,18 @@ impl Detector for ReactHooksDetector {
                                 notes.push(format!("📦 Component: `{}`", comp));
                             }
                             match violation_type {
-                                "conditional" => notes.push("⚠️ Called inside `if/else/switch/ternary`".to_string()),
-                                "loop" => notes.push("⚠️ Called inside `for/while/map/forEach`".to_string()),
-                                "nested" => notes.push("⚠️ Called inside nested function".to_string()),
+                                "conditional" => notes
+                                    .push("⚠️ Called inside `if/else/switch/ternary`".to_string()),
+                                "loop" => notes
+                                    .push("⚠️ Called inside `for/while/map/forEach`".to_string()),
+                                "nested" => {
+                                    notes.push("⚠️ Called inside nested function".to_string())
+                                }
                                 _ => {}
                             }
-                            
+
                             let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                            
+
                             let suggestion = match violation_type {
                                 "conditional" => format!(
                                     "Move `{}` outside the conditional:\n\n\
@@ -274,7 +323,7 @@ impl Detector for ReactHooksDetector {
                                 ),
                                 _ => "Move hooks to the top level of your component.".to_string(),
                             };
-                            
+
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "ReactHooksDetector".to_string(),
@@ -305,8 +354,11 @@ impl Detector for ReactHooksDetector {
                 }
             }
         }
-        
-        info!("ReactHooksDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "ReactHooksDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

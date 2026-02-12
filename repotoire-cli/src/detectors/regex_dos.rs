@@ -7,7 +7,6 @@
 //! - Prioritize issues in heavily-used code paths
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,12 +14,16 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static REGEX_CREATE: OnceLock<Regex> = OnceLock::new();
 static VULNERABLE: OnceLock<Regex> = OnceLock::new();
 
 fn regex_create() -> &'static Regex {
-    REGEX_CREATE.get_or_init(|| Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile|regex!|/[^/]+/)").unwrap())
+    REGEX_CREATE.get_or_init(|| {
+        Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile|regex!|/[^/]+/)")
+            .unwrap()
+    })
 }
 
 fn vulnerable() -> &'static Regex {
@@ -28,7 +31,12 @@ fn vulnerable() -> &'static Regex {
     // - Nested quantifiers: (a+)+ or (a*)*
     // - Overlapping alternatives: (a|a)+
     // - Repetition of groups with quantifiers
-    VULNERABLE.get_or_init(|| Regex::new(r"\([^)]*[+*][^)]*\)[+*]|\.\*\.\*|\(\?:[^)]*\)[+*]{2}|\[[^\]]*\][+*]\[[^\]]*\][+*]").unwrap())
+    VULNERABLE.get_or_init(|| {
+        Regex::new(
+            r"\([^)]*[+*][^)]*\)[+*]|\.\*\.\*|\(\?:[^)]*\)[+*]{2}|\[[^\]]*\][+*]\[[^\]]*\][+*]",
+        )
+        .unwrap()
+    })
 }
 
 /// Additional vulnerable patterns
@@ -37,27 +45,27 @@ fn is_vulnerable_pattern(pattern: &str) -> Option<&'static str> {
     if pattern.contains(")+)") || pattern.contains(")*)*") || pattern.contains("+)+") {
         return Some("nested quantifiers");
     }
-    
+
     // Repeated alternation
     if pattern.contains("(a|a)") || pattern.contains("(.+)*") || pattern.contains("(.*)+") {
         return Some("greedy quantifier on group");
     }
-    
+
     // Evil regex patterns
     let evil_patterns = [
-        r"(a+)+",      // Classic ReDoS
-        r"(a*)*",      // Nested stars
-        r"(a|aa)+",    // Overlapping alternation
-        r"(.*a){x}",   // x repetitions of greedy match
+        r"(a+)+",        // Classic ReDoS
+        r"(a*)*",        // Nested stars
+        r"(a|aa)+",      // Overlapping alternation
+        r"(.*a){x}",     // x repetitions of greedy match
         r"([a-zA-Z]+)*", // Group with quantifier, then another quantifier
     ];
-    
+
     for evil in evil_patterns {
-        if pattern.contains(&evil[1..evil.len()-1]) {
+        if pattern.contains(&evil[1..evil.len() - 1]) {
             return Some("classic ReDoS pattern");
         }
     }
-    
+
     None
 }
 
@@ -68,27 +76,35 @@ pub struct RegexDosDetector {
 
 impl RegexDosDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Find containing function and context
-    fn find_function_context(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, usize, bool)> {
-        graph.get_functions()
+    fn find_function_context(
+        graph: &GraphStore,
+        file_path: &str,
+        line: u32,
+    ) -> Option<(String, usize, bool)> {
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| {
                 let callers = graph.get_callers(&f.qualified_name);
                 let name_lower = f.name.to_lowercase();
-                
+
                 // Check if this processes user input
-                let processes_input = name_lower.contains("validate") ||
-                    name_lower.contains("parse") ||
-                    name_lower.contains("match") ||
-                    name_lower.contains("search") ||
-                    name_lower.contains("filter") ||
-                    name_lower.contains("handler") ||
-                    name_lower.contains("route");
-                
+                let processes_input = name_lower.contains("validate")
+                    || name_lower.contains("parse")
+                    || name_lower.contains("match")
+                    || name_lower.contains("search")
+                    || name_lower.contains("filter")
+                    || name_lower.contains("handler")
+                    || name_lower.contains("route");
+
                 (f.name, callers.len(), processes_input)
             })
     }
@@ -98,11 +114,15 @@ impl RegexDosDetector {
         let start = current_line.saturating_sub(5);
         let end = (current_line + 5).min(lines.len());
         let context = lines[start..end].join(" ").to_lowercase();
-        
-        context.contains("req.") || context.contains("request.") ||
-        context.contains("input") || context.contains("body") ||
-        context.contains("params") || context.contains("query") ||
-        context.contains("user") || context.contains("data")
+
+        context.contains("req.")
+            || context.contains("request.")
+            || context.contains("input")
+            || context.contains("body")
+            || context.contains("params")
+            || context.contains("query")
+            || context.contains("user")
+            || context.contains("data")
     }
 
     /// Extract regex pattern from line
@@ -114,7 +134,7 @@ impl RegexDosDetector {
             (r#"Regex::new\(r?#?"#, r#"[#"]?"#),
             (r#"/"#, r#"/"#),
         ];
-        
+
         for (start, end) in patterns {
             if let Some(s_idx) = line.find(start) {
                 let after_start = &line[s_idx + start.len()..];
@@ -123,110 +143,143 @@ impl RegexDosDetector {
                 }
             }
         }
-        
+
         None
     }
 }
 
 impl Detector for RegexDosDetector {
-    fn name(&self) -> &'static str { "regex-dos" }
-    fn description(&self) -> &'static str { "Detects ReDoS vulnerable patterns" }
+    fn name(&self) -> &'static str {
+        "regex-dos"
+    }
+    fn description(&self) -> &'static str {
+        "Detects ReDoS vulnerable patterns"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") || path_str.contains("spec") { continue; }
-            
+            if path_str.contains("test") || path_str.contains("spec") {
+                continue;
+            }
+
             // Skip detector files (contain example patterns for documentation)
-            if path_str.contains("/detectors/") && path_str.ends_with(".rs") { continue; }
-            
+            if path_str.contains("/detectors/") && path_str.ends_with(".rs") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"rs"|"go"|"rb"|"php") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "java" | "rs" | "go" | "rb" | "php"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     // Skip comments
                     let trimmed = line.trim();
-                    if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") {
+                    if trimmed.starts_with("//")
+                        || trimmed.starts_with("#")
+                        || trimmed.starts_with("*")
+                    {
                         continue;
                     }
-                    
-                    if !regex_create().is_match(line) { continue; }
-                    
+
+                    if !regex_create().is_match(line) {
+                        continue;
+                    }
+
                     // Check for vulnerable patterns
                     let is_vuln = vulnerable().is_match(line);
                     let pattern = Self::extract_pattern(line);
                     let extra_vuln = pattern.as_ref().and_then(|p| is_vulnerable_pattern(p));
-                    
-                    if !is_vuln && extra_vuln.is_none() { continue; }
-                    
+
+                    if !is_vuln && extra_vuln.is_none() {
+                        continue;
+                    }
+
                     let line_num = (i + 1) as u32;
-                    
+
                     // Graph-enhanced analysis
                     let func_context = Self::find_function_context(graph, &path_str, line_num);
                     let uses_input = Self::uses_user_input(&lines, i);
-                    
+
                     // Calculate severity
                     let mut severity = Severity::High;
-                    
+
                     // Critical if processes user input
                     if uses_input {
                         severity = Severity::Critical;
                     }
-                    
+
                     // Critical if in input-processing function
                     if let Some((_, _, processes_input)) = &func_context {
                         if *processes_input {
                             severity = Severity::Critical;
                         }
                     }
-                    
+
                     // Reduce if no user input context found
                     if !uses_input && func_context.is_none() {
                         severity = Severity::Medium;
                     }
-                    
+
                     // Build notes
                     let mut notes = Vec::new();
-                    
+
                     if let Some(vuln_type) = extra_vuln {
                         notes.push(format!("🔍 Pattern issue: {}", vuln_type));
                     } else {
                         notes.push("🔍 Pattern issue: nested quantifiers detected".to_string());
                     }
-                    
+
                     if let Some(pat) = &pattern {
-                        let display_pat = if pat.len() > 50 { format!("{}...", &pat[..50]) } else { pat.clone() };
+                        let display_pat = if pat.len() > 50 {
+                            format!("{}...", &pat[..50])
+                        } else {
+                            pat.clone()
+                        };
                         notes.push(format!("📝 Pattern: `{}`", display_pat));
                     }
-                    
+
                     if let Some((func_name, callers, processes_input)) = &func_context {
-                        notes.push(format!("📦 In function: `{}` ({} callers)", func_name, callers));
+                        notes.push(format!(
+                            "📦 In function: `{}` ({} callers)",
+                            func_name, callers
+                        ));
                         if *processes_input {
                             notes.push("⚠️ Function appears to process user input".to_string());
                         }
                     }
-                    
+
                     if uses_input {
                         notes.push("🎯 User input detected in context".to_string());
                     }
-                    
+
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                    
+
                     let suggestion = match ext {
-                        "js" | "ts" =>
-                            "Rewrite the regex to avoid catastrophic backtracking:\n\
+                        "js" | "ts" => "Rewrite the regex to avoid catastrophic backtracking:\n\
                              ```javascript\n\
                              // Instead of:\n\
                              const regex = /(a+)+$/;  // Vulnerable!\n\
@@ -237,9 +290,9 @@ impl Detector for RegexDosDetector {
                              // Or use possessive quantifiers (if supported):\n\
                              // Or add input length limits before regex matching:\n\
                              if (input.length > 1000) throw new Error('Input too long');\n\
-                             ```".to_string(),
-                        "py" =>
-                            "Rewrite the regex to avoid catastrophic backtracking:\n\
+                             ```"
+                        .to_string(),
+                        "py" => "Rewrite the regex to avoid catastrophic backtracking:\n\
                              ```python\n\
                              # Instead of:\n\
                              pattern = re.compile(r'(a+)+')\n\
@@ -250,17 +303,21 @@ impl Detector for RegexDosDetector {
                              # Or set a timeout using the regex module:\n\
                              import regex\n\
                              pattern = regex.compile(r'...', timeout=1.0)\n\
-                             ```".to_string(),
-                        "rs" =>
-                            "Consider using bounded repetition or atomic groups:\n\
+                             ```"
+                        .to_string(),
+                        "rs" => "Consider using bounded repetition or atomic groups:\n\
                              ```rust\n\
                              // Use the regex crate which has built-in protections\n\
                              // Or add length limits:\n\
                              if input.len() > 10_000 { return Err(\"Input too long\"); }\n\
-                             ```".to_string(),
-                        _ => "Rewrite regex to avoid nested quantifiers and add input length limits.".to_string(),
+                             ```"
+                        .to_string(),
+                        _ => {
+                            "Rewrite regex to avoid nested quantifiers and add input length limits."
+                                .to_string()
+                        }
                     };
-                    
+
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "RegexDosDetector".to_string(),
@@ -282,15 +339,19 @@ impl Detector for RegexDosDetector {
                             "ReDoS attacks exploit regex backtracking to consume CPU:\n\
                              • A malicious input can take exponential time to evaluate\n\
                              • Single requests can freeze the server\n\
-                             • Input like 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa!' on /(a+)+$/ can hang".to_string()
+                             • Input like 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa!' on /(a+)+$/ can hang"
+                                .to_string(),
                         ),
                         ..Default::default()
                     });
                 }
             }
         }
-        
-        info!("RegexDosDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "RegexDosDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

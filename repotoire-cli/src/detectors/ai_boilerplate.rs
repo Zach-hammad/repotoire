@@ -449,7 +449,11 @@ Consolidate database access patterns."#
         let file_display = if files_vec.len() > 3 {
             format!(
                 "{} ... and {} more files",
-                files_vec[..3].iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+                files_vec[..3]
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 files_vec.len() - 3
             )
         } else {
@@ -536,7 +540,8 @@ impl Detector for AIBoilerplateDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         // Boilerplate detection needs AST similarity analysis
         let _ = graph;
         Ok(vec![])

@@ -7,13 +7,13 @@
 //! - Identify natural extraction points for nested callbacks
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::info;
+use uuid::Uuid;
 
 pub struct CallbackHellDetector {
     repository_path: PathBuf,
@@ -23,23 +23,26 @@ pub struct CallbackHellDetector {
 
 impl CallbackHellDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50, max_nesting: 3 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+            max_nesting: 3,
+        }
     }
 
     /// Find async functions in the codebase that could be used instead
     fn find_async_alternatives(&self, graph: &GraphStore, file_path: &str) -> Vec<String> {
-        graph.get_functions()
+        graph
+            .get_functions()
             .into_iter()
             .filter(|f| {
                 // Same file or imported module
-                f.file_path == file_path || 
-                f.file_path.rsplit('/').nth(1) == file_path.rsplit('/').nth(1)
+                f.file_path == file_path
+                    || f.file_path.rsplit('/').nth(1) == file_path.rsplit('/').nth(1)
             })
             .filter(|f| {
                 // Look for async functions or promise-returning functions
-                f.name.starts_with("async") || 
-                f.name.contains("Async") ||
-                f.name.ends_with("Async")
+                f.name.starts_with("async") || f.name.contains("Async") || f.name.ends_with("Async")
             })
             .map(|f| f.name)
             .take(5)
@@ -53,27 +56,40 @@ impl CallbackHellDetector {
 
     /// Check if file uses Promise.all (good pattern)
     fn uses_promise_combinators(content: &str) -> bool {
-        content.contains("Promise.all") || 
-        content.contains("Promise.race") ||
-        content.contains("Promise.allSettled")
+        content.contains("Promise.all")
+            || content.contains("Promise.race")
+            || content.contains("Promise.allSettled")
     }
 }
 
 impl Detector for CallbackHellDetector {
-    fn name(&self) -> &'static str { "callback-hell" }
-    fn description(&self) -> &'static str { "Detects deeply nested callbacks" }
+    fn name(&self) -> &'static str {
+        "callback-hell"
+    }
+    fn description(&self) -> &'static str {
+        "Detects deeply nested callbacks"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js"|"ts"|"jsx"|"tsx") { continue; }
+            if !matches!(ext, "js" | "ts" | "jsx" | "tsx") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let mut callback_depth = 0;
@@ -81,36 +97,36 @@ impl Detector for CallbackHellDetector {
                 let mut max_line = 0;
                 let mut then_count = 0;
                 let mut anonymous_count = 0;
-                
+
                 for (i, line) in content.lines().enumerate() {
                     // Count callback indicators
                     let anon_funcs = line.matches("function(").count();
                     let arrows = line.matches("=> {").count();
                     let thens = line.matches(".then(").count();
-                    
+
                     anonymous_count += anon_funcs + arrows;
                     then_count += thens;
                     callback_depth += anon_funcs + arrows + thens;
-                    
+
                     // Track closings
                     if line.contains("});") || line.contains("})") {
                         callback_depth = callback_depth.saturating_sub(1);
                     }
-                    
+
                     if callback_depth > max_depth {
                         max_depth = callback_depth;
                         max_line = i + 1;
                     }
                 }
-                
+
                 if max_depth > self.max_nesting {
                     let path_str = path.to_string_lossy().to_string();
-                    
+
                     // === Graph-enhanced analysis ===
                     let async_alternatives = self.find_async_alternatives(graph, &path_str);
                     let already_uses_async = Self::uses_async_await(&content);
                     let uses_combinators = Self::uses_promise_combinators(&content);
-                    
+
                     // Calculate severity based on analysis
                     let severity = if max_depth > 5 {
                         Severity::High
@@ -119,10 +135,10 @@ impl Detector for CallbackHellDetector {
                     } else {
                         Severity::Low
                     };
-                    
+
                     // Build context notes
                     let mut notes = Vec::new();
-                    
+
                     if already_uses_async {
                         notes.push("✓ File already uses async/await in some places".to_string());
                     }
@@ -133,33 +149,42 @@ impl Detector for CallbackHellDetector {
                         notes.push(format!("⚠️ {} .then() chains detected", then_count));
                     }
                     if anonymous_count > 5 {
-                        notes.push(format!("⚠️ {} anonymous functions - consider naming them", anonymous_count));
+                        notes.push(format!(
+                            "⚠️ {} anonymous functions - consider naming them",
+                            anonymous_count
+                        ));
                     }
-                    
+
                     let context_notes = if notes.is_empty() {
                         String::new()
                     } else {
                         format!("\n\n**Analysis:**\n{}", notes.join("\n"))
                     };
-                    
+
                     // Build smart suggestion
                     let suggestion = if already_uses_async {
                         "This file already uses async/await. Convert remaining callbacks:\n\
                          1. Replace `.then()` chains with `await`\n\
-                         2. Use `try/catch` instead of `.catch()`".to_string()
+                         2. Use `try/catch` instead of `.catch()`"
+                            .to_string()
                     } else if !async_alternatives.is_empty() {
                         format!(
                             "Convert to async/await. Similar async functions exist:\n{}\n\n\
                              Or extract nested callbacks into named functions.",
-                            async_alternatives.iter().map(|n| format!("  - {}", n)).collect::<Vec<_>>().join("\n")
+                            async_alternatives
+                                .iter()
+                                .map(|n| format!("  - {}", n))
+                                .collect::<Vec<_>>()
+                                .join("\n")
                         )
                     } else {
                         "Refactor options:\n\
                          1. Convert to async/await (recommended)\n\
                          2. Extract nested callbacks into named functions\n\
-                         3. Use Promise.all() for parallel operations".to_string()
+                         3. Use Promise.all() for parallel operations"
+                            .to_string()
                     };
-                    
+
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "CallbackHellDetector".to_string(),
@@ -185,8 +210,11 @@ impl Detector for CallbackHellDetector {
                 }
             }
         }
-        
-        info!("CallbackHellDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "CallbackHellDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

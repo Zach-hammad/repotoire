@@ -60,12 +60,7 @@ impl ArchitecturalBottleneckDetector {
     }
 
     /// Calculate severity based on metrics and function role
-    fn calculate_severity(
-        &self,
-        fan_in: usize,
-        complexity: usize,
-        role: FunctionRole,
-    ) -> Severity {
+    fn calculate_severity(&self, fan_in: usize, complexity: usize, role: FunctionRole) -> Severity {
         // Base severity from raw metrics
         let base_severity = if fan_in >= 30 && complexity >= 25 {
             Severity::Critical
@@ -111,11 +106,37 @@ impl ArchitecturalBottleneckDetector {
     /// Legacy name-based skip check (fallback when no context available)
     fn should_skip_by_name(&self, name: &str) -> bool {
         const SKIP_NAMES: &[&str] = &[
-            "run", "new", "default", "create", "build", "init", "setup",
-            "get", "set", "parse", "format", "render", "display", "detect",
-            "analyze", "execute", "process", "handle", "dispatch",
-            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
-            "calculate_", "compute_", "scan_", "extract_", "normalize_",
+            "run",
+            "new",
+            "default",
+            "create",
+            "build",
+            "init",
+            "setup",
+            "get",
+            "set",
+            "parse",
+            "format",
+            "render",
+            "display",
+            "detect",
+            "analyze",
+            "execute",
+            "process",
+            "handle",
+            "dispatch",
+            "is_",
+            "has_",
+            "check_",
+            "validate_",
+            "should_",
+            "can_",
+            "find_",
+            "calculate_",
+            "compute_",
+            "scan_",
+            "extract_",
+            "normalize_",
         ];
 
         let name_lower = name.to_lowercase();
@@ -139,7 +160,7 @@ impl ArchitecturalBottleneckDetector {
         betweenness: Option<f64>,
     ) -> Finding {
         let severity = self.calculate_severity(fan_in, complexity, role);
-        
+
         let role_note = match role {
             FunctionRole::Utility => " (utility function - expected high fan-in)",
             FunctionRole::Hub => " (architectural hub)",
@@ -166,23 +187,22 @@ impl ArchitecturalBottleneckDetector {
         if matches!(role, FunctionRole::Utility) {
             description.push_str(
                 "\n\n**Note:** This function was identified as a utility. High fan-in \
-                is expected, but the high complexity may still warrant attention."
+                is expected, but the high complexity may still warrant attention.",
             );
         }
 
         let suggested_fix = match role {
             FunctionRole::Utility => {
                 "Consider splitting this utility into smaller, focused helpers. \
-                High complexity in shared utilities is risky.".to_string()
+                High complexity in shared utilities is risky."
+                    .to_string()
             }
-            FunctionRole::Hub => {
-                "This is a critical hub. Ensure comprehensive test coverage, \
-                add defensive error handling, and consider circuit breaker pattern.".to_string()
-            }
-            _ => {
-                "Reduce complexity or create a facade to isolate changes. \
-                Add comprehensive tests before refactoring.".to_string()
-            }
+            FunctionRole::Hub => "This is a critical hub. Ensure comprehensive test coverage, \
+                add defensive error handling, and consider circuit breaker pattern."
+                .to_string(),
+            _ => "Reduce complexity or create a facade to isolate changes. \
+                Add comprehensive tests before refactoring."
+                .to_string(),
         };
 
         Finding {
@@ -293,7 +313,9 @@ impl Detector for ArchitecturalBottleneckDetector {
             }
 
             // Skip CLI entry points (expected to coordinate many things)
-            if func.file_path.contains("/cli/") && (func.name == "run" || func.name == "execute" || func.name == "main") {
+            if func.file_path.contains("/cli/")
+                && (func.name == "run" || func.name == "execute" || func.name == "main")
+            {
                 continue;
             }
 
@@ -396,7 +418,7 @@ mod tests {
         assert!(detector.should_skip_by_name("process")); // exact match
         assert!(detector.should_skip_by_name("process_orders")); // starts with "process"
         assert!(detector.should_skip_by_name("calculate_totals")); // starts with "calculate_"
-        
+
         // These should NOT be skipped (don't match patterns)
         assert!(!detector.should_skip_by_name("order_processor")); // "process" in middle, not prefix
         assert!(!detector.should_skip_by_name("my_function"));

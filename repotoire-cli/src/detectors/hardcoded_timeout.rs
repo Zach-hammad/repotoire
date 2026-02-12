@@ -6,7 +6,6 @@
 //! - Higher severity for network/database timeouts
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,6 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static TIMEOUT_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -38,7 +38,7 @@ fn format_duration(ms: u64) -> String {
 /// Suggest an appropriate constant name
 fn suggest_constant_name(context: &str, value: u64) -> String {
     let ctx_lower = context.to_lowercase();
-    
+
     if ctx_lower.contains("connect") {
         return "CONNECTION_TIMEOUT_MS".to_string();
     }
@@ -63,7 +63,7 @@ fn suggest_constant_name(context: &str, value: u64) -> String {
     if ctx_lower.contains("poll") || ctx_lower.contains("interval") {
         return "POLL_INTERVAL_MS".to_string();
     }
-    
+
     format!("TIMEOUT_{}MS", value)
 }
 
@@ -74,33 +74,47 @@ pub struct HardcodedTimeoutDetector {
 
 impl HardcodedTimeoutDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Analyze timeout context to determine risk level
     fn analyze_context(line: &str) -> (String, bool) {
         let line_lower = line.to_lowercase();
-        
+
         // High-risk: Network/database operations
-        if line_lower.contains("connect") || line_lower.contains("request") ||
-           line_lower.contains("http") || line_lower.contains("socket") ||
-           line_lower.contains("database") || line_lower.contains("query") ||
-           line_lower.contains("grpc") || line_lower.contains("rpc") {
+        if line_lower.contains("connect")
+            || line_lower.contains("request")
+            || line_lower.contains("http")
+            || line_lower.contains("socket")
+            || line_lower.contains("database")
+            || line_lower.contains("query")
+            || line_lower.contains("grpc")
+            || line_lower.contains("rpc")
+        {
             return ("Network/database operation".to_string(), true);
         }
-        
+
         // Medium-risk: Read/write operations
-        if line_lower.contains("read") || line_lower.contains("write") ||
-           line_lower.contains("file") || line_lower.contains("stream") {
+        if line_lower.contains("read")
+            || line_lower.contains("write")
+            || line_lower.contains("file")
+            || line_lower.contains("stream")
+        {
             return ("I/O operation".to_string(), false);
         }
-        
+
         // Low-risk: UI/animation
-        if line_lower.contains("animation") || line_lower.contains("transition") ||
-           line_lower.contains("debounce") || line_lower.contains("throttle") {
+        if line_lower.contains("animation")
+            || line_lower.contains("transition")
+            || line_lower.contains("debounce")
+            || line_lower.contains("throttle")
+        {
             return ("UI/animation".to_string(), false);
         }
-        
+
         ("General timeout".to_string(), false)
     }
 
@@ -114,7 +128,9 @@ impl HardcodedTimeoutDetector {
 
         for entry in walker.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if !path.is_file() { continue; }
+            if !path.is_file() {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for line in content.lines() {
@@ -128,13 +144,14 @@ impl HardcodedTimeoutDetector {
                 }
             }
         }
-        
+
         counts
     }
 
     /// Find containing function
     fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
-        graph.get_functions()
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| f.name)
@@ -142,56 +159,74 @@ impl HardcodedTimeoutDetector {
 }
 
 impl Detector for HardcodedTimeoutDetector {
-    fn name(&self) -> &'static str { "hardcoded-timeout" }
-    fn description(&self) -> &'static str { "Detects hardcoded timeout values" }
+    fn name(&self) -> &'static str {
+        "hardcoded-timeout"
+    }
+    fn description(&self) -> &'static str {
+        "Detects hardcoded timeout values"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        
+
         // Count occurrences for context
         let occurrence_counts = self.count_occurrences();
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files and config files
-            if path_str.contains("test") || path_str.contains("config") { continue; }
-            
+            if path_str.contains("test") || path_str.contains("config") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rs"|"rb"|"jsx"|"tsx") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "java" | "go" | "rs" | "rb" | "jsx" | "tsx"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     // Skip comments
                     let trimmed = line.trim();
-                    if trimmed.starts_with("//") || trimmed.starts_with("#") { continue; }
-                    
+                    if trimmed.starts_with("//") || trimmed.starts_with("#") {
+                        continue;
+                    }
+
                     if let Some(caps) = timeout_pattern().captures(line) {
                         if let (Some(keyword), Some(val)) = (caps.get(1), caps.get(2)) {
                             let _keyword_str = keyword.as_str();
                             let value: u64 = val.as_str().parse().unwrap_or(0);
                             let occurrences = occurrence_counts.get(&value).copied().unwrap_or(1);
                             let (context, is_network) = Self::analyze_context(line);
-                            let containing_func = Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-                            
+                            let containing_func =
+                                Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+
                             // Calculate severity
                             let severity = if is_network {
-                                Severity::Medium  // Network timeouts are important to tune
+                                Severity::Medium // Network timeouts are important to tune
                             } else if occurrences > 3 {
-                                Severity::Medium  // Used in multiple places
+                                Severity::Medium // Used in multiple places
                             } else {
                                 Severity::Low
                             };
-                            
+
                             // Build context notes
                             let mut notes = Vec::new();
                             notes.push(format!("⏱️ Duration: {}", format_duration(value)));
@@ -202,11 +237,11 @@ impl Detector for HardcodedTimeoutDetector {
                             if let Some(func) = containing_func {
                                 notes.push(format!("📦 In function: `{}`", func));
                             }
-                            
+
                             let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                            
+
                             let const_name = suggest_constant_name(line, value);
-                            
+
                             let suggestion = if occurrences > 3 {
                                 format!(
                                     "This timeout value appears {} times. Extract to a centralized config:\n\n\
@@ -236,10 +271,12 @@ impl Detector for HardcodedTimeoutDetector {
                                      ```python\n\
                                      {} = {}  # {}\n\
                                      ```",
-                                    const_name, value, format_duration(value)
+                                    const_name,
+                                    value,
+                                    format_duration(value)
                                 )
                             };
-                            
+
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "HardcodedTimeoutDetector".to_string(),
@@ -267,8 +304,11 @@ impl Detector for HardcodedTimeoutDetector {
                 }
             }
         }
-        
-        info!("HardcodedTimeoutDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "HardcodedTimeoutDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

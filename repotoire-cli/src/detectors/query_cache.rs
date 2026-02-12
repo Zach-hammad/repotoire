@@ -87,11 +87,7 @@ impl QueryCache {
     pub fn get_functions_in_file(&self, file_path: &str) -> Vec<&FunctionData> {
         self.functions_by_file
             .get(file_path)
-            .map(|qns| {
-                qns.iter()
-                    .filter_map(|qn| self.functions.get(qn))
-                    .collect()
-            })
+            .map(|qns| qns.iter().filter_map(|qn| self.functions.get(qn)).collect())
             .unwrap_or_default()
     }
 
@@ -99,11 +95,7 @@ impl QueryCache {
     pub fn get_classes_in_file(&self, file_path: &str) -> Vec<&ClassData> {
         self.classes_by_file
             .get(file_path)
-            .map(|qns| {
-                qns.iter()
-                    .filter_map(|qn| self.classes.get(qn))
-                    .collect()
-            })
+            .map(|qns| qns.iter().filter_map(|qn| self.classes.get(qn)).collect())
             .unwrap_or_default()
     }
 }

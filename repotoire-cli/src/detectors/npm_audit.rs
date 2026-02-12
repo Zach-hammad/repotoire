@@ -4,7 +4,9 @@
 //! in JavaScript/TypeScript dependencies.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::detectors::external_tool::{get_graph_context, get_js_runtime, run_external_tool, JsRuntime};
+use crate::detectors::external_tool::{
+    get_graph_context, get_js_runtime, run_external_tool, JsRuntime,
+};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -90,9 +92,17 @@ impl NpmAuditDetector {
         let runtime = get_js_runtime();
 
         let mut cmd = if has_yarn_lock {
-            vec!["yarn".to_string(), "audit".to_string(), "--json".to_string()]
+            vec![
+                "yarn".to_string(),
+                "audit".to_string(),
+                "--json".to_string(),
+            ]
         } else if has_pnpm_lock {
-            vec!["pnpm".to_string(), "audit".to_string(), "--json".to_string()]
+            vec![
+                "pnpm".to_string(),
+                "audit".to_string(),
+                "--json".to_string(),
+            ]
         } else if has_bun_lock && runtime == JsRuntime::Bun {
             vec!["bun".to_string(), "audit".to_string(), "--json".to_string()]
         } else {
@@ -126,10 +136,20 @@ impl NpmAuditDetector {
         let mut vulnerabilities = Vec::new();
 
         // npm v7+ format
-        if let Some(vulns) = audit_data.get("vulnerabilities").and_then(|v| v.as_object()) {
+        if let Some(vulns) = audit_data
+            .get("vulnerabilities")
+            .and_then(|v| v.as_object())
+        {
             for (pkg_name, vuln_data) in vulns {
-                let severity = vuln_data.get("severity").and_then(|s| s.as_str()).unwrap_or("info");
-                let via = vuln_data.get("via").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]);
+                let severity = vuln_data
+                    .get("severity")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("info");
+                let via = vuln_data
+                    .get("via")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.as_slice())
+                    .unwrap_or(&[]);
 
                 for v in via {
                     if let Some(title) = v.get("title").and_then(|t| t.as_str()) {
@@ -138,13 +158,29 @@ impl NpmAuditDetector {
                             severity: severity.to_string(),
                             title: title.to_string(),
                             url: v.get("url").and_then(|u| u.as_str()).map(String::from),
-                            cwe: v.get("cwe").and_then(|c| c.as_array()).map(|arr| {
-                                arr.iter().filter_map(|c| c.as_str().map(String::from)).collect()
-                            }).unwrap_or_default(),
-                            range: v.get("range").and_then(|r| r.as_str()).unwrap_or(
-                                vuln_data.get("range").and_then(|r| r.as_str()).unwrap_or("*")
-                            ).to_string(),
-                            fix_available: vuln_data.get("fixAvailable").and_then(|f| f.as_bool()).unwrap_or(false),
+                            cwe: v
+                                .get("cwe")
+                                .and_then(|c| c.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|c| c.as_str().map(String::from))
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            range: v
+                                .get("range")
+                                .and_then(|r| r.as_str())
+                                .unwrap_or(
+                                    vuln_data
+                                        .get("range")
+                                        .and_then(|r| r.as_str())
+                                        .unwrap_or("*"),
+                                )
+                                .to_string(),
+                            fix_available: vuln_data
+                                .get("fixAvailable")
+                                .and_then(|f| f.as_bool())
+                                .unwrap_or(false),
                         });
                     }
                 }
@@ -154,13 +190,40 @@ impl NpmAuditDetector {
         else if let Some(advisories) = audit_data.get("advisories").and_then(|a| a.as_object()) {
             for (_, advisory) in advisories {
                 vulnerabilities.push(Vulnerability {
-                    package: advisory.get("module_name").and_then(|n| n.as_str()).unwrap_or("unknown").to_string(),
-                    severity: advisory.get("severity").and_then(|s| s.as_str()).unwrap_or("info").to_string(),
-                    title: advisory.get("title").and_then(|t| t.as_str()).unwrap_or("Unknown vulnerability").to_string(),
-                    url: advisory.get("url").and_then(|u| u.as_str()).map(String::from),
-                    cwe: advisory.get("cwe").and_then(|c| c.as_str()).map(|c| vec![c.to_string()]).unwrap_or_default(),
-                    range: advisory.get("vulnerable_versions").and_then(|v| v.as_str()).unwrap_or("*").to_string(),
-                    fix_available: advisory.get("patched_versions").and_then(|p| p.as_str()).map(|p| p != "<0.0.0").unwrap_or(false),
+                    package: advisory
+                        .get("module_name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    severity: advisory
+                        .get("severity")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("info")
+                        .to_string(),
+                    title: advisory
+                        .get("title")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("Unknown vulnerability")
+                        .to_string(),
+                    url: advisory
+                        .get("url")
+                        .and_then(|u| u.as_str())
+                        .map(String::from),
+                    cwe: advisory
+                        .get("cwe")
+                        .and_then(|c| c.as_str())
+                        .map(|c| vec![c.to_string()])
+                        .unwrap_or_default(),
+                    range: advisory
+                        .get("vulnerable_versions")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("*")
+                        .to_string(),
+                    fix_available: advisory
+                        .get("patched_versions")
+                        .and_then(|p| p.as_str())
+                        .map(|p| p != "<0.0.0")
+                        .unwrap_or(false),
                 });
             }
         }
@@ -169,12 +232,19 @@ impl NpmAuditDetector {
 
         // Filter by severity
         let severity_order = ["critical", "high", "moderate", "low", "info"];
-        let min_idx = severity_order.iter().position(|&s| s == self.min_severity.to_lowercase()).unwrap_or(3);
+        let min_idx = severity_order
+            .iter()
+            .position(|&s| s == self.min_severity.to_lowercase())
+            .unwrap_or(3);
 
         vulnerabilities
             .into_iter()
             .filter(|v| {
-                severity_order.iter().position(|&s| s == v.severity.to_lowercase()).unwrap_or(4) <= min_idx
+                severity_order
+                    .iter()
+                    .position(|&s| s == v.severity.to_lowercase())
+                    .unwrap_or(4)
+                    <= min_idx
             })
             .collect()
     }
@@ -196,13 +266,11 @@ impl NpmAuditDetector {
         let imports = graph.get_imports();
         let mut files: Vec<String> = imports
             .iter()
-            .filter(|(_, imported)| {
-                imported.ends_with(package) || imported == package
-            })
+            .filter(|(_, imported)| imported.ends_with(package) || imported == package)
             .map(|(importer, _)| importer.clone())
             .take(10)
             .collect();
-        
+
         files.sort();
         files.dedup();
         files
@@ -234,7 +302,10 @@ impl NpmAuditDetector {
         }
 
         if !affected_files.is_empty() {
-            description.push_str(&format!("\n**Affected files** ({}):\n", affected_files.len()));
+            description.push_str(&format!(
+                "\n**Affected files** ({}):\n",
+                affected_files.len()
+            ));
             for f in affected_files.iter().take(5) {
                 description.push_str(&format!("  - {}\n", f));
             }
@@ -244,7 +315,10 @@ impl NpmAuditDetector {
         }
 
         let suggested_fix = if vuln.fix_available {
-            format!("Run `npm audit fix` or manually update {} to a patched version", vuln.package)
+            format!(
+                "Run `npm audit fix` or manually update {} to a patched version",
+                vuln.package
+            )
         } else {
             format!("Check for alternative packages or apply workarounds for {}. See advisory for details.", vuln.package)
         };
@@ -336,7 +410,10 @@ mod tests {
 
     #[test]
     fn test_severity_mapping() {
-        assert_eq!(NpmAuditDetector::map_severity("critical"), Severity::Critical);
+        assert_eq!(
+            NpmAuditDetector::map_severity("critical"),
+            Severity::Critical
+        );
         assert_eq!(NpmAuditDetector::map_severity("high"), Severity::High);
         assert_eq!(NpmAuditDetector::map_severity("moderate"), Severity::Medium);
         assert_eq!(NpmAuditDetector::map_severity("low"), Severity::Low);

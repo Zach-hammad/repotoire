@@ -64,7 +64,8 @@ fn extract_functions(
     "#;
 
     let language = tree_sitter_rust::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create function query")?;
+    let query =
+        Query::new(&language.into(), query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&query, *root, source);
@@ -96,8 +97,8 @@ fn extract_functions(
 
             let is_async = has_async_modifier(&node, source);
             let parameters = extract_parameters(params_node, source);
-            let return_type = return_type_node
-                .map(|n| n.utf8_text(source).unwrap_or("").to_string());
+            let return_type =
+                return_type_node.map(|n| n.utf8_text(source).unwrap_or("").to_string());
 
             let line_start = node.start_position().row as u32 + 1;
             let line_end = node.end_position().row as u32 + 1;
@@ -344,7 +345,14 @@ fn extract_impl_methods(
     if let Some(body) = impl_node.child_by_field_name("body") {
         for child in body.children(&mut body.walk()) {
             if child.kind() == "function_item" {
-                if let Some(func) = parse_impl_method(&child, source, path, &type_name, trait_name.as_deref(), impl_line) {
+                if let Some(func) = parse_impl_method(
+                    &child,
+                    source,
+                    path,
+                    &type_name,
+                    trait_name.as_deref(),
+                    impl_line,
+                ) {
                     result.functions.push(func);
                 }
             }
@@ -381,9 +389,22 @@ fn parse_impl_method(
 
     // Build qualified name including impl context
     let qualified_name = if let Some(trait_n) = trait_name {
-        format!("{}::impl<{} for {}>::{}:{}", path.display(), trait_n, type_name, name, line_start)
+        format!(
+            "{}::impl<{} for {}>::{}:{}",
+            path.display(),
+            trait_n,
+            type_name,
+            name,
+            line_start
+        )
     } else {
-        format!("{}::impl<{}>::{}:{}", path.display(), type_name, name, line_start)
+        format!(
+            "{}::impl<{}>::{}:{}",
+            path.display(),
+            type_name,
+            name,
+            line_start
+        )
     };
 
     Some(Function {
@@ -429,12 +450,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
 }
 
 /// Extract function calls from the AST
-fn extract_calls(
-    root: &Node,
-    source: &[u8],
-    path: &Path,
-    result: &mut ParseResult,
-) -> Result<()> {
+fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
     // Build a map of function locations for call extraction
     let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
 
@@ -531,7 +547,8 @@ fn calculate_complexity(node: &Node, _source: &[u8]) -> u32 {
 
     fn count_branches(node: &Node, complexity: &mut u32) {
         match node.kind() {
-            "if_expression" | "else_clause" | "while_expression" | "for_expression" | "loop_expression" => {
+            "if_expression" | "else_clause" | "while_expression" | "for_expression"
+            | "loop_expression" => {
                 *complexity += 1;
             }
             "match_arm" => {

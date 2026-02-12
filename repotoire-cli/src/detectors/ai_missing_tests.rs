@@ -105,7 +105,7 @@ impl AIMissingTestsDetector {
     fn is_test_function(name: &str, file_path: &str) -> bool {
         let name_lower = name.to_lowercase();
         let path_lower = file_path.to_lowercase();
-        
+
         // Check function name patterns
         if name_lower.starts_with("test_") 
             || name_lower.starts_with("test")  // testSomething (camelCase)
@@ -121,7 +121,7 @@ impl AIMissingTestsDetector {
         {
             return true;
         }
-        
+
         // Check if in test file/directory
         if path_lower.contains("/test/")
             || path_lower.contains("/tests/")
@@ -138,7 +138,7 @@ impl AIMissingTestsDetector {
         {
             return true;
         }
-        
+
         false
     }
 
@@ -338,45 +338,49 @@ impl Detector for AIMissingTestsDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         use std::collections::HashSet;
-        
+
         // Get all test functions
-        let test_funcs: HashSet<String> = graph.get_functions()
+        let test_funcs: HashSet<String> = graph
+            .get_functions()
             .iter()
             .filter(|f| Self::is_test_function(&f.name, &f.file_path))
             .map(|f| f.name.clone())
             .collect();
-        
+
         // Find complex public functions without tests
         for func in graph.get_functions() {
             // Skip test functions, fixtures, and test files
             if Self::is_test_function(&func.name, &func.file_path) {
                 continue;
             }
-            
+
             // Skip private functions
             if func.name.starts_with('_') && !func.name.starts_with("__") {
                 continue;
             }
-            
+
             // Skip dunder methods
             if func.name.starts_with("__") && func.name.ends_with("__") {
                 continue;
             }
-            
+
             let complexity = func.complexity().unwrap_or(1);
             let loc = func.loc();
-            
+
             // Only flag complex/large functions
             if complexity < 5 && loc < 20 {
                 continue;
             }
-            
+
             // Check if there's a test for this function
             let test_name = format!("test_{}", func.name);
-            if !test_funcs.contains(&test_name) && !test_funcs.iter().any(|t| t.contains(&func.name)) {
+            if !test_funcs.contains(&test_name)
+                && !test_funcs.iter().any(|t| t.contains(&func.name))
+            {
                 let severity = if complexity > 15 {
                     Severity::High
                 } else if complexity > 10 {
@@ -384,7 +388,7 @@ impl Detector for AIMissingTestsDetector {
                 } else {
                     Severity::Low
                 };
-                
+
                 findings.push(Finding {
                     id: Uuid::new_v4().to_string(),
                     detector: "AIMissingTestsDetector".to_string(),
@@ -406,7 +410,7 @@ impl Detector for AIMissingTestsDetector {
                 });
             }
         }
-        
+
         // Limit findings
         findings.truncate(50);
         Ok(findings)
@@ -422,9 +426,10 @@ impl Detector for AIMissingTestsDetector {
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         // Get all test functions (from context or name/path patterns)
-        let test_funcs: HashSet<String> = graph.get_functions()
+        let test_funcs: HashSet<String> = graph
+            .get_functions()
             .iter()
             .filter(|f| {
                 // Check context first
@@ -438,9 +443,12 @@ impl Detector for AIMissingTestsDetector {
             })
             .map(|f| f.name.clone())
             .collect();
-        
-        debug!("AIMissingTestsDetector: found {} test functions", test_funcs.len());
-        
+
+        debug!(
+            "AIMissingTestsDetector: found {} test functions",
+            test_funcs.len()
+        );
+
         // Find complex public functions without tests
         for func in graph.get_functions() {
             // Check context first for test detection
@@ -449,39 +457,41 @@ impl Detector for AIMissingTestsDetector {
                     continue;
                 }
             }
-            
+
             // Fall back to name/path pattern check
             if Self::is_test_function(&func.name, &func.file_path) {
                 continue;
             }
-            
+
             // Skip private functions
             if func.name.starts_with('_') && !func.name.starts_with("__") {
                 continue;
             }
-            
+
             // Skip dunder methods
             if func.name.starts_with("__") && func.name.ends_with("__") {
                 continue;
             }
-            
+
             // Get complexity from context or graph
             let complexity = if let Some(ctx) = contexts.get(&func.qualified_name) {
                 ctx.complexity.unwrap_or(1)
             } else {
                 func.complexity().unwrap_or(1)
             };
-            
+
             let loc = func.loc();
-            
+
             // Only flag complex/large functions
             if complexity < 5 && loc < 20 {
                 continue;
             }
-            
+
             // Check if there's a test for this function
             let test_name = format!("test_{}", func.name);
-            if !test_funcs.contains(&test_name) && !test_funcs.iter().any(|t| t.contains(&func.name)) {
+            if !test_funcs.contains(&test_name)
+                && !test_funcs.iter().any(|t| t.contains(&func.name))
+            {
                 let severity = if complexity > 15 {
                     Severity::High
                 } else if complexity > 10 {
@@ -489,7 +499,7 @@ impl Detector for AIMissingTestsDetector {
                 } else {
                     Severity::Low
                 };
-                
+
                 findings.push(Finding {
                     id: Uuid::new_v4().to_string(),
                     detector: "AIMissingTestsDetector".to_string(),
@@ -511,10 +521,13 @@ impl Detector for AIMissingTestsDetector {
                 });
             }
         }
-        
+
         // Limit findings
         findings.truncate(50);
-        debug!("AIMissingTestsDetector: found {} missing test findings", findings.len());
+        debug!(
+            "AIMissingTestsDetector: found {} missing test findings",
+            findings.len()
+        );
         Ok(findings)
     }
 }

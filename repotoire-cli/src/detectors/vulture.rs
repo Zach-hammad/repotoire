@@ -125,8 +125,14 @@ impl VultureDetector {
 
         // Filter common framework callbacks
         let callback_patterns = [
-            "on_", "handle_", "_handler", "_callback",
-            "setUp", "tearDown", "setUpClass", "tearDownClass",
+            "on_",
+            "handle_",
+            "_handler",
+            "_callback",
+            "setUp",
+            "tearDown",
+            "setUpClass",
+            "tearDownClass",
         ];
         for pattern in callback_patterns {
             if name.contains(pattern) {
@@ -136,7 +142,14 @@ impl VultureDetector {
 
         // Filter factory/builder methods
         if item_type == "function" || item_type == "method" {
-            let factory_patterns = ["factory", "create_", "build_", "make_", "get_handler", "dispatch"];
+            let factory_patterns = [
+                "factory",
+                "create_",
+                "build_",
+                "make_",
+                "get_handler",
+                "dispatch",
+            ];
             for pattern in factory_patterns {
                 if name.to_lowercase().contains(pattern) {
                     return true;
@@ -179,14 +192,13 @@ impl VultureDetector {
             .unwrap_or_else(|_| result.file.clone());
 
         let ctx = get_graph_context(graph, &rel_path, Some(result.line));
-        let severity = Self::map_severity(result.confidence, &result.item_type, ctx.max_complexity());
+        let severity =
+            Self::map_severity(result.confidence, &result.item_type, ctx.max_complexity());
 
         let mut description = format!(
             "Unused {} '{}' detected by vulture.\n\n\
              **Confidence**: {}%\n",
-            result.item_type,
-            result.name,
-            result.confidence
+            result.item_type, result.name, result.confidence
         );
 
         if let Some(loc) = ctx.file_loc {
@@ -202,12 +214,18 @@ impl VultureDetector {
 
         let suggested_fix = if result.confidence >= 95 {
             if matches!(result.item_type.as_str(), "function" | "class" | "method") {
-                format!("Safe to remove: Delete unused {} '{}' and run tests to confirm", result.item_type, result.name)
+                format!(
+                    "Safe to remove: Delete unused {} '{}' and run tests to confirm",
+                    result.item_type, result.name
+                )
             } else {
                 format!("Remove unused {} '{}'", result.item_type, result.name)
             }
         } else if result.confidence >= 80 {
-            format!("Investigate and remove if truly unused: Check for dynamic usage of '{}'", result.name)
+            format!(
+                "Investigate and remove if truly unused: Check for dynamic usage of '{}'",
+                result.name
+            )
         } else {
             "Review usage patterns: May be used dynamically or in external modules".to_string()
         };
@@ -321,9 +339,21 @@ mod tests {
 
     #[test]
     fn test_severity_mapping() {
-        assert_eq!(VultureDetector::map_severity(95, "function", 10), Severity::High);
-        assert_eq!(VultureDetector::map_severity(95, "variable", 0), Severity::Medium);
-        assert_eq!(VultureDetector::map_severity(80, "function", 5), Severity::Low);
-        assert_eq!(VultureDetector::map_severity(70, "function", 0), Severity::Info);
+        assert_eq!(
+            VultureDetector::map_severity(95, "function", 10),
+            Severity::High
+        );
+        assert_eq!(
+            VultureDetector::map_severity(95, "variable", 0),
+            Severity::Medium
+        );
+        assert_eq!(
+            VultureDetector::map_severity(80, "function", 5),
+            Severity::Low
+        );
+        assert_eq!(
+            VultureDetector::map_severity(70, "function", 0),
+            Severity::Info
+        );
     }
 }

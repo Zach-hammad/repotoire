@@ -71,7 +71,8 @@ fn extract_functions(
     "#;
 
     let language = tree_sitter_python::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create function query")?;
+    let query =
+        Query::new(&language.into(), query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&query, *root, source);
@@ -99,14 +100,18 @@ fn extract_functions(
             // Check for async: check if the line starts with "async def"
             let line_text = {
                 let start = node.start_byte();
-                let line_start = source[..start].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
-                std::str::from_utf8(&source[line_start..start + 10.min(source.len() - start)]).unwrap_or("")
+                let line_start = source[..start]
+                    .iter()
+                    .rposition(|&b| b == b'\n')
+                    .map_or(0, |i| i + 1);
+                std::str::from_utf8(&source[line_start..start + 10.min(source.len() - start)])
+                    .unwrap_or("")
             };
             let is_async = line_text.trim_start().starts_with("async");
 
             let parameters = extract_parameters(params_node, source);
-            let return_type = return_type_node
-                .map(|n| n.utf8_text(source).unwrap_or("").to_string());
+            let return_type =
+                return_type_node.map(|n| n.utf8_text(source).unwrap_or("").to_string());
 
             let line_start = node.start_position().row as u32 + 1;
             let line_end = node.end_position().row as u32 + 1;
@@ -145,7 +150,11 @@ fn extract_async_functions(
         if node.kind() == "async_function_definition" {
             if let Some(func) = parse_function_node(&node, source, path, true) {
                 // Check if we already have this function (from the query)
-                if !result.functions.iter().any(|f| f.qualified_name == func.qualified_name) {
+                if !result
+                    .functions
+                    .iter()
+                    .any(|f| f.qualified_name == func.qualified_name)
+                {
                     result.functions.push(func);
                 }
             }
@@ -154,7 +163,11 @@ fn extract_async_functions(
             for child in node.children(&mut node.walk()) {
                 if child.kind() == "async_function_definition" {
                     if let Some(func) = parse_function_node(&child, source, path, true) {
-                        if !result.functions.iter().any(|f| f.qualified_name == func.qualified_name) {
+                        if !result
+                            .functions
+                            .iter()
+                            .any(|f| f.qualified_name == func.qualified_name)
+                        {
                             result.functions.push(func);
                         }
                     }
@@ -167,7 +180,12 @@ fn extract_async_functions(
 }
 
 /// Parse a single function node into a Function struct
-fn parse_function_node(node: &Node, source: &[u8], path: &Path, is_async: bool) -> Option<Function> {
+fn parse_function_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    is_async: bool,
+) -> Option<Function> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -352,13 +370,11 @@ fn extract_methods(class_node: &Node, source: &[u8]) -> Vec<String> {
     let mut methods = Vec::new();
 
     // Find the block (class body)
-    let body = class_node
-        .child_by_field_name("body")
-        .or_else(|| {
-            class_node
-                .children(&mut class_node.walk())
-                .find(|c| c.kind() == "block")
-        });
+    let body = class_node.child_by_field_name("body").or_else(|| {
+        class_node
+            .children(&mut class_node.walk())
+            .find(|c| c.kind() == "block")
+    });
 
     if let Some(body) = body {
         for child in body.children(&mut body.walk()) {
@@ -437,12 +453,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
 }
 
 /// Extract function calls from the AST
-fn extract_calls(
-    root: &Node,
-    source: &[u8],
-    path: &Path,
-    result: &mut ParseResult,
-) -> Result<()> {
+fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
     // Build a map of function/method locations for call extraction
     let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
 
@@ -516,8 +527,7 @@ fn extract_method_ranges(
                     Some(child)
                 } else if child.kind() == "decorated_definition" {
                     child.children(&mut child.walk()).find(|c| {
-                        c.kind() == "function_definition"
-                            || c.kind() == "async_function_definition"
+                        c.kind() == "function_definition" || c.kind() == "async_function_definition"
                     })
                 } else {
                     None
@@ -861,7 +871,7 @@ class DataProcessor:
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
         assert_eq!(class.name, "DataProcessor");
-        
+
         // Should have exactly 3 methods: __init__, process, register
         // NOT: inner_helper lambda, map lambda, local_transform
         assert_eq!(

@@ -26,6 +26,7 @@ use std::process::{Child, Command, Stdio};
 
 use std::time::{Duration, Instant};
 
+use crate::cli::embedded_scripts;
 use crate::config::UserConfig;
 use crate::models::{Finding, Severity};
 
@@ -56,7 +57,8 @@ impl AgentTask {
                     if status.success() {
                         self.status = AgentStatus::Completed(true);
                     } else {
-                        self.status = AgentStatus::Failed(format!("Exit code: {:?}", status.code()));
+                        self.status =
+                            AgentStatus::Failed(format!("Exit code: {:?}", status.code()));
                     }
                     self.child = None;
                     true
@@ -85,23 +87,45 @@ impl AgentTask {
             format!("{}m{}s", secs / 60, secs % 60)
         }
     }
+
+    /// Cancel/kill the running agent process
+    fn cancel(&mut self) -> bool {
+        if let Some(ref mut child) = self.child {
+            match child.kill() {
+                Ok(()) => {
+                    self.status = AgentStatus::Failed("Cancelled by user".to_string());
+                    self.child = None;
+                    true
+                }
+                Err(_) => false,
+            }
+        } else {
+            false
+        }
+    }
 }
 
 /// Read code snippet from file around the given line range
-fn read_code_snippet(repo_path: &Path, file_path: &str, line_start: u32, line_end: u32, context: usize) -> Option<Vec<(u32, String)>> {
+fn read_code_snippet(
+    repo_path: &Path,
+    file_path: &str,
+    line_start: u32,
+    line_end: u32,
+    context: usize,
+) -> Option<Vec<(u32, String)>> {
     let full_path = repo_path.join(file_path);
     let content = fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     let start = (line_start as usize).saturating_sub(context + 1);
     let end = (line_end as usize + context).min(lines.len());
-    
+
     Some(
         lines[start..end]
             .iter()
             .enumerate()
             .map(|(i, line)| ((start + i + 1) as u32, line.to_string()))
-            .collect()
+            .collect(),
     )
 }
 
@@ -123,6 +147,9 @@ fn tail_file(path: &Path, n: usize) -> Vec<String> {
     }
 }
 
+/// Spinner frames for running agent animation
+const SPINNER_FRAMES: [char; 4] = ['⠋', '⠙', '⠹', '⠸'];
+
 pub struct App {
     findings: Vec<Finding>,
     list_state: ListState,
@@ -134,6 +161,7 @@ pub struct App {
     status_message: Option<(String, bool, Instant)>, // (message, is_error, when)
     agents: Vec<AgentTask>,
     config: UserConfig,
+    frame: usize, // Frame counter for spinner animation
 }
 
 impl App {
@@ -154,7 +182,13 @@ impl App {
             status_message: None,
             agents: Vec::new(),
             config,
+            frame: 0,
         }
+    }
+
+    /// Get current spinner character based on frame counter
+    fn spinner(&self) -> char {
+        SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()]
     }
 
     /// Set a status message that auto-clears after 5 seconds
@@ -180,56 +214,82 @@ impl App {
 
     /// Get count of running agents
     fn running_agent_count(&self) -> usize {
-        self.agents.iter().filter(|a| matches!(a.status, AgentStatus::Running)).count()
+        self.agents
+            .iter()
+            .filter(|a| matches!(a.status, AgentStatus::Running))
+            .count()
     }
-    
+
+    /// Cancel the most recent running agent
+    fn cancel_latest_agent(&mut self) -> Option<String> {
+        // Find the most recent running agent (last in list)
+        if let Some(agent) = self
+            .agents
+            .iter_mut()
+            .rev()
+            .find(|a| matches!(a.status, AgentStatus::Running))
+        {
+            let title = agent.finding_title.clone();
+            let index = agent.finding_index;
+            if agent.cancel() {
+                Some(format!("⛔ Cancelled agent #{}: {}", index, title))
+            } else {
+                Some(format!("❌ Failed to cancel agent #{}", index))
+            }
+        } else {
+            Some("⚠️ No running agents to cancel".to_string())
+        }
+    }
+
     /// Launch Claude Code agent to fix the current finding and create a PR
     fn launch_agent(&mut self) -> Option<String> {
         let finding = self.selected_finding()?.clone();
         let index = self.list_state.selected()? + 1;
-        
+
         // Check if agent already running for this finding
-        if self.agents.iter().any(|a| a.finding_index == index && matches!(a.status, AgentStatus::Running)) {
+        if self
+            .agents
+            .iter()
+            .any(|a| a.finding_index == index && matches!(a.status, AgentStatus::Running))
+        {
             return Some(format!("⚠️ Agent already running for finding #{}", index));
         }
-        
+
         // Check backend configuration
         let use_ollama = self.config.use_ollama();
-        
+
         // For Claude backend, check for API key
         let api_key = if !use_ollama {
             match self.config.anthropic_api_key() {
                 Some(key) => key.to_string(),
-                None => {
-                    match std::env::var("ANTHROPIC_API_KEY") {
-                        Ok(key) => key,
-                        Err(_) => {
-                            return Some("❌ No API key. Run: repotoire config init\n   Or use Ollama: repotoire config set ai.backend ollama".to_string());
-                        }
+                None => match std::env::var("ANTHROPIC_API_KEY") {
+                    Ok(key) => key,
+                    Err(_) => {
+                        return Some("❌ No API key. Run: repotoire config init\n   Or use Ollama: repotoire config set ai.backend ollama".to_string());
                     }
-                }
+                },
             }
         } else {
             String::new() // Not needed for Ollama
         };
-        
+
         // Create log file for this agent
         let log_dir = get_agent_log_dir(&self.repo_path);
         let log_file = log_dir.join(format!("agent_{}.log", index));
-        
+
         let log_handle = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(&log_file);
-        
+
         let stdout_file = match log_handle {
             Ok(f) => f,
             Err(e) => return Some(format!("❌ Failed to create log file: {}", e)),
         };
-        
+
         let stderr_file = stdout_file.try_clone().ok();
-        
+
         // Build finding JSON for the agent script
         let finding_json = serde_json::json!({
             "index": index,
@@ -241,26 +301,35 @@ impl App {
             "line_start": finding.line_start,
             "line_end": finding.line_end,
         });
-        
+
+        // Get script paths (embedded or local)
+        let (ollama_script, claude_script) =
+            match embedded_scripts::get_script_paths(&self.repo_path) {
+                Ok(paths) => paths,
+                Err(e) => return Some(format!("❌ Failed to extract scripts: {}", e)),
+            };
+
+        // Find Python interpreter
         let venv_python = self.repo_path.join(".venv/bin/python");
         let system_python = std::path::PathBuf::from("python3");
-        
+        let python = if venv_python.exists() {
+            &venv_python
+        } else {
+            &system_python
+        };
+
         // Choose the right agent based on backend
         let result = if use_ollama {
             // Use Ollama agent (local, free)
-            let ollama_script = self.repo_path.join("scripts/fix_agent_ollama.py");
-            let python = if venv_python.exists() { &venv_python } else { &system_python };
-            
-            if !ollama_script.exists() {
-                return Some("❌ Ollama agent not found. Update repotoire.".to_string());
-            }
-            
             Command::new(python)
                 .args([
                     ollama_script.to_str().unwrap(),
-                    "--finding-json", &finding_json.to_string(),
-                    "--repo-path", self.repo_path.to_str().unwrap(),
-                    "--model", self.config.ollama_model(),
+                    "--finding-json",
+                    &finding_json.to_string(),
+                    "--repo-path",
+                    self.repo_path.to_str().unwrap(),
+                    "--model",
+                    self.config.ollama_model(),
                 ])
                 .env("OLLAMA_URL", self.config.ollama_url())
                 .current_dir(&self.repo_path)
@@ -268,52 +337,28 @@ impl App {
                 .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
                 .spawn()
         } else {
-            // Use Claude Agent SDK
-            let agent_script = self.repo_path.join("scripts/fix_agent.py");
-            
-            if venv_python.exists() && agent_script.exists() {
-                Command::new(&venv_python)
-                    .args([
-                        agent_script.to_str().unwrap(),
-                        "--finding-json", &finding_json.to_string(),
-                        "--repo-path", self.repo_path.to_str().unwrap(),
-                    ])
-                    .env("ANTHROPIC_API_KEY", &api_key)
-                    .current_dir(&self.repo_path)
-                    .stdout(Stdio::from(stdout_file))
-                    .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
-                    .spawn()
-            } else {
-                // Fall back to Claude CLI
-                let file = finding.affected_files.first()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default();
-                let line_start = finding.line_start.unwrap_or(1);
-                let line_end = finding.line_end.unwrap_or(line_start);
-                
-                let task = format!(
-                    "Fix {} in {}:{}-{}. Issue: {}. {}",
-                    finding.title, file, line_start, line_end,
-                    finding.description,
-                    finding.suggested_fix.as_deref().unwrap_or("")
-                );
-                
-                Command::new("claude")
-                    .args(["--print", "--dangerously-skip-permissions", &task])
-                    .env("ANTHROPIC_API_KEY", &api_key)
-                    .current_dir(&self.repo_path)
-                    .stdout(Stdio::from(stdout_file))
-                    .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
-                    .spawn()
-            }
+            // Use Claude Agent SDK script
+            Command::new(python)
+                .args([
+                    claude_script.to_str().unwrap(),
+                    "--finding-json",
+                    &finding_json.to_string(),
+                    "--repo-path",
+                    self.repo_path.to_str().unwrap(),
+                ])
+                .env("ANTHROPIC_API_KEY", &api_key)
+                .current_dir(&self.repo_path)
+                .stdout(Stdio::from(stdout_file))
+                .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
+                .spawn()
         };
-        
-        let backend_name = if use_ollama { 
-            format!("Ollama ({})", self.config.ollama_model()) 
-        } else { 
-            "Claude".to_string() 
+
+        let backend_name = if use_ollama {
+            format!("Ollama ({})", self.config.ollama_model())
+        } else {
+            "Claude".to_string()
         };
-        
+
         match result {
             Ok(child) => {
                 let pid = child.id();
@@ -329,14 +374,20 @@ impl App {
             }
             Err(e) => {
                 if use_ollama {
-                    Some(format!("❌ Failed: {}. Is Ollama running? (ollama serve)", e))
+                    Some(format!(
+                        "❌ Failed: {}. Is Ollama running? (ollama serve)",
+                        e
+                    ))
                 } else {
-                    Some(format!("❌ Failed: {}. Install claude-code or set up venv.", e))
+                    Some(format!(
+                        "❌ Failed: {}. Install claude-code or set up venv.",
+                        e
+                    ))
                 }
             }
         }
     }
-    
+
     /// Run the built-in fix command for the current finding
     fn run_fix(&self) -> Option<String> {
         let index = self.list_state.selected()? + 1;
@@ -345,16 +396,16 @@ impl App {
 
     fn get_code_snippet(&mut self) -> Option<&Vec<(u32, String)>> {
         let selected = self.list_state.selected()?;
-        
+
         if self.cached_index == Some(selected) {
             return self.code_cache.as_ref();
         }
-        
+
         let finding = self.findings.get(selected)?;
         let file_path = finding.affected_files.first()?;
         let line_start = finding.line_start.unwrap_or(1);
         let line_end = finding.line_end.unwrap_or(line_start);
-        
+
         self.code_cache = read_code_snippet(
             &self.repo_path,
             &file_path.to_string_lossy(),
@@ -367,7 +418,9 @@ impl App {
     }
 
     fn next(&mut self) {
-        if self.findings.is_empty() { return; }
+        if self.findings.is_empty() {
+            return;
+        }
         let i = match self.list_state.selected() {
             Some(i) => (i + 1) % self.findings.len(),
             None => 0,
@@ -376,16 +429,26 @@ impl App {
     }
 
     fn previous(&mut self) {
-        if self.findings.is_empty() { return; }
+        if self.findings.is_empty() {
+            return;
+        }
         let i = match self.list_state.selected() {
-            Some(i) => if i == 0 { self.findings.len() - 1 } else { i - 1 },
+            Some(i) => {
+                if i == 0 {
+                    self.findings.len() - 1
+                } else {
+                    i - 1
+                }
+            }
             None => 0,
         };
         self.list_state.select(Some(i));
     }
 
     fn selected_finding(&self) -> Option<&Finding> {
-        self.list_state.selected().and_then(|i| self.findings.get(i))
+        self.list_state
+            .selected()
+            .and_then(|i| self.findings.get(i))
     }
 }
 
@@ -427,7 +490,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
         // Poll agents for status updates
         app.poll_agents();
         app.maybe_clear_status();
-        
+
+        // Increment frame counter for spinner animation
+        app.frame = app.frame.wrapping_add(1);
+
         terminal.draw(|f| ui(f, app))?;
 
         // Non-blocking event check with timeout for agent polling
@@ -435,7 +501,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc if !app.show_detail && !app.show_agents => return Ok(()),
+                        KeyCode::Char('q') | KeyCode::Esc
+                            if !app.show_detail && !app.show_agents =>
+                        {
+                            return Ok(())
+                        }
                         KeyCode::Esc => {
                             app.show_detail = false;
                             app.show_agents = false;
@@ -443,8 +513,16 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                         KeyCode::Down | KeyCode::Char('j') if !app.show_agents => app.next(),
                         KeyCode::Up | KeyCode::Char('k') if !app.show_agents => app.previous(),
                         KeyCode::Enter if !app.show_agents => app.show_detail = !app.show_detail,
-                        KeyCode::PageDown => { for _ in 0..10 { app.next(); } }
-                        KeyCode::PageUp => { for _ in 0..10 { app.previous(); } }
+                        KeyCode::PageDown => {
+                            for _ in 0..10 {
+                                app.next();
+                            }
+                        }
+                        KeyCode::PageUp => {
+                            for _ in 0..10 {
+                                app.previous();
+                            }
+                        }
                         KeyCode::Char('f') => {
                             if let Some(msg) = app.run_fix() {
                                 app.set_status(msg, false);
@@ -459,6 +537,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                         KeyCode::Char('a') | KeyCode::Char('A') => {
                             app.show_agents = !app.show_agents;
                         }
+                        KeyCode::Char('c') => {
+                            if let Some(msg) = app.cancel_latest_agent() {
+                                let is_error = msg.starts_with("❌") || msg.starts_with("⚠️");
+                                app.set_status(msg, is_error);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -469,7 +553,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
 
 fn ui(f: &mut Frame, app: &mut App) {
     let running = app.running_agent_count();
-    
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -482,7 +566,11 @@ fn ui(f: &mut Frame, app: &mut App) {
     // Header
     let selected = app.list_state.selected().unwrap_or(0) + 1;
     let agent_indicator = if running > 0 {
-        format!(" | 🤖 {} agent{}", running, if running > 1 { "s" } else { "" })
+        format!(
+            " | 🤖 {} agent{}",
+            running,
+            if running > 1 { "s" } else { "" }
+        )
     } else {
         String::new()
     };
@@ -507,7 +595,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             .split(chunks[1]);
 
         render_list(f, main_chunks[0], app);
-        
+
         if let Some(finding) = app.selected_finding().cloned() {
             let code = app.get_code_snippet().cloned();
             render_detail(f, main_chunks[1], &finding, code.as_ref());
@@ -522,34 +610,55 @@ fn render_agents_panel(f: &mut Frame, area: Rect, app: &App) {
     // Split area: top for agent list, bottom for log output
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(6.min(app.agents.len() as u16 + 2)), Constraint::Min(5)])
+        .constraints([
+            Constraint::Length(6.min(app.agents.len() as u16 + 2)),
+            Constraint::Min(5),
+        ])
         .split(area);
-    
-    // Agent list
-    let items: Vec<ListItem> = app.agents.iter().map(|agent| {
-        let (status_icon, status_color) = match &agent.status {
-            AgentStatus::Running => ("⏳", Color::Yellow),
-            AgentStatus::Completed(true) => ("✅", Color::Green),
-            AgentStatus::Completed(false) => ("❌", Color::Red),
-            AgentStatus::Failed(_) => ("💥", Color::Red),
-        };
-        
-        let line = Line::from(vec![
-            Span::styled(format!(" {} ", status_icon), Style::default().fg(status_color)),
-            Span::styled(format!("#{:<3} ", agent.finding_index), Style::default().fg(Color::Cyan)),
-            Span::raw(&agent.finding_title),
-            Span::styled(format!("  [{}]", agent.elapsed_str()), Style::default().fg(Color::DarkGray)),
-        ]);
-        
-        ListItem::new(line)
-    }).collect();
 
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" Agents (press 'a' to close) "));
+    // Agent list
+    let items: Vec<ListItem> = app
+        .agents
+        .iter()
+        .map(|agent| {
+            let (status_icon, status_color) = match &agent.status {
+                AgentStatus::Running => ("⏳", Color::Yellow),
+                AgentStatus::Completed(true) => ("✅", Color::Green),
+                AgentStatus::Completed(false) => ("❌", Color::Red),
+                AgentStatus::Failed(_) => ("💥", Color::Red),
+            };
+
+            let line = Line::from(vec![
+                Span::styled(
+                    format!(" {} ", status_icon),
+                    Style::default().fg(status_color),
+                ),
+                Span::styled(
+                    format!("#{:<3} ", agent.finding_index),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(&agent.finding_title),
+                Span::styled(
+                    format!("  [{}]", agent.elapsed_str()),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]);
+
+            ListItem::new(line)
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Agents (press 'a' to close) "),
+    );
     f.render_widget(list, chunks[0]);
-    
+
     // Show log output from the most recent running agent
-    let log_lines: Vec<Line> = app.agents.iter()
+    let log_lines: Vec<Line> = app
+        .agents
+        .iter()
         .filter(|a| matches!(a.status, AgentStatus::Running))
         .last()
         .map(|agent| {
@@ -574,52 +683,79 @@ fn render_agents_panel(f: &mut Frame, area: Rect, app: &App) {
                 })
                 .collect()
         })
-        .unwrap_or_else(|| vec![Line::raw(" No running agents - press 'F' on a finding to launch one")]);
-    
+        .unwrap_or_else(|| {
+            vec![Line::raw(
+                " No running agents - press 'F' on a finding to launch one",
+            )]
+        });
+
     let log_widget = Paragraph::new(log_lines)
-        .block(Block::default().borders(Borders::ALL).title(" Agent Output "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Agent Output "),
+        )
         .wrap(Wrap { trim: false });
     f.render_widget(log_widget, chunks[1]);
 }
 
 fn render_list(f: &mut Frame, area: Rect, app: &mut App) {
-    let items: Vec<ListItem> = app.findings.iter().enumerate().map(|(i, finding)| {
-        let (severity_char, severity_color) = match finding.severity {
-            Severity::Critical => ("C", Color::Red),
-            Severity::High => ("H", Color::Yellow),
-            Severity::Medium => ("M", Color::Blue),
-            Severity::Low => ("L", Color::DarkGray),
-            Severity::Info => ("I", Color::DarkGray),
-        };
+    let items: Vec<ListItem> =
+        app.findings
+            .iter()
+            .enumerate()
+            .map(|(i, finding)| {
+                let (severity_char, severity_color) = match finding.severity {
+                    Severity::Critical => ("C", Color::Red),
+                    Severity::High => ("H", Color::Yellow),
+                    Severity::Medium => ("M", Color::Blue),
+                    Severity::Low => ("L", Color::DarkGray),
+                    Severity::Info => ("I", Color::DarkGray),
+                };
 
-        let file = finding.affected_files.first()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-        
-        let max_len = 40;
-        let file_display = if file.len() > max_len {
-            format!("...{}", &file[file.len() - max_len + 3..])
-        } else {
-            file
-        };
+                let file = finding
+                    .affected_files
+                    .first()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
 
-        // Check if agent is running for this finding
-        let agent_icon = if app.agents.iter().any(|a| a.finding_index == i + 1 && matches!(a.status, AgentStatus::Running)) {
-            "🤖 "
-        } else {
-            ""
-        };
+                let max_len = 40;
+                let file_display = if file.len() > max_len {
+                    format!("...{}", &file[file.len() - max_len + 3..])
+                } else {
+                    file
+                };
 
-        let line = Line::from(vec![
-            Span::styled(format!("{:>4} ", i + 1), Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("[{}] ", severity_char), Style::default().fg(severity_color).bold()),
-            Span::raw(agent_icon),
-            Span::raw(&finding.title),
-            Span::styled(format!("  {}", file_display), Style::default().fg(Color::DarkGray)),
-        ]);
+                // Check if agent is running for this finding
+                let agent_icon =
+                    if app.agents.iter().any(|a| {
+                        a.finding_index == i + 1 && matches!(a.status, AgentStatus::Running)
+                    }) {
+                        "🤖 "
+                    } else {
+                        ""
+                    };
 
-        ListItem::new(line)
-    }).collect();
+                let line = Line::from(vec![
+                    Span::styled(
+                        format!("{:>4} ", i + 1),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(
+                        format!("[{}] ", severity_char),
+                        Style::default().fg(severity_color).bold(),
+                    ),
+                    Span::raw(agent_icon),
+                    Span::raw(&finding.title),
+                    Span::styled(
+                        format!("  {}", file_display),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]);
+
+                ListItem::new(line)
+            })
+            .collect();
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(" Findings "))
@@ -629,7 +765,12 @@ fn render_list(f: &mut Frame, area: Rect, app: &mut App) {
     f.render_stateful_widget(list, area, &mut app.list_state);
 }
 
-fn render_detail(f: &mut Frame, area: Rect, finding: &Finding, code_snippet: Option<&Vec<(u32, String)>>) {
+fn render_detail(
+    f: &mut Frame,
+    area: Rect,
+    finding: &Finding,
+    code_snippet: Option<&Vec<(u32, String)>>,
+) {
     let severity_str = match finding.severity {
         Severity::Critical => "CRITICAL",
         Severity::High => "HIGH",
@@ -638,7 +779,9 @@ fn render_detail(f: &mut Frame, area: Rect, finding: &Finding, code_snippet: Opt
         Severity::Info => "INFO",
     };
 
-    let file = finding.affected_files.first()
+    let file = finding
+        .affected_files
+        .first()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
@@ -658,12 +801,15 @@ fn render_detail(f: &mut Frame, area: Rect, finding: &Finding, code_snippet: Opt
         ]),
         Line::from(vec![
             Span::styled("Severity: ", Style::default().bold()),
-            Span::styled(severity_str, Style::default().fg(match finding.severity {
-                Severity::Critical => Color::Red,
-                Severity::High => Color::Yellow,
-                Severity::Medium => Color::Blue,
-                _ => Color::DarkGray,
-            })),
+            Span::styled(
+                severity_str,
+                Style::default().fg(match finding.severity {
+                    Severity::Critical => Color::Red,
+                    Severity::High => Color::Yellow,
+                    Severity::Medium => Color::Blue,
+                    _ => Color::DarkGray,
+                }),
+            ),
         ]),
         Line::from(vec![
             Span::styled("File: ", Style::default().bold()),
@@ -675,7 +821,7 @@ fn render_detail(f: &mut Frame, area: Rect, finding: &Finding, code_snippet: Opt
     if let Some(lines) = code_snippet {
         text.push(Line::from(Span::styled("Code:", Style::default().bold())));
         text.push(Line::from(""));
-        
+
         for (line_num, code) in lines {
             let is_highlighted = *line_num >= line_start && *line_num <= line_end;
             let line_style = if is_highlighted {
@@ -683,22 +829,28 @@ fn render_detail(f: &mut Frame, area: Rect, finding: &Finding, code_snippet: Opt
             } else {
                 Style::default().fg(Color::DarkGray)
             };
-            
+
             let display_code = if code.len() > 80 {
                 format!("{}...", &code[..77])
             } else {
                 code.clone()
             };
-            
+
             text.push(Line::from(vec![
-                Span::styled(format!("{:>4} | ", line_num), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{:>4} | ", line_num),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(display_code, line_style),
             ]));
         }
         text.push(Line::from(""));
     }
 
-    text.push(Line::from(Span::styled("Description:", Style::default().bold())));
+    text.push(Line::from(Span::styled(
+        "Description:",
+        Style::default().bold(),
+    )));
     for line in finding.description.lines().take(3) {
         text.push(Line::from(format!("  {}", line)));
     }
@@ -720,26 +872,28 @@ fn render_detail(f: &mut Frame, area: Rect, finding: &Finding, code_snippet: Opt
 
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     let running = app.running_agent_count();
-    
+
     // If there's a status message, show it
     if let Some((msg, is_error, _)) = &app.status_message {
-        let footer = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!(" {} ", msg),
-                if *is_error { Style::default().fg(Color::Red) } else { Style::default().fg(Color::Green) }
-            ),
-        ]));
+        let footer = Paragraph::new(Line::from(vec![Span::styled(
+            format!(" {} ", msg),
+            if *is_error {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::Green)
+            },
+        )]));
         f.render_widget(footer, area);
         return;
     }
-    
+
     // Show agents status if any running
     if running > 0 {
         let footer_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1), Constraint::Length(1)])
             .split(area);
-        
+
         let keybinds = Line::from(vec![
             Span::styled(" j/k", Style::default().fg(Color::Cyan)),
             Span::raw(":Nav  "),
@@ -749,17 +903,25 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
             Span::raw(":Fix  "),
             Span::styled("F", Style::default().fg(Color::Green).bold()),
             Span::raw(":Agent  "),
+            Span::styled("c", Style::default().fg(Color::Red)),
+            Span::raw(":Cancel  "),
             Span::styled("a", Style::default().fg(Color::Magenta)),
             Span::raw(":Agents  "),
             Span::styled("q", Style::default().fg(Color::Cyan)),
             Span::raw(":Quit"),
         ]);
         f.render_widget(Paragraph::new(keybinds), footer_chunks[0]);
-        
+
+        let spinner = app.spinner();
         let agent_status = Line::from(vec![
+            Span::styled(format!(" {} ", spinner), Style::default().fg(Color::Cyan)),
             Span::styled(
-                format!(" 🤖 {} agent{} running... ", running, if running > 1 { "s" } else { "" }),
-                Style::default().fg(Color::Yellow)
+                format!(
+                    "🤖 {} agent{} running",
+                    running,
+                    if running > 1 { "s" } else { "" }
+                ),
+                Style::default().fg(Color::Yellow),
             ),
         ]);
         f.render_widget(Paragraph::new(agent_status), footer_chunks[1]);
@@ -772,7 +934,9 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("f", Style::default().fg(Color::Yellow)),
             Span::raw(":Fix  "),
             Span::styled("F", Style::default().fg(Color::Green).bold()),
-            Span::raw(":Agent+PR  "),
+            Span::raw(":Agent  "),
+            Span::styled("c", Style::default().fg(Color::Red)),
+            Span::raw(":Cancel  "),
             Span::styled("a", Style::default().fg(Color::Magenta)),
             Span::raw(":Agents  "),
             Span::styled("q", Style::default().fg(Color::Cyan)),

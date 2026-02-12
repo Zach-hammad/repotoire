@@ -11,15 +11,8 @@ mod project_config;
 mod user_config;
 
 pub use project_config::{
-    CliDefaults,
-    DetectorConfigOverride,
-    ExcludeConfig,
-    PillarWeights,
-    ProjectConfig,
-    ScoringConfig,
-    ThresholdValue,
-    load_project_config,
-    normalize_detector_name,
+    load_project_config, normalize_detector_name, CliDefaults, DetectorConfigOverride,
+    ExcludeConfig, PillarWeights, ProjectConfig, ScoringConfig, ThresholdValue,
 };
 
 pub use user_config::UserConfig;

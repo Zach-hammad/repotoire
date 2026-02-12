@@ -45,13 +45,18 @@ impl EmptyCatchDetector {
         use regex::Regex;
         let call_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
         let mut calls = HashSet::new();
-        
+
         for line in lines.get(start..end).unwrap_or(&[]) {
             for cap in call_re.captures_iter(line) {
                 if let Some(m) = cap.get(1) {
                     let name = m.as_str();
                     // Skip common keywords and builtins
-                    if !["if", "for", "while", "print", "len", "str", "int", "float", "bool", "list", "dict", "set"].contains(&name) {
+                    if ![
+                        "if", "for", "while", "print", "len", "str", "int", "float", "bool",
+                        "list", "dict", "set",
+                    ]
+                    .contains(&name)
+                    {
                         calls.insert(name.to_string());
                     }
                 }
@@ -62,11 +67,13 @@ impl EmptyCatchDetector {
 
     /// Check if any of the called functions do I/O or external operations
     fn assess_risk(calls: &HashSet<String>, graph: &GraphStore) -> (Severity, Vec<String>) {
-        let io_patterns = ["read", "write", "open", "close", "fetch", "request", "send", "recv", 
-                          "connect", "query", "execute", "save", "load", "delete", "update"];
+        let io_patterns = [
+            "read", "write", "open", "close", "fetch", "request", "send", "recv", "connect",
+            "query", "execute", "save", "load", "delete", "update",
+        ];
         let mut risk_notes = Vec::new();
         let mut has_io = false;
-        
+
         for call in calls {
             let call_lower = call.to_lowercase();
             if io_patterns.iter().any(|p| call_lower.contains(p)) {
@@ -74,25 +81,29 @@ impl EmptyCatchDetector {
                 risk_notes.push(format!("⚠️ `{}` appears to do I/O", call));
             }
         }
-        
+
         // Check graph for functions with many callees (complex operations)
         for call in calls {
             if let Some(func) = graph.get_functions().into_iter().find(|f| f.name == *call) {
                 let callees = graph.get_callees(&func.qualified_name);
                 if callees.len() > 5 {
-                    risk_notes.push(format!("📊 `{}` is complex ({} internal calls)", call, callees.len()));
+                    risk_notes.push(format!(
+                        "📊 `{}` is complex ({} internal calls)",
+                        call,
+                        callees.len()
+                    ));
                 }
             }
         }
-        
+
         let severity = if has_io {
-            Severity::High  // Swallowing I/O exceptions is dangerous
+            Severity::High // Swallowing I/O exceptions is dangerous
         } else if !risk_notes.is_empty() {
             Severity::Medium
         } else {
-            Severity::Low  // Simple operations, less risky
+            Severity::Low // Simple operations, less risky
         };
-        
+
         (severity, risk_notes)
     }
 
@@ -121,44 +132,50 @@ impl EmptyCatchDetector {
 
             // JS/TS/Java: catch (...) { }
             if matches!(ext, "js" | "ts" | "jsx" | "tsx" | "java" | "cs")
-                && trimmed.contains("catch") && trimmed.contains("{") && trimmed.contains("}")
-                    && (trimmed.ends_with("{ }") || trimmed.ends_with("{}")) {
-                        is_empty_catch = true;
-                    }
+                && trimmed.contains("catch")
+                && trimmed.contains("{")
+                && trimmed.contains("}")
+                && (trimmed.ends_with("{ }") || trimmed.ends_with("{}"))
+            {
+                is_empty_catch = true;
+            }
 
             if is_empty_catch {
                 // Find the try block and analyze it
-                let (severity, risk_notes) = if let Some(try_start) = Self::find_try_block_start(&lines, catch_line) {
-                    let calls = Self::extract_calls(&lines, try_start, catch_line);
-                    let (sev, notes) = Self::assess_risk(&calls, graph);
-                    
-                    if !calls.is_empty() {
-                        (sev, notes)
+                let (severity, risk_notes) =
+                    if let Some(try_start) = Self::find_try_block_start(&lines, catch_line) {
+                        let calls = Self::extract_calls(&lines, try_start, catch_line);
+                        let (sev, notes) = Self::assess_risk(&calls, graph);
+
+                        if !calls.is_empty() {
+                            (sev, notes)
+                        } else {
+                            (Severity::Medium, vec![])
+                        }
                     } else {
                         (Severity::Medium, vec![])
-                    }
-                } else {
-                    (Severity::Medium, vec![])
-                };
-                
+                    };
+
                 let context_notes = if risk_notes.is_empty() {
                     String::new()
                 } else {
                     format!("\n\n**Risk Assessment:**\n{}", risk_notes.join("\n"))
                 };
-                
+
                 let suggestion = if severity == Severity::High {
                     "This swallows I/O or network exceptions - very dangerous!\n\
                      At minimum, log the exception:\n\
                      ```python\n\
                      except Exception as e:\n\
                          logger.error(f\"Operation failed: {e}\")\n\
-                     ```".to_string()
+                     ```"
+                    .to_string()
                 } else {
                     "Log the exception or handle it appropriately:\n\
                      - Add logging to track failures\n\
                      - Re-raise if recovery isn't possible\n\
-                     - Handle specific exception types".to_string()
+                     - Handle specific exception types"
+                        .to_string()
                 };
 
                 findings.push(Finding {
@@ -179,7 +196,8 @@ impl EmptyCatchDetector {
                     cwe_id: Some("CWE-390".to_string()),
                     why_it_matters: Some(
                         "Swallowed exceptions hide bugs and make debugging extremely difficult. \
-                         When something fails silently, you may not know until much later.".to_string()
+                         When something fails silently, you may not know until much later."
+                            .to_string(),
                     ),
                     ..Default::default()
                 });
@@ -190,24 +208,38 @@ impl EmptyCatchDetector {
 }
 
 impl Detector for EmptyCatchDetector {
-    fn name(&self) -> &'static str { "empty-catch-block" }
-    fn description(&self) -> &'static str { "Detects empty catch/except blocks" }
+    fn name(&self) -> &'static str {
+        "empty-catch-block"
+    }
+    fn description(&self) -> &'static str {
+        "Detects empty catch/except blocks"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
+            if !path.is_file() {
+                continue;
+            }
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx" | "java" | "cs") {
                 findings.extend(self.scan_file(path, ext, graph));
             }
         }
-        
-        info!("EmptyCatchDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "EmptyCatchDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

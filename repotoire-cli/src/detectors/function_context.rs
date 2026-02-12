@@ -5,9 +5,9 @@
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
-use crate::graph::{GraphStore, NodeKind, EdgeKind};
-use petgraph::graph::NodeIndex;
+use crate::graph::{EdgeKind, GraphStore, NodeKind};
 use petgraph::algo::dijkstra;
+use petgraph::graph::NodeIndex;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use tracing::{debug, info};
@@ -39,7 +39,10 @@ impl FunctionRole {
 
     /// Whether this role indicates critical code paths
     pub fn is_critical(&self) -> bool {
-        matches!(self, FunctionRole::Hub | FunctionRole::Orchestrator | FunctionRole::EntryPoint)
+        matches!(
+            self,
+            FunctionRole::Hub | FunctionRole::Orchestrator | FunctionRole::EntryPoint
+        )
     }
 }
 
@@ -54,9 +57,8 @@ pub struct FunctionContext {
     pub file_path: String,
     /// Module path (derived from file)
     pub module: String,
-    
+
     // === Graph metrics ===
-    
     /// Number of functions that call this one (fan-in)
     pub in_degree: usize,
     /// Number of functions this calls (fan-out)
@@ -69,9 +71,8 @@ pub struct FunctionContext {
     pub callee_modules: usize,
     /// Depth in call tree (0 = entry point, high = deep leaf)
     pub call_depth: usize,
-    
+
     // === Inferred properties ===
-    
     /// Inferred architectural role
     pub role: FunctionRole,
     /// Whether function is exported/public
@@ -90,10 +91,10 @@ impl FunctionContext {
     /// Get severity multiplier based on role (1.0 = normal, <1.0 = reduce)
     pub fn severity_multiplier(&self) -> f64 {
         match self.role {
-            FunctionRole::Utility => 0.5,    // Utilities are expected to be called a lot
-            FunctionRole::Leaf => 0.7,       // Leaf functions are low impact
-            FunctionRole::Test => 0.3,       // Test code is less critical
-            FunctionRole::Hub => 1.2,        // Hubs are critical - slightly increase
+            FunctionRole::Utility => 0.5, // Utilities are expected to be called a lot
+            FunctionRole::Leaf => 0.7,    // Leaf functions are low impact
+            FunctionRole::Test => 0.3,    // Test code is less critical
+            FunctionRole::Hub => 1.2,     // Hubs are critical - slightly increase
             FunctionRole::Orchestrator => 1.0,
             FunctionRole::EntryPoint => 1.0,
             FunctionRole::Unknown => 1.0,
@@ -149,10 +150,10 @@ impl<'a> FunctionContextBuilder<'a> {
     /// Build context map for all functions
     pub fn build(&self) -> FunctionContextMap {
         let start = std::time::Instant::now();
-        
+
         let functions = self.graph.get_functions();
         let func_count = functions.len();
-        
+
         if func_count == 0 {
             return HashMap::new();
         }
@@ -161,10 +162,10 @@ impl<'a> FunctionContextBuilder<'a> {
 
         // Build adjacency for betweenness calculation
         let (adj, qn_to_idx, _idx_to_qn) = self.build_adjacency(&functions);
-        
+
         // Calculate betweenness centrality (parallelized)
         let betweenness = self.calculate_betweenness(&adj);
-        
+
         // Normalize betweenness
         let max_betweenness = betweenness.iter().cloned().fold(0.0_f64, f64::max);
         let normalized_betweenness: Vec<f64> = if max_betweenness > 0.0 {
@@ -181,43 +182,46 @@ impl<'a> FunctionContextBuilder<'a> {
             .par_iter()
             .map(|func| {
                 let qn = &func.qualified_name;
-                
+
                 // Get graph metrics
                 let callers = self.graph.get_callers(qn);
                 let callees = self.graph.get_callees(qn);
                 let in_degree = callers.len();
                 let out_degree = callees.len();
-                
+
                 // Calculate module spread
-                let caller_modules: HashSet<_> = callers.iter()
+                let caller_modules: HashSet<_> = callers
+                    .iter()
                     .map(|c| self.extract_module(&c.file_path))
                     .collect();
-                let callee_modules: HashSet<_> = callees.iter()
+                let callee_modules: HashSet<_> = callees
+                    .iter()
                     .map(|c| self.extract_module(&c.file_path))
                     .collect();
-                
+
                 let caller_module_count = caller_modules.len();
                 let callee_module_count = callee_modules.len();
-                
+
                 // Get betweenness for this function
-                let betweenness_score = qn_to_idx.get(qn)
+                let betweenness_score = qn_to_idx
+                    .get(qn)
                     .and_then(|&idx| normalized_betweenness.get(idx))
                     .copied()
                     .unwrap_or(0.0);
-                
+
                 // Get call depth
                 let call_depth = call_depths.get(qn).copied().unwrap_or(0);
-                
+
                 // Detect test file
                 let is_test = self.is_test_path(&func.file_path);
-                
+
                 // Detect utility module
                 let is_in_utility_module = self.is_utility_module(&func.file_path);
-                
+
                 // Check if exported
                 let is_exported = func.get_bool("is_exported").unwrap_or(false)
                     || func.get_bool("is_public").unwrap_or(false);
-                
+
                 // Infer role
                 let role = self.infer_role(
                     in_degree,
@@ -229,7 +233,7 @@ impl<'a> FunctionContextBuilder<'a> {
                     is_in_utility_module,
                     call_depth,
                 );
-                
+
                 FunctionContext {
                     qualified_name: qn.clone(),
                     name: func.name.clone(),
@@ -270,26 +274,28 @@ impl<'a> FunctionContextBuilder<'a> {
     }
 
     /// Build adjacency list from call edges
-    fn build_adjacency(&self, functions: &[crate::graph::CodeNode]) -> (Vec<Vec<usize>>, HashMap<String, usize>, Vec<String>) {
-        let qn_to_idx: HashMap<String, usize> = functions.iter()
+    fn build_adjacency(
+        &self,
+        functions: &[crate::graph::CodeNode],
+    ) -> (Vec<Vec<usize>>, HashMap<String, usize>, Vec<String>) {
+        let qn_to_idx: HashMap<String, usize> = functions
+            .iter()
             .enumerate()
             .map(|(i, f)| (f.qualified_name.clone(), i))
             .collect();
-        
-        let idx_to_qn: Vec<String> = functions.iter()
-            .map(|f| f.qualified_name.clone())
-            .collect();
-        
+
+        let idx_to_qn: Vec<String> = functions.iter().map(|f| f.qualified_name.clone()).collect();
+
         let calls = self.graph.get_calls();
-        
+
         let mut adj: Vec<Vec<usize>> = vec![vec![]; functions.len()];
-        
+
         for (caller, callee) in calls {
             if let (Some(&from), Some(&to)) = (qn_to_idx.get(&caller), qn_to_idx.get(&callee)) {
                 adj[from].push(to);
             }
         }
-        
+
         (adj, qn_to_idx, idx_to_qn)
     }
 
@@ -309,13 +315,13 @@ impl<'a> FunctionContextBuilder<'a> {
                 let mut predecessors: Vec<Vec<usize>> = vec![vec![]; n];
                 let mut sigma = vec![0.0; n]; // number of shortest paths
                 let mut dist = vec![-1i64; n];
-                
+
                 sigma[s] = 1.0;
                 dist[s] = 0;
-                
+
                 let mut queue = VecDeque::new();
                 queue.push_back(s);
-                
+
                 // BFS
                 while let Some(v) = queue.pop_front() {
                     stack.push(v);
@@ -332,7 +338,7 @@ impl<'a> FunctionContextBuilder<'a> {
                         }
                     }
                 }
-                
+
                 // Back-propagation
                 let mut delta = vec![0.0; n];
                 while let Some(w) = stack.pop() {
@@ -343,7 +349,7 @@ impl<'a> FunctionContextBuilder<'a> {
                         centrality[w] += delta[w];
                     }
                 }
-                
+
                 centrality
             })
             .collect();
@@ -361,7 +367,11 @@ impl<'a> FunctionContextBuilder<'a> {
     }
 
     /// Calculate call depth for each function (BFS from entry points)
-    fn calculate_call_depths(&self, adj: &[Vec<usize>], qn_to_idx: &HashMap<String, usize>) -> HashMap<String, usize> {
+    fn calculate_call_depths(
+        &self,
+        adj: &[Vec<usize>],
+        qn_to_idx: &HashMap<String, usize>,
+    ) -> HashMap<String, usize> {
         let n = adj.len();
         if n == 0 {
             return HashMap::new();
@@ -376,7 +386,8 @@ impl<'a> FunctionContextBuilder<'a> {
         }
 
         // Entry points = functions with no callers
-        let entry_points: Vec<usize> = in_degree.iter()
+        let entry_points: Vec<usize> = in_degree
+            .iter()
             .enumerate()
             .filter(|(_, &d)| d == 0)
             .map(|(i, _)| i)
@@ -385,7 +396,7 @@ impl<'a> FunctionContextBuilder<'a> {
         // BFS from all entry points
         let mut depths = vec![usize::MAX; n];
         let mut queue = VecDeque::new();
-        
+
         for &ep in &entry_points {
             depths[ep] = 0;
             queue.push_back(ep);
@@ -402,16 +413,14 @@ impl<'a> FunctionContextBuilder<'a> {
         }
 
         // Convert to HashMap with qualified names
-        let idx_to_qn: HashMap<usize, &String> = qn_to_idx.iter()
-            .map(|(qn, &idx)| (idx, qn))
-            .collect();
+        let idx_to_qn: HashMap<usize, &String> =
+            qn_to_idx.iter().map(|(qn, &idx)| (idx, qn)).collect();
 
-        depths.iter()
+        depths
+            .iter()
             .enumerate()
             .filter(|(_, &d)| d != usize::MAX)
-            .filter_map(|(i, &d)| {
-                idx_to_qn.get(&i).map(|qn| ((*qn).clone(), d))
-            })
+            .filter_map(|(i, &d)| idx_to_qn.get(&i).map(|qn| ((*qn).clone(), d)))
             .collect()
     }
 
@@ -438,7 +447,7 @@ impl<'a> FunctionContextBuilder<'a> {
         }
 
         // Utility: high in-degree OR called from many modules
-        if in_degree >= self.utility_in_degree_threshold 
+        if in_degree >= self.utility_in_degree_threshold
             || caller_module_count >= self.utility_module_spread_threshold
             || is_in_utility_module
         {
@@ -468,32 +477,33 @@ impl<'a> FunctionContextBuilder<'a> {
         // Convert path to module-like identifier
         // src/utils/helpers.py -> utils.helpers
         // lib/services/auth.ts -> services.auth
-        
+
         let path = std::path::Path::new(file_path);
         let mut parts: Vec<&str> = vec![];
-        
+
         for component in path.components() {
             if let std::path::Component::Normal(s) = component {
                 if let Some(s) = s.to_str() {
                     // Skip common root directories
                     if !["src", "lib", "app", "pkg", "internal", "cmd"].contains(&s) {
                         // Remove extension from last component
-                        let _part = if parts.is_empty() || path.components().count() > parts.len() + 2 {
-                            s.to_string()
-                        } else {
-                            s.rsplit_once('.').map(|(n, _)| n).unwrap_or(s).to_string()
-                        };
+                        let _part =
+                            if parts.is_empty() || path.components().count() > parts.len() + 2 {
+                                s.to_string()
+                            } else {
+                                s.rsplit_once('.').map(|(n, _)| n).unwrap_or(s).to_string()
+                            };
                         parts.push(s);
                     }
                 }
             }
         }
-        
+
         // Take parent directory as module
         if parts.len() > 1 {
             parts.pop(); // Remove filename
         }
-        
+
         if parts.is_empty() {
             "root".to_string()
         } else {
@@ -541,24 +551,29 @@ impl<'a> FunctionContextBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, CodeEdge, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode, GraphStore};
 
     fn setup_test_graph() -> GraphStore {
         let store = GraphStore::in_memory();
 
         // Create a simple call graph:
         // entry1 -> hub -> util
-        // entry2 -> hub -> util  
+        // entry2 -> hub -> util
         // entry3 -> hub
         // hub -> leaf1, leaf2
 
         store.add_node(CodeNode::function("entry1", "cmd/main.go").with_qualified_name("entry1"));
         store.add_node(CodeNode::function("entry2", "cmd/cli.go").with_qualified_name("entry2"));
-        store.add_node(CodeNode::function("entry3", "api/handler.go").with_qualified_name("entry3"));
+        store
+            .add_node(CodeNode::function("entry3", "api/handler.go").with_qualified_name("entry3"));
         store.add_node(CodeNode::function("hub", "core/processor.go").with_qualified_name("hub"));
         store.add_node(CodeNode::function("util", "utils/helpers.go").with_qualified_name("util"));
-        store.add_node(CodeNode::function("leaf1", "core/processor.go").with_qualified_name("leaf1"));
-        store.add_node(CodeNode::function("leaf2", "core/processor.go").with_qualified_name("leaf2"));
+        store.add_node(
+            CodeNode::function("leaf1", "core/processor.go").with_qualified_name("leaf1"),
+        );
+        store.add_node(
+            CodeNode::function("leaf2", "core/processor.go").with_qualified_name("leaf2"),
+        );
 
         // Edges
         store.add_edge_by_name("entry1", "hub", CodeEdge::calls());
@@ -576,28 +591,31 @@ mod tests {
     #[test]
     fn test_build_contexts() {
         let store = setup_test_graph();
-        let builder = FunctionContextBuilder::new(&store)
-            .with_utility_thresholds(3, 2);
-        
+        let builder = FunctionContextBuilder::new(&store).with_utility_thresholds(3, 2);
+
         let contexts = builder.build();
-        
+
         assert_eq!(contexts.len(), 7);
-        
+
         // Hub should be detected (3 callers)
         let hub_ctx = contexts.get("hub").unwrap();
         assert_eq!(hub_ctx.in_degree, 3);
         assert_eq!(hub_ctx.out_degree, 3);
-        
+
         // Util should be detected (called from multiple modules)
         let util_ctx = contexts.get("util").unwrap();
-        assert!(util_ctx.caller_modules >= 2, "util caller_modules={}", util_ctx.caller_modules);
+        assert!(
+            util_ctx.caller_modules >= 2,
+            "util caller_modules={}",
+            util_ctx.caller_modules
+        );
     }
 
     #[test]
     fn test_is_utility_module() {
         let store = GraphStore::in_memory();
         let builder = FunctionContextBuilder::new(&store);
-        
+
         assert!(builder.is_utility_module("src/utils/helpers.py"));
         assert!(builder.is_utility_module("lib/common/utils.ts"));
         assert!(!builder.is_utility_module("src/services/auth.py"));
@@ -607,7 +625,7 @@ mod tests {
     fn test_is_test_path() {
         let store = GraphStore::in_memory();
         let builder = FunctionContextBuilder::new(&store);
-        
+
         assert!(builder.is_test_path("src/tests/test_auth.py"));
         assert!(builder.is_test_path("pkg/auth/auth_test.go"));
         assert!(builder.is_test_path("src/__tests__/utils.test.ts"));
@@ -634,7 +652,7 @@ mod tests {
             complexity: None,
             loc: 0,
         };
-        
+
         assert_eq!(ctx.severity_multiplier(), 0.5);
     }
 }

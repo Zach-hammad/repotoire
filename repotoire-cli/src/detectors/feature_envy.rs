@@ -56,14 +56,14 @@ pub struct FeatureEnvyThresholds {
 impl Default for FeatureEnvyThresholds {
     fn default() -> Self {
         Self {
-            threshold_ratio: 4.0,       // Increased from 3.0
-            min_external_uses: 25,      // Increased from 15
+            threshold_ratio: 4.0,  // Increased from 3.0
+            min_external_uses: 25, // Increased from 15
             critical_ratio: 10.0,
-            critical_min_uses: 50,      // Increased from 30
-            high_ratio: 6.0,            // Increased from 5.0
-            high_min_uses: 35,          // Increased from 20
-            medium_ratio: 4.0,          // Increased from 3.0
-            medium_min_uses: 20,        // Increased from 10
+            critical_min_uses: 50, // Increased from 30
+            high_ratio: 6.0,       // Increased from 5.0
+            high_min_uses: 35,     // Increased from 20
+            medium_ratio: 4.0,     // Increased from 3.0
+            medium_min_uses: 20,   // Increased from 10
         }
     }
 }
@@ -106,7 +106,11 @@ impl FeatureEnvyDetector {
             medium_min_uses: config.get_option_or("medium_min_uses", 10),
         };
 
-        Self { config, thresholds, function_contexts: None }
+        Self {
+            config,
+            thresholds,
+            function_contexts: None,
+        }
     }
 
     /// Set function contexts for graph-aware analysis
@@ -160,8 +164,10 @@ impl FeatureEnvyDetector {
                 let is_delegator = ctx.out_degree >= 5 && ctx.callee_modules >= 3;
                 let is_low_complexity = ctx.complexity.unwrap_or(1) <= 5;
                 if is_delegator && is_low_complexity {
-                    debug!("Detected facade pattern: {} (out={}, callee_mods={})", 
-                           ctx.name, ctx.out_degree, ctx.callee_modules);
+                    debug!(
+                        "Detected facade pattern: {} (out={}, callee_mods={})",
+                        ctx.name, ctx.out_degree, ctx.callee_modules
+                    );
                     return true;
                 }
             }
@@ -294,21 +300,36 @@ impl Detector for FeatureEnvyDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         // Skip orchestrator/dispatch function names - these are EXPECTED to call many external functions
         const ORCHESTRATOR_NAMES: &[&str] = &[
-            "run", "main", "execute", "dispatch", "process", "handle",
-            "build", "create", "new", "init", "setup", "configure",
-            "detect", "analyze", "parse", "render", "format", "report",
+            "run",
+            "main",
+            "execute",
+            "dispatch",
+            "process",
+            "handle",
+            "build",
+            "create",
+            "new",
+            "init",
+            "setup",
+            "configure",
+            "detect",
+            "analyze",
+            "parse",
+            "render",
+            "format",
+            "report",
         ];
-        
+
         // Skip files that are naturally orchestration points
-        const ORCHESTRATOR_PATHS: &[&str] = &[
-            "/cli/", "/handlers/", "/main.rs", "/mod.rs", "/lib.rs",
-        ];
-        
+        const ORCHESTRATOR_PATHS: &[&str] =
+            &["/cli/", "/handlers/", "/main.rs", "/mod.rs", "/lib.rs"];
+
         for func in graph.get_functions() {
             // Skip test functions (they naturally access many things for fixtures)
             if func.name.starts_with("test_") || func.file_path.contains("/tests/") {
@@ -319,28 +340,34 @@ impl Detector for FeatureEnvyDetector {
             if self.should_skip_by_role(&func.qualified_name) {
                 continue;
             }
-            
+
             // Skip facade patterns (intentional delegation)
             if self.is_facade_pattern(&func.qualified_name) {
                 continue;
             }
-            
+
             // Skip orchestrator functions by name (fallback for no context)
             let name_lower = func.name.to_lowercase();
-            if ORCHESTRATOR_NAMES.iter().any(|&pat| name_lower == pat || name_lower.starts_with(&format!("{}_", pat))) {
+            if ORCHESTRATOR_NAMES
+                .iter()
+                .any(|&pat| name_lower == pat || name_lower.starts_with(&format!("{}_", pat)))
+            {
                 continue;
             }
-            
+
             // Skip orchestrator files
-            if ORCHESTRATOR_PATHS.iter().any(|&pat| func.file_path.contains(pat)) {
+            if ORCHESTRATOR_PATHS
+                .iter()
+                .any(|&pat| func.file_path.contains(pat))
+            {
                 continue;
             }
-            
+
             let callees = graph.get_callees(&func.qualified_name);
             if callees.is_empty() {
                 continue;
             }
-            
+
             // Count calls to own file vs other files
             // Also track which modules are being called
             let own_file = &func.file_path;
@@ -348,7 +375,7 @@ impl Detector for FeatureEnvyDetector {
             let mut internal_calls = 0;
             let mut external_calls = 0;
             let mut external_modules: HashSet<String> = HashSet::new();
-            
+
             for callee in &callees {
                 if callee.file_path == *own_file {
                     internal_calls += 1;
@@ -360,14 +387,14 @@ impl Detector for FeatureEnvyDetector {
                     }
                 }
             }
-            
+
             // === Enhanced feature envy detection ===
             // Original: external > internal * 3 && external >= 15 && internal > 0
             // New: Also check module concentration - if calling many modules, it's likely orchestration
-            
+
             let is_concentrated = external_modules.len() <= 2; // Calls mostly 1-2 modules
             let high_external = external_calls > internal_calls * 3 && external_calls >= 15;
-            
+
             if high_external && internal_calls > 0 && is_concentrated {
                 let ratio = external_calls as f64 / (internal_calls + 1) as f64;
                 let mut severity = if ratio > 8.0 && external_calls >= 25 {
@@ -377,7 +404,7 @@ impl Detector for FeatureEnvyDetector {
                 } else {
                     Severity::Low
                 };
-                
+
                 // Apply role-based severity multiplier
                 let multiplier = self.get_severity_multiplier(&func.qualified_name);
                 if multiplier < 1.0 {
@@ -388,7 +415,7 @@ impl Detector for FeatureEnvyDetector {
                         _ => Severity::Low,
                     };
                 }
-                
+
                 // Build suggestion with target module
                 let target_module = external_modules.iter().next().cloned().unwrap_or_default();
                 let suggestion = if is_concentrated && !target_module.is_empty() {
@@ -397,7 +424,7 @@ impl Detector for FeatureEnvyDetector {
                 } else {
                     "Consider moving this function to the class it uses most".to_string()
                 };
-                
+
                 findings.push(Finding {
                     id: Uuid::new_v4().to_string(),
                     detector: "FeatureEnvyDetector".to_string(),
@@ -424,8 +451,11 @@ impl Detector for FeatureEnvyDetector {
                 });
             }
         }
-        
-        info!("FeatureEnvyDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "FeatureEnvyDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

@@ -42,12 +42,7 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 }
 
 /// Extract class, struct, interface, and record definitions from the AST
-fn extract_types(
-    root: &Node,
-    source: &[u8],
-    path: &Path,
-    result: &mut ParseResult,
-) -> Result<()> {
+fn extract_types(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
     extract_types_recursive(root, source, path, result, None);
     Ok(())
 }
@@ -118,7 +113,12 @@ fn extract_types_recursive(
 }
 
 /// Parse a class declaration into a Class struct
-fn parse_class_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+fn parse_class_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    parent: Option<&str>,
+) -> Option<Class> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -147,7 +147,12 @@ fn parse_class_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str
 }
 
 /// Parse a struct declaration into a Class struct
-fn parse_struct_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+fn parse_struct_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    parent: Option<&str>,
+) -> Option<Class> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -176,7 +181,12 @@ fn parse_struct_node(node: &Node, source: &[u8], path: &Path, parent: Option<&st
 }
 
 /// Parse an interface declaration into a Class struct
-fn parse_interface_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+fn parse_interface_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    parent: Option<&str>,
+) -> Option<Class> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -188,7 +198,12 @@ fn parse_interface_node(node: &Node, source: &[u8], path: &Path, parent: Option<
 
     let line_start = node.start_position().row as u32 + 1;
     let line_end = node.end_position().row as u32 + 1;
-    let qualified_name = format!("{}::interface::{}:{}", path.display(), full_name, line_start);
+    let qualified_name = format!(
+        "{}::interface::{}:{}",
+        path.display(),
+        full_name,
+        line_start
+    );
 
     let bases = extract_base_list(node, source);
     let methods = extract_method_names(node, source);
@@ -205,7 +220,12 @@ fn parse_interface_node(node: &Node, source: &[u8], path: &Path, parent: Option<
 }
 
 /// Parse a record declaration into a Class struct
-fn parse_record_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+fn parse_record_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    parent: Option<&str>,
+) -> Option<Class> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -371,7 +391,12 @@ fn extract_interface_methods(
 }
 
 /// Parse a method declaration into a Function struct
-fn parse_method_node(node: &Node, source: &[u8], path: &Path, class_name: &str) -> Option<Function> {
+fn parse_method_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    class_name: &str,
+) -> Option<Function> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -403,7 +428,12 @@ fn parse_method_node(node: &Node, source: &[u8], path: &Path, class_name: &str) 
 }
 
 /// Parse a constructor declaration into a Function struct
-fn parse_constructor_node(node: &Node, source: &[u8], path: &Path, class_name: &str) -> Option<Function> {
+fn parse_constructor_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    class_name: &str,
+) -> Option<Function> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -428,7 +458,12 @@ fn parse_constructor_node(node: &Node, source: &[u8], path: &Path, class_name: &
 }
 
 /// Parse a local function into a Function struct
-fn parse_local_function(node: &Node, source: &[u8], path: &Path, class_name: &str) -> Option<Function> {
+fn parse_local_function(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    class_name: &str,
+) -> Option<Function> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -444,7 +479,13 @@ fn parse_local_function(node: &Node, source: &[u8], path: &Path, class_name: &st
 
     let line_start = node.start_position().row as u32 + 1;
     let line_end = node.end_position().row as u32 + 1;
-    let qualified_name = format!("{}::{}.local::{}:{}", path.display(), class_name, name, line_start);
+    let qualified_name = format!(
+        "{}::{}.local::{}:{}",
+        path.display(),
+        class_name,
+        name,
+        line_start
+    );
 
     Some(Function {
         name,
@@ -523,12 +564,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
 }
 
 /// Extract method calls from the AST
-fn extract_calls(
-    root: &Node,
-    source: &[u8],
-    path: &Path,
-    result: &mut ParseResult,
-) -> Result<()> {
+fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
     let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
 
     for func in &result.functions {
@@ -607,12 +643,8 @@ fn find_containing_scope(line: u32, scope_map: &HashMap<(u32, u32), String>) -> 
 fn extract_call_target(node: &Node, source: &[u8]) -> Option<String> {
     match node.kind() {
         "identifier" => node.utf8_text(source).ok().map(|s| s.to_string()),
-        "member_access_expression" => {
-            node.utf8_text(source).ok().map(|s| s.to_string())
-        }
-        "generic_name" => {
-            node.utf8_text(source).ok().map(|s| s.to_string())
-        }
+        "member_access_expression" => node.utf8_text(source).ok().map(|s| s.to_string()),
+        "generic_name" => node.utf8_text(source).ok().map(|s| s.to_string()),
         _ => node.utf8_text(source).ok().map(|s| s.to_string()),
     }
 }
@@ -623,7 +655,8 @@ fn calculate_complexity(node: &Node, _source: &[u8]) -> u32 {
 
     fn count_branches(node: &Node, complexity: &mut u32) {
         match node.kind() {
-            "if_statement" | "while_statement" | "for_statement" | "foreach_statement" | "do_statement" => {
+            "if_statement" | "while_statement" | "for_statement" | "foreach_statement"
+            | "do_statement" => {
                 *complexity += 1;
             }
             "catch_clause" => {
@@ -733,7 +766,10 @@ public class AsyncClass
         let path = PathBuf::from("AsyncClass.cs");
         let result = parse_source(source, &path).unwrap();
 
-        assert!(result.functions.iter().any(|f| f.name == "FetchDataAsync" && f.is_async));
+        assert!(result
+            .functions
+            .iter()
+            .any(|f| f.name == "FetchDataAsync" && f.is_async));
     }
 
     #[test]
@@ -749,7 +785,10 @@ public class Test { }
         let result = parse_source(source, &path).unwrap();
 
         assert!(result.imports.iter().any(|i| i.path == "System"));
-        assert!(result.imports.iter().any(|i| i.path == "System.Collections.Generic"));
+        assert!(result
+            .imports
+            .iter()
+            .any(|i| i.path == "System.Collections.Generic"));
     }
 
     #[test]

@@ -65,9 +65,15 @@ impl LlmBackend {
 
     /// Check if this backend uses OpenAI-compatible API format
     pub fn is_openai_compatible(&self) -> bool {
-        matches!(self, LlmBackend::OpenAi | LlmBackend::Deepinfra | LlmBackend::OpenRouter | LlmBackend::Ollama)
+        matches!(
+            self,
+            LlmBackend::OpenAi
+                | LlmBackend::Deepinfra
+                | LlmBackend::OpenRouter
+                | LlmBackend::Ollama
+        )
     }
-    
+
     /// Check if this backend requires an API key
     pub fn requires_api_key(&self) -> bool {
         !matches!(self, LlmBackend::Ollama)
@@ -178,7 +184,7 @@ impl AiClient {
             }
             return Ok(Self::new(config, "ollama"));
         }
-        
+
         let env_key = config.backend.env_key();
         let api_key = env::var(env_key).map_err(|_| AiError::MissingApiKey {
             env_var: env_key.to_string(),
@@ -187,28 +193,25 @@ impl AiClient {
 
         Ok(Self::new(config, api_key))
     }
-    
+
     /// Check if Ollama is available locally and has a model we can use
     pub fn ollama_available() -> bool {
         // Check if Ollama is running
         if std::net::TcpStream::connect("127.0.0.1:11434").is_err() {
             return false;
         }
-        
+
         // Try to list models - this validates Ollama is responding
-        match std::process::Command::new("ollama")
-            .args(["list"])
-            .output() 
-        {
+        match std::process::Command::new("ollama").args(["list"]).output() {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 // Check if any model is available
                 stdout.lines().nth(1).is_some()
             }
-            Err(_) => false
+            Err(_) => false,
         }
     }
-    
+
     /// Get a message about available Ollama models
     pub fn ollama_models() -> Option<String> {
         std::process::Command::new("ollama")
@@ -229,11 +232,7 @@ impl AiClient {
     }
 
     /// Generate a response from the LLM
-    pub async fn generate(
-        &self,
-        messages: Vec<Message>,
-        system: Option<&str>,
-    ) -> AiResult<String> {
+    pub async fn generate(&self, messages: Vec<Message>, system: Option<&str>) -> AiResult<String> {
         if self.config.backend.is_openai_compatible() {
             self.generate_openai(messages, system).await
         } else {
@@ -323,10 +322,7 @@ impl AiClient {
             HeaderValue::from_str(&self.api_key)
                 .map_err(|_| AiError::ConfigError("Invalid API key format".to_string()))?,
         );
-        headers.insert(
-            "anthropic-version",
-            HeaderValue::from_static("2023-06-01"),
-        );
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
 
         let response = self
             .http
@@ -413,7 +409,10 @@ mod tests {
     #[test]
     fn test_backend_defaults() {
         assert_eq!(LlmBackend::OpenAi.default_model(), "gpt-4o");
-        assert_eq!(LlmBackend::Anthropic.default_model(), "claude-sonnet-4-20250514");
+        assert_eq!(
+            LlmBackend::Anthropic.default_model(),
+            "claude-sonnet-4-20250514"
+        );
     }
 
     #[test]

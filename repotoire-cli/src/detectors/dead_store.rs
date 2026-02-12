@@ -30,8 +30,8 @@ fn var_read() -> &'static Regex {
 
 /// Skip patterns for common false positives
 const SKIP_VARS: &[&str] = &[
-    "_", "self", "this", "cls", "ctx", "err", "ok", "result",
-    "i", "j", "k", "n", "x", "y", "z", // loop/math vars
+    "_", "self", "this", "cls", "ctx", "err", "ok", "result", "i", "j", "k", "n", "x", "y",
+    "z", // loop/math vars
 ];
 
 pub struct DeadStoreDetector {
@@ -51,12 +51,12 @@ impl DeadStoreDetector {
     fn is_used_after(&self, var: &str, lines: &[&str], start_line: usize) -> bool {
         for line in lines.iter().skip(start_line + 1) {
             let trimmed = line.trim();
-            
+
             // Skip comments
             if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") {
                 continue;
             }
-            
+
             // Check if var is read (not just assigned again)
             if let Some(assign_match) = assignment().captures(line) {
                 if let Some(assigned_var) = assign_match.get(2) {
@@ -69,7 +69,7 @@ impl DeadStoreDetector {
                     }
                 }
             }
-            
+
             // Check for any reference to the variable
             if line.contains(var) {
                 // Make sure it's a word boundary match
@@ -80,7 +80,7 @@ impl DeadStoreDetector {
                 }
             }
         }
-        
+
         false
     }
 
@@ -96,7 +96,7 @@ impl DeadStoreDetector {
             if findings.len() >= self.max_findings {
                 break;
             }
-            
+
             let path = entry.path();
             if !path.is_file() {
                 continue;
@@ -123,12 +123,12 @@ impl DeadStoreDetector {
                     if let Some(caps) = assignment().captures(line) {
                         if let Some(var_match) = caps.get(2) {
                             let var = var_match.as_str();
-                            
+
                             // Skip common patterns
                             if SKIP_VARS.contains(&var) || var.starts_with('_') {
                                 continue;
                             }
-                            
+
                             // Skip if we've already flagged this var at this line
                             if seen_assignments.contains(&(var.to_string(), i)) {
                                 continue;
@@ -137,7 +137,7 @@ impl DeadStoreDetector {
                             // Check if variable is used after this line
                             if !self.is_used_after(var, &lines, i) {
                                 seen_assignments.insert((var.to_string(), i));
-                                
+
                                 findings.push(Finding {
                                     id: Uuid::new_v4().to_string(),
                                     detector: "DeadStoreDetector".to_string(),
@@ -146,7 +146,8 @@ impl DeadStoreDetector {
                                     description: format!(
                                         "Variable '{}' is assigned but never read afterward.\n\n\
                                          ```\n{}\n```",
-                                        var, line.trim()
+                                        var,
+                                        line.trim()
                                     ),
                                     affected_files: vec![rel_path.to_path_buf()],
                                     line_start: Some((i + 1) as u32),
@@ -155,7 +156,7 @@ impl DeadStoreDetector {
                                         "Options:\n\
                                          1. Remove the unused assignment\n\
                                          2. Use the variable '{}' in subsequent code\n\
-                                         3. If intentional, prefix with underscore: _{}", 
+                                         3. If intentional, prefix with underscore: _{}",
                                         var, var
                                     )),
                                     estimated_effort: Some("5 minutes".to_string()),
@@ -164,7 +165,7 @@ impl DeadStoreDetector {
                                     why_it_matters: Some(
                                         "Dead stores indicate logic errors or leftover code. \
                                          They add confusion and may hide bugs."
-                                            .to_string()
+                                            .to_string(),
                                     ),
                                     ..Default::default()
                                 });
@@ -181,26 +182,27 @@ impl DeadStoreDetector {
     /// Use graph to find functions with unused parameters
     fn find_unused_params(&self, graph: &GraphStore) -> Vec<Finding> {
         let mut findings = Vec::new();
-        
+
         for func in graph.get_functions() {
             // Skip test files
             if func.file_path.contains("/test") || func.file_path.contains("_test.") {
                 continue;
             }
-            
+
             // Skip interface implementations (check qualified name for common patterns)
-            if func.qualified_name.contains("Interface.") || 
-               func.qualified_name.contains("Trait.") ||
-               func.qualified_name.contains("Protocol.") {
+            if func.qualified_name.contains("Interface.")
+                || func.qualified_name.contains("Trait.")
+                || func.qualified_name.contains("Protocol.")
+            {
                 continue;
             }
-            
+
             // Check if function has many params but few callees (simple function)
             if let Some(param_count) = func.param_count() {
                 if param_count >= 4 {
                     let callees = graph.get_callees(&func.qualified_name);
                     let callers = graph.get_callers(&func.qualified_name);
-                    
+
                     // Simple function with many params = likely unused params
                     if callees.len() <= 2 && param_count >= 5 {
                         findings.push(Finding {
@@ -236,21 +238,21 @@ impl DeadStoreDetector {
                 }
             }
         }
-        
+
         debug!("Found {} potential unused param functions", findings.len());
         findings
     }
-    
+
     /// Find variables that are assigned, passed to a function, but function doesn't use them
     fn find_cross_function_dead_stores(&self, graph: &GraphStore) -> Vec<Finding> {
         // This requires tracking parameter usage within functions
         // For now, identify functions that receive values but don't propagate them
         let findings = Vec::new();
-        
+
         for func in graph.get_functions() {
             let callees = graph.get_callees(&func.qualified_name);
             let callers = graph.get_callers(&func.qualified_name);
-            
+
             // Function that's called but calls nothing and has params = potential sink
             if !callers.is_empty() && callees.is_empty() {
                 if let Some(param_count) = func.param_count() {
@@ -263,7 +265,7 @@ impl DeadStoreDetector {
                 }
             }
         }
-        
+
         findings
     }
 }
@@ -289,11 +291,14 @@ impl Detector for DeadStoreDetector {
 
         // Graph-based unused parameter detection
         findings.extend(self.find_unused_params(graph));
-        
+
         // Cross-function dead store detection
         findings.extend(self.find_cross_function_dead_stores(graph));
 
-        info!("DeadStoreDetector found {} findings (graph-aware)", findings.len());
+        info!(
+            "DeadStoreDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }
@@ -305,13 +310,9 @@ mod tests {
     #[test]
     fn test_is_used_after() {
         let detector = DeadStoreDetector::new(".");
-        
-        let lines = vec![
-            "let x = 5",
-            "let y = x + 1",
-            "print(y)",
-        ];
-        
+
+        let lines = vec!["let x = 5", "let y = x + 1", "print(y)"];
+
         assert!(detector.is_used_after("x", &lines, 0)); // x is used on line 1
         assert!(detector.is_used_after("y", &lines, 1)); // y is used on line 2
         assert!(!detector.is_used_after("z", &lines, 0)); // z never used

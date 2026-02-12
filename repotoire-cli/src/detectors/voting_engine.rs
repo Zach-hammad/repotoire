@@ -556,7 +556,7 @@ impl VotingEngine {
         if let Some(conf) = finding.confidence {
             return conf.clamp(0.0, 1.0);
         }
-        
+
         // Fall back to detector's accuracy rating as confidence proxy
         self.detector_weights
             .get(&finding.detector)
@@ -583,20 +583,44 @@ impl VotingEngine {
             .unwrap_or("")
             .trim()
             .to_lowercase();
-        
+
         // Utility function prefixes - high connectivity is expected
         const UTILITY_PREFIXES: &[&str] = &[
-            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
-            "calculate_", "compute_", "scan_", "extract_", "normalize_",
-            "get_", "set_", "parse_", "format_",
+            "is_",
+            "has_",
+            "check_",
+            "validate_",
+            "should_",
+            "can_",
+            "find_",
+            "calculate_",
+            "compute_",
+            "scan_",
+            "extract_",
+            "normalize_",
+            "get_",
+            "set_",
+            "parse_",
+            "format_",
             // Service/business logic prefixes
-            "resolve_", "schedule_", "add_", "update_", "delete_", "remove_",
-            "apply_", "use", "fetch_", "load_", "save_", "send_", "notify_",
+            "resolve_",
+            "schedule_",
+            "add_",
+            "update_",
+            "delete_",
+            "remove_",
+            "apply_",
+            "use",
+            "fetch_",
+            "load_",
+            "save_",
+            "send_",
+            "notify_",
         ];
-        
+
         UTILITY_PREFIXES.iter().any(|p| func_name.starts_with(p))
     }
-    
+
     /// Create merged finding from consensus
     fn create_consensus_finding(
         &self,
@@ -607,7 +631,7 @@ impl VotingEngine {
         let mut sorted_findings = findings.to_vec();
         sorted_findings.sort_by(|a, b| b.severity.cmp(&a.severity));
         let base = &sorted_findings[0];
-        
+
         // Cap severity at High for utility functions (they're expected to be widely used)
         let mut final_severity = consensus.severity;
         if final_severity == Severity::Critical && Self::is_utility_function_name(&base.title) {
@@ -683,11 +707,10 @@ impl VotingEngine {
     }
 }
 
-
 #[cfg(test)]
 mod utility_tests {
     use super::*;
-    
+
     #[test]
     fn test_utility_function_detection() {
         let test_cases = vec![
@@ -697,13 +720,17 @@ mod utility_tests {
             ("Architectural Bottleneck: find_dead_classes", true),
             ("Architectural Bottleneck: check_line_for_patterns", true),
             ("Architectural Bottleneck: calculate_health_scores", true),
-            ("Architectural Bottleneck: remove_finding_impact", true),  // matches remove_ prefix
+            ("Architectural Bottleneck: remove_finding_impact", true), // matches remove_ prefix
             ("Some Other Finding", false),
         ];
-        
+
         for (title, expected) in test_cases {
             let result = VotingEngine::is_utility_function_name(title);
-            assert_eq!(result, expected, "Title '{}' expected {} but got {}", title, expected, result);
+            assert_eq!(
+                result, expected,
+                "Title '{}' expected {} but got {}",
+                title, expected, result
+            );
         }
     }
 }

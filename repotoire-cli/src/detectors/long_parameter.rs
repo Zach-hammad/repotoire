@@ -97,7 +97,9 @@ impl LongParameterListDetector {
                 let name = if p.is_string() {
                     p.as_str().map(|s| s.to_string())
                 } else if let Some(obj) = p.as_object() {
-                    obj.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())
+                    obj.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string())
                 } else {
                     None
                 };
@@ -168,7 +170,7 @@ impl LongParameterListDetector {
     /// Generate refactoring suggestion
     fn generate_suggestion(&self, func_name: &str, params: &[String]) -> String {
         let config_name = self.suggest_config_name(func_name, params);
-        
+
         let mut lines = vec![
             "**Refactoring Options:**\n".to_string(),
             "**1. Introduce Parameter Object:**".to_string(),
@@ -249,7 +251,12 @@ impl LongParameterListDetector {
         let severity = self.calculate_severity(param_count);
 
         // Format parameters for display
-        let mut params_display = params.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
+        let mut params_display = params
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
         if params.len() > 8 {
             params_display.push_str(&format!(" ... ({} total)", params.len()));
         }
@@ -288,7 +295,10 @@ impl LongParameterListDetector {
             id: Uuid::new_v4().to_string(),
             detector: "LongParameterListDetector".to_string(),
             severity,
-            title: format!("Long parameter list: {} ({} params)", func_name, param_count),
+            title: format!(
+                "Long parameter list: {} ({} params)",
+                func_name, param_count
+            ),
             description,
             affected_files: vec![PathBuf::from(&file_path)],
             line_start,
@@ -334,31 +344,42 @@ impl Detector for LongParameterListDetector {
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         // Constructor/factory patterns that legitimately need many params
-        let constructor_patterns = ["new", "create", "build", "make", "init", "from", "__init__", "constructor"];
-        
+        let constructor_patterns = [
+            "new",
+            "create",
+            "build",
+            "make",
+            "init",
+            "from",
+            "__init__",
+            "constructor",
+        ];
+
         // Builder pattern methods (acceptable)
         let builder_patterns = ["with_", "set_", "add_", "build"];
-        
+
         for func in graph.get_functions() {
             let param_count = func.param_count().unwrap_or(0) as usize;
-            
+
             // Use configured thresholds
             if param_count <= self.thresholds.max_params {
                 continue;
             }
-            
+
             let name_lower = func.name.to_lowercase();
-            
+
             // === Graph-aware pattern detection ===
-            
+
             // 1. Check if this is a constructor/factory
-            let is_constructor = constructor_patterns.iter().any(|p| name_lower.starts_with(p) || name_lower == *p);
-            
+            let is_constructor = constructor_patterns
+                .iter()
+                .any(|p| name_lower.starts_with(p) || name_lower == *p);
+
             // 2. Check if this is a builder pattern method
             let is_builder = builder_patterns.iter().any(|p| name_lower.starts_with(p));
-            
+
             // 3. Check if function delegates most params to a single callee (wrapper pattern)
             let is_delegator = {
                 let callees = graph.get_callees(&func.qualified_name);
@@ -368,18 +389,18 @@ impl Detector for LongParameterListDetector {
                     callee_params >= param_count.saturating_sub(2)
                 })
             };
-            
+
             // 4. Check if this is an entry point handler (acceptable)
-            let is_entry_point = func.file_path.contains("/handlers/") 
+            let is_entry_point = func.file_path.contains("/handlers/")
                 || func.file_path.contains("/routes/")
                 || func.file_path.contains("/views/")
                 || func.name.contains("handle")
                 || func.name.contains("endpoint");
-            
+
             // Calculate severity with graph-aware adjustments
             let mut severity = self.calculate_severity(param_count);
             let mut notes = Vec::new();
-            
+
             if is_constructor {
                 severity = match severity {
                     Severity::Critical => Severity::High,
@@ -388,12 +409,12 @@ impl Detector for LongParameterListDetector {
                 };
                 notes.push("🏗️ Constructor/factory pattern (reduced severity)".to_string());
             }
-            
+
             if is_builder {
                 // Builder methods are fine with many params
                 continue;
             }
-            
+
             if is_delegator {
                 severity = match severity {
                     Severity::Critical | Severity::High => Severity::Medium,
@@ -401,7 +422,7 @@ impl Detector for LongParameterListDetector {
                 };
                 notes.push("📤 Delegates to another function (wrapper pattern)".to_string());
             }
-            
+
             if is_entry_point {
                 severity = match severity {
                     Severity::Critical => Severity::High,
@@ -410,26 +431,28 @@ impl Detector for LongParameterListDetector {
                 };
                 notes.push("🚪 Entry point/handler (reduced severity)".to_string());
             }
-            
+
             let pattern_notes = if notes.is_empty() {
                 String::new()
             } else {
                 format!("\n\n**Graph Analysis:**\n{}", notes.join("\n"))
             };
-            
+
             // Build smart suggestion based on patterns
             let suggestion = if is_constructor {
                 "For constructors with many parameters, consider:\n\
                  1. Builder pattern: `MyClass::builder().field1(x).field2(y).build()`\n\
-                 2. Configuration struct: `MyClass::new(Config { ... })`".to_string()
+                 2. Configuration struct: `MyClass::new(Config { ... })`"
+                    .to_string()
             } else if is_delegator {
                 "This function appears to be a wrapper. Consider:\n\
                  1. If wrapping is necessary, this is acceptable\n\
-                 2. If not, remove the wrapper and call the target directly".to_string()
+                 2. If not, remove the wrapper and call the target directly"
+                    .to_string()
             } else {
                 "Group related parameters into a configuration object or class".to_string()
             };
-            
+
             findings.push(Finding {
                 id: Uuid::new_v4().to_string(),
                 detector: "LongParameterListDetector".to_string(),
@@ -448,13 +471,17 @@ impl Detector for LongParameterListDetector {
                 cwe_id: None,
                 why_it_matters: Some(
                     "Long parameter lists make functions hard to call and understand. \
-                     Callers must remember parameter order and meaning.".to_string()
+                     Callers must remember parameter order and meaning."
+                        .to_string(),
                 ),
                 ..Default::default()
             });
         }
-        
-        info!("LongParameterListDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "LongParameterListDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }
@@ -527,17 +554,12 @@ mod tests {
             "UserConfig"
         );
         assert_eq!(
-            detector.suggest_config_name(
-                "connect",
-                &["host".to_string(), "port".to_string()]
-            ),
+            detector.suggest_config_name("connect", &["host".to_string(), "port".to_string()]),
             "ConnectionConfig"
         );
         assert_eq!(
-            detector.suggest_config_name(
-                "login",
-                &["username".to_string(), "password".to_string()]
-            ),
+            detector
+                .suggest_config_name("login", &["username".to_string(), "password".to_string()]),
             "Credentials"
         );
     }

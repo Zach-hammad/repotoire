@@ -60,7 +60,8 @@ fn extract_functions(
     "#;
 
     let language = tree_sitter_c::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create function query")?;
+    let query =
+        Query::new(&language.into(), query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&query, *root, source);
@@ -87,8 +88,8 @@ fn extract_functions(
 
         if let Some(node) = func_node {
             let parameters = extract_parameters(params_node, source);
-            let return_type = return_type_node
-                .map(|n| n.utf8_text(source).unwrap_or("").to_string());
+            let return_type =
+                return_type_node.map(|n| n.utf8_text(source).unwrap_or("").to_string());
 
             let line_start = node.start_position().row as u32 + 1;
             let line_end = node.end_position().row as u32 + 1;
@@ -234,7 +235,8 @@ fn extract_structs(
                     "struct"
                 };
 
-                let qualified_name = format!("{}::{}::{}:{}", path.display(), kind, name, line_start);
+                let qualified_name =
+                    format!("{}::{}::{}:{}", path.display(), kind, name, line_start);
 
                 result.classes.push(Class {
                     name: name.clone(),
@@ -261,7 +263,8 @@ fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Res
     "#;
 
     let language = tree_sitter_c::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create include query")?;
+    let query =
+        Query::new(&language.into(), query_str).context("Failed to create include query")?;
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&query, *root, source);
@@ -285,12 +288,7 @@ fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Res
 }
 
 /// Extract function calls from the AST
-fn extract_calls(
-    root: &Node,
-    source: &[u8],
-    path: &Path,
-    result: &mut ParseResult,
-) -> Result<()> {
+fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
     let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
 
     for func in &result.functions {

@@ -29,7 +29,12 @@ impl ESLintDetector {
             config: DetectorConfig::default(),
             repository_path: repository_path.into(),
             max_findings: 100,
-            extensions: vec![".ts".to_string(), ".tsx".to_string(), ".js".to_string(), ".jsx".to_string()],
+            extensions: vec![
+                ".ts".to_string(),
+                ".tsx".to_string(),
+                ".js".to_string(),
+                ".jsx".to_string(),
+            ],
         }
     }
 
@@ -98,7 +103,9 @@ impl ESLintDetector {
             }
 
             // Error-prone rules
-            "no-undef" | "no-dupe-keys" | "no-duplicate-case" | "use-isnan" | "valid-typeof" => Severity::High,
+            "no-undef" | "no-dupe-keys" | "no-duplicate-case" | "use-isnan" | "valid-typeof" => {
+                Severity::High
+            }
             "no-unreachable" | "no-constant-condition" | "no-func-assign" => Severity::Medium,
 
             // Best practices
@@ -125,8 +132,14 @@ impl ESLintDetector {
         message: &JsonValue,
         file_contexts: &HashMap<String, GraphContext>,
     ) -> Option<Finding> {
-        let rule_id = message.get("ruleId").and_then(|r| r.as_str()).unwrap_or("unknown");
-        let eslint_severity = message.get("severity").and_then(|s| s.as_i64()).unwrap_or(1);
+        let rule_id = message
+            .get("ruleId")
+            .and_then(|r| r.as_str())
+            .unwrap_or("unknown");
+        let eslint_severity = message
+            .get("severity")
+            .and_then(|s| s.as_i64())
+            .unwrap_or(1);
         let msg_text = message.get("message")?.as_str()?;
         let line = message.get("line")?.as_u64()? as u32;
         let column = message.get("column").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
@@ -151,10 +164,16 @@ impl ESLintDetector {
 
         // Add documentation link
         if !rule_id.starts_with("@") {
-            description.push_str(&format!("**Documentation**: https://eslint.org/docs/rules/{}\n", rule_id));
+            description.push_str(&format!(
+                "**Documentation**: https://eslint.org/docs/rules/{}\n",
+                rule_id
+            ));
         } else if rule_id.starts_with("@typescript-eslint/") {
             let rule_name = rule_id.replace("@typescript-eslint/", "");
-            description.push_str(&format!("**Documentation**: https://typescript-eslint.io/rules/{}\n", rule_name));
+            description.push_str(&format!(
+                "**Documentation**: https://typescript-eslint.io/rules/{}\n",
+                rule_name
+            ));
         }
 
         if let Some(loc) = ctx.file_loc {
@@ -197,14 +216,22 @@ impl ESLintDetector {
 
     fn suggest_fix(rule_id: &str, message: &str) -> String {
         match rule_id {
-            "no-unused-vars" | "@typescript-eslint/no-unused-vars" => "Remove the unused variable or prefix with underscore".to_string(),
+            "no-unused-vars" | "@typescript-eslint/no-unused-vars" => {
+                "Remove the unused variable or prefix with underscore".to_string()
+            }
             "no-undef" => "Define the variable or add it to globals configuration".to_string(),
             "no-eval" => "Replace eval() with safer alternatives like JSON.parse()".to_string(),
             "eqeqeq" => "Use strict equality (=== or !==) instead of loose equality".to_string(),
-            "@typescript-eslint/no-explicit-any" => "Replace 'any' with a specific type or use 'unknown'".to_string(),
-            "prefer-const" => "Use 'const' instead of 'let' for variables that are never reassigned".to_string(),
+            "@typescript-eslint/no-explicit-any" => {
+                "Replace 'any' with a specific type or use 'unknown'".to_string()
+            }
+            "prefer-const" => {
+                "Use 'const' instead of 'let' for variables that are never reassigned".to_string()
+            }
             "no-var" => "Use 'let' or 'const' instead of 'var'".to_string(),
-            "@typescript-eslint/no-non-null-assertion" => "Use optional chaining (?.) or nullish coalescing (??)".to_string(),
+            "@typescript-eslint/no-non-null-assertion" => {
+                "Use optional chaining (?.) or nullish coalescing (??)".to_string()
+            }
             "no-console" => "Remove console statements or use a proper logging library".to_string(),
             _ => format!("Review ESLint suggestion: {}", message),
         }
@@ -227,7 +254,10 @@ impl ESLintDetector {
             "react".to_string()
         } else if rule_id.contains("unused") {
             "unused_code".to_string()
-        } else if rule_id.contains("semi") || rule_id.contains("quotes") || rule_id.contains("indent") {
+        } else if rule_id.contains("semi")
+            || rule_id.contains("quotes")
+            || rule_id.contains("indent")
+        {
             "style".to_string()
         } else if rule_id.contains("security") || rule_id.contains("eval") {
             "security".to_string()
@@ -272,13 +302,23 @@ impl Detector for ESLintDetector {
 
         // Batch fetch graph context
         let file_contexts = batch_get_graph_context(graph, &unique_files);
-        debug!("Batch fetched graph context for {} files", file_contexts.len());
+        debug!(
+            "Batch fetched graph context for {} files",
+            file_contexts.len()
+        );
 
         // Process all messages
         let mut findings = Vec::new();
         for file_result in &results {
-            let file_path = file_result.get("filePath").and_then(|f| f.as_str()).unwrap_or("");
-            let messages = file_result.get("messages").and_then(|m| m.as_array()).map(|a| a.as_slice()).unwrap_or(&[]);
+            let file_path = file_result
+                .get("filePath")
+                .and_then(|f| f.as_str())
+                .unwrap_or("");
+            let messages = file_result
+                .get("messages")
+                .and_then(|m| m.as_array())
+                .map(|a| a.as_slice())
+                .unwrap_or(&[]);
 
             for message in messages {
                 if findings.len() >= self.max_findings {
@@ -314,10 +354,19 @@ mod tests {
 
     #[test]
     fn test_severity_mapping() {
-        assert_eq!(ESLintDetector::map_severity("no-eval", 2), Severity::Critical);
-        assert_eq!(ESLintDetector::map_severity("security/detect-eval", 2), Severity::High);
+        assert_eq!(
+            ESLintDetector::map_severity("no-eval", 2),
+            Severity::Critical
+        );
+        assert_eq!(
+            ESLintDetector::map_severity("security/detect-eval", 2),
+            Severity::High
+        );
         assert_eq!(ESLintDetector::map_severity("no-undef", 2), Severity::High);
         assert_eq!(ESLintDetector::map_severity("eqeqeq", 2), Severity::Medium);
-        assert_eq!(ESLintDetector::map_severity("prefer-const", 1), Severity::Low);
+        assert_eq!(
+            ESLintDetector::map_severity("prefer-const", 1),
+            Severity::Low
+        );
     }
 }

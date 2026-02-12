@@ -83,8 +83,7 @@ impl HandlerState {
         }
 
         let db_path = self.repo_path.join(".repotoire").join("graph");
-        let client = GraphStore::new(&db_path)
-            .context("Failed to initialize graph database")?;
+        let client = GraphStore::new(&db_path).context("Failed to initialize graph database")?;
         let client = Arc::new(client);
         self.graph = Some(Arc::clone(&client));
         Ok(client)
@@ -145,48 +144,54 @@ pub fn handle_query_graph(state: &mut HandlerState, args: &Value) -> Result<Valu
         .unwrap_or("functions");
 
     let graph = state.get_graph()?;
-    
+
     let results: Vec<serde_json::Value> = match query_type {
-        "functions" => {
-            graph.get_functions()
-                .iter()
-                .take(100)
-                .map(|f| json!({
+        "functions" => graph
+            .get_functions()
+            .iter()
+            .take(100)
+            .map(|f| {
+                json!({
                     "qualified_name": f.qualified_name,
                     "name": f.name,
                     "file_path": f.file_path,
                     "line_start": f.line_start,
                     "complexity": f.complexity()
-                }))
-                .collect()
-        }
-        "classes" => {
-            graph.get_classes()
-                .iter()
-                .take(100)
-                .map(|c| json!({
+                })
+            })
+            .collect(),
+        "classes" => graph
+            .get_classes()
+            .iter()
+            .take(100)
+            .map(|c| {
+                json!({
                     "qualified_name": c.qualified_name,
                     "name": c.name,
                     "file_path": c.file_path,
                     "line_start": c.line_start
-                }))
-                .collect()
-        }
-        "files" => {
-            graph.get_files()
-                .iter()
-                .take(100)
-                .map(|f| json!({
+                })
+            })
+            .collect(),
+        "files" => graph
+            .get_files()
+            .iter()
+            .take(100)
+            .map(|f| {
+                json!({
                     "file_path": f.file_path,
                     "language": f.language
-                }))
-                .collect()
-        }
+                })
+            })
+            .collect(),
         "stats" => {
             vec![json!(graph.stats())]
         }
         _ => {
-            return Err(anyhow::anyhow!("Unknown query type: {}. Use: functions, classes, files, stats", query_type));
+            return Err(anyhow::anyhow!(
+                "Unknown query type: {}. Use: functions, classes, files, stats",
+                query_type
+            ));
         }
     };
 
@@ -200,13 +205,13 @@ pub fn handle_query_graph(state: &mut HandlerState, args: &Value) -> Result<Valu
 pub fn handle_get_findings(state: &mut HandlerState, args: &Value) -> Result<Value> {
     let severity = args.get("severity").and_then(|v| v.as_str());
     let detector = args.get("detector").and_then(|v| v.as_str());
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
     // Try to read from findings file first
-    let findings_path = state.repo_path.join(".repotoire").join("last_findings.json");
+    let findings_path = state
+        .repo_path
+        .join(".repotoire")
+        .join("last_findings.json");
     if findings_path.exists() {
         let content = std::fs::read_to_string(&findings_path)?;
         let parsed: Value = serde_json::from_str(&content)?;
@@ -294,7 +299,9 @@ pub fn handle_get_file(state: &HandlerState, args: &Value) -> Result<Value> {
     let total_lines = lines.len();
 
     let (content, showing) = if start_line.is_some() || end_line.is_some() {
-        let start = start_line.map(|n| (n as usize).saturating_sub(1)).unwrap_or(0);
+        let start = start_line
+            .map(|n| (n as usize).saturating_sub(1))
+            .unwrap_or(0);
         let end = end_line.map(|n| n as usize).unwrap_or(total_lines);
         let selected: Vec<&str> = lines.into_iter().skip(start).take(end - start).collect();
         let showing = format!("{}-{}", start + 1, start + selected.len());
@@ -322,7 +329,10 @@ pub fn handle_get_architecture(state: &mut HandlerState, _args: &Value) -> Resul
     let files = graph.get_files();
     let mut lang_counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for file in &files {
-        let lang = file.language.clone().unwrap_or_else(|| "unknown".to_string());
+        let lang = file
+            .language
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
         *lang_counts.entry(lang).or_insert(0) += 1;
     }
     let languages: Vec<serde_json::Value> = lang_counts
@@ -334,11 +344,13 @@ pub fn handle_get_architecture(state: &mut HandlerState, _args: &Value) -> Resul
     let classes = graph.get_classes();
     let mut top_classes: Vec<serde_json::Value> = classes
         .iter()
-        .map(|c| json!({
-            "class_name": c.name,
-            "file": c.file_path,
-            "method_count": c.get_i64("methodCount").unwrap_or(0)
-        }))
+        .map(|c| {
+            json!({
+                "class_name": c.name,
+                "file": c.file_path,
+                "method_count": c.get_i64("methodCount").unwrap_or(0)
+            })
+        })
         .collect();
     top_classes.sort_by(|a, b| {
         let a_count = a.get("method_count").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -379,13 +391,13 @@ pub fn handle_list_detectors(state: &HandlerState, _args: &Value) -> Result<Valu
 
 /// Get hotspot files (most issues)
 pub fn handle_get_hotspots(state: &mut HandlerState, args: &Value) -> Result<Value> {
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
     // Try findings file first
-    let findings_path = state.repo_path.join(".repotoire").join("last_findings.json");
+    let findings_path = state
+        .repo_path
+        .join(".repotoire")
+        .join("last_findings.json");
     if findings_path.exists() {
         let content = std::fs::read_to_string(&findings_path)?;
         let parsed: Value = serde_json::from_str(&content)?;
@@ -549,7 +561,11 @@ pub async fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<V
 }
 
 /// Generate fix using local AI (BYOK)
-async fn handle_generate_fix_local(state: &HandlerState, args: &Value, backend: LlmBackend) -> Result<Value> {
+async fn handle_generate_fix_local(
+    state: &HandlerState,
+    args: &Value,
+    backend: LlmBackend,
+) -> Result<Value> {
     use crate::ai::FixGenerator;
     use crate::models::Finding;
 
@@ -577,9 +593,8 @@ async fn handle_generate_fix_local(state: &HandlerState, args: &Value, backend: 
 
     let findings_json = std::fs::read_to_string(&findings_path)?;
     let parsed: Value = serde_json::from_str(&findings_json)?;
-    let findings: Vec<Finding> = serde_json::from_value(
-        parsed.get("findings").cloned().unwrap_or(json!([]))
-    )?;
+    let findings: Vec<Finding> =
+        serde_json::from_value(parsed.get("findings").cloned().unwrap_or(json!([])))?;
 
     if index > findings.len() {
         return Ok(json!({
@@ -592,11 +607,13 @@ async fn handle_generate_fix_local(state: &HandlerState, args: &Value, backend: 
     // Generate fix using local AI
     let client = AiClient::from_env(backend)?;
     let generator = FixGenerator::new(client);
-    
-    let file = finding.affected_files.first()
+
+    let file = finding
+        .affected_files
+        .first()
         .map(|p| p.display().to_string())
         .unwrap_or_default();
-    
+
     match generator.generate_fix(finding, &state.repo_path).await {
         Ok(fix) => Ok(json!({
             "finding": {
@@ -613,7 +630,7 @@ async fn handle_generate_fix_local(state: &HandlerState, args: &Value, backend: 
         })),
         Err(e) => Ok(json!({
             "error": format!("Failed to generate fix: {}", e)
-        }))
+        })),
     }
 }
 
@@ -674,10 +691,10 @@ mod tests {
     fn test_get_file_success() {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("test.txt"), "line1\nline2\nline3").unwrap();
-        
+
         let state = HandlerState::new(dir.path().to_path_buf());
         let result = handle_get_file(&state, &json!({"file_path": "test.txt"})).unwrap();
-        
+
         assert_eq!(result.get("total_lines").and_then(|v| v.as_u64()), Some(3));
     }
 }

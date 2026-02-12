@@ -6,7 +6,6 @@
 //! - Suggest specific imports based on actual usage
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,16 +14,22 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static WILDCARD_PATTERN: OnceLock<Regex> = OnceLock::new();
 static MODULE_NAME: OnceLock<Regex> = OnceLock::new();
 
 fn wildcard_pattern() -> &'static Regex {
-    WILDCARD_PATTERN.get_or_init(|| Regex::new(r"(?i)(from\s+\S+\s+import\s+\*|import\s+\*\s+from|import\s+\*\s*;|\.\*;)").unwrap())
+    WILDCARD_PATTERN.get_or_init(|| {
+        Regex::new(r"(?i)(from\s+\S+\s+import\s+\*|import\s+\*\s+from|import\s+\*\s*;|\.\*;)")
+            .unwrap()
+    })
 }
 
 fn module_name() -> &'static Regex {
-    MODULE_NAME.get_or_init(|| Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#).unwrap())
+    MODULE_NAME.get_or_init(|| {
+        Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#).unwrap()
+    })
 }
 
 pub struct WildcardImportsDetector {
@@ -34,27 +39,32 @@ pub struct WildcardImportsDetector {
 
 impl WildcardImportsDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 100 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 100,
+        }
     }
 
     /// Extract module name from wildcard import line
     fn extract_module_name(line: &str) -> Option<String> {
-        module_name().captures(line).and_then(|caps| {
-            caps.get(1).or(caps.get(2)).map(|m| m.as_str().to_string())
-        })
+        module_name()
+            .captures(line)
+            .and_then(|caps| caps.get(1).or(caps.get(2)).map(|m| m.as_str().to_string()))
     }
 
     /// Find what symbols from a module are actually used in the file
     fn find_used_symbols(content: &str, module: &str, graph: &GraphStore) -> Vec<String> {
         // Get all functions/classes from the module
-        let module_symbols: HashSet<String> = graph.get_functions()
+        let module_symbols: HashSet<String> = graph
+            .get_functions()
             .into_iter()
             .filter(|f| f.file_path.contains(module) || f.qualified_name.starts_with(module))
             .map(|f| f.name)
             .collect();
-        
+
         // Check which are used in the content
-        module_symbols.into_iter()
+        module_symbols
+            .into_iter()
             .filter(|sym| content.contains(sym))
             .take(10)
             .collect()
@@ -62,47 +72,73 @@ impl WildcardImportsDetector {
 }
 
 impl Detector for WildcardImportsDetector {
-    fn name(&self) -> &'static str { "wildcard-imports" }
-    fn description(&self) -> &'static str { "Detects wildcard imports" }
+    fn name(&self) -> &'static str {
+        "wildcard-imports"
+    }
+    fn description(&self) -> &'static str {
+        "Detects wildcard imports"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java") { continue; }
+            if !matches!(ext, "py" | "js" | "ts" | "java") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if wildcard_pattern().is_match(line) {
                         // Try to extract module name and find used symbols
                         let module_name = Self::extract_module_name(line);
-                        let used_symbols = module_name.as_ref()
+                        let used_symbols = module_name
+                            .as_ref()
                             .map(|m| Self::find_used_symbols(&content, m, graph))
                             .unwrap_or_default();
-                        
+
                         let mut notes = Vec::new();
                         if !used_symbols.is_empty() {
-                            notes.push(format!("📊 Actually used: {}", 
-                                             used_symbols.iter().take(5).cloned().collect::<Vec<_>>().join(", ")));
+                            notes.push(format!(
+                                "📊 Actually used: {}",
+                                used_symbols
+                                    .iter()
+                                    .take(5)
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ));
                             if used_symbols.len() > 5 {
                                 notes.push(format!("   ... and {} more", used_symbols.len() - 5));
                             }
                         }
-                        
+
                         let context_notes = if notes.is_empty() {
                             String::new()
                         } else {
                             format!("\n\n**Analysis:**\n{}", notes.join("\n"))
                         };
-                        
+
                         let suggestion = if !used_symbols.is_empty() {
-                            let imports = used_symbols.iter().take(10).cloned().collect::<Vec<_>>().join(", ");
+                            let imports = used_symbols
+                                .iter()
+                                .take(10)
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(", ");
                             if let Some(ref module) = module_name {
                                 format!("Replace with explicit imports:\n```python\nfrom {} import {}\n```", 
                                        module, imports)
@@ -112,13 +148,18 @@ impl Detector for WildcardImportsDetector {
                         } else {
                             "Import specific names instead.".to_string()
                         };
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "WildcardImportsDetector".to_string(),
                             severity: Severity::Low,
-                            title: format!("Wildcard import{}", 
-                                          module_name.as_ref().map(|m| format!(": {}", m)).unwrap_or_default()),
+                            title: format!(
+                                "Wildcard import{}",
+                                module_name
+                                    .as_ref()
+                                    .map(|m| format!(": {}", m))
+                                    .unwrap_or_default()
+                            ),
                             description: format!(
                                 "Wildcard imports pollute namespace and hide dependencies.{}",
                                 context_notes
@@ -132,7 +173,8 @@ impl Detector for WildcardImportsDetector {
                             cwe_id: None,
                             why_it_matters: Some(
                                 "Makes code harder to understand and refactor. \
-                                 Tools can't determine where names come from.".to_string()
+                                 Tools can't determine where names come from."
+                                    .to_string(),
                             ),
                             ..Default::default()
                         });
@@ -140,8 +182,11 @@ impl Detector for WildcardImportsDetector {
                 }
             }
         }
-        
-        info!("WildcardImportsDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "WildcardImportsDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

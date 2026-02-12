@@ -6,7 +6,6 @@
 //! - Trace user input to XML parsing
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -14,6 +13,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static XXE_PATTERN: OnceLock<Regex> = OnceLock::new();
 static USER_INPUT: OnceLock<Regex> = OnceLock::new();
@@ -76,7 +76,7 @@ fn get_protection_patterns(ext: &str) -> Vec<&'static str> {
 /// Get language-specific fix example
 fn get_fix_example(ext: &str) -> &'static str {
     match ext {
-        "py" => 
+        "py" => {
             "```python\n\
              # Use defusedxml (recommended)\n\
              import defusedxml.ElementTree as ET\n\
@@ -90,8 +90,9 @@ fn get_fix_example(ext: &str) -> &'static str {
                  dtd_validation=False\n\
              )\n\
              tree = etree.parse(xml_file, parser)\n\
-             ```",
-        "java" =>
+             ```"
+        }
+        "java" => {
             "```java\n\
              DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();\n\
              \n\
@@ -103,8 +104,9 @@ fn get_fix_example(ext: &str) -> &'static str {
              dbf.setExpandEntityReferences(false);\n\
              \n\
              DocumentBuilder db = dbf.newDocumentBuilder();\n\
-             ```",
-        "js" | "ts" =>
+             ```"
+        }
+        "js" | "ts" => {
             "```javascript\n\
              // Use a safe parser\n\
              const { XMLParser } = require('fast-xml-parser');\n\
@@ -120,8 +122,9 @@ fn get_fix_example(ext: &str) -> &'static str {
                  nonet: true,   // Don't fetch from network\n\
                  dtdload: false\n\
              });\n\
-             ```",
-        "php" =>
+             ```"
+        }
+        "php" => {
             "```php\n\
              // Disable entity loading (PHP < 8.0)\n\
              libxml_disable_entity_loader(true);\n\
@@ -132,8 +135,9 @@ fn get_fix_example(ext: &str) -> &'static str {
              \n\
              // Better: Use SimpleXML with safe options\n\
              $xml = simplexml_load_string($data, 'SimpleXMLElement', LIBXML_NOENT);\n\
-             ```",
-        "cs" =>
+             ```"
+        }
+        "cs" => {
             "```csharp\n\
              XmlReaderSettings settings = new XmlReaderSettings();\n\
              settings.DtdProcessing = DtdProcessing.Prohibit;\n\
@@ -143,7 +147,8 @@ fn get_fix_example(ext: &str) -> &'static str {
              {\n\
                  // Process XML safely\n\
              }\n\
-             ```",
+             ```"
+        }
         _ => "Disable external entity resolution in your XML parser configuration.",
     }
 }
@@ -155,37 +160,50 @@ pub struct XxeDetector {
 
 impl XxeDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Check for XXE protections in file content
     fn has_protection(content: &str, ext: &str) -> bool {
         let patterns = get_protection_patterns(ext);
         let content_lower = content.to_lowercase();
-        
-        patterns.iter().any(|p| content_lower.contains(&p.to_lowercase()))
+
+        patterns
+            .iter()
+            .any(|p| content_lower.contains(&p.to_lowercase()))
     }
 
     /// Check if user input flows to XML parsing
     fn has_user_input_flow(lines: &[&str], parse_line: usize) -> bool {
         let start = parse_line.saturating_sub(10);
         let context = lines[start..parse_line].join(" ");
-        
+
         user_input().is_match(&context)
     }
 
     /// Find containing function
-    fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, bool)> {
-        graph.get_functions()
+    fn find_containing_function(
+        graph: &GraphStore,
+        file_path: &str,
+        line: u32,
+    ) -> Option<(String, bool)> {
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| {
                 let callers = graph.get_callers(&f.qualified_name);
                 let has_external_callers = callers.iter().any(|c| {
                     let name = c.name.to_lowercase();
-                    name.contains("route") || name.contains("handler") ||
-                    name.contains("api") || name.contains("upload") ||
-                    name.contains("import") || name.contains("parse")
+                    name.contains("route")
+                        || name.contains("handler")
+                        || name.contains("api")
+                        || name.contains("upload")
+                        || name.contains("import")
+                        || name.contains("parse")
                 });
                 (f.name, has_external_callers)
             })
@@ -193,8 +211,12 @@ impl XxeDetector {
 }
 
 impl Detector for XxeDetector {
-    fn name(&self) -> &'static str { "xxe" }
-    fn description(&self) -> &'static str { "Detects XXE vulnerabilities" }
+    fn name(&self) -> &'static str {
+        "xxe"
+    }
+    fn description(&self) -> &'static str {
+        "Detects XXE vulnerabilities"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
@@ -204,47 +226,62 @@ impl Detector for XxeDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") { continue; }
-            
+            if path_str.contains("test") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"php"|"cs"|"rb"|"go") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "java" | "php" | "cs" | "rb" | "go"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 // Skip if file has protection
                 if Self::has_protection(&content, ext) {
                     continue;
                 }
-                
+
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (i, line) in lines.iter().enumerate() {
-                    if !xxe_pattern().is_match(line) { continue; }
-                    
+                    if !xxe_pattern().is_match(line) {
+                        continue;
+                    }
+
                     // Check for user input flow
                     let has_user_input = Self::has_user_input_flow(&lines, i);
-                    
+
                     // Get function context
-                    let func_context = Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-                    let is_externally_callable = func_context.as_ref()
+                    let func_context =
+                        Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+                    let is_externally_callable = func_context
+                        .as_ref()
                         .map(|(_, external)| *external)
                         .unwrap_or(false);
-                    
+
                     // Calculate severity
                     let severity = if has_user_input {
-                        Severity::Critical  // User input directly to XML parser
+                        Severity::Critical // User input directly to XML parser
                     } else if is_externally_callable {
-                        Severity::High  // Called from routes/handlers
+                        Severity::High // Called from routes/handlers
                     } else {
-                        Severity::High  // XXE is always serious
+                        Severity::High // XXE is always serious
                     };
-                    
+
                     // Build notes
                     let mut notes = Vec::new();
                     if has_user_input {
@@ -257,9 +294,9 @@ impl Detector for XxeDetector {
                         }
                     }
                     notes.push(format!("❌ No XXE protection detected for {}", ext));
-                    
+
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                    
+
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "XxeDetector".to_string(),
@@ -281,15 +318,19 @@ impl Detector for XxeDetector {
                              • Read arbitrary files from the server (file:///etc/passwd)\n\
                              • Perform SSRF attacks (http://internal-server/)\n\
                              • Denial of service (billion laughs attack)\n\
-                             • Port scanning of internal networks".to_string()
+                             • Port scanning of internal networks"
+                                .to_string(),
                         ),
                         ..Default::default()
                     });
                 }
             }
         }
-        
-        info!("XxeDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "XxeDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

@@ -84,35 +84,22 @@ impl UnsafeTemplateDetector {
 
         // Compile Python patterns
         let jinja2_env_pattern = Regex::new(r"\bEnvironment\s*\([^)]*\)").unwrap();
-        let autoescape_true_pattern = Regex::new(
-            r"(?i)autoescape\s*=\s*(?:True|select_autoescape\s*\()"
-        ).unwrap();
+        let autoescape_true_pattern =
+            Regex::new(r"(?i)autoescape\s*=\s*(?:True|select_autoescape\s*\()").unwrap();
         // Simplified: detect render_template_string calls with any content
         // (filtering for variable usage happens in scan logic)
-        let render_template_string_pattern = Regex::new(
-            r#"\brender_template_string\s*\([^)]+\)"#
-        ).unwrap();
+        let render_template_string_pattern =
+            Regex::new(r#"\brender_template_string\s*\([^)]+\)"#).unwrap();
         // Simplified: detect Markup calls with any content
-        let markup_pattern = Regex::new(
-            r#"\bMarkup\s*\([^)]+\)"#
-        ).unwrap();
+        let markup_pattern = Regex::new(r#"\bMarkup\s*\([^)]+\)"#).unwrap();
 
         // Compile JavaScript patterns
-        let dangerous_inner_html_pattern = Regex::new(
-            r"\bdangerouslySetInnerHTML\s*=\s*\{"
-        ).unwrap();
-        let vue_vhtml_pattern = Regex::new(
-            r#"\bv-html\s*=\s*["'][^"']+["']"#
-        ).unwrap();
-        let innerhtml_assign_pattern = Regex::new(
-            r"\.\s*innerHTML\s*=\s*[^;]+"
-        ).unwrap();
-        let outerhtml_assign_pattern = Regex::new(
-            r"\.\s*outerHTML\s*=\s*[^;]+"
-        ).unwrap();
-        let document_write_pattern = Regex::new(
-            r"\bdocument\s*\.\s*write(?:ln)?\s*\("
-        ).unwrap();
+        let dangerous_inner_html_pattern =
+            Regex::new(r"\bdangerouslySetInnerHTML\s*=\s*\{").unwrap();
+        let vue_vhtml_pattern = Regex::new(r#"\bv-html\s*=\s*["'][^"']+["']"#).unwrap();
+        let innerhtml_assign_pattern = Regex::new(r"\.\s*innerHTML\s*=\s*[^;]+").unwrap();
+        let outerhtml_assign_pattern = Regex::new(r"\.\s*outerHTML\s*=\s*[^;]+").unwrap();
+        let document_write_pattern = Regex::new(r"\bdocument\s*\.\s*write(?:ln)?\s*\(").unwrap();
 
         Self {
             config,
@@ -168,7 +155,7 @@ impl UnsafeTemplateDetector {
     /// Scan Python files for template vulnerabilities
     fn scan_python_files(&self) -> Vec<Finding> {
         use crate::detectors::walk_source_files;
-        
+
         let mut findings = Vec::new();
 
         // Walk through Python files (respects .gitignore and .repotoireignore)
@@ -200,9 +187,13 @@ impl UnsafeTemplateDetector {
                 if stripped.starts_with('#') {
                     continue;
                 }
-                
+
                 // Check for suppression comments
-                let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                let prev_line = if line_no > 0 {
+                    Some(lines[line_no - 1])
+                } else {
+                    None
+                };
                 if crate::detectors::is_line_suppressed(line, prev_line) {
                     continue;
                 }
@@ -256,7 +247,7 @@ impl UnsafeTemplateDetector {
     /// Scan JavaScript/TypeScript files for XSS vulnerabilities
     fn scan_javascript_files(&self) -> Vec<Finding> {
         use crate::detectors::walk_source_files;
-        
+
         let mut findings = Vec::new();
 
         // Walk through JS/TS files (respects .gitignore and .repotoireignore)
@@ -288,9 +279,13 @@ impl UnsafeTemplateDetector {
                 if stripped.starts_with("//") || stripped.starts_with("/*") {
                     continue;
                 }
-                
+
                 // Check for suppression comments
-                let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                let prev_line = if line_no > 0 {
+                    Some(lines[line_no - 1])
+                } else {
+                    None
+                };
                 if crate::detectors::is_line_suppressed(line, prev_line) {
                     continue;
                 }
@@ -347,7 +342,7 @@ impl UnsafeTemplateDetector {
     /// Scan Vue files for v-html directive
     fn scan_vue_files(&self) -> Vec<Finding> {
         use crate::detectors::walk_source_files;
-        
+
         let mut findings = Vec::new();
 
         // Walk through Vue files (respects .gitignore and .repotoireignore)
@@ -374,9 +369,13 @@ impl UnsafeTemplateDetector {
             let lines: Vec<&str> = content.lines().collect();
             for (line_no, line) in lines.iter().enumerate() {
                 let line_num = (line_no + 1) as u32;
-                
+
                 // Check for suppression comments
-                let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                let prev_line = if line_no > 0 {
+                    Some(lines[line_no - 1])
+                } else {
+                    None
+                };
                 if crate::detectors::is_line_suppressed(line, prev_line) {
                     continue;
                 }
@@ -470,7 +469,9 @@ impl UnsafeTemplateDetector {
              - Deface the application\n\n\
              This vulnerability is classified as **{}: Improper Neutralization of\n\
              Input During Web Page Generation ('Cross-site Scripting')**.",
-            desc, file_path, line_start,
+            desc,
+            file_path,
+            line_start,
             &snippet[..snippet.len().min(100)],
             cwe
         );
@@ -502,8 +503,7 @@ impl UnsafeTemplateDetector {
     /// Get remediation recommendation for pattern type
     fn get_recommendation(&self, pattern_type: &str) -> String {
         match pattern_type {
-            "jinja2_no_autoescape" => {
-                "**Recommended fixes**:\n\n\
+            "jinja2_no_autoescape" => "**Recommended fixes**:\n\n\
                  1. **Enable autoescape globally** (preferred):\n\
                     ```python\n\
                     from jinja2 import Environment, select_autoescape\n\n\
@@ -515,10 +515,9 @@ impl UnsafeTemplateDetector {
                     ```python\n\
                     from flask import render_template\n\
                     return render_template('template.html', data=user_data)\n\
-                    ```".to_string()
-            }
-            "render_template_string" => {
-                "**Recommended fixes**:\n\n\
+                    ```"
+            .to_string(),
+            "render_template_string" => "**Recommended fixes**:\n\n\
                  1. **Use file-based templates** instead of string templates:\n\
                     ```python\n\
                     # Instead of:\n\
@@ -530,10 +529,9 @@ impl UnsafeTemplateDetector {
                     ```python\n\
                     from markupsafe import escape\n\
                     safe_data = escape(user_data)\n\
-                    ```".to_string()
-            }
-            "markup_unsafe" => {
-                "**Recommended fixes**:\n\n\
+                    ```"
+            .to_string(),
+            "markup_unsafe" => "**Recommended fixes**:\n\n\
                  1. **Avoid Markup() with untrusted input**:\n\
                     ```python\n\
                     # Instead of:\n\
@@ -545,10 +543,9 @@ impl UnsafeTemplateDetector {
                  2. **Only use Markup() for trusted, static content**:\n\
                     ```python\n\
                     return Markup('<strong>') + escape(user_data) + Markup('</strong>')\n\
-                    ```".to_string()
-            }
-            "dangerously_set_inner_html" => {
-                "**Recommended fixes**:\n\n\
+                    ```"
+            .to_string(),
+            "dangerously_set_inner_html" => "**Recommended fixes**:\n\n\
                  1. **Avoid dangerouslySetInnerHTML when possible**:\n\
                     ```jsx\n\
                     // Instead of:\n\
@@ -560,10 +557,9 @@ impl UnsafeTemplateDetector {
                     ```jsx\n\
                     import DOMPurify from 'dompurify';\n\n\
                     <div dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(userContent)}} />\n\
-                    ```".to_string()
-            }
-            "vue_vhtml" => {
-                "**Recommended fixes**:\n\n\
+                    ```"
+            .to_string(),
+            "vue_vhtml" => "**Recommended fixes**:\n\n\
                  1. **Avoid v-html with user content**:\n\
                     ```vue\n\
                     <!-- Instead of: -->\n\
@@ -580,10 +576,9 @@ impl UnsafeTemplateDetector {
                       }\n\
                     }\n\
                     <div v-html=\"safeContent\"></div>\n\
-                    ```".to_string()
-            }
-            "innerhtml_assignment" | "outerhtml_assignment" => {
-                "**Recommended fixes**:\n\n\
+                    ```"
+            .to_string(),
+            "innerhtml_assignment" | "outerhtml_assignment" => "**Recommended fixes**:\n\n\
                  1. **Use textContent for text** (auto-escapes):\n\
                     ```javascript\n\
                     // Instead of:\n\
@@ -601,10 +596,9 @@ impl UnsafeTemplateDetector {
                     ```javascript\n\
                     import DOMPurify from 'dompurify';\n\
                     element.innerHTML = DOMPurify.sanitize(userInput);\n\
-                    ```".to_string()
-            }
-            "document_write" => {
-                "**Recommended fixes**:\n\n\
+                    ```"
+            .to_string(),
+            "document_write" => "**Recommended fixes**:\n\n\
                  1. **Avoid document.write entirely** (deprecated):\n\
                     ```javascript\n\
                     // Instead of:\n\
@@ -619,15 +613,14 @@ impl UnsafeTemplateDetector {
                     const script = document.createElement('script');\n\
                     script.src = trustedScriptUrl;\n\
                     document.head.appendChild(script);\n\
-                    ```".to_string()
-            }
-            _ => {
-                "**Recommended fixes**:\n\n\
+                    ```"
+            .to_string(),
+            _ => "**Recommended fixes**:\n\n\
                  1. Avoid using raw HTML/template injection patterns\n\
                  2. Use framework-provided escaping mechanisms\n\
                  3. Sanitize user input with a library like DOMPurify\n\
-                 4. Apply Content Security Policy (CSP) headers".to_string()
-            }
+                 4. Apply Content Security Policy (CSP) headers"
+                .to_string(),
         }
     }
 }
@@ -678,7 +671,10 @@ impl Detector for UnsafeTemplateDetector {
         // Truncate to max_findings
         findings.truncate(self.max_findings);
 
-        info!("UnsafeTemplateDetector found {} potential vulnerabilities", findings.len());
+        info!(
+            "UnsafeTemplateDetector found {} potential vulnerabilities",
+            findings.len()
+        );
 
         Ok(findings)
     }
@@ -693,11 +689,15 @@ mod tests {
         let detector = UnsafeTemplateDetector::new();
 
         // Should detect Environment without autoescape
-        assert!(detector.jinja2_env_pattern.is_match("env = Environment(loader=FileSystemLoader())"));
-        
+        assert!(detector
+            .jinja2_env_pattern
+            .is_match("env = Environment(loader=FileSystemLoader())"));
+
         // Should detect autoescape=True
         assert!(detector.autoescape_true_pattern.is_match("autoescape=True"));
-        assert!(detector.autoescape_true_pattern.is_match("autoescape=select_autoescape()"));
+        assert!(detector
+            .autoescape_true_pattern
+            .is_match("autoescape=select_autoescape()"));
     }
 
     #[test]
@@ -705,9 +705,9 @@ mod tests {
         let detector = UnsafeTemplateDetector::new();
 
         // Should detect dangerouslySetInnerHTML
-        assert!(detector.dangerous_inner_html_pattern.is_match(
-            r#"<div dangerouslySetInnerHTML={{__html: content}} />"#
-        ));
+        assert!(detector
+            .dangerous_inner_html_pattern
+            .is_match(r#"<div dangerouslySetInnerHTML={{__html: content}} />"#));
     }
 
     #[test]
@@ -715,7 +715,9 @@ mod tests {
         let detector = UnsafeTemplateDetector::new();
 
         // Should detect v-html
-        assert!(detector.vue_vhtml_pattern.is_match(r#"<div v-html="userContent"></div>"#));
+        assert!(detector
+            .vue_vhtml_pattern
+            .is_match(r#"<div v-html="userContent"></div>"#));
     }
 
     #[test]
@@ -723,17 +725,25 @@ mod tests {
         let detector = UnsafeTemplateDetector::new();
 
         // Should detect innerHTML assignment
-        assert!(detector.innerhtml_assign_pattern.is_match("element.innerHTML = userInput;"));
-        
+        assert!(detector
+            .innerhtml_assign_pattern
+            .is_match("element.innerHTML = userInput;"));
+
         // Should detect outerHTML assignment
-        assert!(detector.outerhtml_assign_pattern.is_match("element.outerHTML = userInput;"));
+        assert!(detector
+            .outerhtml_assign_pattern
+            .is_match("element.outerHTML = userInput;"));
     }
 
     #[test]
     fn test_document_write_detection() {
         let detector = UnsafeTemplateDetector::new();
 
-        assert!(detector.document_write_pattern.is_match("document.write('<div>' + content + '</div>')"));
-        assert!(detector.document_write_pattern.is_match("document.writeln(html)"));
+        assert!(detector
+            .document_write_pattern
+            .is_match("document.write('<div>' + content + '</div>')"));
+        assert!(detector
+            .document_write_pattern
+            .is_match("document.writeln(html)"));
     }
 }

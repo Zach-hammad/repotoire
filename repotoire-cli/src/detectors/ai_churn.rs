@@ -386,7 +386,8 @@ impl Detector for AIChurnDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         // Churn detection needs git history analysis
         let _ = graph;
         Ok(vec![])
@@ -403,4 +404,3 @@ impl AIChurnDetector {
         Ok(vec![])
     }
 }
-

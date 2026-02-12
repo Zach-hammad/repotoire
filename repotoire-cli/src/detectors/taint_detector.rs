@@ -56,9 +56,9 @@ const TAINT_SOURCES: &[(&str, &str)] = &[
     ("process.env", "environment"),
     // Network input (reading FROM network, not making requests)
     ("socket.recv(", "network"),
-    (".read()", "file"),  // Reading file content, not opening
-    // NOTE: open() is NOT a source - it's a sink for path traversal
-    // NOTE: requests.get() is a sink for SSRF, not a source
+    (".read()", "file"), // Reading file content, not opening
+                         // NOTE: open() is NOT a source - it's a sink for path traversal
+                         // NOTE: requests.get() is a sink for SSRF, not a source
 ];
 
 /// Taint sink patterns (dangerous operations)
@@ -255,9 +255,13 @@ impl TaintDetector {
             if line.trim().starts_with('#') {
                 continue;
             }
-            
+
             // Check for suppression comments
-            let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+            let prev_line = if line_no > 0 {
+                Some(lines[line_no - 1])
+            } else {
+                None
+            };
             if crate::detectors::is_line_suppressed(line, prev_line) {
                 continue;
             }
@@ -268,10 +272,8 @@ impl TaintDetector {
                     // Try to extract variable name
                     if let Some(caps) = assign_pattern.captures(line) {
                         if let Some(var) = caps.get(1) {
-                            tainted_vars.insert(
-                                var.as_str().to_string(),
-                                (line_num, category.clone()),
-                            );
+                            tainted_vars
+                                .insert(var.as_str().to_string(), (line_num, category.clone()));
                         }
                     }
                 }
@@ -321,7 +323,7 @@ impl TaintDetector {
     /// Scan source files for taint flows
     fn scan_source_files(&self) -> Vec<Finding> {
         use crate::detectors::walk_source_files;
-        
+
         let mut findings = Vec::new();
         let mut seen_locations: HashSet<(String, u32)> = HashSet::new();
 
@@ -392,10 +394,14 @@ impl TaintDetector {
              **Code snippet**:\n```python\n{}\n```\n\n\
              {}",
             vuln_title,
-            flow.file_path, flow.source_line, flow.sink_line,
-            flow.source, flow.source_line,
+            flow.file_path,
+            flow.source_line,
+            flow.sink_line,
+            flow.source,
+            flow.source_line,
             flow.source_category,
-            flow.sink, flow.sink_line,
+            flow.sink,
+            flow.sink_line,
             flow.snippet,
             self.get_vulnerability_description(&flow.vulnerability)
         );
@@ -455,61 +461,56 @@ impl TaintDetector {
                 "User input flows to log output. \
                  An attacker could forge log entries or inject malicious data."
             }
-            _ => "Potential security vulnerability detected."
+            _ => "Potential security vulnerability detected.",
         }
     }
 
     /// Get recommendation for fixing the vulnerability
     fn get_recommendation(&self, vulnerability: &str) -> String {
         match vulnerability {
-            "sql_injection" => {
-                "Use parameterized queries or prepared statements:\n\
+            "sql_injection" => "Use parameterized queries or prepared statements:\n\
                  ```python\n\
                  cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))\n\
-                 ```".to_string()
-            }
+                 ```"
+            .to_string(),
             "command_injection" => {
                 "Avoid shell commands with user input. Use subprocess with shell=False:\n\
                  ```python\n\
                  subprocess.run(['ls', '-l', path], shell=False)\n\
-                 ```".to_string()
+                 ```"
+                .to_string()
             }
-            "code_injection" => {
-                "Never use eval/exec with user input. Use safer alternatives:\n\
+            "code_injection" => "Never use eval/exec with user input. Use safer alternatives:\n\
                  ```python\n\
                  import ast\n\
                  data = ast.literal_eval(user_string)\n\
-                 ```".to_string()
-            }
-            "path_traversal" => {
-                "Use os.path.basename() or validate paths:\n\
+                 ```"
+            .to_string(),
+            "path_traversal" => "Use os.path.basename() or validate paths:\n\
                  ```python\n\
                  safe_path = os.path.join(base_dir, os.path.basename(user_path))\n\
-                 ```".to_string()
-            }
-            "xss" => {
-                "Escape HTML output using framework-provided functions:\n\
+                 ```"
+            .to_string(),
+            "xss" => "Escape HTML output using framework-provided functions:\n\
                  ```python\n\
                  from markupsafe import escape\n\
                  safe_output = escape(user_input)\n\
-                 ```".to_string()
-            }
-            "ssrf" => {
-                "Validate URLs against an allowlist of permitted domains:\n\
+                 ```"
+            .to_string(),
+            "ssrf" => "Validate URLs against an allowlist of permitted domains:\n\
                  ```python\n\
                  ALLOWED_HOSTS = {'api.example.com', 'cdn.example.com'}\n\
                  if urlparse(user_url).netloc in ALLOWED_HOSTS:\n\
                      # Safe to request\n\
-                 ```".to_string()
-            }
-            "log_injection" => {
-                "Sanitize user input before logging:\n\
+                 ```"
+            .to_string(),
+            "log_injection" => "Sanitize user input before logging:\n\
                  ```python\n\
                  safe_input = user_input.replace('\\n', '').replace('\\r', '')\n\
                  logger.info('User action: %s', safe_input)\n\
-                 ```".to_string()
-            }
-            _ => "Review and sanitize user input before use.".to_string()
+                 ```"
+            .to_string(),
+            _ => "Review and sanitize user input before use.".to_string(),
         }
     }
 
@@ -519,10 +520,8 @@ impl TaintDetector {
             "sql_injection" | "command_injection" | "code_injection" => {
                 "Medium-High (2-8 hours)".to_string()
             }
-            "path_traversal" | "ssrf" | "xss" => {
-                "Medium (1-4 hours)".to_string()
-            }
-            _ => "Low-Medium (30 min - 2 hours)".to_string()
+            "path_traversal" | "ssrf" | "xss" => "Medium (1-4 hours)".to_string(),
+            _ => "Low-Medium (30 min - 2 hours)".to_string(),
         }
     }
 
@@ -536,7 +535,7 @@ impl TaintDetector {
             "xss" => "steal user sessions, inject malicious content, or redirect users",
             "ssrf" => "access internal services or scan internal networks",
             "log_injection" => "forge log entries or exploit log parsing vulnerabilities",
-            _ => "compromise application security"
+            _ => "compromise application security",
         }
     }
 }
@@ -582,7 +581,10 @@ impl Detector for TaintDetector {
 
         let findings = self.scan_source_files();
 
-        info!("TaintDetector found {} potential vulnerabilities", findings.len());
+        info!(
+            "TaintDetector found {} potential vulnerabilities",
+            findings.len()
+        );
 
         Ok(findings)
     }
@@ -610,12 +612,12 @@ mod tests {
     #[test]
     fn test_taint_flow_detection() {
         let detector = TaintDetector::new();
-        
+
         let code = r#"
 user_id = request.args.get('id')
 cursor.execute(f"SELECT * FROM users WHERE id={user_id}")
 "#;
-        
+
         let flows = detector.analyze_file(code, "test.py");
         assert!(!flows.is_empty());
         assert!(flows.iter().any(|f| f.vulnerability == "sql_injection"));
@@ -624,11 +626,11 @@ cursor.execute(f"SELECT * FROM users WHERE id={user_id}")
     #[test]
     fn test_direct_flow_detection() {
         let detector = TaintDetector::new();
-        
+
         let code = r#"
 os.system(request.args.get('cmd'))
 "#;
-        
+
         let flows = detector.analyze_file(code, "test.py");
         assert!(!flows.is_empty());
         assert!(flows.iter().any(|f| f.vulnerability == "command_injection"));

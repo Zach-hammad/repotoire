@@ -15,10 +15,59 @@ import argparse
 import asyncio
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions
+
+
+def verify_finding_fixed(finding: dict, repo_path: str) -> bool:
+    """Run repotoire analyze and check if the finding still exists."""
+    title = finding.get("title", "")
+    affected_files = finding.get("affected_files", [])
+    target_file = affected_files[0] if affected_files else None
+    
+    print("\n🔍 Verifying fix...", flush=True)
+    
+    try:
+        result = subprocess.run(
+            ["repotoire", "analyze", "--json"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        
+        if result.returncode != 0:
+            print(f"⚠️ Could not run verification: {result.stderr}", flush=True)
+            return False
+        
+        # Parse the analysis output
+        try:
+            analysis = json.loads(result.stdout)
+            findings = analysis.get("findings", [])
+        except json.JSONDecodeError:
+            print("⚠️ Could not parse verification output", flush=True)
+            return False
+        
+        # Check if the specific finding still exists
+        for f in findings:
+            f_title = f.get("title", "")
+            f_files = f.get("affected_files", [])
+            
+            # Match by title and file
+            if f_title == title and target_file and target_file in f_files:
+                return False  # Finding still exists
+        
+        return True  # Finding not found = fixed
+        
+    except subprocess.TimeoutExpired:
+        print("⚠️ Verification timed out", flush=True)
+        return False
+    except FileNotFoundError:
+        print("⚠️ repotoire command not found", flush=True)
+        return False
 
 
 async def fix_finding(finding: dict, repo_path: str) -> None:
@@ -101,11 +150,23 @@ Be precise. Make minimal changes. Verify the fix compiles/passes tests if possib
                     print(f"✅ Agent completed!", flush=True)
                     if hasattr(message, "result"):
                         print(f"📝 Summary: {message.result}", flush=True)
+                    
+                    # Verify the fix
+                    if verify_finding_fixed(finding, repo_path):
+                        print("✅ Finding fixed!", flush=True)
+                    else:
+                        print("⚠️ Finding may still exist", flush=True)
                         
             elif hasattr(message, "result"):
                 # Final result
                 print("-" * 60, flush=True)
                 print(f"✅ Done: {message.result}", flush=True)
+                
+                # Verify the fix
+                if verify_finding_fixed(finding, repo_path):
+                    print("✅ Finding fixed!", flush=True)
+                else:
+                    print("⚠️ Finding may still exist", flush=True)
                 
     except Exception as e:
         print(f"❌ Error: {e}", flush=True)

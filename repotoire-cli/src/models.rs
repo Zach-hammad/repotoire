@@ -9,12 +9,12 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 /// Generate a deterministic finding ID based on content hash.
-/// 
+///
 /// This ensures findings have stable IDs across runs, enabling:
 /// - Tracking findings over time (fixed vs new vs recurring)
 /// - Suppression by ID in config files
 /// - Reliable deduplication
-/// 
+///
 /// The ID is a 16-character hex string derived from hashing:
 /// - detector name (which detector found it)
 /// - file path (where it was found)
@@ -30,7 +30,9 @@ pub fn deterministic_finding_id(detector: &str, file: &str, line: u32, title: &s
 }
 
 /// Severity levels for findings
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     #[default]

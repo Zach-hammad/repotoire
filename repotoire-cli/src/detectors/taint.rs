@@ -548,7 +548,7 @@ impl TaintAnalyzer {
             // JavaScript
             "eval(",
             "Function(",
-            "setTimeout(", // with string arg
+            "setTimeout(",  // with string arg
             "setInterval(", // with string arg
             // Go
             // (Go doesn't have direct eval, but template injection is similar)
@@ -559,11 +559,7 @@ impl TaintAnalyzer {
         self.sinks.insert(TaintCategory::CodeInjection, sinks);
 
         let mut sanitizers = HashSet::new();
-        for pattern in &[
-            "ast.literal_eval",
-            "json.loads",
-            "JSON.parse",
-        ] {
+        for pattern in &["ast.literal_eval", "json.loads", "JSON.parse"] {
             sanitizers.insert(pattern.to_string());
         }
         self.sanitizers
@@ -604,11 +600,7 @@ impl TaintAnalyzer {
         self.sinks.insert(TaintCategory::LogInjection, sinks);
 
         let mut sanitizers = HashSet::new();
-        for pattern in &[
-            "strip(",
-            "replace(",
-            "sanitize_log",
-        ] {
+        for pattern in &["strip(", "replace(", "sanitize_log"] {
             sanitizers.insert(pattern.to_string());
         }
         self.sanitizers
@@ -617,13 +609,7 @@ impl TaintAnalyzer {
 
     /// Add generic sanitizers that apply to all categories
     fn add_generic_sanitizers(&mut self) {
-        for pattern in &[
-            "validate",
-            "sanitize",
-            "clean",
-            "safe_",
-            "_safe",
-        ] {
+        for pattern in &["validate", "sanitize", "clean", "safe_", "_safe"] {
             self.generic_sanitizers.insert(pattern.to_string());
         }
     }
@@ -632,7 +618,9 @@ impl TaintAnalyzer {
     pub fn is_source(&self, func_name: &str, category: TaintCategory) -> bool {
         if let Some(sources) = self.sources.get(&category) {
             let name_lower = func_name.to_lowercase();
-            sources.iter().any(|s| name_lower.contains(&s.to_lowercase()))
+            sources
+                .iter()
+                .any(|s| name_lower.contains(&s.to_lowercase()))
         } else {
             false
         }
@@ -685,7 +673,9 @@ impl TaintAnalyzer {
         // Find all sink functions
         let sink_funcs: Vec<_> = functions
             .iter()
-            .filter(|f| self.is_sink(&f.name, category) || self.is_sink(&f.qualified_name, category))
+            .filter(|f| {
+                self.is_sink(&f.name, category) || self.is_sink(&f.qualified_name, category)
+            })
             .collect();
 
         // For each source, BFS to find paths to sinks
@@ -693,7 +683,10 @@ impl TaintAnalyzer {
             let source_paths = self.bfs_to_sinks(
                 graph,
                 &source.qualified_name,
-                &sink_funcs.iter().map(|f| f.qualified_name.as_str()).collect::<HashSet<_>>(),
+                &sink_funcs
+                    .iter()
+                    .map(|f| f.qualified_name.as_str())
+                    .collect::<HashSet<_>>(),
                 category,
             );
 
@@ -843,7 +836,8 @@ impl TaintAnalyzer {
         // Check direct callees for sinks
         let callees = graph.get_callees(func_qn);
         for callee in &callees {
-            if self.is_sink(&callee.name, category) || self.is_sink(&callee.qualified_name, category)
+            if self.is_sink(&callee.name, category)
+                || self.is_sink(&callee.qualified_name, category)
             {
                 // Direct call to sink from this function
                 let is_sanitized = callees.iter().any(|c| {

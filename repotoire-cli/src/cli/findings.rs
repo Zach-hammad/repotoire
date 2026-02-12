@@ -5,8 +5,8 @@ use console::style;
 use std::fs;
 use std::path::Path;
 
-use crate::models::{Finding, Severity};
 use super::tui;
+use crate::models::{Finding, Severity};
 
 /// Run interactive TUI mode
 pub fn run_interactive(path: &Path) -> Result<()> {
@@ -29,21 +29,33 @@ fn load_findings(path: &Path) -> Result<Vec<Finding>> {
         );
     }
 
-    let findings_json = fs::read_to_string(&findings_path)
-        .context("Failed to read findings file")?;
-    
-    let parsed: serde_json::Value = serde_json::from_str(&findings_json)
-        .context("Failed to parse findings file")?;
+    let findings_json =
+        fs::read_to_string(&findings_path).context("Failed to read findings file")?;
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&findings_json).context("Failed to parse findings file")?;
     let findings: Vec<Finding> = serde_json::from_value(
-        parsed.get("findings").cloned().unwrap_or(serde_json::json!([]))
-    ).context("Failed to parse findings array")?;
+        parsed
+            .get("findings")
+            .cloned()
+            .unwrap_or(serde_json::json!([])),
+    )
+    .context("Failed to parse findings array")?;
 
     Ok(findings)
 }
 
-pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, severity: Option<String>, page: usize, per_page: usize) -> Result<()> {
+pub fn run(
+    path: &Path,
+    index: Option<usize>,
+    json: bool,
+    top: Option<usize>,
+    severity: Option<String>,
+    page: usize,
+    per_page: usize,
+) -> Result<()> {
     let mut findings = load_findings(path)?;
-    
+
     // Filter by severity if specified
     if let Some(min_sev) = &severity {
         let min = match min_sev.to_lowercase().as_str() {
@@ -55,10 +67,10 @@ pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, se
         };
         findings.retain(|f| f.severity >= min);
     }
-    
+
     // Sort by severity (critical first)
     findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-    
+
     // Apply top N limit
     if let Some(n) = top {
         findings.truncate(n);
@@ -94,15 +106,59 @@ pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, se
     println!();
 
     // Group by severity
-    let critical: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Critical).collect();
-    let high: Vec<_> = findings.iter().filter(|f| f.severity == Severity::High).collect();
-    let medium: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Medium).collect();
-    let low: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Low).collect();
+    let critical: Vec<_> = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Critical)
+        .collect();
+    let high: Vec<_> = findings
+        .iter()
+        .filter(|f| f.severity == Severity::High)
+        .collect();
+    let medium: Vec<_> = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Medium)
+        .collect();
+    let low: Vec<_> = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Low)
+        .collect();
 
-    println!("   {} {} critical", style(critical.len()).red().bold(), if critical.len() == 1 { "finding" } else { "findings" });
-    println!("   {} {} high", style(high.len()).yellow().bold(), if high.len() == 1 { "finding" } else { "findings" });
-    println!("   {} {} medium", style(medium.len()).cyan(), if medium.len() == 1 { "finding" } else { "findings" });
-    println!("   {} {} low", style(low.len()).dim(), if low.len() == 1 { "finding" } else { "findings" });
+    println!(
+        "   {} {} critical",
+        style(critical.len()).red().bold(),
+        if critical.len() == 1 {
+            "finding"
+        } else {
+            "findings"
+        }
+    );
+    println!(
+        "   {} {} high",
+        style(high.len()).yellow().bold(),
+        if high.len() == 1 {
+            "finding"
+        } else {
+            "findings"
+        }
+    );
+    println!(
+        "   {} {} medium",
+        style(medium.len()).cyan(),
+        if medium.len() == 1 {
+            "finding"
+        } else {
+            "findings"
+        }
+    );
+    println!(
+        "   {} {} low",
+        style(low.len()).dim(),
+        if low.len() == 1 {
+            "finding"
+        } else {
+            "findings"
+        }
+    );
     println!();
 
     // Apply pagination (per_page = 0 means all)
@@ -117,8 +173,13 @@ pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, se
         (0, total_findings, 1, 1)
     };
 
-    for (i, finding) in findings.iter().enumerate().skip(start_idx).take(end_idx - start_idx) {
-        let idx = i + 1;  // 1-indexed for user display
+    for (i, finding) in findings
+        .iter()
+        .enumerate()
+        .skip(start_idx)
+        .take(end_idx - start_idx)
+    {
+        let idx = i + 1; // 1-indexed for user display
         let severity_icon = match finding.severity {
             Severity::Critical => style("🔴").red(),
             Severity::High => style("🟠").yellow(),
@@ -126,12 +187,15 @@ pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, se
             Severity::Low => style("⚪").dim(),
             Severity::Info => style("ℹ️").dim(),
         };
-        
-        let file = finding.affected_files.first()
+
+        let file = finding
+            .affected_files
+            .first()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "unknown".to_string());
-        
-        let line = finding.line_start
+
+        let line = finding
+            .line_start
             .map(|l| format!(":{}", l))
             .unwrap_or_default();
 
@@ -141,7 +205,12 @@ pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, se
             severity_icon,
             style(&finding.title).bold()
         );
-        println!("     {} {}{}", style("└─").dim(), style(&file).dim(), style(&line).dim());
+        println!(
+            "     {} {}{}",
+            style("└─").dim(),
+            style(&file).dim(),
+            style(&line).dim()
+        );
     }
 
     // Show pagination info
@@ -165,9 +234,18 @@ pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, se
 
     println!();
     println!("{}", style("💡 Tips").bold());
-    println!("   • Run {} for details on a specific finding", style("repotoire findings <n>").cyan());
-    println!("   • Run {} for AI-assisted fixes", style("repotoire fix <n>").cyan());
-    println!("   • Run {} for JSON output", style("repotoire findings --json").cyan());
+    println!(
+        "   • Run {} for details on a specific finding",
+        style("repotoire findings <n>").cyan()
+    );
+    println!(
+        "   • Run {} for AI-assisted fixes",
+        style("repotoire fix <n>").cyan()
+    );
+    println!(
+        "   • Run {} for JSON output",
+        style("repotoire findings --json").cyan()
+    );
 
     Ok(())
 }
@@ -187,11 +265,11 @@ fn print_finding_detail(finding: &Finding, index: usize) {
     println!("   {} {}", style("Title:").bold(), finding.title);
     println!("   {} {}", style("Severity:").bold(), severity_str);
     println!("   {} {}", style("Detector:").bold(), finding.detector);
-    
+
     if let Some(cat) = &finding.category {
         println!("   {} {}", style("Category:").bold(), cat);
     }
-    
+
     if let Some(cwe) = &finding.cwe_id {
         println!("   {} {}", style("CWE:").bold(), cwe);
     }
@@ -236,5 +314,8 @@ fn print_finding_detail(finding: &Finding, index: usize) {
 
     println!();
     println!("{}", style("💡 Next Steps").bold());
-    println!("   • Run {} for AI-assisted fix", style(format!("repotoire fix {}", index)).cyan());
+    println!(
+        "   • Run {} for AI-assisted fix",
+        style(format!("repotoire fix {}", index)).cyan()
+    );
 }

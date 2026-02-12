@@ -22,15 +22,19 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
         );
     }
 
-    let findings_json = fs::read_to_string(&findings_path)
-        .context("Failed to read findings file")?;
-    
+    let findings_json =
+        fs::read_to_string(&findings_path).context("Failed to read findings file")?;
+
     // Parse the wrapped format { "findings": [...] }
-    let parsed: serde_json::Value = serde_json::from_str(&findings_json)
-        .context("Failed to parse findings file")?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&findings_json).context("Failed to parse findings file")?;
     let findings: Vec<Finding> = serde_json::from_value(
-        parsed.get("findings").cloned().unwrap_or(serde_json::json!([]))
-    ).context("Failed to parse findings array")?;
+        parsed
+            .get("findings")
+            .cloned()
+            .unwrap_or(serde_json::json!([])),
+    )
+    .context("Failed to parse findings array")?;
 
     if index == 0 || index > findings.len() {
         anyhow::bail!(
@@ -49,7 +53,7 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
         LlmBackend::Deepinfra,
         LlmBackend::OpenRouter,
     ];
-    
+
     // Try cloud providers first
     let client = backends
         .iter()
@@ -67,8 +71,14 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
             eprintln!("\nOptions:");
             eprintln!("  {} - Anthropic Claude", style("ANTHROPIC_API_KEY").cyan());
             eprintln!("  {} - OpenAI GPT-4", style("OPENAI_API_KEY").cyan());
-            eprintln!("  {} - Deepinfra (cheapest cloud)", style("DEEPINFRA_API_KEY").cyan());
-            eprintln!("  {} - OpenRouter (any model)", style("OPENROUTER_API_KEY").cyan());
+            eprintln!(
+                "  {} - Deepinfra (cheapest cloud)",
+                style("DEEPINFRA_API_KEY").cyan()
+            );
+            eprintln!(
+                "  {} - OpenRouter (any model)",
+                style("OPENROUTER_API_KEY").cyan()
+            );
             eprintln!("  {} - Local (free!)", style("Ollama").green());
             eprintln!("\nFor local AI (free):");
             eprintln!("  1. Install Ollama: https://ollama.ai");
@@ -111,16 +121,10 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     let generator = FixGenerator::new(client);
 
-    let fix = rt.block_on(async {
-        generator.generate_fix_with_retry(finding, path, 2).await
-    })?;
+    let fix = rt.block_on(async { generator.generate_fix_with_retry(finding, path, 2).await })?;
 
     // Display fix
-    term.write_line(&format!(
-        "{} {}\n",
-        style("Fix:").green().bold(),
-        fix.title
-    ))?;
+    term.write_line(&format!("{} {}\n", style("Fix:").green().bold(), fix.title))?;
 
     term.write_line(&format!(
         "  {} {:?}\n  {} {}\n",
@@ -170,10 +174,7 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
             ))?;
             term.write_line("Review the changes and apply manually if appropriate.\n")?;
         } else {
-            term.write_line(&format!(
-                "\n{} Applying fix...",
-                style("⚡").cyan()
-            ))?;
+            term.write_line(&format!("\n{} Applying fix...", style("⚡").cyan()))?;
 
             fix.apply(path)?;
 
@@ -187,10 +188,7 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
             "\n{} To apply this fix, run:",
             style("Tip:").cyan().bold()
         ))?;
-        term.write_line(&format!(
-            "  repotoire fix {} --apply\n",
-            index
-        ))?;
+        term.write_line(&format!("  repotoire fix {} --apply\n", index))?;
     }
 
     // Save fix proposal

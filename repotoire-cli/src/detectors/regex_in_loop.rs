@@ -6,7 +6,6 @@
 //! - Track regex functions that might be called in loops
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,6 +14,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static LOOP: OnceLock<Regex> = OnceLock::new();
 static REGEX_NEW: OnceLock<Regex> = OnceLock::new();
@@ -24,7 +24,9 @@ fn loop_pattern() -> &'static Regex {
 }
 
 fn regex_new() -> &'static Regex {
-    REGEX_NEW.get_or_init(|| Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile)").unwrap())
+    REGEX_NEW.get_or_init(|| {
+        Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile)").unwrap()
+    })
 }
 
 pub struct RegexInLoopDetector {
@@ -34,20 +36,25 @@ pub struct RegexInLoopDetector {
 
 impl RegexInLoopDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Find functions that compile regexes
     fn find_regex_functions(&self, graph: &GraphStore) -> HashSet<String> {
         let mut regex_funcs = HashSet::new();
-        
+
         for func in graph.get_functions() {
             // Check if function compiles regex
-            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+            if let Some(content) =
+                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+            {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = func.line_start.saturating_sub(1) as usize;
                 let end = (func.line_end as usize).min(lines.len());
-                
+
                 for line in lines.get(start..end).unwrap_or(&[]) {
                     if regex_new().is_match(line) {
                         regex_funcs.insert(func.qualified_name.clone());
@@ -56,7 +63,7 @@ impl RegexInLoopDetector {
                 }
             }
         }
-        
+
         regex_funcs
     }
 
@@ -67,19 +74,23 @@ impl RegexInLoopDetector {
         func_qn: &str,
         regex_funcs: &HashSet<String>,
         visited: &mut HashSet<String>,
-        depth: usize
+        depth: usize,
     ) -> Option<String> {
         if depth > 3 || visited.contains(func_qn) {
             return None;
         }
         visited.insert(func_qn.to_string());
-        
+
         for callee in graph.get_callees(func_qn) {
             if regex_funcs.contains(&callee.qualified_name) {
                 return Some(callee.name.clone());
             }
             if let Some(chain) = self.calls_regex_transitively(
-                graph, &callee.qualified_name, regex_funcs, visited, depth + 1
+                graph,
+                &callee.qualified_name,
+                regex_funcs,
+                visited,
+                depth + 1,
             ) {
                 return Some(format!("{} → {}", callee.name, chain));
             }
@@ -89,42 +100,58 @@ impl RegexInLoopDetector {
 }
 
 impl Detector for RegexInLoopDetector {
-    fn name(&self) -> &'static str { "regex-in-loop" }
-    fn description(&self) -> &'static str { "Detects regex compilation inside loops" }
+    fn name(&self) -> &'static str {
+        "regex-in-loop"
+    }
+    fn description(&self) -> &'static str {
+        "Detects regex compilation inside loops"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         // Find all functions that compile regex
         let regex_funcs = self.find_regex_functions(graph);
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"rs"|"go") { continue; }
+            if !matches!(ext, "py" | "js" | "ts" | "java" | "rs" | "go") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let _path_str = path.to_string_lossy().to_string();
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
-                
+
                 for (i, line) in content.lines().enumerate() {
                     if loop_pattern().is_match(line) {
                         in_loop = true;
                         loop_line = i + 1;
                         brace_depth = 0;
                     }
-                    
+
                     if in_loop {
                         brace_depth += line.matches('{').count() as i32;
                         brace_depth -= line.matches('}').count() as i32;
-                        if brace_depth < 0 { in_loop = false; continue; }
-                        
+                        if brace_depth < 0 {
+                            in_loop = false;
+                            continue;
+                        }
+
                         // Direct regex compilation in loop
                         if regex_new().is_match(line) {
                             findings.push(Finding {
@@ -169,28 +196,39 @@ impl Detector for RegexInLoopDetector {
         // Graph-based: find loops that call regex-compiling functions
         if !regex_funcs.is_empty() {
             for func in graph.get_functions() {
-                if findings.len() >= self.max_findings { break; }
-                
+                if findings.len() >= self.max_findings {
+                    break;
+                }
+
                 // Check if function contains a loop
-                let has_loop = if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+                let has_loop = if let Some(content) =
+                    crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+                {
                     let lines: Vec<&str> = content.lines().collect();
                     let start = func.line_start.saturating_sub(1) as usize;
                     let end = (func.line_end as usize).min(lines.len());
-                    
-                    lines.get(start..end)
+
+                    lines
+                        .get(start..end)
                         .map(|slice| slice.iter().any(|line| loop_pattern().is_match(line)))
                         .unwrap_or(false)
                 } else {
                     false
                 };
-                
-                if !has_loop { continue; }
-                
+
+                if !has_loop {
+                    continue;
+                }
+
                 // Check callees for regex compilation
                 for callee in graph.get_callees(&func.qualified_name) {
                     let mut visited = HashSet::new();
                     if let Some(chain) = self.calls_regex_transitively(
-                        graph, &callee.qualified_name, &regex_funcs, &mut visited, 0
+                        graph,
+                        &callee.qualified_name,
+                        &regex_funcs,
+                        &mut visited,
+                        0,
                     ) {
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
@@ -226,8 +264,11 @@ impl Detector for RegexInLoopDetector {
                 }
             }
         }
-        
-        info!("RegexInLoopDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "RegexInLoopDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

@@ -60,32 +60,32 @@ impl GeneratorMisuseDetector {
     fn count_yields(lines: &[&str], func_start: usize, indent: usize) -> (usize, bool) {
         let mut count = 0;
         let mut in_loop = false;
-        
+
         for line in lines.iter().skip(func_start + 1) {
             let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
-            
+
             // Stop if we've left the function
             if !line.trim().is_empty() && current_indent <= indent {
                 break;
             }
-            
+
             // Track if yield is inside a loop
             if line.contains("for ") || line.contains("while ") {
                 in_loop = true;
             }
-            
+
             if yield_stmt().is_match(line) {
                 count += 1;
             }
         }
-        
+
         (count, in_loop)
     }
 
     /// Find all generators that are immediately converted to list
     fn find_list_wrapped_generators(&self, _graph: &GraphStore) -> HashSet<String> {
         let mut wrapped = HashSet::new();
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
@@ -93,10 +93,14 @@ impl GeneratorMisuseDetector {
 
         for entry in walker.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" { continue; }
+            if ext != "py" {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for cap in list_call().captures_iter(&content) {
@@ -106,30 +110,34 @@ impl GeneratorMisuseDetector {
                 }
             }
         }
-        
+
         wrapped
     }
 
     /// Check if generator is consumed lazily anywhere
     fn is_consumed_lazily(&self, func_name: &str, graph: &GraphStore) -> bool {
         // Check callers to see how the generator is consumed
-        if let Some(func) = graph.get_functions().into_iter().find(|f| f.name == func_name) {
+        if let Some(func) = graph
+            .get_functions()
+            .into_iter()
+            .find(|f| f.name == func_name)
+        {
             let callers = graph.get_callers(&func.qualified_name);
-            
+
             for caller in callers {
                 if let Ok(content) = std::fs::read_to_string(&caller.file_path) {
                     // Check if caller iterates lazily (for loop) vs list()
-                    let has_lazy = content.contains(&"for ".to_string()) && 
-                                   content.contains(&format!("{}(", func_name));
+                    let has_lazy = content.contains(&"for ".to_string())
+                        && content.contains(&format!("{}(", func_name));
                     let has_list = content.contains(&format!("list({}(", func_name));
-                    
+
                     if has_lazy && !has_list {
                         return true;
                     }
                 }
             }
         }
-        
+
         false
     }
 }
@@ -155,42 +163,52 @@ impl Detector for GeneratorMisuseDetector {
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        
+
         // Find generators that are always list()-wrapped
         let list_wrapped = self.find_list_wrapped_generators(graph);
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             // Only Python has generators with yield
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" { continue; }
-            
+            if ext != "py" {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") { continue; }
+            if path_str.contains("test") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     if let Some(caps) = generator_def().captures(line) {
                         let func_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
                         let indent = line.chars().take_while(|c| c.is_whitespace()).count();
-                        
+
                         // Check if it's a generator (has yield)
                         let (yield_count, yield_in_loop) = Self::count_yields(&lines, i, indent);
-                        
-                        if yield_count == 0 { continue; }  // Not a generator
-                        
+
+                        if yield_count == 0 {
+                            continue;
+                        } // Not a generator
+
                         // Single yield outside loop = probably should be a simple return
                         if yield_count == 1 && !yield_in_loop {
                             findings.push(Finding {
@@ -231,9 +249,11 @@ impl Detector for GeneratorMisuseDetector {
                                 ..Default::default()
                             });
                         }
-                        
+
                         // Generator always wrapped in list() = defeats the purpose
-                        if list_wrapped.contains(func_name) && !self.is_consumed_lazily(func_name, graph) {
+                        if list_wrapped.contains(func_name)
+                            && !self.is_consumed_lazily(func_name, graph)
+                        {
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "GeneratorMisuseDetector".to_string(),
@@ -277,8 +297,11 @@ impl Detector for GeneratorMisuseDetector {
                 }
             }
         }
-        
-        info!("GeneratorMisuseDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "GeneratorMisuseDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

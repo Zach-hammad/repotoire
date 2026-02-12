@@ -560,8 +560,11 @@ mod tests {
         };
 
         let sarif_json = render(&report).expect("SARIF render should succeed");
-        
+
         // Verify rank appears in output
-        assert!(sarif_json.contains("\"rank\": 85.0"), "SARIF output should contain rank: 85.0");
+        assert!(
+            sarif_json.contains("\"rank\": 85.0"),
+            "SARIF output should contain rank: 85.0"
+        );
     }
 }

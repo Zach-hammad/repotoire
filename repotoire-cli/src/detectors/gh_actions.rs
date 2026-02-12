@@ -54,9 +54,7 @@ fn get_dangerous_pattern() -> &'static Regex {
 }
 
 fn get_run_block_pattern() -> &'static Regex {
-    RUN_BLOCK_PATTERN.get_or_init(|| {
-        Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").unwrap()
-    })
+    RUN_BLOCK_PATTERN.get_or_init(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").unwrap())
 }
 
 impl GHActionsInjectionDetector {
@@ -117,7 +115,10 @@ impl GHActionsInjectionDetector {
                         file: rel_path.clone(),
                         line: line_num,
                         content: line.trim().to_string(),
-                        pattern: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                        pattern: caps
+                            .get(1)
+                            .map(|m| m.as_str().to_string())
+                            .unwrap_or_default(),
                     });
                 }
                 continue;
@@ -131,7 +132,10 @@ impl GHActionsInjectionDetector {
                 }
 
                 // If we dedented back to or before the run: level, we're out
-                if current_indent <= run_block_indent && !stripped.is_empty() && !stripped.starts_with('-') {
+                if current_indent <= run_block_indent
+                    && !stripped.is_empty()
+                    && !stripped.starts_with('-')
+                {
                     in_run_block = false;
                     continue;
                 }
@@ -142,7 +146,10 @@ impl GHActionsInjectionDetector {
                         file: rel_path.clone(),
                         line: line_num,
                         content: line.trim().to_string(),
-                        pattern: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                        pattern: caps
+                            .get(1)
+                            .map(|m| m.as_str().to_string())
+                            .unwrap_or_default(),
                     });
                 }
             }
@@ -155,19 +162,20 @@ impl GHActionsInjectionDetector {
     fn create_finding(&self, m: &InjectionMatch) -> Finding {
         // Categorize the type of injection
         let pattern_lower = m.pattern.to_lowercase();
-        let source_type = if pattern_lower.contains("pull_request") || pattern_lower.contains("head_ref") {
-            "Pull Request"
-        } else if pattern_lower.contains("issue") {
-            "Issue"
-        } else if pattern_lower.contains("comment") || pattern_lower.contains("review") {
-            "Comment"
-        } else if pattern_lower.contains("commit") {
-            "Commit"
-        } else if pattern_lower.contains("inputs") {
-            "Workflow Input"
-        } else {
-            "User Input"
-        };
+        let source_type =
+            if pattern_lower.contains("pull_request") || pattern_lower.contains("head_ref") {
+                "Pull Request"
+            } else if pattern_lower.contains("issue") {
+                "Issue"
+            } else if pattern_lower.contains("comment") || pattern_lower.contains("review") {
+                "Comment"
+            } else if pattern_lower.contains("commit") {
+                "Commit"
+            } else if pattern_lower.contains("inputs") {
+                "Workflow Input"
+            } else {
+                "User Input"
+            };
 
         let title = format!("GitHub Actions Command Injection ({})", source_type);
 
@@ -247,7 +255,8 @@ This can lead to:
             cwe_id: Some("CWE-78".to_string()),
             why_it_matters: Some(
                 "Command injection in CI/CD pipelines can lead to complete repository compromise, \
-                 secrets theft, and supply chain attacks affecting all users of your software.".to_string()
+                 secrets theft, and supply chain attacks affecting all users of your software."
+                    .to_string(),
             ),
             ..Default::default()
         }

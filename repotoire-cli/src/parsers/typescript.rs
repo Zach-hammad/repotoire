@@ -7,7 +7,7 @@ use crate::parsers::ParseResult;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
-use tree_sitter::{Node, Parser, Query, QueryCursor, Language};
+use tree_sitter::{Language, Node, Parser, Query, QueryCursor};
 
 /// Parse a TypeScript/JavaScript file and extract all code entities
 pub fn parse(path: &Path) -> Result<ParseResult> {
@@ -21,7 +21,7 @@ pub fn parse(path: &Path) -> Result<ParseResult> {
 /// Parse TypeScript/JavaScript source code directly
 pub fn parse_source(source: &str, path: &Path, ext: &str) -> Result<ParseResult> {
     let mut parser = Parser::new();
-    
+
     // Choose language based on extension
     let language: Language = match ext {
         "ts" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
@@ -29,7 +29,7 @@ pub fn parse_source(source: &str, path: &Path, ext: &str) -> Result<ParseResult>
         "js" | "jsx" | "mjs" | "cjs" => tree_sitter_javascript::LANGUAGE.into(),
         _ => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
     };
-    
+
     parser
         .set_language(&language)
         .context("Failed to set TypeScript/JavaScript language")?;
@@ -218,7 +218,8 @@ fn extract_parameters(params_node: Option<Node>, source: &[u8]) -> Vec<String> {
 
     // If it's a single identifier (arrow function shorthand)
     if node.kind() == "identifier" {
-        return node.utf8_text(source)
+        return node
+            .utf8_text(source)
             .ok()
             .map(|s| vec![s.to_string()])
             .unwrap_or_default();
@@ -394,9 +395,13 @@ fn extract_class_heritage(class_node: &Node, source: &[u8]) -> Vec<String> {
     for child in class_node.children(&mut class_node.walk()) {
         if child.kind() == "class_heritage" {
             for heritage_child in child.children(&mut child.walk()) {
-                if heritage_child.kind() == "extends_clause" || heritage_child.kind() == "implements_clause" {
+                if heritage_child.kind() == "extends_clause"
+                    || heritage_child.kind() == "implements_clause"
+                {
                     for type_child in heritage_child.children(&mut heritage_child.walk()) {
-                        if type_child.kind() == "type_identifier" || type_child.kind() == "generic_type" {
+                        if type_child.kind() == "type_identifier"
+                            || type_child.kind() == "generic_type"
+                        {
                             if let Ok(text) = type_child.utf8_text(source) {
                                 bases.push(text.to_string());
                             }
@@ -496,7 +501,13 @@ fn extract_class_methods(
                     // Arrow function class field (e.g., foo = () => {})
                     if let Some(value_node) = child.child_by_field_name("value") {
                         if value_node.kind() == "arrow_function" {
-                            if let Some(func) = parse_arrow_field_node(&child, &value_node, source, path, class_name) {
+                            if let Some(func) = parse_arrow_field_node(
+                                &child,
+                                &value_node,
+                                source,
+                                path,
+                                class_name,
+                            ) {
                                 result.functions.push(func);
                             }
                         }
@@ -521,12 +532,12 @@ fn parse_arrow_field_node(
     let name = name_node.utf8_text(source).ok()?.to_string();
 
     // Arrow function parameters can be in formal_parameters or a single identifier
-    let params_node = arrow_node.child_by_field_name("parameters")
-        .or_else(|| {
-            // For single-param arrows like x => x, the parameter is the first child
-            arrow_node.children(&mut arrow_node.walk())
-                .find(|c| c.kind() == "identifier" || c.kind() == "formal_parameters")
-        });
+    let params_node = arrow_node.child_by_field_name("parameters").or_else(|| {
+        // For single-param arrows like x => x, the parameter is the first child
+        arrow_node
+            .children(&mut arrow_node.walk())
+            .find(|c| c.kind() == "identifier" || c.kind() == "formal_parameters")
+    });
     let parameters = extract_parameters(params_node, source);
 
     let return_type = extract_return_type(arrow_node, source);
@@ -550,7 +561,12 @@ fn parse_arrow_field_node(
 }
 
 /// Parse a method definition into a Function struct
-fn parse_method_node(node: &Node, source: &[u8], path: &Path, class_name: &str) -> Option<Function> {
+fn parse_method_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    class_name: &str,
+) -> Option<Function> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -578,7 +594,12 @@ fn parse_method_node(node: &Node, source: &[u8], path: &Path, class_name: &str) 
 }
 
 /// Extract import statements from the AST
-fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult, language: &Language) -> Result<()> {
+fn extract_imports(
+    root: &Node,
+    source: &[u8],
+    result: &mut ParseResult,
+    language: &Language,
+) -> Result<()> {
     let query_str = r#"
         (import_statement) @import_stmt
         (export_statement
@@ -594,12 +615,12 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult, languag
     for m in matches {
         for capture in m.captures.iter() {
             let capture_name = query.capture_names()[capture.index as usize];
-            
+
             if capture_name == "import_stmt" {
                 // Get the full import statement text to check for "import type"
                 let stmt_text = capture.node.utf8_text(source).unwrap_or("");
                 let is_type_only = stmt_text.trim_start().starts_with("import type ");
-                
+
                 // Find the source string within this import statement
                 if let Some(source_node) = capture.node.child_by_field_name("source") {
                     if let Ok(text) = source_node.utf8_text(source) {
@@ -634,12 +655,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult, languag
 }
 
 /// Extract function calls from the AST
-fn extract_calls(
-    root: &Node,
-    source: &[u8],
-    path: &Path,
-    result: &mut ParseResult,
-) -> Result<()> {
+fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
     let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
 
     for func in &result.functions {
@@ -718,9 +734,7 @@ fn find_containing_scope(line: u32, scope_map: &HashMap<(u32, u32), String>) -> 
 fn extract_call_target(node: &Node, source: &[u8]) -> Option<String> {
     match node.kind() {
         "identifier" => node.utf8_text(source).ok().map(|s| s.to_string()),
-        "member_expression" => {
-            node.utf8_text(source).ok().map(|s| s.to_string())
-        }
+        "member_expression" => node.utf8_text(source).ok().map(|s| s.to_string()),
         "subscript_expression" => {
             // obj["method"]() - get the object
             node.child_by_field_name("object")
@@ -737,7 +751,8 @@ fn calculate_complexity(node: &Node, _source: &[u8]) -> u32 {
 
     fn count_branches(node: &Node, complexity: &mut u32) {
         match node.kind() {
-            "if_statement" | "while_statement" | "for_statement" | "for_in_statement" | "do_statement" => {
+            "if_statement" | "while_statement" | "for_statement" | "for_in_statement"
+            | "do_statement" => {
                 *complexity += 1;
             }
             "switch_case" | "switch_default" => {
@@ -887,7 +902,7 @@ function greet(name) {
         let func = &result.functions[0];
         assert_eq!(func.name, "greet");
     }
-    
+
     #[test]
     fn test_complexity_simple() {
         let source = r#"
@@ -897,13 +912,13 @@ function simple(): number {
 "#;
         let path = PathBuf::from("test.ts");
         let result = parse_source(source, &path, "ts").unwrap();
-        
+
         let func = &result.functions[0];
         assert_eq!(func.name, "simple");
         // Simple function should have complexity 1
         assert_eq!(func.complexity, Some(1));
     }
-    
+
     #[test]
     fn test_complexity_with_branches() {
         let source = r#"
@@ -920,14 +935,17 @@ function complex(x: number): string {
 "#;
         let path = PathBuf::from("test.ts");
         let result = parse_source(source, &path, "ts").unwrap();
-        
+
         let func = &result.functions[0];
         assert_eq!(func.name, "complex");
         // if + else if + else if = 3 branches, base 1 = 4 total
-        assert!(func.complexity.unwrap_or(0) >= 4, 
-            "Expected complexity >= 4, got {:?}", func.complexity);
+        assert!(
+            func.complexity.unwrap_or(0) >= 4,
+            "Expected complexity >= 4, got {:?}",
+            func.complexity
+        );
     }
-    
+
     #[test]
     fn test_complexity_with_loops_and_ternary() {
         let source = r#"
@@ -943,12 +961,15 @@ function loopy(items: string[]): number {
 "#;
         let path = PathBuf::from("test.ts");
         let result = parse_source(source, &path, "ts").unwrap();
-        
+
         let func = &result.functions[0];
         assert_eq!(func.name, "loopy");
         // for + if + ternary = 3 branches + base 1 = 4
-        assert!(func.complexity.unwrap_or(0) >= 4,
-            "Expected complexity >= 4, got {:?}", func.complexity);
+        assert!(
+            func.complexity.unwrap_or(0) >= 4,
+            "Expected complexity >= 4, got {:?}",
+            func.complexity
+        );
     }
 
     #[test]
@@ -968,22 +989,39 @@ async function main() {
 "#;
         let path = PathBuf::from("test.ts");
         let result = parse_source(source, &path, "ts").unwrap();
-        
+
         assert_eq!(result.functions.len(), 3, "Expected 3 functions");
-        
+
         // Debug: print what we got
-        eprintln!("Functions: {:?}", result.functions.iter().map(|f| (&f.name, f.line_start, f.line_end)).collect::<Vec<_>>());
+        eprintln!(
+            "Functions: {:?}",
+            result
+                .functions
+                .iter()
+                .map(|f| (&f.name, f.line_start, f.line_end))
+                .collect::<Vec<_>>()
+        );
         eprintln!("Calls: {:?}", result.calls);
-        
+
         // helperB calls helperA
-        assert!(result.calls.iter().any(|(caller, callee)| 
-            caller.contains("helperB") && callee == "helperA"
-        ), "Expected helperB -> helperA call, got {:?}", result.calls);
-        
+        assert!(
+            result
+                .calls
+                .iter()
+                .any(|(caller, callee)| caller.contains("helperB") && callee == "helperA"),
+            "Expected helperB -> helperA call, got {:?}",
+            result.calls
+        );
+
         // main calls helperB
-        assert!(result.calls.iter().any(|(caller, callee)| 
-            caller.contains("main") && callee == "helperB"
-        ), "Expected main -> helperB call, got {:?}", result.calls);
+        assert!(
+            result
+                .calls
+                .iter()
+                .any(|(caller, callee)| caller.contains("main") && callee == "helperB"),
+            "Expected main -> helperB call, got {:?}",
+            result.calls
+        );
     }
 
     #[test]
@@ -1006,18 +1044,27 @@ class Foo {
         assert_eq!(result.classes.len(), 1, "Expected 1 class");
         let class = &result.classes[0];
         assert_eq!(class.name, "Foo");
-        
+
         // Should have exactly 3 methods: bar, baz, qux
         // NOT: inner, map callback, localHelper (these are nested)
         assert_eq!(
-            class.methods.len(), 
-            3, 
-            "Expected 3 methods (bar, baz, qux), got {:?}", 
+            class.methods.len(),
+            3,
+            "Expected 3 methods (bar, baz, qux), got {:?}",
             class.methods
         );
-        assert!(class.methods.contains(&"bar".to_string()), "Missing 'bar' method");
-        assert!(class.methods.contains(&"baz".to_string()), "Missing 'baz' method");
-        assert!(class.methods.contains(&"qux".to_string()), "Missing 'qux' arrow field");
+        assert!(
+            class.methods.contains(&"bar".to_string()),
+            "Missing 'bar' method"
+        );
+        assert!(
+            class.methods.contains(&"baz".to_string()),
+            "Missing 'baz' method"
+        );
+        assert!(
+            class.methods.contains(&"qux".to_string()),
+            "Missing 'qux' arrow field"
+        );
     }
 
     #[test]

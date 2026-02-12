@@ -6,13 +6,13 @@
 //! - Suggest split points based on function groupings
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::info;
+use uuid::Uuid;
 
 pub struct LargeFilesDetector {
     repository_path: PathBuf,
@@ -22,18 +22,23 @@ pub struct LargeFilesDetector {
 
 impl LargeFilesDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50, threshold: 500 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+            threshold: 500,
+        }
     }
 
     /// Analyze file structure using graph
     fn analyze_file_structure(graph: &GraphStore, file_path: &str) -> FileAnalysis {
-        let functions: Vec<_> = graph.get_functions()
+        let functions: Vec<_> = graph
+            .get_functions()
             .into_iter()
             .filter(|f| f.file_path == file_path)
             .collect();
-        
+
         let func_count = functions.len();
-        
+
         // Count unique files that import from this file
         let mut importers: HashSet<String> = HashSet::new();
         for func in &functions {
@@ -43,12 +48,13 @@ impl LargeFilesDetector {
                 }
             }
         }
-        
+
         // Find the largest function
-        let largest_func = functions.iter()
+        let largest_func = functions
+            .iter()
             .map(|f| (f.name.clone(), f.line_end.saturating_sub(f.line_start)))
             .max_by_key(|(_, size)| *size);
-        
+
         // Group functions by prefix to suggest split points
         let mut prefixes: HashSet<String> = HashSet::new();
         for func in &functions {
@@ -58,7 +64,7 @@ impl LargeFilesDetector {
                 }
             }
         }
-        
+
         FileAnalysis {
             func_count,
             importer_count: importers.len(),
@@ -76,8 +82,12 @@ struct FileAnalysis {
 }
 
 impl Detector for LargeFilesDetector {
-    fn name(&self) -> &'static str { "large-files" }
-    fn description(&self) -> &'static str { "Detects files exceeding size threshold" }
+    fn name(&self) -> &'static str {
+        "large-files"
+    }
+    fn description(&self) -> &'static str {
+        "Detects files exceeding size threshold"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
@@ -87,26 +97,50 @@ impl Detector for LargeFilesDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
-            let path_str = path.to_string_lossy().to_string();
-            
-            // Skip vendor/generated
-            if path_str.contains("vendor") || path_str.contains("node_modules") ||
-               path_str.contains("generated") || path_str.contains(".min.") {
+            if !path.is_file() {
                 continue;
             }
-            
+
+            let path_str = path.to_string_lossy().to_string();
+
+            // Skip vendor/generated
+            if path_str.contains("vendor")
+                || path_str.contains("node_modules")
+                || path_str.contains("generated")
+                || path_str.contains(".min.")
+            {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"rs"|"go"|"java"|"cs"|"cpp"|"c"|"h"|"rb"|"php") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js"
+                    | "ts"
+                    | "jsx"
+                    | "tsx"
+                    | "rs"
+                    | "go"
+                    | "java"
+                    | "cs"
+                    | "cpp"
+                    | "c"
+                    | "h"
+                    | "rb"
+                    | "php"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines = content.lines().count();
                 if lines > self.threshold {
                     let analysis = Self::analyze_file_structure(graph, &path_str);
-                    
+
                     // Calculate severity based on size and coupling
                     let severity = if lines > 2000 || analysis.importer_count > 10 {
                         Severity::High
@@ -115,7 +149,7 @@ impl Detector for LargeFilesDetector {
                     } else {
                         Severity::Low
                     };
-                    
+
                     // Build notes
                     let mut notes = Vec::new();
                     notes.push(format!("📏 {} lines", lines));
@@ -123,14 +157,17 @@ impl Detector for LargeFilesDetector {
                         notes.push(format!("📦 {} functions", analysis.func_count));
                     }
                     if analysis.importer_count > 0 {
-                        notes.push(format!("🔗 {} files depend on this", analysis.importer_count));
+                        notes.push(format!(
+                            "🔗 {} files depend on this",
+                            analysis.importer_count
+                        ));
                     }
                     if let Some((name, size)) = &analysis.largest_func {
                         notes.push(format!("📐 Largest function: `{}` ({} lines)", name, size));
                     }
-                    
+
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                    
+
                     // Build split suggestion
                     let suggestion = if !analysis.potential_modules.is_empty() {
                         format!(
@@ -140,24 +177,33 @@ impl Detector for LargeFilesDetector {
                              # {}_utils.py - extract {}_* functions\n\
                              # {}_core.py - extract core logic\n\
                              ```",
-                            analysis.potential_modules.iter()
+                            analysis
+                                .potential_modules
+                                .iter()
                                 .map(|p| format!("• `{}_*` functions → `{}.py`", p, p))
                                 .collect::<Vec<_>>()
                                 .join("\n"),
-                            analysis.potential_modules.first().unwrap_or(&"module".to_string()),
-                            analysis.potential_modules.first().unwrap_or(&"module".to_string()),
+                            analysis
+                                .potential_modules
+                                .first()
+                                .unwrap_or(&"module".to_string()),
+                            analysis
+                                .potential_modules
+                                .first()
+                                .unwrap_or(&"module".to_string()),
                             path.file_stem().and_then(|s| s.to_str()).unwrap_or("file")
                         )
                     } else {
-                        "Split into smaller, focused modules. Group related functions together.".to_string()
+                        "Split into smaller, focused modules. Group related functions together."
+                            .to_string()
                     };
-                    
+
                     let effort = if lines > 1000 {
                         "2-4 hours"
                     } else {
                         "1-2 hours"
                     };
-                    
+
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "LargeFilesDetector".to_string(),
@@ -176,21 +222,26 @@ impl Detector for LargeFilesDetector {
                         cwe_id: None,
                         why_it_matters: Some(if analysis.importer_count > 5 {
                             "This file is a dependency hub - many other files import from it. \
-                             Large dependency hubs are hard to refactor and create merge conflicts.".to_string()
+                             Large dependency hubs are hard to refactor and create merge conflicts."
+                                .to_string()
                         } else {
                             "Large files are harder to understand, test, and maintain. \
-                             They often indicate that the module has too many responsibilities.".to_string()
+                             They often indicate that the module has too many responsibilities."
+                                .to_string()
                         }),
                         ..Default::default()
                     });
                 }
             }
         }
-        
+
         // Sort by line count (largest first)
         findings.sort_by(|a, b| b.line_end.cmp(&a.line_end));
-        
-        info!("LargeFilesDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "LargeFilesDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

@@ -102,9 +102,7 @@ mod tests {
         let graph_path = dir.path().join("graph");
         let graph = GraphStore::new(&graph_path)?;
 
-        let pipeline = Pipeline::new(graph)
-            .without_git()
-            .with_repo_id("test-repo");
+        let pipeline = Pipeline::new(graph).without_git().with_repo_id("test-repo");
 
         assert!(!pipeline.enable_git_enrichment);
         assert_eq!(pipeline.repo_id, Some("test-repo".to_string()));

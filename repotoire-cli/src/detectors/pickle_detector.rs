@@ -78,45 +78,29 @@ impl PickleDeserializationDetector {
             });
 
         // Compile patterns
-        let pickle_load_pattern = Regex::new(
-            r"(?i)\b(?:pickle|cPickle|_pickle|dill|cloudpickle)\.(?:load|loads)\s*\("
-        ).unwrap();
+        let pickle_load_pattern =
+            Regex::new(r"(?i)\b(?:pickle|cPickle|_pickle|dill|cloudpickle)\.(?:load|loads)\s*\(")
+                .unwrap();
 
-        let torch_load_pattern = Regex::new(
-            r"(?i)\btorch\.load\s*\([^)]*\)"
-        ).unwrap();
+        let torch_load_pattern = Regex::new(r"(?i)\btorch\.load\s*\([^)]*\)").unwrap();
 
-        let torch_safe_pattern = Regex::new(
-            r"(?i)weights_only\s*=\s*True"
-        ).unwrap();
+        let torch_safe_pattern = Regex::new(r"(?i)weights_only\s*=\s*True").unwrap();
 
-        let joblib_load_pattern = Regex::new(
-            r"(?i)\bjoblib\.load\s*\("
-        ).unwrap();
+        let joblib_load_pattern = Regex::new(r"(?i)\bjoblib\.load\s*\(").unwrap();
 
-        let numpy_load_pattern = Regex::new(
-            r"(?i)\b(?:numpy|np)\.load\s*\([^)]*\)"
-        ).unwrap();
+        let numpy_load_pattern = Regex::new(r"(?i)\b(?:numpy|np)\.load\s*\([^)]*\)").unwrap();
 
-        let numpy_pickle_pattern = Regex::new(
-            r"(?i)allow_pickle\s*=\s*True"
-        ).unwrap();
+        let numpy_pickle_pattern = Regex::new(r"(?i)allow_pickle\s*=\s*True").unwrap();
 
-        let yaml_load_pattern = Regex::new(
-            r"(?i)\byaml\.(?:load|unsafe_load|full_load)\s*\([^)]*\)"
-        ).unwrap();
+        let yaml_load_pattern =
+            Regex::new(r"(?i)\byaml\.(?:load|unsafe_load|full_load)\s*\([^)]*\)").unwrap();
 
-        let yaml_safe_loaders = Regex::new(
-            r"(?i)Loader\s*=\s*(?:yaml\.)?(?:Safe|CSafe|Base)Loader"
-        ).unwrap();
+        let yaml_safe_loaders =
+            Regex::new(r"(?i)Loader\s*=\s*(?:yaml\.)?(?:Safe|CSafe|Base)Loader").unwrap();
 
-        let marshal_load_pattern = Regex::new(
-            r"(?i)\bmarshal\.(?:load|loads)\s*\("
-        ).unwrap();
+        let marshal_load_pattern = Regex::new(r"(?i)\bmarshal\.(?:load|loads)\s*\(").unwrap();
 
-        let shelve_pattern = Regex::new(
-            r"(?i)\bshelve\.open\s*\("
-        ).unwrap();
+        let shelve_pattern = Regex::new(r"(?i)\bshelve\.open\s*\(").unwrap();
 
         Self {
             config,
@@ -175,10 +159,9 @@ impl PickleDeserializationDetector {
         }
 
         // Pattern 2: torch.load() without weights_only=True
-        if self.torch_load_pattern.is_match(line)
-            && !self.torch_safe_pattern.is_match(line) {
-                return Some("torch_load_unsafe");
-            }
+        if self.torch_load_pattern.is_match(line) && !self.torch_safe_pattern.is_match(line) {
+            return Some("torch_load_unsafe");
+        }
 
         // Pattern 3: joblib.load() - uses pickle internally
         if self.joblib_load_pattern.is_match(line) {
@@ -186,16 +169,17 @@ impl PickleDeserializationDetector {
         }
 
         // Pattern 4: numpy.load() with allow_pickle=True
-        if self.numpy_load_pattern.is_match(line)
-            && self.numpy_pickle_pattern.is_match(line) {
-                return Some("numpy_pickle");
-            }
+        if self.numpy_load_pattern.is_match(line) && self.numpy_pickle_pattern.is_match(line) {
+            return Some("numpy_pickle");
+        }
 
         // Pattern 5: yaml.load() without SafeLoader
         if self.yaml_load_pattern.is_match(line)
-            && !self.yaml_safe_loaders.is_match(line) && !line.to_lowercase().contains("safe_load") {
-                return Some("yaml_unsafe");
-            }
+            && !self.yaml_safe_loaders.is_match(line)
+            && !line.to_lowercase().contains("safe_load")
+        {
+            return Some("yaml_unsafe");
+        }
 
         // Pattern 6: marshal.load() - bytecode execution
         if self.marshal_load_pattern.is_match(line) {
@@ -213,7 +197,7 @@ impl PickleDeserializationDetector {
     /// Scan source files for dangerous patterns
     fn scan_source_files(&self) -> Vec<Finding> {
         use crate::detectors::walk_source_files;
-        
+
         let mut findings = Vec::new();
         let mut seen_locations: HashSet<(String, u32)> = HashSet::new();
 
@@ -246,9 +230,13 @@ impl PickleDeserializationDetector {
             let lines: Vec<&str> = content.lines().collect();
             for (line_no, line) in lines.iter().enumerate() {
                 let line_num = (line_no + 1) as u32;
-                
+
                 // Check for suppression comments
-                let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                let prev_line = if line_no > 0 {
+                    Some(lines[line_no - 1])
+                } else {
+                    None
+                };
                 if crate::detectors::is_line_suppressed(line, prev_line) {
                     continue;
                 }
@@ -286,11 +274,26 @@ impl PickleDeserializationDetector {
         snippet: &str,
     ) -> Finding {
         let pattern_descriptions = [
-            ("pickle_load", "pickle.load()/loads() - arbitrary code execution on untrusted data"),
-            ("torch_load_unsafe", "torch.load() without weights_only=True - can execute arbitrary code"),
-            ("joblib_load", "joblib.load() - uses pickle internally, arbitrary code execution"),
-            ("numpy_pickle", "numpy.load() with allow_pickle=True - enables pickle execution"),
-            ("yaml_unsafe", "yaml.load() without SafeLoader - arbitrary code execution"),
+            (
+                "pickle_load",
+                "pickle.load()/loads() - arbitrary code execution on untrusted data",
+            ),
+            (
+                "torch_load_unsafe",
+                "torch.load() without weights_only=True - can execute arbitrary code",
+            ),
+            (
+                "joblib_load",
+                "joblib.load() - uses pickle internally, arbitrary code execution",
+            ),
+            (
+                "numpy_pickle",
+                "numpy.load() with allow_pickle=True - enables pickle execution",
+            ),
+            (
+                "yaml_unsafe",
+                "yaml.load() without SafeLoader - arbitrary code execution",
+            ),
             ("marshal_load", "marshal.load() - Python bytecode execution"),
             ("shelve_open", "shelve.open() - uses pickle internally"),
         ];
@@ -502,7 +505,10 @@ impl Detector for PickleDeserializationDetector {
 
         let findings = self.scan_source_files();
 
-        info!("PickleDeserializationDetector found {} potential vulnerabilities", findings.len());
+        info!(
+            "PickleDeserializationDetector found {} potential vulnerabilities",
+            findings.len()
+        );
 
         Ok(findings)
     }
@@ -517,13 +523,19 @@ mod tests {
         let detector = PickleDeserializationDetector::new();
 
         // Should detect pickle.load
-        assert!(detector.check_line_for_patterns("data = pickle.load(f)").is_some());
+        assert!(detector
+            .check_line_for_patterns("data = pickle.load(f)")
+            .is_some());
 
         // Should detect pickle.loads
-        assert!(detector.check_line_for_patterns("data = pickle.loads(data)").is_some());
+        assert!(detector
+            .check_line_for_patterns("data = pickle.loads(data)")
+            .is_some());
 
         // Should detect dill
-        assert!(detector.check_line_for_patterns("obj = dill.load(f)").is_some());
+        assert!(detector
+            .check_line_for_patterns("obj = dill.load(f)")
+            .is_some());
     }
 
     #[test]
@@ -537,7 +549,9 @@ mod tests {
         );
 
         // Should NOT detect safe torch.load with weights_only=True
-        assert!(detector.check_line_for_patterns("model = torch.load('model.pt', weights_only=True)").is_none());
+        assert!(detector
+            .check_line_for_patterns("model = torch.load('model.pt', weights_only=True)")
+            .is_none());
     }
 
     #[test]
@@ -551,10 +565,14 @@ mod tests {
         );
 
         // Should NOT detect safe yaml.load with SafeLoader
-        assert!(detector.check_line_for_patterns("data = yaml.load(content, Loader=yaml.SafeLoader)").is_none());
+        assert!(detector
+            .check_line_for_patterns("data = yaml.load(content, Loader=yaml.SafeLoader)")
+            .is_none());
 
         // Should NOT detect yaml.safe_load
-        assert!(detector.check_line_for_patterns("data = yaml.safe_load(content)").is_none());
+        assert!(detector
+            .check_line_for_patterns("data = yaml.safe_load(content)")
+            .is_none());
     }
 
     #[test]
@@ -568,6 +586,8 @@ mod tests {
         );
 
         // Should NOT detect safe numpy.load
-        assert!(detector.check_line_for_patterns("data = np.load('data.npy')").is_none());
+        assert!(detector
+            .check_line_for_patterns("data = np.load('data.npy')")
+            .is_none());
     }
 }

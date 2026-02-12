@@ -13,7 +13,7 @@ use tracing::{debug, info};
 
 use super::blame::GitBlame;
 use super::history::GitHistory;
-use crate::graph::{GraphStore, CodeNode, CodeEdge, NodeKind, EdgeKind};
+use crate::graph::{CodeEdge, CodeNode, EdgeKind, GraphStore, NodeKind};
 
 /// Statistics from git enrichment.
 #[derive(Debug, Clone, Default)]
@@ -64,7 +64,7 @@ impl<'a> GitEnricher<'a> {
         // Collect all unique files from functions and classes
         let functions = self.graph.get_functions();
         let classes = self.graph.get_classes();
-        
+
         let mut unique_files: HashSet<String> = HashSet::new();
         for f in &functions {
             if f.get_str("last_modified").is_none() {
@@ -76,11 +76,14 @@ impl<'a> GitEnricher<'a> {
                 unique_files.insert(c.file_path.clone());
             }
         }
-        
+
         // Pre-warm blame cache in parallel (uses disk cache for unchanged files)
         let file_list: Vec<String> = unique_files.into_iter().collect();
         let (cache_hits, cache_misses) = if !file_list.is_empty() {
-            info!("Pre-warming git blame cache for {} files...", file_list.len());
+            info!(
+                "Pre-warming git blame cache for {} files...",
+                file_list.len()
+            );
             let (hits, misses) = self.blame.prewarm_cache(&file_list);
             debug!("Git cache: {} hits, {} computed", hits, misses);
             (hits, misses)
@@ -125,7 +128,7 @@ impl<'a> GitEnricher<'a> {
             .into_iter()
             .filter(|f| f.get_str("last_modified").is_none())
             .collect();
-        
+
         let total = functions_to_enrich.len();
         debug!("Found {} functions to enrich", total);
 
@@ -142,7 +145,10 @@ impl<'a> GitEnricher<'a> {
             }
 
             // Get blame info for this function
-            match self.blame.get_entity_blame(&func.file_path, line_start, line_end) {
+            match self
+                .blame
+                .get_entity_blame(&func.file_path, line_start, line_end)
+            {
                 Ok(blame_info) => {
                     if let (Some(last_modified), Some(author)) =
                         (&blame_info.last_modified, &blame_info.last_author)
@@ -151,9 +157,17 @@ impl<'a> GitEnricher<'a> {
                         self.graph.update_node_properties(
                             &func.qualified_name,
                             &[
-                                ("last_modified", serde_json::Value::String(last_modified.clone())),
+                                (
+                                    "last_modified",
+                                    serde_json::Value::String(last_modified.clone()),
+                                ),
                                 ("author", serde_json::Value::String(author.clone())),
-                                ("commit_count", serde_json::Value::Number((blame_info.commit_count as i64).into())),
+                                (
+                                    "commit_count",
+                                    serde_json::Value::Number(
+                                        (blame_info.commit_count as i64).into(),
+                                    ),
+                                ),
                             ],
                         );
                         stats.functions_enriched += 1;
@@ -161,7 +175,10 @@ impl<'a> GitEnricher<'a> {
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to get blame for {}:{}: {}", func.file_path, line_start, e);
+                    debug!(
+                        "Failed to get blame for {}:{}: {}",
+                        func.file_path, line_start, e
+                    );
                     stats.files_skipped += 1;
                 }
             }
@@ -180,7 +197,7 @@ impl<'a> GitEnricher<'a> {
             .into_iter()
             .filter(|c| c.get_str("last_modified").is_none())
             .collect();
-        
+
         let total = classes_to_enrich.len();
         debug!("Found {} classes to enrich", total);
 
@@ -197,7 +214,10 @@ impl<'a> GitEnricher<'a> {
             }
 
             // Get blame info for this class
-            match self.blame.get_entity_blame(&class.file_path, line_start, line_end) {
+            match self
+                .blame
+                .get_entity_blame(&class.file_path, line_start, line_end)
+            {
                 Ok(blame_info) => {
                     if let (Some(last_modified), Some(author)) =
                         (&blame_info.last_modified, &blame_info.last_author)
@@ -206,9 +226,17 @@ impl<'a> GitEnricher<'a> {
                         self.graph.update_node_properties(
                             &class.qualified_name,
                             &[
-                                ("last_modified", serde_json::Value::String(last_modified.clone())),
+                                (
+                                    "last_modified",
+                                    serde_json::Value::String(last_modified.clone()),
+                                ),
                                 ("author", serde_json::Value::String(author.clone())),
-                                ("commit_count", serde_json::Value::Number((blame_info.commit_count as i64).into())),
+                                (
+                                    "commit_count",
+                                    serde_json::Value::Number(
+                                        (blame_info.commit_count as i64).into(),
+                                    ),
+                                ),
                             ],
                         );
                         stats.classes_enriched += 1;
@@ -216,7 +244,10 @@ impl<'a> GitEnricher<'a> {
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to get blame for {}:{}: {}", class.file_path, line_start, e);
+                    debug!(
+                        "Failed to get blame for {}:{}: {}",
+                        class.file_path, line_start, e
+                    );
                     stats.files_skipped += 1;
                 }
             }
@@ -236,7 +267,7 @@ impl<'a> GitEnricher<'a> {
             .with_qualified_name(hash)
             .with_property("author", author)
             .with_property("timestamp", timestamp);
-        
+
         self.graph.add_node(node);
         self.seen_commits.insert(hash.to_string());
         true
@@ -244,11 +275,8 @@ impl<'a> GitEnricher<'a> {
 
     /// Create a MODIFIED_IN edge from entity to commit.
     fn create_modified_in_edge(&self, entity_qn: &str, commit_hash: &str) -> bool {
-        self.graph.add_edge_by_name(
-            entity_qn,
-            commit_hash,
-            CodeEdge::new(EdgeKind::ModifiedIn),
-        )
+        self.graph
+            .add_edge_by_name(entity_qn, commit_hash, CodeEdge::new(EdgeKind::ModifiedIn))
     }
 }
 

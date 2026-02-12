@@ -66,15 +66,20 @@ impl ShotgunSurgeryDetector {
     }
 
     /// Analyze impact of changing a class
-    fn analyze_class_impact(&self, graph: &GraphStore, class: &crate::graph::CodeNode) -> Option<ImpactAnalysis> {
+    fn analyze_class_impact(
+        &self,
+        graph: &GraphStore,
+        class: &crate::graph::CodeNode,
+    ) -> Option<ImpactAnalysis> {
         let functions = graph.get_functions();
-        
+
         // Find all methods belonging to this class
-        let methods: Vec<_> = functions.iter()
+        let methods: Vec<_> = functions
+            .iter()
             .filter(|f| {
-                f.file_path == class.file_path &&
-                f.line_start >= class.line_start &&
-                f.line_end <= class.line_end
+                f.file_path == class.file_path
+                    && f.line_start >= class.line_start
+                    && f.line_end <= class.line_end
             })
             .collect();
 
@@ -86,9 +91,10 @@ impl ShotgunSurgeryDetector {
         for method in &methods {
             for caller in graph.get_callers(&method.qualified_name) {
                 // Skip internal callers (same class)
-                if caller.file_path == class.file_path &&
-                   caller.line_start >= class.line_start &&
-                   caller.line_end <= class.line_end {
+                if caller.file_path == class.file_path
+                    && caller.line_start >= class.line_start
+                    && caller.line_end <= class.line_end
+                {
                     continue;
                 }
 
@@ -115,7 +121,12 @@ impl ShotgunSurgeryDetector {
     }
 
     /// Trace how far changes cascade through the call graph
-    fn trace_cascade_depth(&self, graph: &GraphStore, callers: &HashSet<String>, depth: usize) -> usize {
+    fn trace_cascade_depth(
+        &self,
+        graph: &GraphStore,
+        callers: &HashSet<String>,
+        depth: usize,
+    ) -> usize {
         if depth >= 3 || callers.is_empty() {
             return depth;
         }
@@ -264,17 +275,48 @@ impl Detector for ShotgunSurgeryDetector {
         // Also check high-impact functions (not just classes)
         // Skip common trait methods that are expected to have many callers
         const SKIP_METHODS: &[&str] = &[
-            "new", "default", "from", "into", "from_str", "to_string", "as_str",
-            "as_ref", "as_mut", "clone", "fmt", "eq", "cmp", "hash", "next",
-            "iter", "into_iter", "len", "is_empty", "get", "set", "with_",
-            "build", "parse", "serialize", "deserialize", "drop", "deref",
-            "as_i64", "as_f64", "as_bool", "as_array", "as_object", // JSON accessors
+            "new",
+            "default",
+            "from",
+            "into",
+            "from_str",
+            "to_string",
+            "as_str",
+            "as_ref",
+            "as_mut",
+            "clone",
+            "fmt",
+            "eq",
+            "cmp",
+            "hash",
+            "next",
+            "iter",
+            "into_iter",
+            "len",
+            "is_empty",
+            "get",
+            "set",
+            "with_",
+            "build",
+            "parse",
+            "serialize",
+            "deserialize",
+            "drop",
+            "deref",
+            "as_i64",
+            "as_f64",
+            "as_bool",
+            "as_array",
+            "as_object", // JSON accessors
         ];
 
         for func in graph.get_functions() {
             // Skip common trait implementations
             let name_lower = func.name.to_lowercase();
-            if SKIP_METHODS.iter().any(|m| name_lower == *m || name_lower.starts_with(m)) {
+            if SKIP_METHODS
+                .iter()
+                .any(|m| name_lower == *m || name_lower.starts_with(m))
+            {
                 continue;
             }
 
@@ -284,7 +326,8 @@ impl Detector for ShotgunSurgeryDetector {
             }
 
             let _caller_files: HashSet<_> = callers.iter().map(|c| &c.file_path).collect();
-            let caller_modules: HashSet<_> = callers.iter()
+            let caller_modules: HashSet<_> = callers
+                .iter()
                 .map(|c| Self::extract_module(&c.file_path))
                 .collect();
 
@@ -297,16 +340,23 @@ impl Detector for ShotgunSurgeryDetector {
                     description: format!(
                         "Function '{}' is called from {} places across {} modules.\n\n\
                          Changes will have wide-reaching effects.",
-                        func.name, callers.len(), caller_modules.len()
+                        func.name,
+                        callers.len(),
+                        caller_modules.len()
                     ),
                     affected_files: vec![func.file_path.clone().into()],
                     line_start: Some(func.line_start),
                     line_end: Some(func.line_end),
-                    suggested_fix: Some("Consider creating wrapper functions or using dependency injection".to_string()),
+                    suggested_fix: Some(
+                        "Consider creating wrapper functions or using dependency injection"
+                            .to_string(),
+                    ),
                     estimated_effort: Some("Medium (2-4 hours)".to_string()),
                     category: Some("coupling".to_string()),
                     cwe_id: None,
-                    why_it_matters: Some("High-impact functions require careful change management".to_string()),
+                    why_it_matters: Some(
+                        "High-impact functions require careful change management".to_string(),
+                    ),
                     ..Default::default()
                 });
             }
@@ -321,39 +371,45 @@ impl Detector for ShotgunSurgeryDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, CodeEdge, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode, GraphStore};
 
     #[test]
     fn test_detect_shotgun_surgery() {
         let graph = GraphStore::in_memory();
-        
+
         // Create a class with many external callers
-        graph.add_node(CodeNode::class("SharedService", "src/shared.py")
-            .with_qualified_name("shared::SharedService")
-            .with_lines(1, 50));
-        
-        graph.add_node(CodeNode::function("do_work", "src/shared.py")
-            .with_qualified_name("shared::SharedService::do_work")
-            .with_lines(10, 20));
-        
+        graph.add_node(
+            CodeNode::class("SharedService", "src/shared.py")
+                .with_qualified_name("shared::SharedService")
+                .with_lines(1, 50),
+        );
+
+        graph.add_node(
+            CodeNode::function("do_work", "src/shared.py")
+                .with_qualified_name("shared::SharedService::do_work")
+                .with_lines(10, 20),
+        );
+
         // Add callers from multiple files
         for i in 0..10 {
             let file = format!("src/module_{}.py", i);
             let caller = format!("caller_{}", i);
-            graph.add_node(CodeNode::function(&caller, &file)
-                .with_qualified_name(&format!("module_{}::{}", i, caller))
-                .with_lines(1, 10));
-            
+            graph.add_node(
+                CodeNode::function(&caller, &file)
+                    .with_qualified_name(&format!("module_{}::{}", i, caller))
+                    .with_lines(1, 10),
+            );
+
             graph.add_edge_by_name(
                 &format!("module_{}::{}", i, caller),
                 "shared::SharedService::do_work",
-                CodeEdge::calls()
+                CodeEdge::calls(),
             );
         }
-        
+
         let detector = ShotgunSurgeryDetector::new();
         let findings = detector.detect(&graph).unwrap();
-        
+
         assert!(!findings.is_empty());
         assert!(findings[0].title.contains("SharedService"));
     }

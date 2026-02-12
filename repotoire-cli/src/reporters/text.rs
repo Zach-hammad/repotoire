@@ -49,7 +49,9 @@ pub fn render(report: &HealthReport) -> Result<String> {
     // Header
     let grade_c = grade_color(&report.grade);
     out.push_str(&format!("\n{BOLD}Repotoire Analysis{RESET}\n"));
-    out.push_str(&format!("{DIM}──────────────────────────────────────{RESET}\n"));
+    out.push_str(&format!(
+        "{DIM}──────────────────────────────────────{RESET}\n"
+    ));
     out.push_str(&format!(
         "Score: {BOLD}{:.1}/100{RESET}  Grade: {grade_c}{BOLD}{}{RESET}  ",
         report.overall_score, report.grade
@@ -74,7 +76,7 @@ pub fn render(report: &HealthReport) -> Result<String> {
     // Findings summary
     let fs = &report.findings_summary;
     out.push_str(&format!("{BOLD}FINDINGS{RESET} ({} total)\n", fs.total));
-    
+
     let mut summary_parts = Vec::new();
     if fs.critical > 0 {
         summary_parts.push(format!("\x1b[31m{} critical{RESET}", fs.critical));
@@ -94,13 +96,17 @@ pub fn render(report: &HealthReport) -> Result<String> {
 
     // Top findings as table
     if !report.findings.is_empty() {
-        out.push_str(&format!("{DIM}  #   SEV   TITLE                                    FILE{RESET}\n"));
-        out.push_str(&format!("{DIM}  ─────────────────────────────────────────────────────────────────{RESET}\n"));
-        
+        out.push_str(&format!(
+            "{DIM}  #   SEV   TITLE                                    FILE{RESET}\n"
+        ));
+        out.push_str(&format!(
+            "{DIM}  ─────────────────────────────────────────────────────────────────{RESET}\n"
+        ));
+
         for (i, finding) in report.findings.iter().take(10).enumerate() {
             let sev_c = severity_color(&finding.severity);
             let sev_tag = severity_tag(&finding.severity);
-            
+
             // Truncate title if too long
             let title = if finding.title.len() > 38 {
                 format!("{}...", &finding.title[..35])
@@ -112,7 +118,7 @@ pub fn render(report: &HealthReport) -> Result<String> {
             let file_info = if let Some(file) = finding.affected_files.first() {
                 let file_str = file.display().to_string();
                 let short_file = if file_str.len() > 25 {
-                    format!("...{}", &file_str[file_str.len()-22..])
+                    format!("...{}", &file_str[file_str.len() - 22..])
                 } else {
                     file_str
                 };
@@ -147,9 +153,13 @@ pub fn render(report: &HealthReport) -> Result<String> {
     // Tips based on grade
     match report.grade.as_str() {
         "A" => out.push_str(&format!("{DIM}Excellent! Keep up the good work.{RESET}\n")),
-        "B" => out.push_str(&format!("{DIM}Good shape. Address remaining issues for an A.{RESET}\n")),
+        "B" => out.push_str(&format!(
+            "{DIM}Good shape. Address remaining issues for an A.{RESET}\n"
+        )),
         "C" | "D" | "F" => {
-            out.push_str(&format!("{DIM}Run `repotoire findings -i` for interactive review.{RESET}\n"));
+            out.push_str(&format!(
+                "{DIM}Run `repotoire findings -i` for interactive review.{RESET}\n"
+            ));
         }
         _ => {}
     }

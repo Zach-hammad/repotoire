@@ -11,11 +11,11 @@
 
 use crate::config::{load_project_config, ProjectConfig};
 use crate::detectors::{
-    default_detectors_with_config, DetectorEngine, IncrementalCache,
-    VotingEngine, VotingStrategy, ConfidenceMethod, SeverityResolution, VotingStats,
+    default_detectors_with_config, ConfidenceMethod, DetectorEngine, IncrementalCache,
+    SeverityResolution, VotingEngine, VotingStats, VotingStrategy,
 };
 use crate::git;
-use crate::graph::{GraphStore, CodeNode, CodeEdge, NodeKind};
+use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
 use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
 use crate::parsers::{parse_file, ParseResult};
 use crate::reporters;
@@ -34,16 +34,16 @@ use std::time::Instant;
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "pyi", // Python
     "ts", "tsx", // TypeScript
-    "js", "jsx", "mjs", // JavaScript
-    "rs",  // Rust
-    "go",  // Go
+    "js", "jsx", "mjs",  // JavaScript
+    "rs",   // Rust
+    "go",   // Go
     "java", // Java
     "c", "h", // C
     "cpp", "hpp", "cc", // C++
-    "cs",  // C#
-    "kt", "kts", // Kotlin
-    "rb",  // Ruby
-    "php", // PHP
+    "cs", // C#
+    "kt", "kts",   // Kotlin
+    "rb",    // Ruby
+    "php",   // PHP
     "swift", // Swift
 ];
 
@@ -116,18 +116,27 @@ pub fn run(
 
     // Phase 1: Validate repository and setup environment
     let mut env = setup_environment(
-        path, format, no_emoji, thorough, no_git, workers, per_page,
-        fail_on, incremental, since.is_some()
+        path,
+        format,
+        no_emoji,
+        thorough,
+        no_git,
+        workers,
+        per_page,
+        fail_on,
+        incremental,
+        since.is_some(),
     )?;
 
     // Phase 2: Initialize graph and collect files
-    let (graph, file_result, parse_result) = initialize_graph(
-        &env, &since, &MultiProgress::new()
-    )?;
+    let (graph, file_result, parse_result) = initialize_graph(&env, &since, &MultiProgress::new())?;
 
     if file_result.all_files.is_empty() {
         if !env.quiet_mode {
-            println!("\n{}No source files found to analyze.", style("⚠️  ").yellow());
+            println!(
+                "\n{}No source files found to analyze.",
+                style("⚠️  ").yellow()
+            );
         }
         return Ok(());
     }
@@ -135,31 +144,53 @@ pub fn run(
     // Phase 3: Run detectors
     let multi = MultiProgress::new();
     let spinner_style = create_spinner_style();
-    
+
     let mut findings = execute_detection_phase(
-        &env, &graph, &file_result, &skip_detector, &multi, &spinner_style
+        &env,
+        &graph,
+        &file_result,
+        &skip_detector,
+        &multi,
+        &spinner_style,
     )?;
 
     // Phase 4: Post-process findings
     update_incremental_cache(
-        env.config.is_incremental_mode, &mut env.incremental_cache,
-        &file_result.files_to_parse, &findings
+        env.config.is_incremental_mode,
+        &mut env.incremental_cache,
+        &file_result.files_to_parse,
+        &findings,
     );
     apply_detector_overrides(&mut findings, &env.project_config);
 
     // Phase 5: Calculate scores and build report
     let score_result = calculate_scores(&graph, &env.project_config, &findings);
-    
+
     let report = build_health_report(
-        &score_result, &mut findings, &severity, top, page, per_page,
-        file_result.files_to_parse.len(), parse_result.total_functions, parse_result.total_classes
+        &score_result,
+        &mut findings,
+        &severity,
+        top,
+        page,
+        per_page,
+        file_result.files_to_parse.len(),
+        parse_result.total_functions,
+        parse_result.total_classes,
     );
 
     // Phase 6: Generate output
     generate_reports(
-        &report, &findings, format, output_path, &env.repotoire_dir,
-        report.1, env.config.no_emoji, explain_score, &score_result,
-        &graph, &env.project_config
+        &report,
+        &findings,
+        format,
+        output_path,
+        &env.repotoire_dir,
+        report.1,
+        env.config.no_emoji,
+        explain_score,
+        &score_result,
+        &graph,
+        &env.project_config,
     )?;
 
     // Final summary
@@ -184,7 +215,8 @@ fn setup_environment(
     incremental: bool,
     has_since: bool,
 ) -> Result<EnvironmentSetup> {
-    let repo_path = path.canonicalize()
+    let repo_path = path
+        .canonicalize()
         .with_context(|| format!("Repository path does not exist: {}", path.display()))?;
     if !repo_path.is_dir() {
         anyhow::bail!("Path is not a directory: {}", repo_path.display());
@@ -192,8 +224,15 @@ fn setup_environment(
 
     let project_config = load_project_config(&repo_path);
     let config = apply_config_defaults(
-        no_emoji, thorough, no_git, workers, per_page, fail_on,
-        incremental, has_since, &project_config
+        no_emoji,
+        thorough,
+        no_git,
+        workers,
+        per_page,
+        fail_on,
+        incremental,
+        has_since,
+        &project_config,
     );
 
     let quiet_mode = format == "json" || format == "sarif";
@@ -225,8 +264,12 @@ fn initialize_graph(
     // Collect files - need mutable cache temporarily
     let mut cache_clone = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
     let file_result = collect_files_for_analysis(
-        &env.repo_path, since, env.config.is_incremental_mode,
-        &mut cache_clone, multi, &spinner_style
+        &env.repo_path,
+        since,
+        env.config.is_incremental_mode,
+        &mut cache_clone,
+        multi,
+        &spinner_style,
     )?;
 
     if file_result.all_files.is_empty() {
@@ -234,12 +277,19 @@ fn initialize_graph(
         return Ok((
             Arc::new(GraphStore::new(&env.repotoire_dir.join("graph_db"))?),
             file_result,
-            ParsePhaseResult { parse_results: vec![], total_functions: 0, total_classes: 0 }
+            ParsePhaseResult {
+                parse_results: vec![],
+                total_functions: 0,
+                total_classes: 0,
+            },
         ));
     }
 
     if file_result.files_to_parse.is_empty() && env.config.is_incremental_mode && !env.quiet_mode {
-        println!("\n{}No files changed since last run. Using cached results.", style("✓ ").green());
+        println!(
+            "\n{}No files changed since last run. Using cached results.",
+            style("✓ ").green()
+        );
     }
 
     // Initialize graph database
@@ -248,12 +298,24 @@ fn initialize_graph(
         let icon_graph = if env.config.no_emoji { "" } else { "🕸️  " };
         println!("{}Initializing graph database...", style(icon_graph).bold());
     }
-    let graph = Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?);
+    let graph =
+        Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?);
 
     // Parse files and build graph
-    let parse_result = parse_files(&file_result.files_to_parse, multi, &bar_style, env.config.is_incremental_mode)?;
-    
-    build_graph(&graph, &env.repo_path, &parse_result.parse_results, multi, &bar_style)?;
+    let parse_result = parse_files(
+        &file_result.files_to_parse,
+        multi,
+        &bar_style,
+        env.config.is_incremental_mode,
+    )?;
+
+    build_graph(
+        &graph,
+        &env.repo_path,
+        &parse_result.parse_results,
+        multi,
+        &bar_style,
+    )?;
 
     // Pre-warm file cache
     crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
@@ -272,20 +334,33 @@ fn execute_detection_phase(
 ) -> Result<Vec<Finding>> {
     // Start git enrichment in background
     let git_handle = start_git_enrichment(
-        env.config.no_git, &env.repo_path, Arc::clone(graph),
-        multi, spinner_style
+        env.config.no_git,
+        &env.repo_path,
+        Arc::clone(graph),
+        multi,
+        spinner_style,
     );
 
     // Run detectors
     let mut findings = run_detectors(
-        graph, &env.repo_path, &env.project_config, skip_detector,
-        env.config.thorough, env.config.workers, multi, spinner_style, env.quiet_mode
+        graph,
+        &env.repo_path,
+        &env.project_config,
+        skip_detector,
+        env.config.thorough,
+        env.config.workers,
+        multi,
+        spinner_style,
+        env.quiet_mode,
     )?;
 
     // Apply voting engine
     let (_voting_stats, _cached_count) = apply_voting(
-        &mut findings, file_result.cached_findings.clone(),
-        env.config.is_incremental_mode, multi, spinner_style
+        &mut findings,
+        file_result.cached_findings.clone(),
+        env.config.is_incremental_mode,
+        multi,
+        spinner_style,
     );
 
     // Wait for git enrichment
@@ -302,7 +377,7 @@ fn calculate_scores(
 ) -> ScoreResult {
     let scorer = crate::scoring::GraphScorer::new(graph, project_config);
     let breakdown = scorer.calculate(findings);
-    
+
     // Log graph metrics
     let metrics = &breakdown.graph_metrics;
     tracing::info!(
@@ -335,7 +410,11 @@ fn build_health_report(
     total_files: usize,
     total_functions: usize,
     total_classes: usize,
-) -> (HealthReport, Option<(usize, usize, usize, usize)>, Vec<Finding>) {
+) -> (
+    HealthReport,
+    Option<(usize, usize, usize, usize)>,
+    Vec<Finding>,
+) {
     let all_findings = findings.clone();
 
     filter_findings(findings, severity, top);
@@ -361,7 +440,11 @@ fn build_health_report(
 
 /// Phase 6: Generate and output reports
 fn generate_reports(
-    report_data: &(HealthReport, Option<(usize, usize, usize, usize)>, Vec<Finding>),
+    report_data: &(
+        HealthReport,
+        Option<(usize, usize, usize, usize)>,
+        Vec<Finding>,
+    ),
     findings: &[Finding],
     format: &str,
     output_path: Option<&Path>,
@@ -377,8 +460,14 @@ fn generate_reports(
     let displayed_findings = findings.len();
 
     format_and_output(
-        report, all_findings, format, output_path,
-        repotoire_dir, pagination_info, displayed_findings, no_emoji
+        report,
+        all_findings,
+        format,
+        output_path,
+        repotoire_dir,
+        pagination_info,
+        displayed_findings,
+        no_emoji,
     )?;
 
     // Show score explanation if requested
@@ -442,10 +531,10 @@ fn print_header(repo_path: &Path, no_emoji: bool, format: &str) {
     if format == "json" || format == "sarif" {
         return;
     }
-    
+
     let icon_analyze = if no_emoji { "" } else { "🎼 " };
     let icon_search = if no_emoji { "" } else { "🔍 " };
-    
+
     println!("\n{}Repotoire Analysis\n", style(icon_analyze).bold());
     println!(
         "{}Analyzing: {}\n",
@@ -486,10 +575,10 @@ fn collect_files_for_analysis(
         // --since mode: only analyze files changed since specified commit
         walk_spinner.set_message(format!("Finding files changed since {}...", commit));
         walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
-        
+
         let changed = get_changed_files_since(repo_path, commit)?;
         let all = collect_source_files(repo_path)?;
-        
+
         walk_spinner.finish_with_message(format!(
             "{}Found {} changed files (since {}) out of {} total",
             style("✓ ").green(),
@@ -497,18 +586,18 @@ fn collect_files_for_analysis(
             style(commit).yellow(),
             style(all.len()).dim()
         ));
-        
+
         let cached = get_cached_findings_for_unchanged(&all, &changed, incremental_cache);
         (all, changed, cached)
     } else if is_incremental_mode {
         // --incremental mode: only analyze files changed since last run
         walk_spinner.set_message("Discovering source files (incremental mode)...");
         walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
-        
+
         let all = collect_source_files(repo_path)?;
         let changed = incremental_cache.get_changed_files(&all);
         let cache_stats = incremental_cache.get_stats();
-        
+
         walk_spinner.finish_with_message(format!(
             "{}Found {} changed files out of {} total ({} cached)",
             style("✓ ").green(),
@@ -516,21 +605,21 @@ fn collect_files_for_analysis(
             style(all.len()).dim(),
             style(cache_stats.cached_files).dim()
         ));
-        
+
         let cached = get_cached_findings_for_unchanged(&all, &changed, incremental_cache);
         (all, changed, cached)
     } else {
         // Full mode: analyze all files
         walk_spinner.set_message("Discovering source files...");
         walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
-        
+
         let files = collect_source_files(repo_path)?;
         walk_spinner.finish_with_message(format!(
             "{}Found {} source files",
             style("✓ ").green(),
             style(files.len()).cyan()
         ));
-        
+
         (files.clone(), files, Vec::new())
     };
 
@@ -547,10 +636,11 @@ fn get_cached_findings_for_unchanged(
     changed_files: &[PathBuf],
     incremental_cache: &IncrementalCache,
 ) -> Vec<Finding> {
-    let unchanged: Vec<_> = all_files.iter()
+    let unchanged: Vec<_> = all_files
+        .iter()
         .filter(|f| !changed_files.contains(f))
         .collect();
-    
+
     let mut cached = Vec::new();
     for file in unchanged {
         cached.extend(incremental_cache.get_cached_findings(file));
@@ -587,7 +677,7 @@ fn parse_files(
             if count.is_multiple_of(100) {
                 parse_bar.set_position(count as u64);
             }
-            
+
             match parse_file(file_path) {
                 Ok(result) => Some((file_path.clone(), result)),
                 Err(e) => {
@@ -651,25 +741,31 @@ fn build_graph(
             CodeNode::new(NodeKind::File, &relative_str, &relative_str)
                 .with_qualified_name(&relative_str)
                 .with_language(&language)
-                .with_property("loc", loc as i64)
+                .with_property("loc", loc as i64),
         );
 
         // Function nodes
         for func in &result.functions {
             let loc = if func.line_end >= func.line_start {
                 func.line_end - func.line_start + 1
-            } else { 1 };
+            } else {
+                1
+            };
             let complexity = func.complexity.unwrap_or(1);
-            
+
             func_nodes.push(
                 CodeNode::new(NodeKind::Function, &func.name, &relative_str)
                     .with_qualified_name(&func.qualified_name)
                     .with_lines(func.line_start, func.line_end)
                     .with_property("is_async", func.is_async)
                     .with_property("complexity", complexity as i64)
-                    .with_property("loc", loc as i64)
+                    .with_property("loc", loc as i64),
             );
-            edges.push((relative_str.clone(), func.qualified_name.clone(), CodeEdge::contains()));
+            edges.push((
+                relative_str.clone(),
+                func.qualified_name.clone(),
+                CodeEdge::contains(),
+            ));
         }
 
         // Class nodes
@@ -678,13 +774,23 @@ fn build_graph(
                 CodeNode::new(NodeKind::Class, &class.name, &relative_str)
                     .with_qualified_name(&class.qualified_name)
                     .with_lines(class.line_start, class.line_end)
-                    .with_property("methodCount", class.methods.len() as i64)
+                    .with_property("methodCount", class.methods.len() as i64),
             );
-            edges.push((relative_str.clone(), class.qualified_name.clone(), CodeEdge::contains()));
+            edges.push((
+                relative_str.clone(),
+                class.qualified_name.clone(),
+                CodeEdge::contains(),
+            ));
         }
 
         // Call edges
-        build_call_edges(&mut edges, result, parse_results, repo_path, &global_func_map);
+        build_call_edges(
+            &mut edges,
+            result,
+            parse_results,
+            repo_path,
+            &global_func_map,
+        );
 
         // Import edges
         build_import_edges(&mut edges, result, &relative_str, parse_results, repo_path);
@@ -705,7 +811,9 @@ fn build_graph(
     graph_bar.finish_with_message(format!("{}Built code graph", style("✓ ").green()));
 
     // Persist graph and stats
-    graph.save().with_context(|| "Failed to save graph database")?;
+    graph
+        .save()
+        .with_context(|| "Failed to save graph database")?;
     save_graph_stats(graph, repo_path)?;
 
     Ok(())
@@ -733,11 +841,17 @@ fn build_call_edges(
     for (caller, callee) in &result.calls {
         let parts: Vec<&str> = callee.rsplitn(2, "::").collect();
         let callee_name = parts[0];
-        let callee_module = if parts.len() > 1 { Some(parts[1]) } else { None };
+        let callee_module = if parts.len() > 1 {
+            Some(parts[1])
+        } else {
+            None
+        };
         let callee_name = callee_name.rsplit('.').next().unwrap_or(callee_name);
 
         // Try to find callee in this file first
-        let callee_qn = if let Some(callee_func) = result.functions.iter().find(|f| f.name == callee_name) {
+        let callee_qn = if let Some(callee_func) =
+            result.functions.iter().find(|f| f.name == callee_name)
+        {
             callee_func.qualified_name.clone()
         } else {
             // Look in other modules
@@ -746,23 +860,28 @@ fn build_call_edges(
                 for (other_path, other_result) in parse_results {
                     let other_relative = other_path.strip_prefix(repo_path).unwrap_or(other_path);
                     let other_str = other_relative.display().to_string();
-                    let file_stem = other_relative.file_stem()
+                    let file_stem = other_relative
+                        .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("");
-                    
+
                     if file_stem == module || other_str.contains(&format!("/{}.rs", module)) {
-                        if let Some(func) = other_result.functions.iter().find(|f| f.name == callee_name) {
+                        if let Some(func) = other_result
+                            .functions
+                            .iter()
+                            .find(|f| f.name == callee_name)
+                        {
                             found = Some(func.qualified_name.clone());
                             break;
                         }
                     }
                 }
             }
-            
+
             if found.is_none() {
                 found = global_func_map.get(callee_name).cloned();
             }
-            
+
             match found {
                 Some(qn) => qn,
                 None => continue,
@@ -781,45 +900,46 @@ fn build_import_edges(
     repo_path: &Path,
 ) {
     for import_info in &result.imports {
-        let clean_import = import_info.path
+        let clean_import = import_info
+            .path
             .trim_start_matches("./")
             .trim_start_matches("../")
             .trim_start_matches("crate::")
             .trim_start_matches("super::");
-        
+
         let module_parts: Vec<&str> = clean_import.split("::").collect();
         let first_module = module_parts.first().copied().unwrap_or("");
-        
+
         for (other_file, _) in parse_results {
             let other_relative = other_file.strip_prefix(repo_path).unwrap_or(other_file);
             let other_str = other_relative.display().to_string();
             if other_str == relative_str {
                 continue;
             }
-            
-            let other_name = other_relative.file_stem()
+
+            let other_name = other_relative
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("");
-            
+
             let python_path = clean_import.replace('.', "/");
-            
-            let matches = 
-                other_str.contains(clean_import) ||
-                (clean_import == other_name) ||
-                other_str.ends_with(&format!("{}.ts", clean_import)) ||
-                other_str.ends_with(&format!("{}.tsx", clean_import)) ||
-                other_str.ends_with(&format!("{}.js", clean_import)) ||
-                other_str.ends_with(&format!("{}/index.ts", clean_import)) ||
-                other_str.ends_with(&format!("{}.rs", clean_import.replace("::", "/"))) ||
-                other_str.ends_with(&format!("{}/mod.rs", first_module)) ||
-                (other_name == first_module && other_str.ends_with(".rs")) ||
-                other_str.ends_with(&format!("{}.py", python_path)) ||
-                other_str.contains(&format!("{}/", python_path)) ||
-                other_str.ends_with(&format!("{}/__init__.py", python_path));
-            
+
+            let matches = other_str.contains(clean_import)
+                || (clean_import == other_name)
+                || other_str.ends_with(&format!("{}.ts", clean_import))
+                || other_str.ends_with(&format!("{}.tsx", clean_import))
+                || other_str.ends_with(&format!("{}.js", clean_import))
+                || other_str.ends_with(&format!("{}/index.ts", clean_import))
+                || other_str.ends_with(&format!("{}.rs", clean_import.replace("::", "/")))
+                || other_str.ends_with(&format!("{}/mod.rs", first_module))
+                || (other_name == first_module && other_str.ends_with(".rs"))
+                || other_str.ends_with(&format!("{}.py", python_path))
+                || other_str.contains(&format!("{}/", python_path))
+                || other_str.ends_with(&format!("{}/__init__.py", python_path));
+
             if matches {
-                let import_edge = CodeEdge::imports()
-                    .with_property("is_type_only", import_info.is_type_only);
+                let import_edge =
+                    CodeEdge::imports().with_property("is_type_only", import_info.is_type_only);
                 edges.push((relative_str.to_string(), other_str, import_edge));
                 break;
             }
@@ -850,7 +970,10 @@ fn start_git_enrichment(
     graph: Arc<GraphStore>,
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
-) -> Option<(std::thread::JoinHandle<Result<git::enrichment::EnrichmentStats, anyhow::Error>>, ProgressBar)> {
+) -> Option<(
+    std::thread::JoinHandle<Result<git::enrichment::EnrichmentStats, anyhow::Error>>,
+    ProgressBar,
+)> {
     if no_git {
         println!("{}Skipping git enrichment (--no-git)", style("⏭ ").dim());
         return None;
@@ -871,7 +994,10 @@ fn start_git_enrichment(
 
 /// Wait for git enrichment to complete
 fn finish_git_enrichment(
-    git_result: Option<(std::thread::JoinHandle<Result<git::enrichment::EnrichmentStats, anyhow::Error>>, ProgressBar)>,
+    git_result: Option<(
+        std::thread::JoinHandle<Result<git::enrichment::EnrichmentStats, anyhow::Error>>,
+        ProgressBar,
+    )>,
 ) {
     if let Some((git_handle, git_spinner)) = git_result {
         match git_handle.join() {
@@ -904,10 +1030,8 @@ fn finish_git_enrichment(
                 ));
             }
             Err(_) => {
-                git_spinner.finish_with_message(format!(
-                    "{}Git enrichment failed",
-                    style("⚠ ").yellow(),
-                ));
+                git_spinner
+                    .finish_with_message(format!("{}Git enrichment failed", style("⚠ ").yellow(),));
             }
         }
     }
@@ -947,7 +1071,11 @@ fn run_detectors(
         for detector in external {
             engine.register(detector);
         }
-        tracing::info!("Thorough mode: added {} external detectors ({} total)", external_count, engine.detector_count());
+        tracing::info!(
+            "Thorough mode: added {} external detectors ({} total)",
+            external_count,
+            engine.detector_count()
+        );
     }
 
     let detector_bar = multi.add(ProgressBar::new_spinner());
@@ -1101,7 +1229,10 @@ fn paginate_findings(
         let start = (page - 1) * per_page;
         let end = (start + per_page).min(displayed_findings);
         let paginated: Vec<_> = findings[start..end].to_vec();
-        (paginated, Some((page, total_pages, per_page, displayed_findings)))
+        (
+            paginated,
+            Some((page, total_pages, per_page, displayed_findings)),
+        )
     } else {
         (findings, None)
     }
@@ -1128,11 +1259,11 @@ fn format_and_output(
     } else {
         report.clone()
     };
-    
+
     let output = reporters::report(&report_for_output, format)?;
 
-    let write_to_file = output_path.is_some()
-        || matches!(format, "html" | "sarif" | "markdown" | "md");
+    let write_to_file =
+        output_path.is_some() || matches!(format, "html" | "sarif" | "markdown" | "md");
 
     if write_to_file {
         let out_path = if let Some(p) = output_path {
@@ -1229,7 +1360,7 @@ fn collect_source_files(repo_path: &Path) -> Result<Vec<PathBuf>> {
         .git_exclude(true)
         .require_git(false)
         .add_custom_ignore_filename(".repotoireignore");
-    
+
     let walker = builder.build();
 
     for entry in walker.flatten() {
@@ -1305,7 +1436,11 @@ fn normalize_path(path: &Path) -> String {
 }
 
 /// Cache analysis results for other commands
-fn cache_results(repotoire_dir: &Path, report: &HealthReport, all_findings: &[Finding]) -> Result<()> {
+fn cache_results(
+    repotoire_dir: &Path,
+    report: &HealthReport,
+    all_findings: &[Finding],
+) -> Result<()> {
     use std::fs;
 
     let health_cache = repotoire_dir.join("last_health.json");
@@ -1341,7 +1476,10 @@ fn cache_results(repotoire_dir: &Path, report: &HealthReport, all_findings: &[Fi
             })
         }).collect::<Vec<_>>()
     });
-    fs::write(&findings_cache, serde_json::to_string_pretty(&findings_json)?)?;
+    fs::write(
+        &findings_cache,
+        serde_json::to_string_pretty(&findings_json)?,
+    )?;
 
     tracing::debug!("Cached analysis results to {}", repotoire_dir.display());
     Ok(())

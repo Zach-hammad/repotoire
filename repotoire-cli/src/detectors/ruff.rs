@@ -31,9 +31,14 @@ impl RuffLintDetector {
             max_findings: 100,
             select_rules: vec!["ALL".to_string()],
             ignore_rules: vec![
-                "D100".to_string(), "D101".to_string(), "D102".to_string(),
-                "D103".to_string(), "D104".to_string(), // Missing docstrings
-                "ANN001".to_string(), "ANN002".to_string(), "ANN003".to_string(), // Type annotations
+                "D100".to_string(),
+                "D101".to_string(),
+                "D102".to_string(),
+                "D103".to_string(),
+                "D104".to_string(), // Missing docstrings
+                "ANN001".to_string(),
+                "ANN002".to_string(),
+                "ANN003".to_string(), // Type annotations
             ],
         }
     }
@@ -111,11 +116,7 @@ impl RuffLintDetector {
     }
 
     /// Create finding from ruff result
-    fn create_finding(
-        &self,
-        result: &JsonValue,
-        graph: &GraphStore,
-    ) -> Option<Finding> {
+    fn create_finding(&self, result: &JsonValue, graph: &GraphStore) -> Option<Finding> {
         let file_path = result.get("filename")?.as_str()?;
         let location = result.get("location")?;
         let line = location.get("row")?.as_u64()? as u32;
@@ -157,12 +158,20 @@ impl RuffLintDetector {
         if !ctx.affected_nodes.is_empty() {
             description.push_str(&format!(
                 "**Affected**: {}\n",
-                ctx.affected_nodes.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                ctx.affected_nodes
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
         let suggested_fix = if has_fix {
-            format!("Ruff can auto-fix this issue. Run: ruff check --fix {}", code)
+            format!(
+                "Ruff can auto-fix this issue. Run: ruff check --fix {}",
+                code
+            )
         } else {
             Self::suggest_fix(code, message)
         };
@@ -316,7 +325,8 @@ impl Detector for RuffImportDetector {
         }
 
         // Group by file
-        let mut by_file: std::collections::HashMap<String, Vec<&JsonValue>> = std::collections::HashMap::new();
+        let mut by_file: std::collections::HashMap<String, Vec<&JsonValue>> =
+            std::collections::HashMap::new();
         for result in &results {
             if let Some(file) = result.get("filename").and_then(|f| f.as_str()) {
                 by_file.entry(file.to_string()).or_default().push(result);
@@ -343,7 +353,10 @@ impl Detector for RuffImportDetector {
                 .iter()
                 .filter_map(|r| {
                     let msg = r.get("message")?.as_str()?;
-                    let line = r.get("location").and_then(|l| l.get("row")).and_then(|r| r.as_u64())?;
+                    let line = r
+                        .get("location")
+                        .and_then(|l| l.get("row"))
+                        .and_then(|r| r.as_u64())?;
                     // Extract import name from message like "`os` imported but unused"
                     let name = msg.split('`').nth(1).unwrap_or("unknown");
                     Some(format!("  • {} (line {})", name, line))
@@ -356,14 +369,22 @@ impl Detector for RuffImportDetector {
                 rel_path,
                 count,
                 imports.join("\n"),
-                ctx.file_loc.map(|l| format!("\n\nFile context: {} LOC", l)).unwrap_or_default()
+                ctx.file_loc
+                    .map(|l| format!("\n\nFile context: {} LOC", l))
+                    .unwrap_or_default()
             );
 
             findings.push(Finding {
                 id: format!("ruff_imports_{}", rel_path.replace(['/', '.'], "_")),
                 detector: "RuffImportDetector".to_string(),
                 severity,
-                title: format!("Unused imports in {}", Path::new(&rel_path).file_name().map(|n| n.to_string_lossy()).unwrap_or_default()),
+                title: format!(
+                    "Unused imports in {}",
+                    Path::new(&rel_path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default()
+                ),
                 description,
                 affected_files: vec![PathBuf::from(&rel_path)],
                 line_start: None,

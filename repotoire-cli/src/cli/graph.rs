@@ -6,7 +6,7 @@ use console::style;
 use std::path::Path;
 
 /// Run a query against the code graph
-/// 
+///
 /// Note: Cypher queries are no longer supported. Use the built-in query commands instead.
 pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     let repo_path = path
@@ -21,29 +21,34 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
         );
     }
 
-    let graph = GraphStore::new(&db_path)
-        .with_context(|| "Failed to open graph database")?;
+    let graph = GraphStore::new(&db_path).with_context(|| "Failed to open graph database")?;
 
     let json_output = format == "json";
 
     // Parse simple query patterns
     let query_lower = query.to_lowercase();
-    
+
     if query_lower.contains("function") {
         let functions = graph.get_functions();
         if json_output {
-            let json: Vec<_> = functions.iter().map(|f| serde_json::json!({
-                "name": f.name,
-                "qualified_name": f.qualified_name,
-                "file": f.file_path,
-                "line_start": f.line_start,
-                "line_end": f.line_end,
-            })).collect();
+            let json: Vec<_> = functions
+                .iter()
+                .map(|f| {
+                    serde_json::json!({
+                        "name": f.name,
+                        "qualified_name": f.qualified_name,
+                        "file": f.file_path,
+                        "line_start": f.line_start,
+                        "line_end": f.line_end,
+                    })
+                })
+                .collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Functions ({})\n", style("📊").bold(), functions.len());
             for func in functions.iter().take(50) {
-                println!("  {} ({}:{})", 
+                println!(
+                    "  {} ({}:{})",
                     style(&func.qualified_name).cyan(),
                     &func.file_path,
                     func.line_start
@@ -56,21 +61,27 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("class") {
         let classes = graph.get_classes();
         if json_output {
-            let json: Vec<_> = classes.iter().map(|c| serde_json::json!({
-                "name": c.name,
-                "qualified_name": c.qualified_name,
-                "file": c.file_path,
-                "line_start": c.line_start,
-                "line_end": c.line_end,
-            })).collect();
+            let json: Vec<_> = classes
+                .iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "name": c.name,
+                        "qualified_name": c.qualified_name,
+                        "file": c.file_path,
+                        "line_start": c.line_start,
+                        "line_end": c.line_end,
+                    })
+                })
+                .collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Classes ({})\n", style("📊").bold(), classes.len());
             for class in classes.iter().take(50) {
-                println!("  {} ({}:{})", 
+                println!(
+                    "  {} ({}:{})",
                     style(&class.qualified_name).cyan(),
                     &class.file_path,
-                class.line_start
+                    class.line_start
                 );
             }
             if classes.len() > 50 {
@@ -80,9 +91,14 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("file") {
         let files = graph.get_files();
         if json_output {
-            let json: Vec<_> = files.iter().map(|f| serde_json::json!({
-                "path": f.file_path,
-            })).collect();
+            let json: Vec<_> = files
+                .iter()
+                .map(|f| {
+                    serde_json::json!({
+                        "path": f.file_path,
+                    })
+                })
+                .collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Files ({})\n", style("📊").bold(), files.len());
@@ -96,10 +112,15 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("call") {
         let calls = graph.get_calls();
         if json_output {
-            let json: Vec<_> = calls.iter().map(|(from, to)| serde_json::json!({
-                "from": from,
-                "to": to,
-            })).collect();
+            let json: Vec<_> = calls
+                .iter()
+                .map(|(from, to)| {
+                    serde_json::json!({
+                        "from": from,
+                        "to": to,
+                    })
+                })
+                .collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
@@ -113,13 +134,22 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("import") {
         let imports = graph.get_imports();
         if json_output {
-            let json: Vec<_> = imports.iter().map(|(from, to)| serde_json::json!({
-                "from": from,
-                "to": to,
-            })).collect();
+            let json: Vec<_> = imports
+                .iter()
+                .map(|(from, to)| {
+                    serde_json::json!({
+                        "from": from,
+                        "to": to,
+                    })
+                })
+                .collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
-            println!("\n{} Import Edges ({})\n", style("📊").bold(), imports.len());
+            println!(
+                "\n{} Import Edges ({})\n",
+                style("📊").bold(),
+                imports.len()
+            );
             for (from, to) in imports.iter().take(50) {
                 println!("  {} -> {}", style(from).cyan(), style(to).green());
             }
@@ -153,20 +183,29 @@ pub fn stats(path: &Path) -> Result<()> {
     // Try to read from cached JSON stats first (avoids sled lock issues)
     let stats_path = crate::cache::get_graph_stats_path(&repo_path);
     if stats_path.exists() {
-        let stats_json = std::fs::read_to_string(&stats_path)
-            .with_context(|| "Failed to read graph stats")?;
-        let stats: serde_json::Value = serde_json::from_str(&stats_json)
-            .with_context(|| "Failed to parse graph stats")?;
+        let stats_json =
+            std::fs::read_to_string(&stats_path).with_context(|| "Failed to read graph stats")?;
+        let stats: serde_json::Value =
+            serde_json::from_str(&stats_json).with_context(|| "Failed to parse graph stats")?;
 
         println!("\n{} Graph Statistics\n", style("📊").bold());
 
         // Node counts
-        println!("  {}: {}", style("Files").cyan(), 
-            style(stats["total_files"].as_u64().unwrap_or(0)).bold());
-        println!("  {}: {}", style("Functions").cyan(), 
-            style(stats["total_functions"].as_u64().unwrap_or(0)).bold());
-        println!("  {}: {}", style("Classes").cyan(), 
-            style(stats["total_classes"].as_u64().unwrap_or(0)).bold());
+        println!(
+            "  {}: {}",
+            style("Files").cyan(),
+            style(stats["total_files"].as_u64().unwrap_or(0)).bold()
+        );
+        println!(
+            "  {}: {}",
+            style("Functions").cyan(),
+            style(stats["total_functions"].as_u64().unwrap_or(0)).bold()
+        );
+        println!(
+            "  {}: {}",
+            style("Classes").cyan(),
+            style(stats["total_classes"].as_u64().unwrap_or(0)).bold()
+        );
 
         // Edge counts by type
         let calls = stats["calls"].as_u64().unwrap_or(0);
@@ -175,12 +214,23 @@ pub fn stats(path: &Path) -> Result<()> {
         let contains = total_edges.saturating_sub(calls + imports);
         println!();
         println!("  {} edges: {}", style("CALLS").cyan(), style(calls).bold());
-        println!("  {} edges: {}", style("IMPORTS").cyan(), style(imports).bold());
-        println!("  {} edges: {}", style("CONTAINS").cyan(), style(contains).bold());
+        println!(
+            "  {} edges: {}",
+            style("IMPORTS").cyan(),
+            style(imports).bold()
+        );
+        println!(
+            "  {} edges: {}",
+            style("CONTAINS").cyan(),
+            style(contains).bold()
+        );
 
         // Total
         println!();
-        println!("  Total nodes: {}", style(stats["total_nodes"].as_u64().unwrap_or(0)).bold());
+        println!(
+            "  Total nodes: {}",
+            style(stats["total_nodes"].as_u64().unwrap_or(0)).bold()
+        );
         println!("  Total edges: {}", style(total_edges).bold());
 
         return Ok(());
@@ -195,27 +245,46 @@ pub fn stats(path: &Path) -> Result<()> {
         );
     }
 
-    let graph = GraphStore::new(&db_path)
-        .with_context(|| "Failed to open graph database")?;
+    let graph = GraphStore::new(&db_path).with_context(|| "Failed to open graph database")?;
 
     println!("\n{} Graph Statistics\n", style("📊").bold());
 
     let stats = graph.stats();
-    
+
     // Node counts (stats uses "total_*" keys)
-    println!("  {}: {}", style("Files").cyan(), style(stats.get("total_files").copied().unwrap_or(0)).bold());
-    println!("  {}: {}", style("Functions").cyan(), style(stats.get("total_functions").copied().unwrap_or(0)).bold());
-    println!("  {}: {}", style("Classes").cyan(), style(stats.get("total_classes").copied().unwrap_or(0)).bold());
-    
+    println!(
+        "  {}: {}",
+        style("Files").cyan(),
+        style(stats.get("total_files").copied().unwrap_or(0)).bold()
+    );
+    println!(
+        "  {}: {}",
+        style("Functions").cyan(),
+        style(stats.get("total_functions").copied().unwrap_or(0)).bold()
+    );
+    println!(
+        "  {}: {}",
+        style("Classes").cyan(),
+        style(stats.get("total_classes").copied().unwrap_or(0)).bold()
+    );
+
     // Edge counts by type
     let calls = graph.get_calls().len();
     let imports = graph.get_imports().len();
     let contains = graph.edge_count() - calls - imports;
     println!();
     println!("  {} edges: {}", style("CALLS").cyan(), style(calls).bold());
-    println!("  {} edges: {}", style("IMPORTS").cyan(), style(imports).bold());
-    println!("  {} edges: {}", style("CONTAINS").cyan(), style(contains).bold());
-    
+    println!(
+        "  {} edges: {}",
+        style("IMPORTS").cyan(),
+        style(imports).bold()
+    );
+    println!(
+        "  {} edges: {}",
+        style("CONTAINS").cyan(),
+        style(contains).bold()
+    );
+
     // Total
     println!();
     println!("  Total nodes: {}", style(graph.node_count()).bold());

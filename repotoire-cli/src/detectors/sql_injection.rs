@@ -11,7 +11,7 @@
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::detectors::framework_detection::{detect_frameworks, is_safe_orm_pattern};
-use crate::detectors::taint::{TaintAnalyzer, TaintAnalysisResult, TaintCategory};
+use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -169,32 +169,32 @@ impl SQLInjectionDetector {
         // Check for common safe SQL tagged template patterns
         // These ORMs/libraries parameterize interpolations automatically
         let safe_tags = [
-            "sql`",           // Drizzle, Slonik, postgres.js
-            ".sql`",          // db.sql`, Prisma.sql`
-            "Prisma.sql`",    // Prisma
-            "raw`",           // Some ORMs
-            "sqlstring`",     // sqlstring library
+            "sql`",        // Drizzle, Slonik, postgres.js
+            ".sql`",       // db.sql`, Prisma.sql`
+            "Prisma.sql`", // Prisma
+            "raw`",        // Some ORMs
+            "sqlstring`",  // sqlstring library
         ];
-        
+
         let line_trimmed = line.trim();
         for tag in safe_tags {
             if line_trimmed.contains(tag) || line.contains(&format!(" {}", tag)) {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Check if the SQL keyword is actually a JavaScript variable name
     /// e.g., `${insert.id}` where "insert" is a variable, not SQL INSERT
     fn is_variable_name_false_positive(&self, line: &str) -> bool {
         let line_lower = line.to_lowercase();
-        
+
         // Check if SQL keywords appear only inside ${...} as variable names
         // Pattern: ${insert.something} or ${update.field} or ${delete}
         let keywords = ["insert", "update", "delete", "select"];
-        
+
         for keyword in keywords {
             // If keyword exists, check if it's inside ${...} as a variable reference
             if line_lower.contains(keyword) {
@@ -207,17 +207,17 @@ impl SQLInjectionDetector {
                         .next()
                         .map(|s| s.contains(keyword))
                         .unwrap_or(false);
-                    
+
                     if !outside_interpolation {
-                        return true;  // Keyword only in variable name, not SQL
+                        return true; // Keyword only in variable name, not SQL
                     }
                 }
             }
         }
-        
+
         false
     }
-    
+
     /// Check a line for dangerous SQL patterns
     fn check_line_for_patterns(&self, line: &str) -> Option<&'static str> {
         let stripped = line.trim();
@@ -282,9 +282,10 @@ impl SQLInjectionDetector {
         // Check JavaScript template literal pattern
         // Skip safe tagged templates (Drizzle sql``, Prisma.sql``, etc.)
         // Skip when SQL keyword is actually a variable name (${insert.id})
-        if self.js_template_sql_pattern.is_match(line) 
+        if self.js_template_sql_pattern.is_match(line)
             && !self.is_safe_tagged_template(line)
-            && !self.is_variable_name_false_positive(line) {
+            && !self.is_variable_name_false_positive(line)
+        {
             return Some("js_template");
         }
 
@@ -388,7 +389,10 @@ impl SQLInjectionDetector {
 
         // Detect ORMs/frameworks to skip safe parameterized patterns
         let detected_frameworks = detect_frameworks(&self.repository_path);
-        debug!("Detected {} frameworks for ORM pattern detection", detected_frameworks.len());
+        debug!(
+            "Detected {} frameworks for ORM pattern detection",
+            detected_frameworks.len()
+        );
 
         debug!("Scanning for SQL injection in: {:?}", self.repository_path);
 

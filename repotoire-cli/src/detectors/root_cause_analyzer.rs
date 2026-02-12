@@ -27,7 +27,7 @@ pub struct RootCauseAnalysis {
     pub root_cause_finding: Finding,
     pub root_cause_type: String, // "god_class", "circular_dependency", etc.
     pub cascading_findings: Vec<Finding>,
-    pub impact_score: f64,            // Higher = more impact if fixed
+    pub impact_score: f64, // Higher = more impact if fixed
     pub estimated_resolved_count: i32,
     pub refactoring_priority: String, // LOW, MEDIUM, HIGH, CRITICAL
     pub suggested_approach: String,
@@ -139,7 +139,10 @@ impl RootCauseAnalyzer {
         by_detector: &HashMap<&str, Vec<&Finding>>,
         by_file: &HashMap<String, Vec<&Finding>>,
     ) {
-        let god_classes = by_detector.get(GOD_CLASS_DETECTOR).cloned().unwrap_or_default();
+        let god_classes = by_detector
+            .get(GOD_CLASS_DETECTOR)
+            .cloned()
+            .unwrap_or_default();
 
         for god_class in god_classes {
             let mut cascading = Vec::new();
@@ -420,7 +423,8 @@ impl RootCauseAnalyzer {
     fn suggest_circular_dep_refactoring(&self, circ_dep: &Finding) -> String {
         let cycle_length = circ_dep.affected_files.len();
 
-        let mut suggestions = vec!["ROOT CAUSE: Circular dependency creating tight coupling.\n".to_string()];
+        let mut suggestions =
+            vec!["ROOT CAUSE: Circular dependency creating tight coupling.\n".to_string()];
         suggestions.push("RECOMMENDED REFACTORING APPROACH:\n".to_string());
 
         if cycle_length <= 3 {
@@ -590,12 +594,7 @@ mod tests {
         let mut analyzer = RootCauseAnalyzer::new();
         let findings = vec![
             create_test_finding("1", GOD_CLASS_DETECTOR, Severity::High, "core/god.py"),
-            create_test_finding(
-                "2",
-                CIRCULAR_DEP_DETECTOR,
-                Severity::Medium,
-                "core/god.py",
-            ),
+            create_test_finding("2", CIRCULAR_DEP_DETECTOR, Severity::Medium, "core/god.py"),
             create_test_finding("3", INTIMACY_DETECTOR, Severity::Medium, "core/god.py"),
         ];
 

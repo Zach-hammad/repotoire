@@ -6,7 +6,6 @@
 //! - Suggests specific async alternatives
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,6 +14,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static ASYNC_FUNC: OnceLock<Regex> = OnceLock::new();
 static BLOCKING: OnceLock<Regex> = OnceLock::new();
@@ -32,7 +32,7 @@ fn blocking() -> &'static Regex {
 /// Get async alternative for a blocking call
 fn get_async_alternative(blocking_call: &str) -> &'static str {
     let call_lower = blocking_call.to_lowercase();
-    
+
     if call_lower.contains("time.sleep") {
         return "asyncio.sleep()";
     }
@@ -66,7 +66,7 @@ fn get_async_alternative(blocking_call: &str) -> &'static str {
     if call_lower.contains("open(") {
         return "aiofiles.open() for Python";
     }
-    
+
     "Use async equivalent"
 }
 
@@ -77,19 +77,22 @@ pub struct SyncInAsyncDetector {
 
 impl SyncInAsyncDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Find all functions that contain blocking calls
     fn find_blocking_functions(&self, graph: &GraphStore) -> HashSet<String> {
         let mut blocking_funcs = HashSet::new();
-        
+
         for func in graph.get_functions() {
             if let Ok(content) = std::fs::read_to_string(&func.file_path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = func.line_start.saturating_sub(1) as usize;
                 let end = (func.line_end as usize).min(lines.len());
-                
+
                 for line in lines.get(start..end).unwrap_or(&[]) {
                     if blocking().is_match(line) {
                         blocking_funcs.insert(func.qualified_name.clone());
@@ -98,7 +101,7 @@ impl SyncInAsyncDetector {
                 }
             }
         }
-        
+
         blocking_funcs
     }
 
@@ -111,117 +114,142 @@ impl SyncInAsyncDetector {
     ) -> Vec<String> {
         let mut blocked_by = Vec::new();
         let callees = graph.get_callees(&func.qualified_name);
-        
+
         for callee in callees {
             if blocking_funcs.contains(&callee.qualified_name) {
                 blocked_by.push(callee.name.clone());
             }
         }
-        
+
         blocked_by
     }
 
     /// Find containing async function
     fn find_async_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
-        graph.get_functions()
+        graph
+            .get_functions()
             .into_iter()
-            .find(|f| {
-                f.file_path == file_path && 
-                f.line_start <= line && 
-                f.line_end >= line
-            })
+            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| f.name)
     }
 }
 
 impl Detector for SyncInAsyncDetector {
-    fn name(&self) -> &'static str { "sync-in-async" }
-    fn description(&self) -> &'static str { "Detects blocking calls in async functions" }
+    fn name(&self) -> &'static str {
+        "sync-in-async"
+    }
+    fn description(&self) -> &'static str {
+        "Detects blocking calls in async functions"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        
+
         // First pass: identify all functions with blocking calls
         let blocking_funcs = self.find_blocking_functions(graph);
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"rs") { continue; }
-            
+            if !matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx" | "rs") {
+                continue;
+            }
+
             // Skip detector files (contain regex patterns as strings)
-            if path_str.contains("/detectors/") { continue; }
+            if path_str.contains("/detectors/") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut in_async = false;
                 let mut async_indent = 0;
                 let mut current_async_name = String::new();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
-                    
+
                     // Track async function scope
                     if async_func().is_match(line) {
                         in_async = true;
                         async_indent = current_indent;
-                        if let Some(name) = Self::find_async_function(graph, &path_str, (i + 1) as u32) {
+                        if let Some(name) =
+                            Self::find_async_function(graph, &path_str, (i + 1) as u32)
+                        {
                             current_async_name = name;
                         }
                     }
-                    
+
                     // Check if we've left async scope (Python indentation)
-                    if in_async && ext == "py" && !line.trim().is_empty()
-                        && current_indent <= async_indent && i > 0 && !async_func().is_match(line) {
-                            in_async = false;
-                        }
-                    
-                    if !in_async { continue; }
-                    
+                    if in_async
+                        && ext == "py"
+                        && !line.trim().is_empty()
+                        && current_indent <= async_indent
+                        && i > 0
+                        && !async_func().is_match(line)
+                    {
+                        in_async = false;
+                    }
+
+                    if !in_async {
+                        continue;
+                    }
+
                     // Check for direct blocking calls
                     if let Some(m) = blocking().find(line) {
                         let blocking_call = m.as_str();
                         let alternative = get_async_alternative(blocking_call);
-                        
+
                         let mut notes = Vec::new();
                         if !current_async_name.is_empty() {
                             notes.push(format!("📦 In async function: `{}`", current_async_name));
                         }
-                        
+
                         // Check for transitive blocking
-                        if let Some(func) = graph.get_functions()
-                            .into_iter()
-                            .find(|f| f.file_path == path_str && f.line_start <= (i + 1) as u32 && f.line_end >= (i + 1) as u32)
-                        {
-                            let transitive = self.check_transitive_blocking(graph, &func, &blocking_funcs);
+                        if let Some(func) = graph.get_functions().into_iter().find(|f| {
+                            f.file_path == path_str
+                                && f.line_start <= (i + 1) as u32
+                                && f.line_end >= (i + 1) as u32
+                        }) {
+                            let transitive =
+                                self.check_transitive_blocking(graph, &func, &blocking_funcs);
                             if !transitive.is_empty() {
-                                notes.push(format!("⚠️ Also calls blocking functions: {}", transitive.join(", ")));
+                                notes.push(format!(
+                                    "⚠️ Also calls blocking functions: {}",
+                                    transitive.join(", ")
+                                ));
                             }
                         }
-                        
+
                         let context_notes = if notes.is_empty() {
                             String::new()
                         } else {
                             format!("\n\n**Analysis:**\n{}", notes.join("\n"))
                         };
-                        
+
                         let severity = if blocking_call.contains("sleep") {
-                            Severity::High  // Sleep is especially bad
-                        } else if blocking_call.contains("Sync") || blocking_call.contains("subprocess") {
-                            Severity::High  // Explicit sync or subprocess
+                            Severity::High // Sleep is especially bad
+                        } else if blocking_call.contains("Sync")
+                            || blocking_call.contains("subprocess")
+                        {
+                            Severity::High // Explicit sync or subprocess
                         } else {
                             Severity::Medium
                         };
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "SyncInAsyncDetector".to_string(),
@@ -262,8 +290,11 @@ impl Detector for SyncInAsyncDetector {
                 }
             }
         }
-        
-        info!("SyncInAsyncDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "SyncInAsyncDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

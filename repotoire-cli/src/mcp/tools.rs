@@ -218,18 +218,18 @@ pub fn get_available_tools(is_pro: bool) -> Vec<Tool> {
 /// Get all available tools based on mode and AI availability
 pub fn get_available_tools_full(is_pro: bool, has_ai: bool) -> Vec<Tool> {
     let mut tools = FREE_TOOLS();
-    
+
     // AI tools available with BYOK or PRO
     if has_ai || is_pro {
         tools.extend(AI_TOOLS());
     }
-    
+
     // Additional PRO-only cloud tools
     if is_pro {
         // search_code and ask are cloud-only (need embeddings)
         tools.extend(PRO_TOOLS().into_iter().filter(|t| t.name != "generate_fix"));
     }
-    
+
     tools
 }
 

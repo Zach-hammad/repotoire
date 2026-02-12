@@ -78,14 +78,7 @@ impl TscDetector {
             args.push("false".to_string());
         }
 
-        let result = run_js_tool(
-            "tsc",
-            &args,
-            "tsc",
-            120,
-            Some(&self.repository_path),
-            None,
-        );
+        let result = run_js_tool("tsc", &args, "tsc", 120, Some(&self.repository_path), None);
 
         if result.timed_out {
             warn!("tsc timed out");
@@ -141,8 +134,8 @@ impl TscDetector {
             2304 | 2305 | 2307 | 2314 => Severity::High,
 
             // Type mismatches - medium severity
-            2322 | 2339 | 2345 | 2349 | 2351 | 2352 | 2355 | 2365 |
-            2531 | 2532 | 2533 | 2554 | 2555 | 2571 | 2683 | 2769 => Severity::Medium,
+            2322 | 2339 | 2345 | 2349 | 2351 | 2352 | 2355 | 2365 | 2531 | 2532 | 2533 | 2554
+            | 2555 | 2571 | 2683 | 2769 => Severity::Medium,
 
             // Style/suggestions - low severity
             6133 | 6196 | 7006 | 7016 | 7031 | 7053 => Severity::Low,
@@ -188,7 +181,12 @@ impl TscDetector {
         if !ctx.affected_nodes.is_empty() {
             description.push_str(&format!(
                 "**Affected**: {}\n",
-                ctx.affected_nodes.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                ctx.affected_nodes
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
@@ -220,10 +218,14 @@ impl TscDetector {
             "TS2322" => "Check type compatibility or add explicit type assertion".to_string(),
             "TS2339" => "Add the property to the type definition or use type assertion".to_string(),
             "TS2345" => "Check argument types match the expected parameter types".to_string(),
-            "TS2531" => "Add null check: `if (obj !== null)` or use optional chaining `?.`".to_string(),
+            "TS2531" => {
+                "Add null check: `if (obj !== null)` or use optional chaining `?.`".to_string()
+            }
             "TS2532" => "Add undefined check or use optional chaining `?.`".to_string(),
             "TS2533" => "Add null/undefined check or use optional chaining `?.`".to_string(),
-            "TS2554" => "Check the function signature and provide correct number of arguments".to_string(),
+            "TS2554" => {
+                "Check the function signature and provide correct number of arguments".to_string()
+            }
             "TS2571" => "Add type guard or type assertion for unknown values".to_string(),
             "TS6133" => "Remove unused variable or prefix with underscore".to_string(),
             "TS7006" => "Add explicit type annotation to the parameter".to_string(),
@@ -275,13 +277,14 @@ impl Detector for TscDetector {
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         use crate::detectors::walk_source_files;
-        
+
         info!("Running tsc type check on {:?}", self.repository_path);
 
         // Check if TypeScript files exist (respects .gitignore and .repotoireignore)
-        let has_ts_files = walk_source_files(&self.repository_path, Some(&["ts", "tsx", "mts", "cts"]))
-            .next()
-            .is_some();
+        let has_ts_files =
+            walk_source_files(&self.repository_path, Some(&["ts", "tsx", "mts", "cts"]))
+                .next()
+                .is_some();
 
         if !has_ts_files {
             info!("No TypeScript files found, skipping tsc");
@@ -298,7 +301,10 @@ impl Detector for TscDetector {
         // Batch fetch graph context
         let unique_files: Vec<String> = errors.iter().map(|e| e.file.clone()).collect();
         let file_contexts = batch_get_graph_context(graph, &unique_files);
-        debug!("Batch fetched graph context for {} files", file_contexts.len());
+        debug!(
+            "Batch fetched graph context for {} files",
+            file_contexts.len()
+        );
 
         let findings: Vec<Finding> = errors
             .iter()

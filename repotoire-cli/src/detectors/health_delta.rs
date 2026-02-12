@@ -131,7 +131,10 @@ fn detector_metric_mapping() -> HashMap<&'static str, (&'static str, &'static st
         "DuplicateRustDetector",
         ("duplication_percentage", "quality"),
     );
-    map.insert("LayerViolationDetector", ("layer_violations", "architecture"));
+    map.insert(
+        "LayerViolationDetector",
+        ("layer_violations", "architecture"),
+    );
     map.insert(
         "BoundaryViolationDetector",
         ("boundary_violations", "architecture"),
@@ -197,7 +200,11 @@ impl HealthScoreDeltaCalculator {
     }
 
     /// Calculate health score delta for resolving a single finding
-    pub fn calculate_delta(&self, metrics: &MetricsBreakdown, finding: &Finding) -> HealthScoreDelta {
+    pub fn calculate_delta(
+        &self,
+        metrics: &MetricsBreakdown,
+        finding: &Finding,
+    ) -> HealthScoreDelta {
         // Calculate current scores
         let current_structure = self.score_structure(metrics);
         let current_quality = self.score_quality(metrics);
@@ -555,7 +562,10 @@ mod tests {
     fn test_impact_classification() {
         let calculator = HealthScoreDeltaCalculator::new();
 
-        assert_eq!(calculator.classify_impact(6.0, false), ImpactLevel::Critical);
+        assert_eq!(
+            calculator.classify_impact(6.0, false),
+            ImpactLevel::Critical
+        );
         assert_eq!(calculator.classify_impact(3.0, false), ImpactLevel::High);
         assert_eq!(calculator.classify_impact(1.0, false), ImpactLevel::Medium);
         assert_eq!(calculator.classify_impact(0.3, false), ImpactLevel::Low);

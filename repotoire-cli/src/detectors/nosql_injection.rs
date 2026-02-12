@@ -6,7 +6,6 @@
 //! - Check for sanitization/validation in call chain
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -14,6 +13,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static NOSQL_PATTERN: OnceLock<Regex> = OnceLock::new();
 static DANGEROUS_OPS: OnceLock<Regex> = OnceLock::new();
@@ -26,9 +26,8 @@ fn nosql_pattern() -> &'static Regex {
 }
 
 fn dangerous_ops() -> &'static Regex {
-    DANGEROUS_OPS.get_or_init(|| {
-        Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").unwrap()
-    })
+    DANGEROUS_OPS
+        .get_or_init(|| Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").unwrap())
 }
 
 fn user_input() -> &'static Regex {
@@ -61,29 +60,45 @@ pub struct NosqlInjectionDetector {
 
 impl NosqlInjectionDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Check if this is actually an Array method, not MongoDB
     fn is_array_method(line: &str) -> bool {
         // Common array variable patterns
         let array_vars = [
-            "items.find(", "list.find(", "array.find(", "results.find(",
-            "data.find(", "options.find(", "elements.find(", "entries.find(",
-            "records.find(", "rows.find(", "values.find(", "keys.find(",
+            "items.find(",
+            "list.find(",
+            "array.find(",
+            "results.find(",
+            "data.find(",
+            "options.find(",
+            "elements.find(",
+            "entries.find(",
+            "records.find(",
+            "rows.find(",
+            "values.find(",
+            "keys.find(",
         ];
-        
+
         if array_vars.iter().any(|v| line.contains(v)) {
             return true;
         }
-        
+
         // Check for array method chains
-        if line.contains(".filter(") || line.contains(".map(") ||
-           line.contains(".some(") || line.contains(".every(") ||
-           line.contains("Array.") || line.contains("[].") {
+        if line.contains(".filter(")
+            || line.contains(".map(")
+            || line.contains(".some(")
+            || line.contains(".every(")
+            || line.contains("Array.")
+            || line.contains("[].")
+        {
             return true;
         }
-        
+
         false
     }
 
@@ -91,17 +106,27 @@ impl NosqlInjectionDetector {
     fn has_sanitization(lines: &[&str], current_line: usize) -> bool {
         let start = current_line.saturating_sub(10);
         let context = lines[start..current_line].join(" ").to_lowercase();
-        
-        context.contains("sanitize") || context.contains("validate") ||
-        context.contains("escape") || context.contains("clean") ||
-        context.contains("tostring()") || context.contains("parseint") ||
-        context.contains("number(") || context.contains("boolean(") ||
-        context.contains("mongo-sanitize") || context.contains("express-mongo-sanitize")
+
+        context.contains("sanitize")
+            || context.contains("validate")
+            || context.contains("escape")
+            || context.contains("clean")
+            || context.contains("tostring()")
+            || context.contains("parseint")
+            || context.contains("number(")
+            || context.contains("boolean(")
+            || context.contains("mongo-sanitize")
+            || context.contains("express-mongo-sanitize")
     }
 
     /// Find containing function
-    fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, usize)> {
-        graph.get_functions()
+    fn find_containing_function(
+        graph: &GraphStore,
+        file_path: &str,
+        line: u32,
+    ) -> Option<(String, usize)> {
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| {
@@ -114,19 +139,28 @@ impl NosqlInjectionDetector {
     fn is_route_handler(func_name: &str, file_path: &str) -> bool {
         let name_lower = func_name.to_lowercase();
         let path_lower = file_path.to_lowercase();
-        
-        name_lower.contains("handler") || name_lower.contains("controller") ||
-        name_lower.contains("route") || name_lower.contains("api") ||
-        name_lower.starts_with("get") || name_lower.starts_with("post") ||
-        name_lower.starts_with("put") || name_lower.starts_with("delete") ||
-        path_lower.contains("route") || path_lower.contains("controller") ||
-        path_lower.contains("handler")
+
+        name_lower.contains("handler")
+            || name_lower.contains("controller")
+            || name_lower.contains("route")
+            || name_lower.contains("api")
+            || name_lower.starts_with("get")
+            || name_lower.starts_with("post")
+            || name_lower.starts_with("put")
+            || name_lower.starts_with("delete")
+            || path_lower.contains("route")
+            || path_lower.contains("controller")
+            || path_lower.contains("handler")
     }
 }
 
 impl Detector for NosqlInjectionDetector {
-    fn name(&self) -> &'static str { "nosql-injection" }
-    fn description(&self) -> &'static str { "Detects NoSQL injection risks" }
+    fn name(&self) -> &'static str {
+        "nosql-injection"
+    }
+    fn description(&self) -> &'static str {
+        "Detects NoSQL injection risks"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
@@ -136,65 +170,87 @@ impl Detector for NosqlInjectionDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") || path_str.contains("spec") { continue; }
-            
+            if path_str.contains("test") || path_str.contains("spec") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js"|"ts"|"py"|"rb"|"php") { continue; }
+            if !matches!(ext, "js" | "ts" | "py" | "rb" | "php") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 // Check if file has MongoDB context
-                let has_mongo = content.contains("mongoose") || content.contains("mongodb") ||
-                               content.contains("MongoClient") || content.contains("pymongo") ||
-                               content.contains("Collection");
-                
-                if !has_mongo { continue; }
-                
+                let has_mongo = content.contains("mongoose")
+                    || content.contains("mongodb")
+                    || content.contains("MongoClient")
+                    || content.contains("pymongo")
+                    || content.contains("Collection");
+
+                if !has_mongo {
+                    continue;
+                }
+
                 for (i, line) in lines.iter().enumerate() {
-                    if !nosql_pattern().is_match(line) { continue; }
-                    if Self::is_array_method(line) { continue; }
-                    
+                    if !nosql_pattern().is_match(line) {
+                        continue;
+                    }
+                    if Self::is_array_method(line) {
+                        continue;
+                    }
+
                     // Check for user input
                     let has_input = user_input().is_match(line);
                     let start = i.saturating_sub(5);
                     let context = lines[start..i].join(" ");
                     let has_input_nearby = user_input().is_match(&context);
-                    
-                    if !has_input && !has_input_nearby { continue; }
-                    
+
+                    if !has_input && !has_input_nearby {
+                        continue;
+                    }
+
                     // Check for sanitization
                     let is_sanitized = Self::has_sanitization(&lines, i);
-                    if is_sanitized { continue; }
-                    
+                    if is_sanitized {
+                        continue;
+                    }
+
                     // Check for dangerous operators
                     let has_dangerous = dangerous_ops().is_match(line);
                     let (risk_type, risk_desc) = categorize_risk(line);
-                    
+
                     // Get function context
-                    let containing_func = Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-                    let is_handler = containing_func.as_ref()
+                    let containing_func =
+                        Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+                    let is_handler = containing_func
+                        .as_ref()
                         .map(|(name, _)| Self::is_route_handler(name, &path_str))
                         .unwrap_or(false);
-                    
+
                     // Calculate severity
                     let severity = if has_dangerous {
-                        Severity::Critical  // $where, $regex, etc.
+                        Severity::Critical // $where, $regex, etc.
                     } else if is_handler && has_input {
-                        Severity::Critical  // Direct user input in route handler
+                        Severity::Critical // Direct user input in route handler
                     } else if has_input {
                         Severity::High
                     } else {
                         Severity::Medium
                     };
-                    
+
                     // Build notes
                     let mut notes = Vec::new();
                     notes.push(format!("🔍 Risk type: {}", risk_desc));
@@ -205,11 +261,14 @@ impl Detector for NosqlInjectionDetector {
                         notes.push("🌐 In route handler (direct user input)".to_string());
                     }
                     if let Some((func_name, callers)) = &containing_func {
-                        notes.push(format!("📦 In function: `{}` ({} callers)", func_name, callers));
+                        notes.push(format!(
+                            "📦 In function: `{}` ({} callers)",
+                            func_name, callers
+                        ));
                     }
-                    
+
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                    
+
                     let suggestion = match risk_type {
                         "where" =>
                             "**Never use $where with user input** - it executes JavaScript.\n\n\
@@ -250,7 +309,7 @@ impl Detector for NosqlInjectionDetector {
                              db.collection.find(cleanInput);\n\
                              ```".to_string(),
                     };
-                    
+
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "NosqlInjectionDetector".to_string(),
@@ -272,15 +331,19 @@ impl Detector for NosqlInjectionDetector {
                              • Bypass authentication ({ password: { $ne: '' } })\n\
                              • Extract data through $regex probing\n\
                              • Execute arbitrary JavaScript ($where)\n\
-                             • Denial of service through ReDoS".to_string()
+                             • Denial of service through ReDoS"
+                                .to_string(),
                         ),
                         ..Default::default()
                     });
                 }
             }
         }
-        
-        info!("NosqlInjectionDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "NosqlInjectionDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

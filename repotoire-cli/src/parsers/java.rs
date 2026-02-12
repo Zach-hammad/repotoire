@@ -106,7 +106,12 @@ fn extract_classes_recursive(
 }
 
 /// Parse a class declaration into a Class struct
-fn parse_class_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+fn parse_class_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    parent: Option<&str>,
+) -> Option<Class> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -158,7 +163,12 @@ fn parse_class_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str
 }
 
 /// Parse an interface declaration into a Class struct
-fn parse_interface_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+fn parse_interface_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    parent: Option<&str>,
+) -> Option<Class> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -170,7 +180,12 @@ fn parse_interface_node(node: &Node, source: &[u8], path: &Path, parent: Option<
 
     let line_start = node.start_position().row as u32 + 1;
     let line_end = node.end_position().row as u32 + 1;
-    let qualified_name = format!("{}::interface::{}:{}", path.display(), full_name, line_start);
+    let qualified_name = format!(
+        "{}::interface::{}:{}",
+        path.display(),
+        full_name,
+        line_start
+    );
 
     // Extract extended interfaces
     let mut bases = Vec::new();
@@ -228,7 +243,12 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>
 }
 
 /// Parse a record declaration into a Class struct
-fn parse_record_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+fn parse_record_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    parent: Option<&str>,
+) -> Option<Class> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -326,7 +346,12 @@ fn extract_interface_methods(
 }
 
 /// Parse a method declaration into a Function struct
-fn parse_method_node(node: &Node, source: &[u8], path: &Path, class_name: &str) -> Option<Function> {
+fn parse_method_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    class_name: &str,
+) -> Option<Function> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -356,7 +381,12 @@ fn parse_method_node(node: &Node, source: &[u8], path: &Path, class_name: &str) 
 }
 
 /// Parse a constructor declaration into a Function struct
-fn parse_constructor_node(node: &Node, source: &[u8], path: &Path, class_name: &str) -> Option<Function> {
+fn parse_constructor_node(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    class_name: &str,
+) -> Option<Function> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();
 
@@ -430,12 +460,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
 }
 
 /// Extract method calls from the AST
-fn extract_calls(
-    root: &Node,
-    source: &[u8],
-    path: &Path,
-    result: &mut ParseResult,
-) -> Result<()> {
+fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
     let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
 
     for func in &result.functions {
@@ -527,7 +552,11 @@ fn calculate_complexity(node: &Node, _source: &[u8]) -> u32 {
 
     fn count_branches(node: &Node, complexity: &mut u32) {
         match node.kind() {
-            "if_statement" | "while_statement" | "for_statement" | "enhanced_for_statement" | "do_statement" => {
+            "if_statement"
+            | "while_statement"
+            | "for_statement"
+            | "enhanced_for_statement"
+            | "do_statement" => {
                 *complexity += 1;
             }
             "catch_clause" => {
@@ -629,8 +658,14 @@ public class Test {}
         let path = PathBuf::from("Test.java");
         let result = parse_source(source, &path).unwrap();
 
-        assert!(result.imports.iter().any(|i| i.path.contains("java.util.List")));
-        assert!(result.imports.iter().any(|i| i.path.contains("java.util.Map")));
+        assert!(result
+            .imports
+            .iter()
+            .any(|i| i.path.contains("java.util.List")));
+        assert!(result
+            .imports
+            .iter()
+            .any(|i| i.path.contains("java.util.Map")));
     }
 
     #[test]
@@ -684,7 +719,7 @@ public class StreamProcessor {
 
         let class = &result.classes[0];
         assert_eq!(class.name, "StreamProcessor");
-        
+
         // Should have exactly 3 methods: constructor, process, registerCallback
         // NOT: filter lambda, map lambda, forEach lambda
         assert_eq!(
@@ -718,10 +753,12 @@ public class EventHandler {
         let result = parse_source(source, &path).unwrap();
 
         // Find the main class (not the anonymous one)
-        let main_class = result.classes.iter()
+        let main_class = result
+            .classes
+            .iter()
             .find(|c| c.name == "EventHandler")
             .expect("Should find EventHandler class");
-        
+
         // EventHandler should have 2 methods: setup, handleClick
         // NOT: actionPerformed (that belongs to anonymous ActionListener)
         assert_eq!(

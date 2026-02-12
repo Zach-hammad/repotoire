@@ -7,7 +7,6 @@
 //! - Trace if credential variables flow from sensitive sources
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,6 +14,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -29,18 +29,25 @@ fn log_pattern() -> &'static Regex {
 fn is_false_positive(line: &str) -> bool {
     let lower = line.to_lowercase();
     // Skip path/file references and tokenizer-related terms
-    lower.contains("_path") || lower.contains("_file") || lower.contains("_dir") 
-        || lower.contains("tokenizer") || lower.contains("token_path")
-        || lower.contains("password_field") || lower.contains("password_input")
-        || lower.contains("password_hash") || lower.contains("password_reset")
-        || lower.contains("no_password") || lower.contains("without_password")
-        || lower.contains("hide_password") || lower.contains("mask_password")
+    lower.contains("_path")
+        || lower.contains("_file")
+        || lower.contains("_dir")
+        || lower.contains("tokenizer")
+        || lower.contains("token_path")
+        || lower.contains("password_field")
+        || lower.contains("password_input")
+        || lower.contains("password_hash")
+        || lower.contains("password_reset")
+        || lower.contains("no_password")
+        || lower.contains("without_password")
+        || lower.contains("hide_password")
+        || lower.contains("mask_password")
 }
 
 /// Categorize the type of credential being logged
 fn categorize_credential(line: &str) -> (&'static str, &'static str) {
     let lower = line.to_lowercase();
-    
+
     if lower.contains("api_key") || lower.contains("apikey") {
         return ("API Key", "🔑");
     }
@@ -59,7 +66,7 @@ fn categorize_credential(line: &str) -> (&'static str, &'static str) {
     if lower.contains("credentials") {
         return ("Credentials", "👤");
     }
-    
+
     ("Sensitive Data", "⚠️")
 }
 
@@ -70,28 +77,36 @@ pub struct CleartextCredentialsDetector {
 
 impl CleartextCredentialsDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Find containing function and get context
-    fn find_function_context(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, usize, bool)> {
-        graph.get_functions()
+    fn find_function_context(
+        graph: &GraphStore,
+        file_path: &str,
+        line: u32,
+    ) -> Option<(String, usize, bool)> {
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| {
                 let callers = graph.get_callers(&f.qualified_name);
                 let name_lower = f.name.to_lowercase();
-                
+
                 // Check if this is an auth-related function
-                let is_auth_related = name_lower.contains("auth") ||
-                    name_lower.contains("login") ||
-                    name_lower.contains("signin") ||
-                    name_lower.contains("register") ||
-                    name_lower.contains("password") ||
-                    name_lower.contains("credential") ||
-                    name_lower.contains("token") ||
-                    name_lower.contains("session");
-                
+                let is_auth_related = name_lower.contains("auth")
+                    || name_lower.contains("login")
+                    || name_lower.contains("signin")
+                    || name_lower.contains("register")
+                    || name_lower.contains("password")
+                    || name_lower.contains("credential")
+                    || name_lower.contains("token")
+                    || name_lower.contains("session");
+
                 (f.name, callers.len(), is_auth_related)
             })
     }
@@ -105,71 +120,91 @@ impl CleartextCredentialsDetector {
 }
 
 impl Detector for CleartextCredentialsDetector {
-    fn name(&self) -> &'static str { "cleartext-credentials" }
-    fn description(&self) -> &'static str { "Detects credentials in logs" }
+    fn name(&self) -> &'static str {
+        "cleartext-credentials"
+    }
+    fn description(&self) -> &'static str {
+        "Detects credentials in logs"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") || path_str.contains("spec") { continue; }
-            
+            if path_str.contains("test") || path_str.contains("spec") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rb"|"php"|"cs") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "java" | "go" | "rb" | "php" | "cs"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if log_pattern().is_match(line) && !is_false_positive(line) {
                         let line_num = (i + 1) as u32;
                         let (cred_type, emoji) = categorize_credential(line);
-                        
+
                         // Graph-enhanced analysis
                         let func_context = Self::find_function_context(graph, &path_str, line_num);
                         let is_prod_log = Self::is_production_logging(line);
-                        
+
                         // Calculate severity
                         let mut severity = Severity::High;
-                        
+
                         if let Some((_, _, is_auth)) = &func_context {
                             // Critical if in auth-related code
                             if *is_auth {
                                 severity = Severity::Critical;
                             }
                         }
-                        
+
                         // Critical for production logs
                         if is_prod_log {
                             severity = Severity::Critical;
                         }
-                        
+
                         // Build notes
                         let mut notes = Vec::new();
                         notes.push(format!("{} Credential type: {}", emoji, cred_type));
-                        
+
                         if let Some((func_name, callers, is_auth)) = &func_context {
-                            notes.push(format!("📦 In function: `{}` ({} callers)", func_name, callers));
+                            notes.push(format!(
+                                "📦 In function: `{}` ({} callers)",
+                                func_name, callers
+                            ));
                             if *is_auth {
                                 notes.push("🔐 In authentication-related code".to_string());
                             }
                         }
-                        
+
                         if is_prod_log {
                             notes.push("🚨 Production log level (error/warn)".to_string());
                         }
-                        
+
                         let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                        
+
                         let suggestion = match ext {
-                            "py" => 
-                                "Mask or remove credentials from logs:\n\
+                            "py" => "Mask or remove credentials from logs:\n\
                                  ```python\n\
                                  # Instead of:\n\
                                  logger.info(f\"Login attempt with password: {password}\")\n\
@@ -178,9 +213,9 @@ impl Detector for CleartextCredentialsDetector {
                                  logger.info(f\"Login attempt for user: {username}\")\n\
                                  # Or mask:\n\
                                  logger.debug(f\"Password length: {len(password)}\")\n\
-                                 ```".to_string(),
-                            "js" | "ts" => 
-                                "Mask or remove credentials from logs:\n\
+                                 ```"
+                            .to_string(),
+                            "js" | "ts" => "Mask or remove credentials from logs:\n\
                                  ```javascript\n\
                                  // Instead of:\n\
                                  console.log('API Key:', apiKey);\n\
@@ -189,10 +224,11 @@ impl Detector for CleartextCredentialsDetector {
                                  console.log('API Key set:', !!apiKey);\n\
                                  // Or redact:\n\
                                  console.log('API Key:', apiKey.slice(0, 4) + '****');\n\
-                                 ```".to_string(),
+                                 ```"
+                            .to_string(),
                             _ => "Remove sensitive data from logs or use masking.".to_string(),
                         };
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "CleartextCredentialsDetector".to_string(),
@@ -214,7 +250,8 @@ impl Detector for CleartextCredentialsDetector {
                                  • Exposed in log files accessible to attackers\n\
                                  • Sent to centralized logging systems\n\
                                  • Visible in monitoring dashboards\n\
-                                 • Captured in crash reports".to_string()
+                                 • Captured in crash reports"
+                                    .to_string(),
                             ),
                             ..Default::default()
                         });
@@ -222,8 +259,11 @@ impl Detector for CleartextCredentialsDetector {
                 }
             }
         }
-        
-        info!("CleartextCredentialsDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "CleartextCredentialsDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

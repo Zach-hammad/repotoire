@@ -6,7 +6,6 @@
 //! - Checks for Promise chain patterns (.then, .catch)
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,6 +14,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static ASYNC_CALL: OnceLock<Regex> = OnceLock::new();
 static ASYNC_DEF: OnceLock<Regex> = OnceLock::new();
@@ -38,13 +38,16 @@ pub struct MissingAwaitDetector {
 
 impl MissingAwaitDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Identify async functions from the graph
     fn find_async_functions(graph: &GraphStore) -> HashSet<String> {
         let mut async_funcs = HashSet::new();
-        
+
         for func in graph.get_functions() {
             // Check if function is marked as async in properties
             if let Some(is_async) = func.properties.get("is_async") {
@@ -52,14 +55,15 @@ impl MissingAwaitDetector {
                     async_funcs.insert(func.name.clone());
                 }
             }
-            
+
             // Check function name patterns that are typically async
             let name_lower = func.name.to_lowercase();
-            if name_lower.starts_with("async_") || 
-               name_lower.starts_with("fetch_") ||
-               name_lower.starts_with("get_") ||
-               name_lower.starts_with("load_") ||
-               name_lower.ends_with("_async") {
+            if name_lower.starts_with("async_")
+                || name_lower.starts_with("fetch_")
+                || name_lower.starts_with("get_")
+                || name_lower.starts_with("load_")
+                || name_lower.ends_with("_async")
+            {
                 // Check file content for async keyword
                 if let Ok(content) = std::fs::read_to_string(&func.file_path) {
                     let lines: Vec<&str> = content.lines().collect();
@@ -71,13 +75,14 @@ impl MissingAwaitDetector {
                 }
             }
         }
-        
+
         async_funcs
     }
 
     /// Find containing function name
     fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
-        graph.get_functions()
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| f.name)
@@ -85,47 +90,59 @@ impl MissingAwaitDetector {
 }
 
 impl Detector for MissingAwaitDetector {
-    fn name(&self) -> &'static str { "missing-await" }
-    fn description(&self) -> &'static str { "Detects async calls without await" }
+    fn name(&self) -> &'static str {
+        "missing-await"
+    }
+    fn description(&self) -> &'static str {
+        "Detects async calls without await"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        
+
         // Find all async functions in the codebase
         let known_async_funcs = Self::find_async_functions(graph);
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js"|"ts"|"jsx"|"tsx"|"py") { continue; }
+            if !matches!(ext, "js" | "ts" | "jsx" | "tsx" | "py") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut in_async = false;
                 let mut async_depth = 0;
                 let mut current_async_func = String::new();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     // Track async function scope
                     if async_def().is_match(line) {
                         in_async = true;
                         async_depth = line.chars().take_while(|c| c.is_whitespace()).count();
-                        
+
                         // Extract function name
-                        if let Some(func) = Self::find_containing_function(graph, &path_str, (i + 1) as u32) {
+                        if let Some(func) =
+                            Self::find_containing_function(graph, &path_str, (i + 1) as u32)
+                        {
                             current_async_func = func;
                         }
                     }
-                    
+
                     // Check if we've left the async function (Python indentation)
                     if in_async && ext == "py" {
                         let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
@@ -133,54 +150,66 @@ impl Detector for MissingAwaitDetector {
                             in_async = false;
                         }
                     }
-                    
+
                     // JS/TS: track braces
-                    if in_async && matches!(ext, "js"|"ts"|"jsx"|"tsx")
-                        && line.contains("}") && !line.contains("{") {
-                            // Simplified scope tracking
-                            if line.trim() == "}" || line.trim() == "};" {
-                                in_async = false;
-                            }
+                    if in_async
+                        && matches!(ext, "js" | "ts" | "jsx" | "tsx")
+                        && line.contains("}")
+                        && !line.contains("{")
+                    {
+                        // Simplified scope tracking
+                        if line.trim() == "}" || line.trim() == "};" {
+                            in_async = false;
                         }
-                    
-                    if !in_async { continue; }
-                    
+                    }
+
+                    if !in_async {
+                        continue;
+                    }
+
                     // Check for missing await on known async patterns
                     let has_async_call = async_call().is_match(line);
-                    
+
                     // Also check calls to known async functions
-                    let calls_known_async = known_async_funcs.iter()
+                    let calls_known_async = known_async_funcs
+                        .iter()
                         .any(|func| line.contains(&format!("{}(", func)));
-                    
+
                     if has_async_call || calls_known_async {
                         // Check if properly awaited
-                        let is_awaited = line.contains("await ") || 
-                                        line.contains(".then(") || 
-                                        line.contains("Promise.") ||
-                                        line.contains("return ") && line.contains("(");
-                        
+                        let is_awaited = line.contains("await ")
+                            || line.contains(".then(")
+                            || line.contains("Promise.")
+                            || line.contains("return ") && line.contains("(");
+
                         if !is_awaited {
                             // Build context
                             let mut notes = Vec::new();
                             if !current_async_func.is_empty() {
-                                notes.push(format!("📦 In async function: `{}`", current_async_func));
+                                notes.push(format!(
+                                    "📦 In async function: `{}`",
+                                    current_async_func
+                                ));
                             }
                             if calls_known_async {
-                                notes.push("🔍 Calls a function defined as async in this codebase".to_string());
+                                notes.push(
+                                    "🔍 Calls a function defined as async in this codebase"
+                                        .to_string(),
+                                );
                             }
-                            
+
                             let context_notes = if notes.is_empty() {
                                 String::new()
                             } else {
                                 format!("\n\n**Analysis:**\n{}", notes.join("\n"))
                             };
-                            
+
                             let severity = if calls_known_async {
-                                Severity::High  // Calling a known async without await = definite bug
+                                Severity::High // Calling a known async without await = definite bug
                             } else {
                                 Severity::Medium
                             };
-                            
+
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "MissingAwaitDetector".to_string(),
@@ -216,8 +245,11 @@ impl Detector for MissingAwaitDetector {
                 }
             }
         }
-        
-        info!("MissingAwaitDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "MissingAwaitDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

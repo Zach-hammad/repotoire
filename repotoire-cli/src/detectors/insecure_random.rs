@@ -6,7 +6,6 @@
 //! - Language-specific secure alternatives
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -15,6 +14,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
+use uuid::Uuid;
 
 static INSECURE_RANDOM: OnceLock<Regex> = OnceLock::new();
 
@@ -27,7 +27,8 @@ fn insecure_random() -> &'static Regex {
 /// Get secure alternative for each language
 fn get_secure_alternative(ext: &str) -> &'static str {
     match ext {
-        "py" => "```python\n\
+        "py" => {
+            "```python\n\
                  import secrets\n\
                  \n\
                  # For tokens/passwords\n\
@@ -38,8 +39,10 @@ fn get_secure_alternative(ext: &str) -> &'static str {
                  \n\
                  # For random bytes\n\
                  data = secrets.token_bytes(16)\n\
-                 ```",
-        "js" | "ts" => "```javascript\n\
+                 ```"
+        }
+        "js" | "ts" => {
+            "```javascript\n\
                         // Node.js\n\
                         const crypto = require('crypto');\n\
                         const token = crypto.randomBytes(32).toString('hex');\n\
@@ -47,37 +50,48 @@ fn get_secure_alternative(ext: &str) -> &'static str {
                         // Browser\n\
                         const array = new Uint8Array(32);\n\
                         crypto.getRandomValues(array);\n\
-                        ```",
-        "java" => "```java\n\
+                        ```"
+        }
+        "java" => {
+            "```java\n\
                    import java.security.SecureRandom;\n\
                    \n\
                    SecureRandom random = new SecureRandom();\n\
                    byte[] bytes = new byte[32];\n\
                    random.nextBytes(bytes);\n\
-                   ```",
-        "go" => "```go\n\
+                   ```"
+        }
+        "go" => {
+            "```go\n\
                  import \"crypto/rand\"\n\
                  \n\
                  bytes := make([]byte, 32)\n\
                  rand.Read(bytes)\n\
-                 ```",
-        "php" => "```php\n\
+                 ```"
+        }
+        "php" => {
+            "```php\n\
                   // PHP 7+\n\
                   $bytes = random_bytes(32);\n\
                   $token = bin2hex($bytes);\n\
-                  ```",
-        "rb" => "```ruby\n\
+                  ```"
+        }
+        "rb" => {
+            "```ruby\n\
                  require 'securerandom'\n\
                  \n\
                  token = SecureRandom.hex(32)\n\
-                 ```",
-        "c" | "cpp" => "```c\n\
+                 ```"
+        }
+        "c" | "cpp" => {
+            "```c\n\
                         // Linux\n\
                         #include <sys/random.h>\n\
                         getrandom(buffer, size, 0);\n\
                         \n\
                         // Or read from /dev/urandom\n\
-                        ```",
+                        ```"
+        }
         _ => "Use your platform's cryptographic random number generator.",
     }
 }
@@ -89,71 +103,103 @@ pub struct InsecureRandomDetector {
 
 impl InsecureRandomDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+        }
     }
 
     /// Check what the random value is used for
     fn analyze_usage(line: &str, surrounding: &str) -> (SecurityContext, String) {
         let combined = format!("{} {}", line, surrounding).to_lowercase();
-        
+
         // Token/secret generation
-        if combined.contains("token") || combined.contains("secret") || combined.contains("api_key") {
-            return (SecurityContext::Token, "token/secret generation".to_string());
+        if combined.contains("token") || combined.contains("secret") || combined.contains("api_key")
+        {
+            return (
+                SecurityContext::Token,
+                "token/secret generation".to_string(),
+            );
         }
-        
+
         // Password/salt
         if combined.contains("password") || combined.contains("salt") || combined.contains("hash") {
-            return (SecurityContext::Password, "password/salt generation".to_string());
+            return (
+                SecurityContext::Password,
+                "password/salt generation".to_string(),
+            );
         }
-        
+
         // Session/auth
         if combined.contains("session") || combined.contains("auth") || combined.contains("login") {
-            return (SecurityContext::Session, "session/authentication".to_string());
+            return (
+                SecurityContext::Session,
+                "session/authentication".to_string(),
+            );
         }
-        
+
         // ID generation
         if combined.contains("id") || combined.contains("uuid") || combined.contains("identifier") {
             return (SecurityContext::ID, "ID generation".to_string());
         }
-        
+
         // Crypto
-        if combined.contains("crypto") || combined.contains("encrypt") || combined.contains("key") ||
-           combined.contains("iv") || combined.contains("nonce") {
-            return (SecurityContext::Crypto, "cryptographic operation".to_string());
+        if combined.contains("crypto")
+            || combined.contains("encrypt")
+            || combined.contains("key")
+            || combined.contains("iv")
+            || combined.contains("nonce")
+        {
+            return (
+                SecurityContext::Crypto,
+                "cryptographic operation".to_string(),
+            );
         }
-        
+
         // OTP/verification
-        if combined.contains("otp") || combined.contains("code") || combined.contains("verification") ||
-           combined.contains("pin") {
+        if combined.contains("otp")
+            || combined.contains("code")
+            || combined.contains("verification")
+            || combined.contains("pin")
+        {
             return (SecurityContext::OTP, "OTP/verification code".to_string());
         }
-        
+
         (SecurityContext::Unknown, "unknown".to_string())
     }
 
     /// Find functions that use insecure random and are called by security-related code
     fn find_security_callers(&self, graph: &GraphStore, func_name: &str) -> Vec<String> {
         let mut security_callers = Vec::new();
-        
-        if let Some(func) = graph.get_functions().into_iter().find(|f| f.name == func_name) {
+
+        if let Some(func) = graph
+            .get_functions()
+            .into_iter()
+            .find(|f| f.name == func_name)
+        {
             let callers = graph.get_callers(&func.qualified_name);
-            
+
             for caller in callers {
                 let caller_lower = caller.name.to_lowercase();
-                if caller_lower.contains("auth") || caller_lower.contains("login") ||
-                   caller_lower.contains("token") || caller_lower.contains("session") ||
-                   caller_lower.contains("password") || caller_lower.contains("secret") {
+                if caller_lower.contains("auth")
+                    || caller_lower.contains("login")
+                    || caller_lower.contains("token")
+                    || caller_lower.contains("session")
+                    || caller_lower.contains("password")
+                    || caller_lower.contains("secret")
+                {
                     security_callers.push(caller.name.clone());
                 }
             }
         }
-        
+
         security_callers
     }
 
     /// Find containing function
     fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
-        graph.get_functions()
+        graph
+            .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
             .map(|f| f.name)
@@ -172,8 +218,12 @@ enum SecurityContext {
 }
 
 impl Detector for InsecureRandomDetector {
-    fn name(&self) -> &'static str { "insecure-random" }
-    fn description(&self) -> &'static str { "Detects insecure random for security purposes" }
+    fn name(&self) -> &'static str {
+        "insecure-random"
+    }
+    fn description(&self) -> &'static str {
+        "Detects insecure random for security purposes"
+    }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
@@ -183,51 +233,69 @@ impl Detector for InsecureRandomDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            
+            if !path.is_file() {
+                continue;
+            }
+
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip test files
-            if path_str.contains("test") { continue; }
-            
+            if path_str.contains("test") {
+                continue;
+            }
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rb"|"php"|"c"|"cpp") { continue; }
+            if !matches!(
+                ext,
+                "py" | "js" | "ts" | "java" | "go" | "rb" | "php" | "c" | "cpp"
+            ) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
-                
+
                 for (i, line) in lines.iter().enumerate() {
                     if insecure_random().is_match(line) {
                         let start = i.saturating_sub(5);
                         let end = (i + 5).min(lines.len());
                         let surrounding = lines[start..end].join(" ");
-                        
+
                         let (context, usage) = Self::analyze_usage(line, &surrounding);
-                        let containing_func = Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-                        
+                        let containing_func =
+                            Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+
                         // Check if function is called by security code
                         let security_callers = if let Some(ref func) = containing_func {
                             self.find_security_callers(graph, func)
                         } else {
                             vec![]
                         };
-                        
+
                         // Only flag if in security context
                         if context == SecurityContext::Unknown && security_callers.is_empty() {
                             continue;
                         }
-                        
+
                         // Calculate severity
                         let severity = match context {
-                            SecurityContext::Crypto | SecurityContext::Password => Severity::Critical,
-                            SecurityContext::Token | SecurityContext::Session | SecurityContext::OTP => Severity::High,
+                            SecurityContext::Crypto | SecurityContext::Password => {
+                                Severity::Critical
+                            }
+                            SecurityContext::Token
+                            | SecurityContext::Session
+                            | SecurityContext::OTP => Severity::High,
                             SecurityContext::ID => Severity::Medium,
-                            SecurityContext::Unknown if !security_callers.is_empty() => Severity::High,
+                            SecurityContext::Unknown if !security_callers.is_empty() => {
+                                Severity::High
+                            }
                             _ => Severity::Medium,
                         };
-                        
+
                         // Build notes
                         let mut notes = Vec::new();
                         notes.push(format!("🎯 Used for: {}", usage));
@@ -235,13 +303,19 @@ impl Detector for InsecureRandomDetector {
                             notes.push(format!("📦 In function: `{}`", func));
                         }
                         if !security_callers.is_empty() {
-                            notes.push(format!("⚠️ Called by security functions: {}", security_callers.join(", ")));
+                            notes.push(format!(
+                                "⚠️ Called by security functions: {}",
+                                security_callers.join(", ")
+                            ));
                         }
-                        
+
                         let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-                        
-                        let random_func = insecure_random().find(line).map(|m| m.as_str()).unwrap_or("random");
-                        
+
+                        let random_func = insecure_random()
+                            .find(line)
+                            .map(|m| m.as_str())
+                            .unwrap_or("random");
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "InsecureRandomDetector".to_string(),
@@ -272,8 +346,11 @@ impl Detector for InsecureRandomDetector {
                 }
             }
         }
-        
-        info!("InsecureRandomDetector found {} findings (graph-aware)", findings.len());
+
+        info!(
+            "InsecureRandomDetector found {} findings (graph-aware)",
+            findings.len()
+        );
         Ok(findings)
     }
 }

@@ -59,7 +59,8 @@ fn extract_functions(
     "#;
 
     let language = tree_sitter_go::LANGUAGE;
-    let query = Query::new(&language.into(), func_query_str).context("Failed to create function query")?;
+    let query =
+        Query::new(&language.into(), func_query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&query, *root, source);
@@ -85,8 +86,8 @@ fn extract_functions(
 
         if let Some(node) = func_node {
             let parameters = extract_parameters(params_node, source);
-            let return_type = return_type_node
-                .map(|n| n.utf8_text(source).unwrap_or("").to_string());
+            let return_type =
+                return_type_node.map(|n| n.utf8_text(source).unwrap_or("").to_string());
 
             let line_start = node.start_position().row as u32 + 1;
             let line_end = node.end_position().row as u32 + 1;
@@ -129,7 +130,8 @@ fn extract_methods(
     "#;
 
     let language = tree_sitter_go::LANGUAGE;
-    let query = Query::new(&language.into(), method_query_str).context("Failed to create method query")?;
+    let query =
+        Query::new(&language.into(), method_query_str).context("Failed to create method query")?;
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&query, *root, source);
@@ -158,8 +160,8 @@ fn extract_methods(
         if let Some(node) = method_node {
             let receiver_type = extract_receiver_type(receiver_node, source);
             let parameters = extract_parameters(params_node, source);
-            let return_type = return_type_node
-                .map(|n| n.utf8_text(source).unwrap_or("").to_string());
+            let return_type =
+                return_type_node.map(|n| n.utf8_text(source).unwrap_or("").to_string());
 
             let line_start = node.start_position().row as u32 + 1;
             let line_end = node.end_position().row as u32 + 1;
@@ -385,12 +387,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
 }
 
 /// Extract function calls from the AST
-fn extract_calls(
-    root: &Node,
-    source: &[u8],
-    path: &Path,
-    result: &mut ParseResult,
-) -> Result<()> {
+fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
     let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
 
     for func in &result.functions {
@@ -638,10 +635,12 @@ func (h *Handler) Clear() {
 
         // Should have exactly 3 methods on Handler: Register, Execute, Clear
         // NOT: the closure in Register, the goroutine func in Execute
-        let methods: Vec<_> = result.functions.iter()
+        let methods: Vec<_> = result
+            .functions
+            .iter()
             .filter(|f| f.qualified_name.contains("Handler"))
             .collect();
-        
+
         assert_eq!(
             methods.len(),
             3,
@@ -663,10 +662,12 @@ type Writer interface {
         let path = PathBuf::from("test.go");
         let result = parse_source(source, &path).unwrap();
 
-        let iface = result.classes.iter()
+        let iface = result
+            .classes
+            .iter()
             .find(|c| c.name == "Writer")
             .expect("Should find Writer interface");
-        
+
         assert_eq!(
             iface.methods.len(),
             2,

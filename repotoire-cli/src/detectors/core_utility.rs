@@ -301,13 +301,14 @@ impl Detector for CoreUtilityDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         for func in graph.get_functions() {
             let fan_in = graph.call_fan_in(&func.qualified_name);
             let fan_out = graph.call_fan_out(&func.qualified_name);
-            
+
             // Core utility: high fan-in, low fan-out (many depend on it, it depends on few)
             if fan_in >= 10 && fan_out <= 2 {
                 findings.push(Finding {
@@ -331,7 +332,7 @@ impl Detector for CoreUtilityDetector {
                 });
             }
         }
-        
+
         Ok(findings)
     }
 }

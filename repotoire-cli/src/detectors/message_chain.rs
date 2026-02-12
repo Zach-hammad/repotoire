@@ -48,10 +48,9 @@ impl Default for MessageChainThresholds {
 
 /// Patterns to exclude (builder patterns, fluent APIs)
 const EXCLUDE_PATTERNS: &[&str] = &[
-    "builder", "with_", "set_", "add_", "and_", "or_",
-    "filter", "map", "reduce", "collect", "iter",
-    "select", "where", "order_by", "group_by", "join",
-    "expect", "unwrap", "ok", "err", "and_then",
+    "builder", "with_", "set_", "add_", "and_", "or_", "filter", "map", "reduce", "collect",
+    "iter", "select", "where", "order_by", "group_by", "join", "expect", "unwrap", "ok", "err",
+    "and_then",
 ];
 
 /// Detects Law of Demeter violations
@@ -107,7 +106,7 @@ impl MessageChainDetector {
     fn scan_source_files(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut seen: HashSet<(String, u32)> = HashSet::new();
-        
+
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
             .git_ignore(true)
@@ -130,23 +129,27 @@ impl MessageChainDetector {
                 continue;
             }
 
-            let rel_path = path.strip_prefix(&self.repository_path)
+            let rel_path = path
+                .strip_prefix(&self.repository_path)
                 .unwrap_or(path)
                 .to_path_buf();
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     let line_num = (i + 1) as u32;
-                    
+
                     // Skip comments
                     let trimmed = line.trim();
-                    if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") {
+                    if trimmed.starts_with("//")
+                        || trimmed.starts_with("#")
+                        || trimmed.starts_with("*")
+                    {
                         continue;
                     }
 
                     if let Some(m) = chain_pattern().find(line) {
                         let chain = m.as_str();
-                        
+
                         // Skip fluent APIs
                         if self.is_fluent_pattern(chain) {
                             continue;
@@ -165,7 +168,7 @@ impl MessageChainDetector {
                         seen.insert(key);
 
                         let severity = self.calculate_severity(depth);
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "MessageChainDetector".to_string(),
@@ -207,25 +210,25 @@ impl MessageChainDetector {
     /// Use call graph to find delegation chains across functions
     fn find_delegation_chains(&self, graph: &GraphStore) -> Vec<Finding> {
         let mut findings = Vec::new();
-        
+
         // Find functions that are part of long call chains
         for func in graph.get_functions() {
             // Check if this function is mostly a pass-through
             let callees = graph.get_callees(&func.qualified_name);
             let callers = graph.get_callers(&func.qualified_name);
-            
+
             // Single callee with single caller = potential chain link
             if callees.len() == 1 && callers.len() == 1 {
                 let complexity = func.complexity().unwrap_or(1);
-                
+
                 // Low complexity suggests pass-through
                 if complexity <= 2 {
                     // Trace the chain depth
                     let chain_depth = self.trace_chain_depth(graph, &func.qualified_name, 0);
-                    
+
                     if chain_depth >= self.thresholds.min_chain_depth as i32 {
                         let severity = self.calculate_severity(chain_depth as usize);
-                        
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "MessageChainDetector".to_string(),
@@ -294,10 +297,10 @@ impl Detector for MessageChainDetector {
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         // Source code scanning for inline chains
         findings.extend(self.scan_source_files());
-        
+
         // Graph analysis for delegation chains
         findings.extend(self.find_delegation_chains(graph));
 
@@ -313,7 +316,7 @@ mod tests {
     #[test]
     fn test_is_fluent_pattern() {
         let detector = MessageChainDetector::new(".");
-        
+
         assert!(detector.is_fluent_pattern(".filter().map().collect()"));
         assert!(detector.is_fluent_pattern(".with_name().with_age().build()"));
         assert!(!detector.is_fluent_pattern(".get_user().get_profile().get_settings()"));
@@ -322,7 +325,7 @@ mod tests {
     #[test]
     fn test_count_chain_depth() {
         let detector = MessageChainDetector::new(".");
-        
+
         // .a().b() = 2 calls (a, b)
         assert_eq!(detector.count_chain_depth(".a().b()"), 2);
         // .a().b().c().d() = 4 calls
@@ -332,7 +335,7 @@ mod tests {
     #[test]
     fn test_severity() {
         let detector = MessageChainDetector::new(".");
-        
+
         assert_eq!(detector.calculate_severity(4), Severity::Medium);
         assert_eq!(detector.calculate_severity(6), Severity::High);
     }

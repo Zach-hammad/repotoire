@@ -154,76 +154,67 @@ mod gh_actions;
 mod mypy;
 mod npm_audit;
 // mod pylint;
-mod radon;
-mod ruff;
-mod semgrep;
-mod tsc;
-mod vulture;
-mod secrets;
-mod empty_catch;
-mod todo_scanner;
-mod deep_nesting;
-mod magic_numbers;
-mod large_files;
-mod path_traversal;
-mod command_injection;
-mod ssrf;
-mod missing_docstrings;
-mod regex_dos;
-mod sync_in_async;
-mod n_plus_one;
-mod insecure_crypto;
-mod xss;
-mod hardcoded_ips;
-mod insecure_random;
-mod cors_misconfig;
-mod debug_code;
-mod commented_code;
-mod long_methods;
-mod duplicate_code;
-mod unreachable_code;
-mod string_concat_loop;
-mod xxe;
-mod insecure_deserialize;
-mod cleartext_credentials;
-mod wildcard_imports;
-mod mutable_default_args;
-mod global_variables;
-mod implicit_coercion;
-mod single_char_names;
-mod missing_await;
-mod unhandled_promise;
-mod callback_hell;
-mod test_in_production;
-mod insecure_cookie;
-mod jwt_weak;
-mod prototype_pollution;
-mod nosql_injection;
-mod log_injection;
-mod broad_exception;
 mod boolean_trap;
-mod inconsistent_returns;
+mod broad_exception;
+mod callback_hell;
+mod cleartext_credentials;
+mod command_injection;
+mod commented_code;
+mod cors_misconfig;
 mod dead_store;
-mod hardcoded_timeout;
-mod regex_in_loop;
-mod react_hooks;
+mod debug_code;
+mod deep_nesting;
 mod django_security;
+mod duplicate_code;
+mod empty_catch;
 mod express_security;
+mod global_variables;
+mod hardcoded_ips;
+mod hardcoded_timeout;
+mod implicit_coercion;
+mod inconsistent_returns;
+mod insecure_cookie;
+mod insecure_crypto;
+mod insecure_deserialize;
+mod insecure_random;
+mod jwt_weak;
+mod large_files;
+mod log_injection;
+mod long_methods;
+mod magic_numbers;
+mod missing_await;
+mod missing_docstrings;
+mod mutable_default_args;
+mod n_plus_one;
+mod nosql_injection;
+mod path_traversal;
+mod prototype_pollution;
+mod radon;
+mod react_hooks;
+mod regex_dos;
+mod regex_in_loop;
+mod ruff;
+mod secrets;
+mod semgrep;
+mod single_char_names;
+mod ssrf;
+mod string_concat_loop;
+mod sync_in_async;
+mod test_in_production;
+mod todo_scanner;
+mod tsc;
+mod unhandled_promise;
+mod unreachable_code;
+mod vulture;
+mod wildcard_imports;
+mod xss;
+mod xxe;
 
 // Re-export base types
-pub use base::{
-    DetectionSummary,
-    Detector,
-    DetectorConfig,
-    DetectorResult,
-    ProgressCallback,
-};
+pub use base::{DetectionSummary, Detector, DetectorConfig, DetectorResult, ProgressCallback};
 
 // Re-export engine
-pub use engine::{
-    DetectorEngine,
-    DetectorEngineBuilder,
-};
+pub use engine::{DetectorEngine, DetectorEngineBuilder};
 
 // Re-export graph-based detector implementations
 pub use circular_dependency::CircularDependencyDetector;
@@ -275,9 +266,7 @@ pub use health_delta::{
 };
 pub use incremental_cache::{CacheStats, IncrementalCache};
 pub use query_cache::{ClassData, FileData, FunctionData, QueryCache};
-pub use risk_analyzer::{
-    analyze_compound_risks, RiskAnalyzer, RiskAssessment, RiskFactor,
-};
+pub use risk_analyzer::{analyze_compound_risks, RiskAnalyzer, RiskAssessment, RiskFactor};
 pub use root_cause_analyzer::{RootCauseAnalysis, RootCauseAnalyzer, RootCauseSummary};
 pub use voting_engine::{
     ConfidenceMethod, ConsensusResult, DetectorWeight, SeverityResolution, VotingEngine,
@@ -299,82 +288,71 @@ pub use tsc::TscDetector;
 pub use vulture::VultureDetector;
 
 // New detectors
-pub use secrets::SecretDetector;
-pub use empty_catch::EmptyCatchDetector;
-pub use todo_scanner::TodoScanner;
-pub use deep_nesting::DeepNestingDetector;
-pub use magic_numbers::MagicNumbersDetector;
-pub use large_files::LargeFilesDetector;
-pub use path_traversal::PathTraversalDetector;
-pub use command_injection::CommandInjectionDetector;
-pub use ssrf::SsrfDetector;
-pub use missing_docstrings::MissingDocstringsDetector;
-pub use regex_dos::RegexDosDetector;
-pub use sync_in_async::SyncInAsyncDetector;
-pub use n_plus_one::NPlusOneDetector;
-pub use insecure_crypto::InsecureCryptoDetector;
-pub use xss::XssDetector;
-pub use hardcoded_ips::HardcodedIpsDetector;
-pub use insecure_random::InsecureRandomDetector;
-pub use cors_misconfig::CorsMisconfigDetector;
-pub use debug_code::DebugCodeDetector;
-pub use commented_code::CommentedCodeDetector;
-pub use long_methods::LongMethodsDetector;
-pub use duplicate_code::DuplicateCodeDetector;
-pub use unreachable_code::UnreachableCodeDetector;
-pub use string_concat_loop::StringConcatLoopDetector;
-pub use xxe::XxeDetector;
-pub use insecure_deserialize::InsecureDeserializeDetector;
-pub use cleartext_credentials::CleartextCredentialsDetector;
-pub use wildcard_imports::WildcardImportsDetector;
-pub use mutable_default_args::MutableDefaultArgsDetector;
-pub use global_variables::GlobalVariablesDetector;
-pub use implicit_coercion::ImplicitCoercionDetector;
-pub use single_char_names::SingleCharNamesDetector;
-pub use missing_await::MissingAwaitDetector;
-pub use unhandled_promise::UnhandledPromiseDetector;
-pub use callback_hell::CallbackHellDetector;
-pub use test_in_production::TestInProductionDetector;
-pub use insecure_cookie::InsecureCookieDetector;
-pub use jwt_weak::JwtWeakDetector;
-pub use prototype_pollution::PrototypePollutionDetector;
-pub use nosql_injection::NosqlInjectionDetector;
-pub use log_injection::LogInjectionDetector;
-pub use broad_exception::BroadExceptionDetector;
 pub use boolean_trap::BooleanTrapDetector;
-pub use inconsistent_returns::InconsistentReturnsDetector;
+pub use broad_exception::BroadExceptionDetector;
+pub use callback_hell::CallbackHellDetector;
+pub use cleartext_credentials::CleartextCredentialsDetector;
+pub use command_injection::CommandInjectionDetector;
+pub use commented_code::CommentedCodeDetector;
+pub use cors_misconfig::CorsMisconfigDetector;
 pub use dead_store::DeadStoreDetector;
-pub use hardcoded_timeout::HardcodedTimeoutDetector;
-pub use regex_in_loop::RegexInLoopDetector;
-pub use react_hooks::ReactHooksDetector;
+pub use debug_code::DebugCodeDetector;
+pub use deep_nesting::DeepNestingDetector;
 pub use django_security::DjangoSecurityDetector;
+pub use duplicate_code::DuplicateCodeDetector;
+pub use empty_catch::EmptyCatchDetector;
 pub use express_security::ExpressSecurityDetector;
+pub use global_variables::GlobalVariablesDetector;
+pub use hardcoded_ips::HardcodedIpsDetector;
+pub use hardcoded_timeout::HardcodedTimeoutDetector;
+pub use implicit_coercion::ImplicitCoercionDetector;
+pub use inconsistent_returns::InconsistentReturnsDetector;
+pub use insecure_cookie::InsecureCookieDetector;
+pub use insecure_crypto::InsecureCryptoDetector;
+pub use insecure_deserialize::InsecureDeserializeDetector;
+pub use insecure_random::InsecureRandomDetector;
+pub use jwt_weak::JwtWeakDetector;
+pub use large_files::LargeFilesDetector;
+pub use log_injection::LogInjectionDetector;
+pub use long_methods::LongMethodsDetector;
+pub use magic_numbers::MagicNumbersDetector;
+pub use missing_await::MissingAwaitDetector;
+pub use missing_docstrings::MissingDocstringsDetector;
+pub use mutable_default_args::MutableDefaultArgsDetector;
+pub use n_plus_one::NPlusOneDetector;
+pub use nosql_injection::NosqlInjectionDetector;
+pub use path_traversal::PathTraversalDetector;
+pub use prototype_pollution::PrototypePollutionDetector;
+pub use react_hooks::ReactHooksDetector;
+pub use regex_dos::RegexDosDetector;
+pub use regex_in_loop::RegexInLoopDetector;
+pub use secrets::SecretDetector;
+pub use single_char_names::SingleCharNamesDetector;
+pub use ssrf::SsrfDetector;
+pub use string_concat_loop::StringConcatLoopDetector;
+pub use sync_in_async::SyncInAsyncDetector;
+pub use test_in_production::TestInProductionDetector;
+pub use todo_scanner::TodoScanner;
+pub use unhandled_promise::UnhandledPromiseDetector;
+pub use unreachable_code::UnreachableCodeDetector;
+pub use wildcard_imports::WildcardImportsDetector;
+pub use xss::XssDetector;
+pub use xxe::XxeDetector;
 
 // Re-export function context types
 pub use function_context::{
-    FunctionContext,
-    FunctionContextBuilder,
-    FunctionContextMap,
-    FunctionRole,
+    FunctionContext, FunctionContextBuilder, FunctionContextMap, FunctionRole,
 };
 
 // Re-export external tool utilities
 pub use external_tool::{
-    ExternalToolResult,
-    GraphContext,
-    JsRuntime,
-    batch_get_graph_context,
-    get_graph_context,
-    get_js_exec_command,
-    get_js_runtime,
-    is_tool_installed,
-    run_external_tool,
-    run_js_tool,
+    batch_get_graph_context, get_graph_context, get_js_exec_command, get_js_runtime,
+    is_tool_installed, run_external_tool, run_js_tool, ExternalToolResult, GraphContext, JsRuntime,
 };
 
+use crate::config::ProjectConfig;
 use std::path::Path;
 use std::sync::Arc;
-use crate::config::ProjectConfig;
 
 /// Create a default set of graph-based detectors
 ///
@@ -388,15 +366,18 @@ pub fn default_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
 /// Create a default set of graph-based detectors with project configuration
 ///
 /// This variant allows passing project-level configuration for threshold overrides.
-pub fn default_detectors_with_config(repository_path: &Path, project_config: &ProjectConfig) -> Vec<Arc<dyn Detector>> {
+pub fn default_detectors_with_config(
+    repository_path: &Path,
+    project_config: &ProjectConfig,
+) -> Vec<Arc<dyn Detector>> {
     vec![
         // Core detectors (with project config support)
         Arc::new(CircularDependencyDetector::new()),
         Arc::new(GodClassDetector::with_config(
-            DetectorConfig::from_project_config("GodClassDetector", project_config)
+            DetectorConfig::from_project_config("GodClassDetector", project_config),
         )),
         Arc::new(LongParameterListDetector::with_config(
-            DetectorConfig::from_project_config("LongParameterListDetector", project_config)
+            DetectorConfig::from_project_config("LongParameterListDetector", project_config),
         )),
         // Code smell detectors
         Arc::new(DataClumpsDetector::new()),
@@ -422,13 +403,21 @@ pub fn default_detectors_with_config(repository_path: &Path, project_config: &Pr
         Arc::new(ModuleCohesionDetector::new()),
         Arc::new(ShotgunSurgeryDetector::new()),
         // Security detectors (need repository path for file scanning)
-        Arc::new(EvalDetector::with_repository_path(repository_path.to_path_buf())),
-        Arc::new(PickleDeserializationDetector::with_repository_path(repository_path.to_path_buf())),
-        Arc::new(SQLInjectionDetector::with_repository_path(repository_path.to_path_buf())),
+        Arc::new(EvalDetector::with_repository_path(
+            repository_path.to_path_buf(),
+        )),
+        Arc::new(PickleDeserializationDetector::with_repository_path(
+            repository_path.to_path_buf(),
+        )),
+        Arc::new(SQLInjectionDetector::with_repository_path(
+            repository_path.to_path_buf(),
+        )),
         // TaintDetector disabled - naive file-based analysis, replaced by graph-based detectors:
         // PathTraversalDetector, CommandInjectionDetector, SqlInjectionDetector, etc.
         // Arc::new(TaintDetector::with_repository_path(repository_path.to_path_buf())),
-        Arc::new(UnsafeTemplateDetector::with_repository_path(repository_path.to_path_buf())),
+        Arc::new(UnsafeTemplateDetector::with_repository_path(
+            repository_path.to_path_buf(),
+        )),
         // Misc detectors
         Arc::new(GeneratorMisuseDetector::new()),
         Arc::new(InfiniteLoopDetector::new()),
@@ -460,7 +449,7 @@ pub fn default_detectors_with_config(repository_path: &Path, project_config: &Pr
         Arc::new(CommentedCodeDetector::new(repository_path)),
         Arc::new(LongMethodsDetector::with_config(
             repository_path,
-            DetectorConfig::from_project_config("long-methods", project_config)
+            DetectorConfig::from_project_config("long-methods", project_config),
         )),
         Arc::new(DuplicateCodeDetector::new(repository_path)),
         Arc::new(UnreachableCodeDetector::new(repository_path)),
@@ -596,16 +585,16 @@ pub fn create_full_engine(workers: usize, repository_path: &Path) -> DetectorEng
 }
 
 /// Create a file walker that respects .gitignore and .repotoireignore
-/// 
+///
 /// Use this instead of `walkdir::WalkDir` to ensure ignored files are skipped.
-/// 
+///
 /// # Arguments
 /// * `repository_path` - Path to the repository root
 /// * `extensions` - Optional list of file extensions to filter (e.g., &["py", "pyi"])
-/// 
+///
 /// # Returns
 /// Iterator over file paths (not directories)
-/// 
+///
 /// # Example
 /// ```rust,ignore
 /// for path in walk_source_files(&repo_path, Some(&["py"])) {
@@ -617,7 +606,7 @@ pub fn walk_source_files<'a>(
     extensions: Option<&'a [&'a str]>,
 ) -> impl Iterator<Item = std::path::PathBuf> + 'a {
     use ignore::WalkBuilder;
-    
+
     let mut builder = WalkBuilder::new(repository_path);
     builder
         .hidden(true) // Respect hidden files setting
@@ -626,16 +615,16 @@ pub fn walk_source_files<'a>(
         .git_exclude(true) // Respect .git/info/exclude
         .require_git(false) // Work even if not a git repo
         .add_custom_ignore_filename(".repotoireignore"); // Support .repotoireignore files
-    
+
     builder.build().filter_map(move |entry| {
         let entry = entry.ok()?;
         let path = entry.path();
-        
+
         // Skip directories
         if !path.is_file() {
             return None;
         }
-        
+
         // Filter by extension if specified
         if let Some(exts) = extensions {
             let ext = path.extension()?.to_str()?;
@@ -643,47 +632,51 @@ pub fn walk_source_files<'a>(
                 return None;
             }
         }
-        
+
         Some(path.to_path_buf())
     })
 }
 
 /// Check if a line has a repotoire suppression comment
-/// 
+///
 /// Supports multiple comment styles:
 /// - `# repotoire: ignore` (Python, Shell)
 /// - `// repotoire: ignore` (JS, Rust, Go, etc.)
 /// - `/* repotoire: ignore */` (C-style)
 /// - `-- repotoire: ignore` (SQL)
-/// 
+///
 /// Also checks the previous line for standalone suppression comments.
-/// 
+///
 /// # Arguments
 /// * `line` - The current line to check
 /// * `prev_line` - Optional previous line (for standalone comments)
-/// 
+///
 /// # Returns
 /// `true` if the line should be suppressed
 pub fn is_line_suppressed(line: &str, prev_line: Option<&str>) -> bool {
     let suppression_pattern = "repotoire: ignore";
     let suppression_pattern_alt = "repotoire:ignore";
-    
+
     // Check current line for inline suppression
     let line_lower = line.to_lowercase();
     if line_lower.contains(suppression_pattern) || line_lower.contains(suppression_pattern_alt) {
         return true;
     }
-    
+
     // Check previous line for standalone suppression comment
     if let Some(prev) = prev_line {
         let prev_lower = prev.trim().to_lowercase();
         // Only count if previous line is just a comment (not code + comment)
-        if (prev_lower.starts_with('#') || prev_lower.starts_with("//") || 
-            prev_lower.starts_with("--") || prev_lower.starts_with("/*")) &&
-           (prev_lower.contains(suppression_pattern) || prev_lower.contains(suppression_pattern_alt)) {
+        if (prev_lower.starts_with('#')
+            || prev_lower.starts_with("//")
+            || prev_lower.starts_with("--")
+            || prev_lower.starts_with("/*"))
+            && (prev_lower.contains(suppression_pattern)
+                || prev_lower.contains(suppression_pattern_alt))
+        {
             return true;
         }
     }
-    
+
     false
 }

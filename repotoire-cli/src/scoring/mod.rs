@@ -41,4 +41,4 @@
 
 mod graph_scorer;
 
-pub use graph_scorer::{GraphScorer, ScoreBreakdown, PillarBreakdown};
+pub use graph_scorer::{GraphScorer, PillarBreakdown, ScoreBreakdown};
