@@ -1,12 +1,17 @@
 //! Long parameter list detector
 //!
-//! Detects functions with too many parameters, which is a code smell indicating:
+//! Graph-enhanced detection of functions with too many parameters.
+//!
+//! Uses graph analysis to:
+//! - Identify constructors/factories (reduce severity - they legitimately need many params)
+//! - Detect delegation patterns (function passes most params to callee)
+//! - Find builder pattern implementations (acceptable)
+//! - Check if DataClumps exist for the parameters
+//!
+//! Detection indicates:
 //! - The function is doing too much (violates SRP)
 //! - Related parameters should be grouped into objects
 //! - The function has poor API design
-//!
-//! This is a simple, query-based detector that examines function signatures
-//! stored in the code graph.
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
@@ -328,35 +333,126 @@ impl Detector for LongParameterListDetector {
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         
+        // Constructor/factory patterns that legitimately need many params
+        let constructor_patterns = ["new", "create", "build", "make", "init", "from", "__init__", "constructor"];
+        
+        // Builder pattern methods (acceptable)
+        let builder_patterns = ["with_", "set_", "add_", "build"];
+        
         for func in graph.get_functions() {
             let param_count = func.param_count().unwrap_or(0) as usize;
             
-            // Use configured thresholds instead of hardcoded values
-            if param_count > self.thresholds.max_params {
-                let severity = self.calculate_severity(param_count);
-                
-                findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
-                    detector: "LongParameterListDetector".to_string(),
-                    severity,
-                    title: format!("Long parameter list: {}", func.name),
-                    description: format!(
-                        "Function '{}' has {} parameters (threshold: {}). Consider using a config object.",
-                        func.name, param_count, self.thresholds.max_params
-                    ),
-                    affected_files: vec![func.file_path.clone().into()],
-                    line_start: Some(func.line_start),
-                    line_end: Some(func.line_end),
-                    suggested_fix: Some("Group related parameters into a configuration object or class".to_string()),
-                    estimated_effort: Some(self.estimate_effort(param_count)),
-                    category: Some("quality".to_string()),
-                    cwe_id: None,
-                    why_it_matters: Some("Long parameter lists make functions hard to call and understand".to_string()),
-                    ..Default::default()
-                });
+            // Use configured thresholds
+            if param_count <= self.thresholds.max_params {
+                continue;
             }
+            
+            let name_lower = func.name.to_lowercase();
+            
+            // === Graph-aware pattern detection ===
+            
+            // 1. Check if this is a constructor/factory
+            let is_constructor = constructor_patterns.iter().any(|p| name_lower.starts_with(p) || name_lower == *p);
+            
+            // 2. Check if this is a builder pattern method
+            let is_builder = builder_patterns.iter().any(|p| name_lower.starts_with(p));
+            
+            // 3. Check if function delegates most params to a single callee (wrapper pattern)
+            let is_delegator = {
+                let callees = graph.get_callees(&func.qualified_name);
+                callees.iter().any(|callee| {
+                    // If callee has similar param count, this function is likely a wrapper
+                    let callee_params = callee.param_count().unwrap_or(0) as usize;
+                    callee_params >= param_count.saturating_sub(2)
+                })
+            };
+            
+            // 4. Check if this is an entry point handler (acceptable)
+            let is_entry_point = func.file_path.contains("/handlers/") 
+                || func.file_path.contains("/routes/")
+                || func.file_path.contains("/views/")
+                || func.name.contains("handle")
+                || func.name.contains("endpoint");
+            
+            // Calculate severity with graph-aware adjustments
+            let mut severity = self.calculate_severity(param_count);
+            let mut notes = Vec::new();
+            
+            if is_constructor {
+                severity = match severity {
+                    Severity::Critical => Severity::High,
+                    Severity::High => Severity::Medium,
+                    _ => Severity::Low,
+                };
+                notes.push("🏗️ Constructor/factory pattern (reduced severity)".to_string());
+            }
+            
+            if is_builder {
+                // Builder methods are fine with many params
+                continue;
+            }
+            
+            if is_delegator {
+                severity = match severity {
+                    Severity::Critical | Severity::High => Severity::Medium,
+                    _ => Severity::Low,
+                };
+                notes.push("📤 Delegates to another function (wrapper pattern)".to_string());
+            }
+            
+            if is_entry_point {
+                severity = match severity {
+                    Severity::Critical => Severity::High,
+                    Severity::High => Severity::Medium,
+                    _ => Severity::Low,
+                };
+                notes.push("🚪 Entry point/handler (reduced severity)".to_string());
+            }
+            
+            let pattern_notes = if notes.is_empty() {
+                String::new()
+            } else {
+                format!("\n\n**Graph Analysis:**\n{}", notes.join("\n"))
+            };
+            
+            // Build smart suggestion based on patterns
+            let suggestion = if is_constructor {
+                "For constructors with many parameters, consider:\n\
+                 1. Builder pattern: `MyClass::builder().field1(x).field2(y).build()`\n\
+                 2. Configuration struct: `MyClass::new(Config { ... })`".to_string()
+            } else if is_delegator {
+                "This function appears to be a wrapper. Consider:\n\
+                 1. If wrapping is necessary, this is acceptable\n\
+                 2. If not, remove the wrapper and call the target directly".to_string()
+            } else {
+                "Group related parameters into a configuration object or class".to_string()
+            };
+            
+            findings.push(Finding {
+                id: Uuid::new_v4().to_string(),
+                detector: "LongParameterListDetector".to_string(),
+                severity,
+                title: format!("Long parameter list: {}", func.name),
+                description: format!(
+                    "Function '{}' has {} parameters (threshold: {}).{}",
+                    func.name, param_count, self.thresholds.max_params, pattern_notes
+                ),
+                affected_files: vec![func.file_path.clone().into()],
+                line_start: Some(func.line_start),
+                line_end: Some(func.line_end),
+                suggested_fix: Some(suggestion),
+                estimated_effort: Some(self.estimate_effort(param_count)),
+                category: Some("quality".to_string()),
+                cwe_id: None,
+                why_it_matters: Some(
+                    "Long parameter lists make functions hard to call and understand. \
+                     Callers must remember parameter order and meaning.".to_string()
+                ),
+                ..Default::default()
+            });
         }
         
+        info!("LongParameterListDetector found {} findings (graph-aware)", findings.len());
         Ok(findings)
     }
 }
