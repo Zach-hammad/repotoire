@@ -188,94 +188,35 @@ impl App {
         let finding = self.selected_finding()?.clone();
         let index = self.list_state.selected()? + 1;
         
-        // Check for API key
-        let api_key = match self.config.anthropic_api_key() {
-            Some(key) => key.to_string(),
-            None => {
-                // Check environment as fallback
-                match std::env::var("ANTHROPIC_API_KEY") {
-                    Ok(key) => key,
-                    Err(_) => {
-                        return Some("❌ No API key. Run: repotoire config init".to_string());
-                    }
-                }
-            }
-        };
-        
         // Check if agent already running for this finding
         if self.agents.iter().any(|a| a.finding_index == index && matches!(a.status, AgentStatus::Running)) {
             return Some(format!("⚠️ Agent already running for finding #{}", index));
         }
         
-        let file = finding.affected_files.first()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default();
+        // Check backend configuration
+        let use_ollama = self.config.use_ollama();
         
-        let line_start = finding.line_start.unwrap_or(1);
-        let line_end = finding.line_end.unwrap_or(line_start);
-        
-        // Read actual code snippet for context
-        let code_context = read_code_snippet(&self.repo_path, &file, line_start, line_end, 5)
-            .map(|lines| {
-                lines.iter()
-                    .map(|(n, l)| format!("{:4} | {}", n, l))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_else(|| "Code not available".to_string());
-        
-        // Create a detailed task description
-        let task = format!(
-            r#"Fix this code issue:
-
-## Finding
-- **Title:** {}
-- **Severity:** {:?}
-- **File:** {}
-- **Lines:** {}-{}
-
-## Description
-{}
-
-## Code Context
-```
-{}
-```
-
-## Suggested Fix
-{}
-
-## Your Task
-1. Read the file: {}
-2. Fix the issue at lines {}-{}
-3. Run: git checkout -b fix/finding-{}
-4. Commit your fix with message: "fix: {}"
-5. Run: git push -u origin fix/finding-{}
-6. Run: gh pr create --title "fix: {}" --body "Fixes finding #{} - {}"
-
-Be precise. Make minimal changes. Test if possible."#,
-            finding.title,
-            finding.severity,
-            file,
-            line_start, line_end,
-            finding.description,
-            code_context,
-            finding.suggested_fix.as_deref().unwrap_or("Apply appropriate fix based on the description."),
-            file,
-            line_start, line_end,
-            index,
-            finding.title,
-            index,
-            finding.title,
-            index,
-            finding.title
-        );
+        // For Claude backend, check for API key
+        let api_key = if !use_ollama {
+            match self.config.anthropic_api_key() {
+                Some(key) => key.to_string(),
+                None => {
+                    match std::env::var("ANTHROPIC_API_KEY") {
+                        Ok(key) => key,
+                        Err(_) => {
+                            return Some("❌ No API key. Run: repotoire config init\n   Or use Ollama: repotoire config set ai.backend ollama".to_string());
+                        }
+                    }
+                }
+            }
+        } else {
+            String::new() // Not needed for Ollama
+        };
         
         // Create log file for this agent
         let log_dir = get_agent_log_dir(&self.repo_path);
         let log_file = log_dir.join(format!("agent_{}.log", index));
         
-        // Open log file for writing
         let log_handle = OpenOptions::new()
             .create(true)
             .write(true)
@@ -301,37 +242,76 @@ Be precise. Make minimal changes. Test if possible."#,
             "line_end": finding.line_end,
         });
         
-        // Try Agent SDK script first, fall back to Claude CLI
         let venv_python = self.repo_path.join(".venv/bin/python");
-        let agent_script = self.repo_path.join("scripts/fix_agent.py");
+        let system_python = std::path::PathBuf::from("python3");
         
-        let result = if venv_python.exists() && agent_script.exists() {
-            // Use Agent SDK
-            Command::new(&venv_python)
+        // Choose the right agent based on backend
+        let result = if use_ollama {
+            // Use Ollama agent (local, free)
+            let ollama_script = self.repo_path.join("scripts/fix_agent_ollama.py");
+            let python = if venv_python.exists() { &venv_python } else { &system_python };
+            
+            if !ollama_script.exists() {
+                return Some("❌ Ollama agent not found. Update repotoire.".to_string());
+            }
+            
+            Command::new(python)
                 .args([
-                    agent_script.to_str().unwrap(),
+                    ollama_script.to_str().unwrap(),
                     "--finding-json", &finding_json.to_string(),
                     "--repo-path", self.repo_path.to_str().unwrap(),
+                    "--model", self.config.ollama_model(),
                 ])
-                .env("ANTHROPIC_API_KEY", &api_key)
+                .env("OLLAMA_URL", self.config.ollama_url())
                 .current_dir(&self.repo_path)
                 .stdout(Stdio::from(stdout_file))
                 .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
                 .spawn()
         } else {
-            // Fall back to Claude CLI
-            Command::new("claude")
-                .args([
-                    "--print",
-                    "--dangerously-skip-permissions",
-                    "--permission-mode", "bypassPermissions",
-                    &task
-                ])
-                .env("ANTHROPIC_API_KEY", &api_key)
-                .current_dir(&self.repo_path)
-                .stdout(Stdio::from(stdout_file))
-                .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
-                .spawn()
+            // Use Claude Agent SDK
+            let agent_script = self.repo_path.join("scripts/fix_agent.py");
+            
+            if venv_python.exists() && agent_script.exists() {
+                Command::new(&venv_python)
+                    .args([
+                        agent_script.to_str().unwrap(),
+                        "--finding-json", &finding_json.to_string(),
+                        "--repo-path", self.repo_path.to_str().unwrap(),
+                    ])
+                    .env("ANTHROPIC_API_KEY", &api_key)
+                    .current_dir(&self.repo_path)
+                    .stdout(Stdio::from(stdout_file))
+                    .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
+                    .spawn()
+            } else {
+                // Fall back to Claude CLI
+                let file = finding.affected_files.first()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                let line_start = finding.line_start.unwrap_or(1);
+                let line_end = finding.line_end.unwrap_or(line_start);
+                
+                let task = format!(
+                    "Fix {} in {}:{}-{}. Issue: {}. {}",
+                    finding.title, file, line_start, line_end,
+                    finding.description,
+                    finding.suggested_fix.as_deref().unwrap_or("")
+                );
+                
+                Command::new("claude")
+                    .args(["--print", "--dangerously-skip-permissions", &task])
+                    .env("ANTHROPIC_API_KEY", &api_key)
+                    .current_dir(&self.repo_path)
+                    .stdout(Stdio::from(stdout_file))
+                    .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
+                    .spawn()
+            }
+        };
+        
+        let backend_name = if use_ollama { 
+            format!("Ollama ({})", self.config.ollama_model()) 
+        } else { 
+            "Claude".to_string() 
         };
         
         match result {
@@ -345,10 +325,14 @@ Be precise. Make minimal changes. Test if possible."#,
                     log_file: log_file.clone(),
                     child: Some(child),
                 });
-                Some(format!("🚀 Agent launched (PID: {}) - log: {}", pid, log_file.display()))
+                Some(format!("🚀 {} agent launched (PID: {})", backend_name, pid))
             }
             Err(e) => {
-                Some(format!("❌ Failed to launch agent: {}. Install: npm i -g @anthropic-ai/claude-code", e))
+                if use_ollama {
+                    Some(format!("❌ Failed: {}. Is Ollama running? (ollama serve)", e))
+                } else {
+                    Some(format!("❌ Failed: {}. Install claude-code or set up venv.", e))
+                }
             }
         }
     }

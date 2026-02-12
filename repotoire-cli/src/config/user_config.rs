@@ -24,6 +24,15 @@ pub struct AiConfig {
     
     /// Default model to use
     pub model: Option<String>,
+    
+    /// AI backend: "claude" (default), "ollama"
+    pub backend: Option<String>,
+    
+    /// Ollama URL (default: http://localhost:11434)
+    pub ollama_url: Option<String>,
+    
+    /// Ollama model (default: codellama)
+    pub ollama_model: Option<String>,
 }
 
 impl UserConfig {
@@ -71,6 +80,15 @@ impl UserConfig {
         if other.ai.model.is_some() {
             self.ai.model = other.ai.model;
         }
+        if other.ai.backend.is_some() {
+            self.ai.backend = other.ai.backend;
+        }
+        if other.ai.ollama_url.is_some() {
+            self.ai.ollama_url = other.ai.ollama_url;
+        }
+        if other.ai.ollama_model.is_some() {
+            self.ai.ollama_model = other.ai.ollama_model;
+        }
     }
     
     /// Get the Anthropic API key, if configured
@@ -81,6 +99,26 @@ impl UserConfig {
     /// Check if AI features are available
     pub fn has_ai_key(&self) -> bool {
         self.ai.anthropic_api_key.is_some()
+    }
+    
+    /// Get the AI backend (claude or ollama)
+    pub fn ai_backend(&self) -> &str {
+        self.ai.backend.as_deref().unwrap_or("claude")
+    }
+    
+    /// Check if Ollama backend is configured
+    pub fn use_ollama(&self) -> bool {
+        self.ai.backend.as_deref() == Some("ollama")
+    }
+    
+    /// Get Ollama URL
+    pub fn ollama_url(&self) -> &str {
+        self.ai.ollama_url.as_deref().unwrap_or("http://localhost:11434")
+    }
+    
+    /// Get Ollama model
+    pub fn ollama_model(&self) -> &str {
+        self.ai.ollama_model.as_deref().unwrap_or("codellama")
     }
     
     /// Initialize user config directory and create example config
@@ -94,17 +132,20 @@ impl UserConfig {
         
         if !config_path.exists() {
             let example = r#"# Repotoire User Configuration
-# Get your API key from: https://console.anthropic.com/
 
 [ai]
-# Required for AI-powered fixes (press 'F' in TUI)
+# Backend: "claude" (needs API key) or "ollama" (free, local)
+# backend = "claude"
+
+# For Claude backend - get key from: https://console.anthropic.com/
 # anthropic_api_key = "sk-ant-..."
+
+# For Ollama backend (free, runs locally)
+# ollama_url = "http://localhost:11434"
+# ollama_model = "codellama"  # or "deepseek-coder", "qwen2.5-coder", etc.
 
 # Optional: for embeddings
 # openai_api_key = "sk-..."
-
-# Optional: default model
-# model = "claude-sonnet-4-20250514"
 "#;
             std::fs::write(&config_path, example)?;
         }

@@ -287,8 +287,13 @@ pub fn run(cli: Cli) -> Result<()> {
                     }
                     println!("  Project: ./repotoire.toml {}", if std::path::Path::new("repotoire.toml").exists() { "✓" } else { "(not found)" });
                     println!();
-                    println!("🔑 API Keys:");
-                    println!("  ANTHROPIC_API_KEY: {}", if config.has_ai_key() { "✓ configured" } else { "✗ not set" });
+                    println!("🤖 AI Backend: {}", config.ai_backend());
+                    if config.use_ollama() {
+                        println!("  Ollama URL:   {}", config.ollama_url());
+                        println!("  Ollama Model: {}", config.ollama_model());
+                    } else {
+                        println!("  ANTHROPIC_API_KEY: {}", if config.has_ai_key() { "✓ configured" } else { "✗ not set" });
+                    }
                     Ok(())
                 }
                 ConfigAction::Set { key, value } => {
