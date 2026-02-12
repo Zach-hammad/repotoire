@@ -1,4 +1,9 @@
 //! Wildcard Imports Detector
+//!
+//! Graph-enhanced detection of wildcard imports.
+//! Uses graph to:
+//! - Check what's actually imported from the module (via import edges)
+//! - Suggest specific imports based on actual usage
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use uuid::Uuid;
@@ -6,13 +11,20 @@ use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use tracing::info;
 
 static WILDCARD_PATTERN: OnceLock<Regex> = OnceLock::new();
+static MODULE_NAME: OnceLock<Regex> = OnceLock::new();
 
 fn wildcard_pattern() -> &'static Regex {
     WILDCARD_PATTERN.get_or_init(|| Regex::new(r"(?i)(from\s+\S+\s+import\s+\*|import\s+\*\s+from|import\s+\*\s*;|\.\*;)").unwrap())
+}
+
+fn module_name() -> &'static Regex {
+    MODULE_NAME.get_or_init(|| Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#).unwrap())
 }
 
 pub struct WildcardImportsDetector {
@@ -24,13 +36,36 @@ impl WildcardImportsDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self { repository_path: repository_path.into(), max_findings: 100 }
     }
+
+    /// Extract module name from wildcard import line
+    fn extract_module_name(line: &str) -> Option<String> {
+        module_name().captures(line).and_then(|caps| {
+            caps.get(1).or(caps.get(2)).map(|m| m.as_str().to_string())
+        })
+    }
+
+    /// Find what symbols from a module are actually used in the file
+    fn find_used_symbols(content: &str, module: &str, graph: &GraphStore) -> Vec<String> {
+        // Get all functions/classes from the module
+        let module_symbols: HashSet<String> = graph.get_functions()
+            .into_iter()
+            .filter(|f| f.file_path.contains(module) || f.qualified_name.starts_with(module))
+            .map(|f| f.name)
+            .collect();
+        
+        // Check which are used in the content
+        module_symbols.into_iter()
+            .filter(|sym| content.contains(sym))
+            .take(10)
+            .collect()
+    }
 }
 
 impl Detector for WildcardImportsDetector {
     fn name(&self) -> &'static str { "wildcard-imports" }
     fn description(&self) -> &'static str { "Detects wildcard imports" }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
 
@@ -45,26 +80,68 @@ impl Detector for WildcardImportsDetector {
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if wildcard_pattern().is_match(line) {
+                        // Try to extract module name and find used symbols
+                        let module_name = Self::extract_module_name(line);
+                        let used_symbols = module_name.as_ref()
+                            .map(|m| Self::find_used_symbols(&content, m, graph))
+                            .unwrap_or_default();
+                        
+                        let mut notes = Vec::new();
+                        if !used_symbols.is_empty() {
+                            notes.push(format!("📊 Actually used: {}", 
+                                             used_symbols.iter().take(5).cloned().collect::<Vec<_>>().join(", ")));
+                            if used_symbols.len() > 5 {
+                                notes.push(format!("   ... and {} more", used_symbols.len() - 5));
+                            }
+                        }
+                        
+                        let context_notes = if notes.is_empty() {
+                            String::new()
+                        } else {
+                            format!("\n\n**Analysis:**\n{}", notes.join("\n"))
+                        };
+                        
+                        let suggestion = if !used_symbols.is_empty() {
+                            let imports = used_symbols.iter().take(10).cloned().collect::<Vec<_>>().join(", ");
+                            if let Some(ref module) = module_name {
+                                format!("Replace with explicit imports:\n```python\nfrom {} import {}\n```", 
+                                       module, imports)
+                            } else {
+                                format!("Import only what's needed: {}", imports)
+                            }
+                        } else {
+                            "Import specific names instead.".to_string()
+                        };
+                        
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "WildcardImportsDetector".to_string(),
                             severity: Severity::Low,
-                            title: "Wildcard import".to_string(),
-                            description: "Wildcard imports pollute namespace and hide dependencies.".to_string(),
+                            title: format!("Wildcard import{}", 
+                                          module_name.as_ref().map(|m| format!(": {}", m)).unwrap_or_default()),
+                            description: format!(
+                                "Wildcard imports pollute namespace and hide dependencies.{}",
+                                context_notes
+                            ),
                             affected_files: vec![path.to_path_buf()],
                             line_start: Some((i + 1) as u32),
                             line_end: Some((i + 1) as u32),
-                            suggested_fix: Some("Import specific names instead.".to_string()),
+                            suggested_fix: Some(suggestion),
                             estimated_effort: Some("5 minutes".to_string()),
                             category: Some("code-quality".to_string()),
                             cwe_id: None,
-                            why_it_matters: Some("Makes code harder to understand and refactor.".to_string()),
+                            why_it_matters: Some(
+                                "Makes code harder to understand and refactor. \
+                                 Tools can't determine where names come from.".to_string()
+                            ),
                             ..Default::default()
                         });
                     }
                 }
             }
         }
+        
+        info!("WildcardImportsDetector found {} findings (graph-aware)", findings.len());
         Ok(findings)
     }
 }
