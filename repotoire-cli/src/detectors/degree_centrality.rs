@@ -137,6 +137,7 @@ impl DegreeCentralityDetector {
     fn is_hub_file(&self, path: &str) -> bool {
         const SKIP_PATHS: &[&str] = &[
             "/mod.rs", "/lib.rs", "/main.rs", "/cli/", "/handlers/",
+            "/mcp/", "/parsers/", "/server.rs", "/router.rs",
         ];
         SKIP_PATHS.iter().any(|&pat| path.contains(pat))
     }
@@ -301,6 +302,11 @@ impl Detector for DegreeCentralityDetector {
         );
 
         for func in funcs {
+            // Skip common utility/trait method names
+            if self.should_skip_by_name(&func.name) {
+                continue;
+            }
+
             let ctx = contexts.get(&func.qualified_name);
 
             // Skip test functions

@@ -263,7 +263,21 @@ impl Detector for ShotgunSurgeryDetector {
         }
 
         // Also check high-impact functions (not just classes)
+        // Skip common trait methods that are expected to have many callers
+        const SKIP_METHODS: &[&str] = &[
+            "new", "default", "from", "into", "from_str", "to_string", "as_str",
+            "as_ref", "as_mut", "clone", "fmt", "eq", "cmp", "hash", "next",
+            "iter", "into_iter", "len", "is_empty", "get", "set", "with_",
+            "build", "parse", "serialize", "deserialize", "drop", "deref",
+        ];
+
         for func in graph.get_functions() {
+            // Skip common trait implementations
+            let name_lower = func.name.to_lowercase();
+            if SKIP_METHODS.iter().any(|m| name_lower == *m || name_lower.starts_with(m)) {
+                continue;
+            }
+
             let callers = graph.get_callers(&func.qualified_name);
             if callers.len() < self.thresholds.min_callers * 2 {
                 continue;
