@@ -1,4 +1,9 @@
 //! Test Code in Production Detector
+//!
+//! Graph-enhanced detection of test code in production:
+//! - Distinguish actual test imports from false positives
+//! - Check if test code is actually used in production paths
+//! - Categorize test patterns (mocks, assertions, fixtures)
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use uuid::Uuid;
@@ -6,13 +11,31 @@ use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use tracing::info;
 
-static TEST_CODE: OnceLock<Regex> = OnceLock::new();
+static TEST_IMPORT: OnceLock<Regex> = OnceLock::new();
+static TEST_USAGE: OnceLock<Regex> = OnceLock::new();
+static DEBUG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
-fn test_code() -> &'static Regex {
-    TEST_CODE.get_or_init(|| Regex::new(r"(?i)(mock\.|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|describe\(|it\(|expect\(|assert\.|fixture)").unwrap())
+fn test_import() -> &'static Regex {
+    TEST_IMPORT.get_or_init(|| {
+        Regex::new(r#"(?i)(import.*pytest|import.*unittest|import.*mock|from.*mock|require\(['"]jest|require\(['"]sinon|import.*@testing-library)"#).unwrap()
+    })
+}
+
+fn test_usage() -> &'static Regex {
+    TEST_USAGE.get_or_init(|| {
+        Regex::new(r"(?i)(mock\.|Mock\(|MagicMock|patch\(|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|describe\(|it\(|expect\(|\.toBe|\.toEqual|fixture|@Before|@After|@BeforeEach)").unwrap()
+    })
+}
+
+fn debug_pattern() -> &'static Regex {
+    DEBUG_PATTERN.get_or_init(|| {
+        Regex::new(r"(?i)(DEBUG\s*=\s*True|if\s+__debug__|if\s+DEBUG|#\s*TODO.*test|#\s*FIXME.*test)").unwrap()
+    })
 }
 
 pub struct TestInProductionDetector {
@@ -24,55 +47,213 @@ impl TestInProductionDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self { repository_path: repository_path.into(), max_findings: 50 }
     }
+
+    /// Categorize what kind of test code was found
+    fn categorize_test_code(line: &str) -> (&'static str, &'static str) {
+        let lower = line.to_lowercase();
+        
+        if lower.contains("mock") || lower.contains("patch") || lower.contains("stub") {
+            return ("mock", "Mock/stub objects");
+        }
+        if lower.contains("assert") || lower.contains("expect") || lower.contains("tobe") {
+            return ("assertion", "Test assertions");
+        }
+        if lower.contains("fixture") || lower.contains("setup") || lower.contains("teardown") {
+            return ("fixture", "Test fixtures");
+        }
+        if lower.contains("describe(") || lower.contains("it(") || lower.contains("test(") {
+            return ("framework", "Test framework");
+        }
+        if lower.contains("spy") {
+            return ("spy", "Spy functions");
+        }
+        
+        ("unknown", "Test code")
+    }
+
+    /// Check if this file is imported by production code
+    fn is_imported_by_production(graph: &GraphStore, file_path: &str) -> bool {
+        let funcs: Vec<_> = graph.get_functions()
+            .into_iter()
+            .filter(|f| f.file_path == file_path)
+            .collect();
+        
+        for func in funcs {
+            for caller in graph.get_callers(&func.qualified_name) {
+                // Check if caller is not a test file
+                let caller_path = &caller.file_path;
+                if !caller_path.contains("test") && !caller_path.contains("spec") {
+                    return true;
+                }
+            }
+        }
+        
+        false
+    }
+
+    /// Find containing function
+    fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
+        graph.get_functions()
+            .into_iter()
+            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
+            .map(|f| f.name)
+    }
 }
 
 impl Detector for TestInProductionDetector {
     fn name(&self) -> &'static str { "test-in-production" }
     fn description(&self) -> &'static str { "Detects test code in production files" }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+        let mut issues_per_file: HashMap<PathBuf, Vec<(u32, String, String)>> = HashMap::new();
+        
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
             if findings.len() >= self.max_findings { break; }
             let path = entry.path();
             if !path.is_file() { continue; }
             
+            let path_str = path.to_string_lossy().to_string();
+            
             // Skip actual test files
-            let path_str = path.to_string_lossy();
             if path_str.contains("test") || path_str.contains("spec") || 
-               path_str.contains("__tests__") || path_str.contains("fixtures") {
+               path_str.contains("__tests__") || path_str.contains("fixtures") ||
+               path_str.contains("conftest") {
                 continue;
             }
             
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"java"|"rb") { continue; }
+            if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"java"|"rb"|"go") { continue; }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (i, line) in content.lines().enumerate() {
-                    if test_code().is_match(line) {
-                        findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
-                            detector: "TestInProductionDetector".to_string(),
-                            severity: Severity::Medium,
-                            title: "Test code in production file".to_string(),
-                            description: "Test utilities/patterns found in non-test file.".to_string(),
-                            affected_files: vec![path.to_path_buf()],
-                            line_start: Some((i + 1) as u32),
-                            line_end: Some((i + 1) as u32),
-                            suggested_fix: Some("Move test code to test files.".to_string()),
-                            estimated_effort: Some("15 minutes".to_string()),
-                            category: Some("code-quality".to_string()),
-                            cwe_id: None,
-                            why_it_matters: Some("Test code shouldn't ship to production.".to_string()),
-                            ..Default::default()
-                        });
-                        break; // One finding per file is enough
+                let lines: Vec<&str> = content.lines().collect();
+                let mut file_issues = Vec::new();
+                
+                // Check for test imports
+                let has_test_import = lines.iter().any(|l| test_import().is_match(l));
+                
+                for (i, line) in lines.iter().enumerate() {
+                    // Skip comments
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") {
+                        continue;
                     }
+                    
+                    // Check for test code usage
+                    if test_usage().is_match(line) {
+                        let (category, desc) = Self::categorize_test_code(line);
+                        file_issues.push(((i + 1) as u32, category.to_string(), desc.to_string()));
+                    }
+                    
+                    // Check for debug flags
+                    if debug_pattern().is_match(line) {
+                        file_issues.push(((i + 1) as u32, "debug".to_string(), "Debug flag".to_string()));
+                    }
+                }
+                
+                if !file_issues.is_empty() || has_test_import {
+                    issues_per_file.insert(path.to_path_buf(), file_issues);
                 }
             }
         }
+        
+        // Create findings with graph context
+        for (file_path, issues) in issues_per_file {
+            let path_str = file_path.to_string_lossy().to_string();
+            
+            // Check if this file is used by production code
+            let is_used = Self::is_imported_by_production(graph, &path_str);
+            
+            // Group issues by type
+            let mut by_type: HashMap<String, Vec<u32>> = HashMap::new();
+            for (line, category, _) in &issues {
+                by_type.entry(category.clone()).or_default().push(*line);
+            }
+            
+            let severity = if is_used {
+                Severity::High  // Test code that's actually imported by production
+            } else if by_type.contains_key("mock") || by_type.contains_key("assertion") {
+                Severity::Medium
+            } else {
+                Severity::Low
+            };
+            
+            // Build notes
+            let mut notes = Vec::new();
+            for (category, lines) in &by_type {
+                let desc = match category.as_str() {
+                    "mock" => "Mock/stub objects",
+                    "assertion" => "Test assertions",
+                    "fixture" => "Test fixtures",
+                    "framework" => "Test framework code",
+                    "spy" => "Spy functions",
+                    "debug" => "Debug flags",
+                    _ => "Test code",
+                };
+                notes.push(format!("• {} (line{})", desc, 
+                    if lines.len() > 1 { format!("s {}", lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")) }
+                    else { format!(" {}", lines[0]) }
+                ));
+            }
+            if is_used {
+                notes.push("⚠️ This file is imported by production code!".to_string());
+            }
+            
+            let context_notes = format!("\n\n**Found:**\n{}", notes.join("\n"));
+            
+            let first_line = issues.first().map(|(l, _, _)| *l).unwrap_or(1);
+            
+            findings.push(Finding {
+                id: Uuid::new_v4().to_string(),
+                detector: "TestInProductionDetector".to_string(),
+                severity,
+                title: format!("Test code in production: {} issue{}", 
+                    issues.len(),
+                    if issues.len() > 1 { "s" } else { "" }
+                ),
+                description: format!(
+                    "Test utilities and patterns found in what appears to be production code.{}",
+                    context_notes
+                ),
+                affected_files: vec![file_path.clone()],
+                line_start: Some(first_line),
+                line_end: Some(issues.last().map(|(l, _, _)| *l).unwrap_or(first_line)),
+                suggested_fix: Some(
+                    "Options:\n\n\
+                     1. **Move to test files:** If this is test code, move it to a test directory\n\
+                     2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n\
+                     3. **Environment check:** If needed at runtime, guard with environment variable\n\n\
+                     ```python\n\
+                     # Instead of:\n\
+                     from unittest.mock import Mock\n\
+                     \n\
+                     # Use:\n\
+                     from typing import TYPE_CHECKING\n\
+                     if TYPE_CHECKING:\n\
+                         from unittest.mock import Mock\n\
+                     ```".to_string()
+                ),
+                estimated_effort: Some("15 minutes".to_string()),
+                category: Some("code-quality".to_string()),
+                cwe_id: Some("CWE-489".to_string()),  // Active Debug Code
+                why_it_matters: Some(if is_used {
+                    "This test code is imported by production code. Test dependencies add bloat, \
+                     security risks, and can cause unexpected behavior in production.".to_string()
+                } else {
+                    "Test code in production files adds confusion and potential bloat. \
+                     It may be accidentally executed or cause import errors in environments \
+                     without test dependencies.".to_string()
+                }),
+                ..Default::default()
+            });
+        }
+        
+        info!("TestInProductionDetector found {} findings (graph-aware)", findings.len());
         Ok(findings)
     }
 }
