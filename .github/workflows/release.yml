@@ -20,18 +20,15 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: repotoire-linux-x86_64.tar.gz
-          - name: Linux ARM64
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            artifact: repotoire-linux-aarch64.tar.gz
           - name: macOS ARM64
             os: macos-latest
             target: aarch64-apple-darwin
             artifact: repotoire-macos-aarch64.tar.gz
           - name: macOS x86_64
-            os: macos-13
+            os: macos-latest
             target: x86_64-apple-darwin
             artifact: repotoire-macos-x86_64.tar.gz
+            cross: true
           - name: Windows x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -67,29 +64,27 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    if: always() && !cancelled()
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+        continue-on-error: true
       
       - name: List artifacts
-        run: find artifacts -type f
+        run: find artifacts -type f || echo "No artifacts found"
       
       - uses: softprops/action-gh-release@v1
         with:
           files: artifacts/**/*
           generate_release_notes: true
+          fail_on_unmatched_files: false
           body: |
             ## Installation
             
-            ### npm (Linux/macOS)
-            ```bash
-            npx repotoire analyze .
-            ```
-            
-            ### Cargo (all platforms)
+            ### Cargo (recommended)
             ```bash
             cargo install repotoire
             ```
@@ -111,12 +106,6 @@ jobs:
             **macOS (Intel):**
             ```bash
             curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-x86_64.tar.gz | tar xz
-            sudo mv repotoire /usr/local/bin/
-            ```
-            
-            **Linux ARM64 (Raspberry Pi, etc.):**
-            ```bash
-            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-aarch64.tar.gz | tar xz
             sudo mv repotoire /usr/local/bin/
             ```
             
