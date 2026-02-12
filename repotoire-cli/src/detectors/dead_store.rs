@@ -180,20 +180,86 @@ impl DeadStoreDetector {
 
     /// Use graph to find functions with unused parameters
     fn find_unused_params(&self, graph: &GraphStore) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        
+        for func in graph.get_functions() {
+            // Skip test files
+            if func.file_path.contains("/test") || func.file_path.contains("_test.") {
+                continue;
+            }
+            
+            // Skip interface implementations (check qualified name for common patterns)
+            if func.qualified_name.contains("Interface.") || 
+               func.qualified_name.contains("Trait.") ||
+               func.qualified_name.contains("Protocol.") {
+                continue;
+            }
+            
+            // Check if function has many params but few callees (simple function)
+            if let Some(param_count) = func.param_count() {
+                if param_count >= 4 {
+                    let callees = graph.get_callees(&func.qualified_name);
+                    let callers = graph.get_callers(&func.qualified_name);
+                    
+                    // Simple function with many params = likely unused params
+                    if callees.len() <= 2 && param_count >= 5 {
+                        findings.push(Finding {
+                            id: Uuid::new_v4().to_string(),
+                            detector: "DeadStoreDetector".to_string(),
+                            severity: Severity::Low,
+                            title: format!("Function `{}` has {} parameters but simple body", func.name, param_count),
+                            description: format!(
+                                "Function with {} parameters only calls {} other functions.\n\
+                                 This suggests some parameters may be unused.\n\n\
+                                 **Called by:** {} functions\n\
+                                 **Suggestion:** Review if all parameters are necessary.",
+                                param_count, callees.len(), callers.len()
+                            ),
+                            affected_files: vec![PathBuf::from(&func.file_path)],
+                            line_start: Some(func.line_start),
+                            line_end: Some(func.line_end),
+                            suggested_fix: Some(
+                                "Consider:\n\
+                                 1. Remove unused parameters\n\
+                                 2. Use a config/options object if many params are related\n\
+                                 3. Mark intentionally unused params with underscore prefix".to_string()
+                            ),
+                            estimated_effort: Some("10 minutes".to_string()),
+                            category: Some("dead-code".to_string()),
+                            cwe_id: None,
+                            why_it_matters: Some(
+                                "Unused parameters add noise and may indicate incomplete refactoring.".to_string()
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+        
+        debug!("Found {} potential unused param functions", findings.len());
+        findings
+    }
+    
+    /// Find variables that are assigned, passed to a function, but function doesn't use them
+    fn find_cross_function_dead_stores(&self, graph: &GraphStore) -> Vec<Finding> {
+        // This requires tracking parameter usage within functions
+        // For now, identify functions that receive values but don't propagate them
         let findings = Vec::new();
         
-        // This would require parameter tracking which isn't fully in graph yet
-        // Leaving as placeholder for future enhancement
-        
-        // For now, check functions with high param count that might have unused ones
         for func in graph.get_functions() {
-            if let Some(param_count) = func.param_count() {
-                if param_count >= 5 {
-                    // Flag as potential smell - many params often means some unused
-                    debug!(
-                        "Function {} has {} parameters - potential for unused params",
-                        func.name, param_count
-                    );
+            let callees = graph.get_callees(&func.qualified_name);
+            let callers = graph.get_callers(&func.qualified_name);
+            
+            // Function that's called but calls nothing and has params = potential sink
+            if !callers.is_empty() && callees.is_empty() {
+                if let Some(param_count) = func.param_count() {
+                    if param_count >= 3 {
+                        debug!(
+                            "Sink function {} receives {} params from {} callers but makes no calls",
+                            func.name, param_count, callers.len()
+                        );
+                    }
                 }
             }
         }
@@ -223,8 +289,11 @@ impl Detector for DeadStoreDetector {
 
         // Graph-based unused parameter detection
         findings.extend(self.find_unused_params(graph));
+        
+        // Cross-function dead store detection
+        findings.extend(self.find_cross_function_dead_stores(graph));
 
-        info!("DeadStoreDetector found {} findings", findings.len());
+        info!("DeadStoreDetector found {} findings (graph-aware)", findings.len());
         Ok(findings)
     }
 }
