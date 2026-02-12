@@ -689,6 +689,15 @@ impl DeadCodeDetector {
                 continue; // Function is called, not dead
             }
 
+            // Check if method is called via self.method() in same file (Rust parser limitation)
+            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(file_path)) {
+                let self_call = format!("self.{}(", name);
+                let self_call_alt = format!("self.{},", name); // Passed as closure
+                if content.contains(&self_call) || content.contains(&self_call_alt) {
+                    continue; // Called via self
+                }
+            }
+
             // Check additional properties
             let is_method = func.get_bool("is_method").unwrap_or(false);
             let has_decorators = self.has_decorator(&func);

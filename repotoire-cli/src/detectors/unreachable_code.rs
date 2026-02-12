@@ -127,6 +127,14 @@ impl UnreachableCodeDetector {
                 continue;
             }
 
+            // Check if method is called via self.method() in same file (Rust parser limitation)
+            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+                let self_call = format!("self.{}(", func.name);
+                if content.contains(&self_call) {
+                    continue;
+                }
+            }
+
             directly_dead.insert(func.qualified_name.clone());
         }
 

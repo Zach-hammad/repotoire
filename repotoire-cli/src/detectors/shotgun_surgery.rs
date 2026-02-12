@@ -269,6 +269,7 @@ impl Detector for ShotgunSurgeryDetector {
             "as_ref", "as_mut", "clone", "fmt", "eq", "cmp", "hash", "next",
             "iter", "into_iter", "len", "is_empty", "get", "set", "with_",
             "build", "parse", "serialize", "deserialize", "drop", "deref",
+            "as_i64", "as_f64", "as_bool", "as_array", "as_object", // JSON accessors
         ];
 
         for func in graph.get_functions() {
