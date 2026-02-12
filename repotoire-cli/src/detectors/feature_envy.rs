@@ -308,6 +308,11 @@ impl Detector for FeatureEnvyDetector {
         ];
         
         for func in graph.get_functions() {
+            // Skip test functions (they naturally access many things for fixtures)
+            if func.name.starts_with("test_") || func.file_path.contains("/tests/") {
+                continue;
+            }
+
             // === Graph-aware role-based filtering ===
             if self.should_skip_by_role(&func.qualified_name) {
                 continue;

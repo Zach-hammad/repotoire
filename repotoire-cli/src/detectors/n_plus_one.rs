@@ -153,6 +153,21 @@ impl NPlusOneDetector {
                 continue;
             }
             
+            // Skip reporters (they iterate over findings to generate reports)
+            if func.file_path.contains("/reporters/") {
+                continue;
+            }
+            
+            // Skip scoring (it iterates over graph nodes)
+            if func.file_path.contains("/scoring/") {
+                continue;
+            }
+            
+            // Skip graph store (it naturally iterates over graph data)
+            if func.file_path.contains("/graph/") {
+                continue;
+            }
+            
             // Check if this function contains a loop
             let has_loop = if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
                 let lines: Vec<&str> = content.lines().collect();

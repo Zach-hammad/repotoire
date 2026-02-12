@@ -192,6 +192,9 @@ impl Detector for InfiniteLoopDetector {
             // Skip test files
             if path_str.contains("test") { continue; }
             
+            // Skip detector files (contain analysis loops, not infinite loops)
+            if path_str.contains("/detectors/") { continue; }
+            
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rs"|"rb"|"c"|"cpp") { continue; }
 
