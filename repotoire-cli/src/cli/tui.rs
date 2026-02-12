@@ -26,6 +26,7 @@ use std::process::{Child, Command, Stdio};
 
 use std::time::{Duration, Instant};
 
+use crate::config::UserConfig;
 use crate::models::{Finding, Severity};
 
 /// Status of a running agent
@@ -132,10 +133,12 @@ pub struct App {
     cached_index: Option<usize>,
     status_message: Option<(String, bool, Instant)>, // (message, is_error, when)
     agents: Vec<AgentTask>,
+    config: UserConfig,
 }
 
 impl App {
     pub fn new(findings: Vec<Finding>, repo_path: PathBuf) -> Self {
+        let config = UserConfig::load().unwrap_or_default();
         let mut list_state = ListState::default();
         if !findings.is_empty() {
             list_state.select(Some(0));
@@ -150,6 +153,7 @@ impl App {
             cached_index: None,
             status_message: None,
             agents: Vec::new(),
+            config,
         }
     }
 
@@ -183,6 +187,20 @@ impl App {
     fn launch_agent(&mut self) -> Option<String> {
         let finding = self.selected_finding()?.clone();
         let index = self.list_state.selected()? + 1;
+        
+        // Check for API key
+        let api_key = match self.config.anthropic_api_key() {
+            Some(key) => key.to_string(),
+            None => {
+                // Check environment as fallback
+                match std::env::var("ANTHROPIC_API_KEY") {
+                    Ok(key) => key,
+                    Err(_) => {
+                        return Some("❌ No API key. Run: repotoire config init".to_string());
+                    }
+                }
+            }
+        };
         
         // Check if agent already running for this finding
         if self.agents.iter().any(|a| a.finding_index == index && matches!(a.status, AgentStatus::Running)) {
@@ -295,6 +313,7 @@ Be precise. Make minimal changes. Test if possible."#,
                     "--finding-json", &finding_json.to_string(),
                     "--repo-path", self.repo_path.to_str().unwrap(),
                 ])
+                .env("ANTHROPIC_API_KEY", &api_key)
                 .current_dir(&self.repo_path)
                 .stdout(Stdio::from(stdout_file))
                 .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
@@ -308,6 +327,7 @@ Be precise. Make minimal changes. Test if possible."#,
                     "--permission-mode", "bypassPermissions",
                     &task
                 ])
+                .env("ANTHROPIC_API_KEY", &api_key)
                 .current_dir(&self.repo_path)
                 .stdout(Stdio::from(stdout_file))
                 .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))

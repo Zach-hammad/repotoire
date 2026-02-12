@@ -187,6 +187,27 @@ pub enum Commands {
         #[arg(long)]
         local: bool,
     },
+
+    /// Manage configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigAction {
+    /// Initialize config file with example settings
+    Init,
+    /// Show current config and paths
+    Show,
+    /// Set a config value
+    Set {
+        /// Config key (e.g., ai.anthropic_api_key)
+        key: String,
+        /// Value to set
+        value: String,
+    },
 }
 
 /// Run the CLI with parsed arguments
@@ -244,6 +265,69 @@ pub fn run(cli: Cli) -> Result<()> {
         }
 
         Some(Commands::Serve { local }) => serve::run(&cli.path, local),
+
+        Some(Commands::Config { action }) => {
+            use crate::config::UserConfig;
+            match action {
+                ConfigAction::Init => {
+                    let path = UserConfig::init_user_config()?;
+                    println!("✅ Config initialized at: {}", path.display());
+                    println!("\nEdit to add your API key:");
+                    println!("  {}", path.display());
+                    println!("\nOr set via environment:");
+                    println!("  export ANTHROPIC_API_KEY=\"sk-ant-...\"");
+                    Ok(())
+                }
+                ConfigAction::Show => {
+                    let config = UserConfig::load()?;
+                    println!("📁 Config paths:");
+                    if let Some(user_path) = UserConfig::user_config_path() {
+                        let exists = user_path.exists();
+                        println!("  User:    {} {}", user_path.display(), if exists { "✓" } else { "(not found)" });
+                    }
+                    println!("  Project: ./repotoire.toml {}", if std::path::Path::new("repotoire.toml").exists() { "✓" } else { "(not found)" });
+                    println!();
+                    println!("🔑 API Keys:");
+                    println!("  ANTHROPIC_API_KEY: {}", if config.has_ai_key() { "✓ configured" } else { "✗ not set" });
+                    Ok(())
+                }
+                ConfigAction::Set { key, value } => {
+                    let config_path = UserConfig::user_config_path()
+                        .ok_or_else(|| anyhow::anyhow!("Could not determine config path"))?;
+                    
+                    // Read existing or create new
+                    let mut content = if config_path.exists() {
+                        std::fs::read_to_string(&config_path)?
+                    } else {
+                        UserConfig::init_user_config()?;
+                        std::fs::read_to_string(&config_path)?
+                    };
+                    
+                    // Simple key replacement (supports ai.anthropic_api_key format)
+                    let toml_key = key.replace('.', "_").replace("ai_", "");
+                    if content.contains(&format!("# {} =", toml_key)) {
+                        content = content.replace(
+                            &format!("# {} =", toml_key),
+                            &format!("{} = \"{}\" #", toml_key, value)
+                        );
+                    } else if content.contains(&format!("{} =", toml_key)) {
+                        // Replace existing value
+                        let re = regex::Regex::new(&format!(r#"{}\s*=\s*"[^"]*""#, toml_key))?;
+                        content = re.replace(&content, format!("{} = \"{}\"", toml_key, value)).to_string();
+                    } else {
+                        // Append under [ai] section
+                        if !content.contains("[ai]") {
+                            content.push_str("\n[ai]\n");
+                        }
+                        content.push_str(&format!("{} = \"{}\"\n", toml_key, value));
+                    }
+                    
+                    std::fs::write(&config_path, content)?;
+                    println!("✅ Set {} in {}", key, config_path.display());
+                    Ok(())
+                }
+            }
+        }
 
         None => {
             // Check if the path looks like an unknown subcommand
