@@ -44,6 +44,7 @@ impl InfluentialCodeDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         Self {
             high_complexity_threshold: config.get_option_or("high_complexity_threshold", 15),

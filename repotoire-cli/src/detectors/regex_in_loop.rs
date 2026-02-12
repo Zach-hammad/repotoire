@@ -108,7 +108,7 @@ impl Detector for RegexInLoopDetector {
             if !matches!(ext, "py"|"js"|"ts"|"java"|"rs"|"go") { continue; }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                let path_str = path.to_string_lossy().to_string();
+                let _path_str = path.to_string_lossy().to_string();
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;

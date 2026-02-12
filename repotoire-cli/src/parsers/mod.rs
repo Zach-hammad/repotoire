@@ -54,6 +54,7 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
 }
 
 /// Get the language name for a file extension
+#[allow(dead_code)] // Public API helper
 pub fn language_for_extension(ext: &str) -> Option<&'static str> {
     match ext {
         "py" | "pyi" => Some("Python"),
@@ -71,6 +72,7 @@ pub fn language_for_extension(ext: &str) -> Option<&'static str> {
 }
 
 /// Get all supported file extensions
+#[allow(dead_code)] // Public API helper
 pub fn supported_extensions() -> &'static [&'static str] {
     &[
         "py", "pyi",                                    // Python
@@ -129,6 +131,7 @@ impl ParseResult {
     }
 
     /// Merge another ParseResult into this one
+    #[allow(dead_code)] // Public API method
     pub fn merge(&mut self, other: ParseResult) {
         self.functions.extend(other.functions);
         self.classes.extend(other.classes);

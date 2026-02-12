@@ -11,6 +11,8 @@
 //! 5. Cross-reference with git history to detect actual SPIKES
 //!    (previous < 5 AND current > 15 → confirmed spike)
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
@@ -225,7 +227,7 @@ impl AIComplexitySpikeDetector {
         }
     }
 
-    fn build_description(&self, spike: &ComplexitySpike, baseline: &CodebaseBaseline) -> String {
+    fn build_description(&self, spike: &ComplexitySpike, _baseline: &CodebaseBaseline) -> String {
         let mut desc = format!(
             "Function **{}** experienced a significant complexity spike.\n\n",
             spike.function_name

@@ -210,6 +210,7 @@ pub fn AI_TOOLS() -> Vec<Tool> {
 }
 
 /// Get all available tools based on mode
+#[allow(dead_code)] // Public API helper
 pub fn get_available_tools(is_pro: bool) -> Vec<Tool> {
     get_available_tools_full(is_pro, false)
 }

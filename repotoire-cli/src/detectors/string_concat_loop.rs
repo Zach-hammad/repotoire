@@ -124,7 +124,7 @@ impl Detector for StringConcatLoopDetector {
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
-                let mut loop_var = String::new();
+                let mut _loop_var = String::new();
                 
                 for (i, line) in content.lines().enumerate() {
                     if loop_pattern().is_match(line) {
@@ -134,7 +134,7 @@ impl Detector for StringConcatLoopDetector {
                         
                         // Try to extract loop variable for context
                         if let Some(caps) = Regex::new(r"for\s+(\w+)\s+in").ok().and_then(|r| r.captures(line)) {
-                            loop_var = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            _loop_var = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
                         }
                     }
                     

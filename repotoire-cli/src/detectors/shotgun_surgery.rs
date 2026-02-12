@@ -54,6 +54,7 @@ impl ShotgunSurgeryDetector {
         }
     }
 
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = ShotgunSurgeryThresholds {
             min_callers: config.get_option_or("min_callers", 5),
@@ -284,7 +285,7 @@ impl Detector for ShotgunSurgeryDetector {
                 continue;
             }
 
-            let caller_files: HashSet<_> = callers.iter().map(|c| &c.file_path).collect();
+            let _caller_files: HashSet<_> = callers.iter().map(|c| &c.file_path).collect();
             let caller_modules: HashSet<_> = callers.iter()
                 .map(|c| Self::extract_module(&c.file_path))
                 .collect();

@@ -14,6 +14,8 @@
 //!          → CodeDuplication (copy-paste instead of import)
 //! ```
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

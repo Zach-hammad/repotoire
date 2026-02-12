@@ -14,7 +14,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
-use tracing::debug;
 
 /// Cached blame entry with file modification time.
 #[derive(Debug, Clone, Serialize, Deserialize)]

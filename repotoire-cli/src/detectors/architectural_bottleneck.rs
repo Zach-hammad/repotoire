@@ -46,6 +46,7 @@ impl ArchitecturalBottleneckDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let high_complexity_threshold = config.get_option_or("high_complexity_threshold", 20);
         let min_fan_in = config.get_option_or("min_fan_in", 15);

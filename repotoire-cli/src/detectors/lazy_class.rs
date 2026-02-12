@@ -58,6 +58,7 @@ const EXCLUDE_PATTERNS: &[&str] = &[
 
 /// Detects classes that do minimal work and aren't used much
 pub struct LazyClassDetector {
+    #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     thresholds: LazyClassThresholds,
 }
@@ -70,6 +71,7 @@ impl LazyClassDetector {
         }
     }
 
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = LazyClassThresholds {
             max_methods: config.get_option_or("max_methods", 3),

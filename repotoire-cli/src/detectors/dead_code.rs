@@ -200,6 +200,7 @@ impl DeadCodeDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = DeadCodeThresholds {
             base_confidence: config.get_option_or("base_confidence", 0.70),

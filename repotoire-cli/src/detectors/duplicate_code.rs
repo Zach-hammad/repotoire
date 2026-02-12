@@ -158,7 +158,7 @@ impl Detector for DuplicateCodeDetector {
         }
 
         // Find duplicates with graph-enhanced analysis
-        for (block, locations) in blocks {
+        for (_block, locations) in blocks {
             if locations.len() > 1 && findings.len() < self.max_findings {
                 let files: Vec<_> = locations.iter().map(|(p, _)| p.clone()).collect();
                 let first_line = locations[0].1;

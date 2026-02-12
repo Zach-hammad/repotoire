@@ -11,7 +11,7 @@
 
 use crate::config::{load_project_config, ProjectConfig};
 use crate::detectors::{
-    default_detectors_with_config, DetectorEngine, Detector, IncrementalCache,
+    default_detectors_with_config, DetectorEngine, IncrementalCache,
     VotingEngine, VotingStrategy, ConfidenceMethod, SeverityResolution, VotingStats,
 };
 use crate::git;
@@ -67,6 +67,7 @@ struct AnalysisConfig {
     thorough: bool,
     no_git: bool,
     workers: usize,
+    #[allow(dead_code)] // Stored for potential future use
     per_page: usize,
     fail_on: Option<String>,
     is_incremental_mode: bool,
@@ -1106,24 +1107,6 @@ fn paginate_findings(
     }
 }
 
-/// Calculate grade with security caps
-fn calculate_grade(overall_score: f64, summary: &FindingsSummary) -> String {
-    let mut grade = HealthReport::grade_from_score(overall_score);
-
-    // Cap grade based on security findings
-    if summary.critical > 0 {
-        if grade == "A" || grade == "B" {
-            grade = "C".to_string();
-        }
-    } else if summary.high > 0 {
-        if grade == "A" {
-            grade = "B".to_string();
-        }
-    }
-
-    grade
-}
-
 /// Format and output results
 fn format_and_output(
     report: &HealthReport,
@@ -1132,8 +1115,8 @@ fn format_and_output(
     output_path: Option<&Path>,
     repotoire_dir: &Path,
     pagination_info: Option<(usize, usize, usize, usize)>,
-    displayed_findings: usize,
-    no_emoji: bool,
+    _displayed_findings: usize,
+    _no_emoji: bool,
 ) -> Result<()> {
     // For machine-readable formats, include ALL findings (not paginated)
     let report_for_output = if format == "json" || format == "sarif" {
@@ -1303,76 +1286,6 @@ fn parse_severity(s: &str) -> Severity {
         "low" => Severity::Low,
         _ => Severity::Info,
     }
-}
-
-/// Calculate health scores based on findings
-fn calculate_health_scores(
-    findings: &[Finding],
-    total_files: usize,
-    total_functions: usize,
-    _total_classes: usize,
-    project_config: &ProjectConfig,
-) -> (f64, f64, f64, f64) {
-    let mut structure_score: f64 = 100.0;
-    let mut quality_score: f64 = 100.0;
-    let mut architecture_score: f64 = 100.0;
-
-    let size_factor = ((total_files + total_functions) as f64).sqrt().max(5.0);
-    let config_security_multiplier = project_config.scoring.security_multiplier;
-
-    for finding in findings {
-        let base_deduction: f64 = match finding.severity {
-            Severity::Critical => 10.0,
-            Severity::High => 5.0,
-            Severity::Medium => 1.5,
-            Severity::Low => 0.3,
-            Severity::Info => 0.0,
-        };
-
-        let scaled = base_deduction / size_factor;
-        
-        let category = finding.category.as_deref().unwrap_or("");
-        let detector = finding.detector.to_lowercase();
-        
-        let is_security = category.contains("security") 
-            || category.contains("inject")
-            || detector.contains("sql")
-            || detector.contains("xss")
-            || detector.contains("secret")
-            || detector.contains("credential")
-            || detector.contains("command")
-            || detector.contains("path_traversal")
-            || detector.contains("ssrf")
-            || finding.cwe_id.is_some();
-        
-        let security_multiplier = if is_security { config_security_multiplier } else { 1.0 };
-        let effective_deduction = scaled * security_multiplier;
-        
-        if is_security {
-            quality_score -= effective_deduction;
-        } else if category.contains("architect") || category.contains("bottleneck") || category.contains("circular") {
-            architecture_score -= effective_deduction;
-        } else if category.contains("complex") || category.contains("naming") || category.contains("readab") {
-            structure_score -= effective_deduction;
-        } else {
-            quality_score -= effective_deduction / 3.0;
-            structure_score -= effective_deduction / 3.0;
-            architecture_score -= effective_deduction / 3.0;
-        }
-    }
-
-    structure_score = structure_score.max(25.0_f64).min(100.0);
-    quality_score = quality_score.max(25.0_f64).min(100.0);
-    architecture_score = architecture_score.max(25.0_f64).min(100.0);
-
-    let weights = &project_config.scoring.pillar_weights;
-    let overall = structure_score * weights.structure 
-        + quality_score * weights.quality 
-        + architecture_score * weights.architecture;
-    
-    let overall = overall.max(5.0);
-
-    (overall, structure_score, quality_score, architecture_score)
 }
 
 /// Normalize a path to be relative

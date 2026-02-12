@@ -102,7 +102,7 @@ impl MypyDetector {
     ) -> Option<Finding> {
         let file_path = result.get("file")?.as_str()?;
         let line = result.get("line")?.as_u64()? as u32;
-        let column = result.get("column").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
+        let _column = result.get("column").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
         let message = result.get("message")?.as_str()?;
         let error_code = result.get("code").and_then(|c| c.as_str()).unwrap_or("misc");
         let mypy_severity = result.get("severity").and_then(|s| s.as_str()).unwrap_or("error");

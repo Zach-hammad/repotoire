@@ -25,6 +25,7 @@ use uuid::Uuid;
 /// - Misplaced files (files in wrong community)
 /// - High inter-community coupling
 pub struct ModuleCohesionDetector {
+    #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     /// Modularity threshold for "poor"
     modularity_poor: f64,
@@ -46,6 +47,7 @@ impl ModuleCohesionDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         Self {
             modularity_poor: config.get_option_or("modularity_poor", 0.3),
@@ -336,7 +338,7 @@ impl ModuleCohesionDetector {
     fn create_misplaced_file_finding(
         &self,
         file_path: &str,
-        qualified_name: &str,
+        _qualified_name: &str,
         same_imports: usize,
         other_imports: usize,
         external_ratio: f64,

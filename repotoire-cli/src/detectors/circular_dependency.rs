@@ -36,6 +36,7 @@ impl CircularDependencyDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         Self { config }
     }

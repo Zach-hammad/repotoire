@@ -8,7 +8,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use git2::{DiffOptions, Repository, Sort};
 use std::collections::HashMap;
 use std::path::Path;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Information about a git commit.
 #[derive(Debug, Clone)]
@@ -98,7 +98,7 @@ impl GitHistory {
         revwalk.push_head()?;
 
         let mut commits = Vec::new();
-        let file_path_normalized = Path::new(file_path);
+        let _file_path_normalized = Path::new(file_path);
 
         for oid_result in revwalk {
             if commits.len() >= max_commits {
@@ -266,7 +266,7 @@ impl GitHistory {
             )?;
 
             // Get line stats
-            let stats = diff.stats()?;
+            let _stats = diff.stats()?;
             // Note: Per-file line stats require iterating patches, done in get_commit_file_stats
 
             commit_count += 1;

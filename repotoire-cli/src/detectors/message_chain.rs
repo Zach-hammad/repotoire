@@ -70,6 +70,7 @@ impl MessageChainDetector {
         }
     }
 
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig, repository_path: impl Into<PathBuf>) -> Self {
         let thresholds = MessageChainThresholds {
             min_chain_depth: config.get_option_or("min_chain_depth", 4),

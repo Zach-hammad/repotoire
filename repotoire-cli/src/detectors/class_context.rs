@@ -3,6 +3,8 @@
 //! Computes rich context for each class using graph metrics,
 //! enabling smarter god-class detection beyond naive thresholds.
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::graph::{GraphStore, NodeKind, EdgeKind};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
@@ -340,7 +342,7 @@ impl<'a> ClassContextBuilder<'a> {
         avg_complexity: f64,
         delegation_ratio: f64,
         usages: usize,
-        is_test: bool,
+        _is_test: bool,
         is_framework_path: bool,
     ) -> (ClassRole, String) {
         // Framework core: known names or patterns

@@ -101,18 +101,21 @@ impl DetectorConfig {
     }
 
     /// Set the repository ID
+    #[allow(dead_code)] // Builder pattern method for future use
     pub fn with_repo_id(mut self, repo_id: impl Into<String>) -> Self {
         self.repo_id = Some(repo_id.into());
         self
     }
 
     /// Set maximum findings
+    #[allow(dead_code)] // Builder pattern method for future use
     pub fn with_max_findings(mut self, max: usize) -> Self {
         self.max_findings = Some(max);
         self
     }
 
     /// Set a custom option
+    #[allow(dead_code)] // Builder pattern method for future use
     pub fn with_option(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.options.insert(key.into(), value);
         self
@@ -267,6 +270,7 @@ pub trait Detector: Send + Sync {
     ///
     /// Only meaningful if `is_dependent()` returns true.
     /// Returns names of detectors that must run before this one.
+    #[allow(dead_code)] // Reserved for future dependent detector support
     fn dependencies(&self) -> Vec<&'static str> {
         vec![]
     }

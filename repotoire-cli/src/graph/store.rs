@@ -185,6 +185,7 @@ pub struct GraphStore {
     /// Persistence layer (optional)
     db: Option<sled::Db>,
     /// Database path for lazy loading
+    #[allow(dead_code)] // Stored for future lazy loading support
     db_path: Option<std::path::PathBuf>,
 }
 

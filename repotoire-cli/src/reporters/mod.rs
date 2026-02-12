@@ -75,6 +75,7 @@ pub fn report_with_format(report: &HealthReport, format: OutputFormat) -> Result
 }
 
 /// Get the recommended file extension for a format
+#[allow(dead_code)] // Public API helper
 pub fn file_extension(format: OutputFormat) -> &'static str {
     match format {
         OutputFormat::Text => "txt",

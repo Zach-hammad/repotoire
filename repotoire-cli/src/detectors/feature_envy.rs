@@ -70,6 +70,7 @@ impl Default for FeatureEnvyThresholds {
 
 /// Detects methods with feature envy
 pub struct FeatureEnvyDetector {
+    #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     thresholds: FeatureEnvyThresholds,
     /// Function context for graph-aware analysis
@@ -92,6 +93,7 @@ impl FeatureEnvyDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = FeatureEnvyThresholds {
             threshold_ratio: config.get_option_or("threshold_ratio", 3.0),
@@ -342,7 +344,7 @@ impl Detector for FeatureEnvyDetector {
             // Count calls to own file vs other files
             // Also track which modules are being called
             let own_file = &func.file_path;
-            let own_module = own_file.rsplit('/').nth(1).unwrap_or("");
+            let _own_module = own_file.rsplit('/').nth(1).unwrap_or("");
             let mut internal_calls = 0;
             let mut external_calls = 0;
             let mut external_modules: HashSet<String> = HashSet::new();

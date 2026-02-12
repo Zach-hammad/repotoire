@@ -71,7 +71,7 @@ Processing files... ████████████░░░░ 75% (375/50
 
 ## What It Finds
 
-**81 detectors** across 4 categories:
+**108 detectors** across 4 categories:
 
 ### 🏗️ Architecture
 - Circular dependencies (Tarjan's SCC algorithm)
@@ -297,7 +297,7 @@ Works with `#`, `//`, `/* */`, and `--` comment styles.
 ```
 ┌──────────┐    ┌───────────────┐    ┌──────────────┐    ┌──────────┐
 │  Source  │───▶│ Rust Parser   │───▶│  Kuzu Graph  │───▶│ Detectors│
-│  Files   │    │ (tree-sitter) │    │  (embedded)  │    │   (81)   │
+│  Files   │    │ (tree-sitter) │    │  (embedded)  │    │   (108)   │
 └──────────┘    └───────────────┘    └──────────────┘    └──────────┘
      │                                      │
      │         6 languages                  │      Graph algorithms:
@@ -391,7 +391,7 @@ repotoire analyze . --relaxed
 ## Documentation
 
 - **[Schema Reference](docs/SCHEMA.md)** — Graph node/edge types and Cypher examples
-- **[Detectors](docs/DETECTORS.md)** — Full list of 81 detectors with configuration
+- **[Detectors](docs/DETECTORS.md)** — Full list of 108 detectors with configuration
 
 ## Contributing
 

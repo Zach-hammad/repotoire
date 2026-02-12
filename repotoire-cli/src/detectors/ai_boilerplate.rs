@@ -13,6 +13,8 @@
 //! Key patterns detected:
 //! - Same try/except structure
 //! - Same validation logic
+
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
 //! - Same API call patterns with minor variations
 //! - CRUD operations that could be genericized
 

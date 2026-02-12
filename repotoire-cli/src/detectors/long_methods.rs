@@ -34,6 +34,7 @@ impl LongMethodsDetector {
     }
 
     /// Create with custom config (reads max_lines threshold from project config)
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(repository_path: impl Into<PathBuf>, config: DetectorConfig) -> Self {
         let threshold = config.get_option_or("max_lines", 50) as u32;
         Self { 

@@ -13,6 +13,8 @@
 //! - Log injection (user input in log messages)
 //!
 //! This detector uses pattern-based detection when the Rust taint analyzer
+
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
 //! is not available, providing similar coverage through regex matching.
 
 use crate::detectors::base::{Detector, DetectorConfig};

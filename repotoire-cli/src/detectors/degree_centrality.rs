@@ -23,6 +23,7 @@ use uuid::Uuid;
 /// - Orchestrators: High fan-out expected, only flag if also high fan-in
 /// - Hubs: Both high fan-in and fan-out - genuine coupling problems
 pub struct DegreeCentralityDetector {
+    #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     /// Complexity threshold for severity escalation
     high_complexity_threshold: u32,
@@ -47,6 +48,7 @@ impl DegreeCentralityDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         Self {
             high_complexity_threshold: config.get_option_or("high_complexity_threshold", 15),

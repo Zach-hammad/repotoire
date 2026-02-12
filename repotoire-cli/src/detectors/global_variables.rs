@@ -69,7 +69,7 @@ impl GlobalVariablesDetector {
     }
 
     /// Check if variable is used by functions in other files
-    fn check_cross_module_usage(&self, graph: &GraphStore, file_path: &str, var_name: &str) -> bool {
+    fn check_cross_module_usage(&self, graph: &GraphStore, file_path: &str, _var_name: &str) -> bool {
         // Check if any function in other files might reference this
         // This is heuristic - we check if the file is imported by others
         let file_name = file_path.rsplit('/').next().unwrap_or(file_path);

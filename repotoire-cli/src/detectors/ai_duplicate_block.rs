@@ -11,6 +11,8 @@
 //! This detector uses normalized identifier hashing and Jaccard similarity
 //! to find these near-duplicates. Threshold: ≥70% similarity.
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};

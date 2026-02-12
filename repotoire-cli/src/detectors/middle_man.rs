@@ -47,6 +47,7 @@ const EXCLUDE_PATTERNS: &[&str] = &[
 
 /// Detects classes that mostly delegate to other classes
 pub struct MiddleManDetector {
+    #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     thresholds: MiddleManThresholds,
 }
@@ -59,6 +60,7 @@ impl MiddleManDetector {
         }
     }
 
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = MiddleManThresholds {
             min_methods: config.get_option_or("min_methods", 3),

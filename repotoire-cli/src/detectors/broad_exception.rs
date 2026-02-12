@@ -121,7 +121,7 @@ impl Detector for BroadExceptionDetector {
     fn name(&self) -> &'static str { "broad-exception" }
     fn description(&self) -> &'static str { "Detects overly broad exception catching" }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
 

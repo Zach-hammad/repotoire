@@ -3,6 +3,8 @@
 //! Computes rich context for each function using graph metrics,
 //! enabling smarter detector decisions beyond simple name patterns.
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::graph::{GraphStore, NodeKind, EdgeKind};
 use petgraph::graph::NodeIndex;
 use petgraph::algo::dijkstra;
@@ -158,7 +160,7 @@ impl<'a> FunctionContextBuilder<'a> {
         info!("Building function context for {} functions", func_count);
 
         // Build adjacency for betweenness calculation
-        let (adj, qn_to_idx, idx_to_qn) = self.build_adjacency(&functions);
+        let (adj, qn_to_idx, _idx_to_qn) = self.build_adjacency(&functions);
         
         // Calculate betweenness centrality (parallelized)
         let betweenness = self.calculate_betweenness(&adj);
@@ -423,7 +425,7 @@ impl<'a> FunctionContextBuilder<'a> {
         is_exported: bool,
         is_test: bool,
         is_in_utility_module: bool,
-        call_depth: usize,
+        _call_depth: usize,
     ) -> FunctionRole {
         // Test functions are always tests
         if is_test {
@@ -476,7 +478,7 @@ impl<'a> FunctionContextBuilder<'a> {
                     // Skip common root directories
                     if !["src", "lib", "app", "pkg", "internal", "cmd"].contains(&s) {
                         // Remove extension from last component
-                        let part = if parts.is_empty() || path.components().count() > parts.len() + 2 {
+                        let _part = if parts.is_empty() || path.components().count() > parts.len() + 2 {
                             s.to_string()
                         } else {
                             s.rsplit_once('.').map(|(n, _)| n).unwrap_or(s).to_string()

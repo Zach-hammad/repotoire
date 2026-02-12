@@ -12,6 +12,8 @@
 //! println!("Fixing this would improve score by {:.1} points", delta.score_delta);
 //! ```
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

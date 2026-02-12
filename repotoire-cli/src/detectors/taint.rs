@@ -18,6 +18,8 @@
 //! │                    trace_taint()                            │
 //! │  - BFS through call graph from source functions             │
 //! │  - Track path through function calls                        │
+
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
 //! │  - Identify when tainted data reaches a sink                │
 //! └─────────────────────────────────────────────────────────────┘
 //!                              │

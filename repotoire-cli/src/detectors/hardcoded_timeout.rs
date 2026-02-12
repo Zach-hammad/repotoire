@@ -177,7 +177,7 @@ impl Detector for HardcodedTimeoutDetector {
                     
                     if let Some(caps) = timeout_pattern().captures(line) {
                         if let (Some(keyword), Some(val)) = (caps.get(1), caps.get(2)) {
-                            let keyword_str = keyword.as_str();
+                            let _keyword_str = keyword.as_str();
                             let value: u64 = val.as_str().parse().unwrap_or(0);
                             let occurrences = occurrence_counts.get(&value).copied().unwrap_or(1);
                             let (context, is_network) = Self::analyze_context(line);

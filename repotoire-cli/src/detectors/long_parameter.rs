@@ -48,6 +48,7 @@ static SKIP_PARAMS: &[&str] = &["self", "cls"];
 
 /// Detects functions with too many parameters
 pub struct LongParameterListDetector {
+    #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     thresholds: LongParameterThresholds,
     skip_params: HashSet<String>,
@@ -71,6 +72,7 @@ impl LongParameterListDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method for configuration
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = LongParameterThresholds {
             max_params: config.get_option_or("max_params", 5),
@@ -458,6 +460,7 @@ impl Detector for LongParameterListDetector {
 }
 
 /// Convert snake_case to PascalCase
+#[allow(dead_code)] // Utility function for future use
 fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .map(|word| {

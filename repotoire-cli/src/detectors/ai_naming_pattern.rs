@@ -13,6 +13,8 @@
 //! - Action-specific names: validated_email, parsed_response
 //! - Type-hinted names: user_list, config_dict
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};

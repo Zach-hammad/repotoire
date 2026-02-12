@@ -171,7 +171,7 @@ impl ESLintDetector {
             Self::suggest_fix(rule_id, msg_text)
         };
 
-        let language = if rel_path.ends_with(".ts") || rel_path.ends_with(".tsx") {
+        let _language = if rel_path.ends_with(".ts") || rel_path.ends_with(".tsx") {
             "typescript"
         } else {
             "javascript"

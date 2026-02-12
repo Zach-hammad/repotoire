@@ -10,6 +10,8 @@
 //!
 //! Key detection signal: time_to_first_fix < 48h AND modifications >= 3 → HIGH
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};

@@ -7,7 +7,7 @@
 //! 4. Enrich with git history (if available)
 //! 5. Run detectors
 
-use std::path::Path;
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
 use crate::git::EnrichmentStats;
 use crate::graph::GraphStore;

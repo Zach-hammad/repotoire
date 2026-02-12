@@ -12,6 +12,7 @@ pub fn render(report: &HealthReport) -> Result<String> {
 }
 
 /// Render report as compact JSON (single line)
+#[allow(dead_code)] // Public API helper
 pub fn render_compact(report: &HealthReport) -> Result<String> {
     Ok(serde_json::to_string(report)?)
 }

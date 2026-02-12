@@ -20,7 +20,7 @@
 //! └─────────────────────────────────────────────────────────┘
 //! ```
 
-use crate::detectors::base::{DetectionSummary, Detector, DetectorResult, ProgressCallback};
+use crate::detectors::base::{is_test_file, DetectionSummary, Detector, DetectorResult, ProgressCallback};
 use crate::detectors::function_context::{FunctionContextMap, FunctionContextBuilder};
 use crate::graph::GraphStore;
 use crate::models::Finding;
@@ -46,6 +46,9 @@ pub struct DetectorEngine {
     progress_callback: Option<ProgressCallback>,
     /// Pre-computed function contexts (built from graph on first run)
     function_contexts: Option<Arc<FunctionContextMap>>,
+    /// Skip findings from test files (default: true)
+    /// This filters out findings where all affected_files are test files
+    skip_test_files: bool,
 }
 
 impl DetectorEngine {
@@ -69,6 +72,7 @@ impl DetectorEngine {
             max_findings: MAX_FINDINGS_LIMIT,
             progress_callback: None,
             function_contexts: None,
+            skip_test_files: true, // Skip test files by default
         }
     }
 
@@ -92,6 +96,13 @@ impl DetectorEngine {
     /// Set pre-computed function contexts
     pub fn with_function_contexts(mut self, contexts: Arc<FunctionContextMap>) -> Self {
         self.function_contexts = Some(contexts);
+        self
+    }
+
+    /// Set whether to skip test files (default: true)
+    /// When true, findings from test files are filtered out
+    pub fn with_skip_test_files(mut self, skip: bool) -> Self {
+        self.skip_test_files = skip;
         self
     }
 
@@ -228,6 +239,16 @@ impl DetectorEngine {
             }
         }
 
+        // Filter out test file findings if enabled
+        if self.skip_test_files {
+            let before_count = all_findings.len();
+            all_findings.retain(|finding| !self.is_test_file_finding(finding));
+            let filtered = before_count - all_findings.len();
+            if filtered > 0 {
+                debug!("Filtered out {} findings from test files", filtered);
+            }
+        }
+
         // Sort by severity (highest first)
         all_findings.sort_by(|a, b| b.severity.cmp(&a.severity));
 
@@ -287,6 +308,18 @@ impl DetectorEngine {
             all_results.push(self.run_single_detector(&detector, graph, &contexts));
         }
 
+        // Filter out test file findings if enabled
+        if self.skip_test_files {
+            for result in &mut all_results {
+                let before_count = result.findings.len();
+                result.findings.retain(|finding| !self.is_test_file_finding(finding));
+                let filtered = before_count - result.findings.len();
+                if filtered > 0 {
+                    debug!("Filtered {} test file findings from {}", filtered, result.detector_name);
+                }
+            }
+        }
+
         // Build summary
         let mut summary = DetectionSummary::default();
         for result in &all_results {
@@ -295,6 +328,17 @@ impl DetectorEngine {
         summary.total_duration_ms = start.elapsed().as_millis() as u64;
 
         Ok((all_results, summary))
+    }
+
+    /// Check if a finding is from test files only
+    /// Returns true if ALL affected files are test files
+    fn is_test_file_finding(&self, finding: &Finding) -> bool {
+        // If no affected files, can't determine - don't filter
+        if finding.affected_files.is_empty() {
+            return false;
+        }
+        // Filter only if ALL affected files are test files
+        finding.affected_files.iter().all(|path| is_test_file(path))
     }
 
     /// Run a single detector with error handling and timing
@@ -375,6 +419,7 @@ pub struct DetectorEngineBuilder {
     max_findings: usize,
     detectors: Vec<Arc<dyn Detector>>,
     progress_callback: Option<ProgressCallback>,
+    skip_test_files: bool,
 }
 
 impl DetectorEngineBuilder {
@@ -385,6 +430,7 @@ impl DetectorEngineBuilder {
             max_findings: MAX_FINDINGS_LIMIT,
             detectors: Vec::new(),
             progress_callback: None,
+            skip_test_files: true,
         }
     }
 
@@ -418,10 +464,17 @@ impl DetectorEngineBuilder {
         self
     }
 
+    /// Set whether to skip test files (default: true)
+    pub fn skip_test_files(mut self, skip: bool) -> Self {
+        self.skip_test_files = skip;
+        self
+    }
+
     /// Build the engine
     pub fn build(self) -> DetectorEngine {
         let mut engine = DetectorEngine::new(self.workers)
-            .with_max_findings(self.max_findings);
+            .with_max_findings(self.max_findings)
+            .with_skip_test_files(self.skip_test_files);
 
         if let Some(callback) = self.progress_callback {
             engine = engine.with_progress_callback(callback);

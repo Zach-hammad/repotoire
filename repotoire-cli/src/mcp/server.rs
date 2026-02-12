@@ -210,6 +210,7 @@ impl McpServer {
 /// JSON-RPC 2.0 Request
 #[derive(Debug, Deserialize)]
 struct JsonRpcRequest {
+    #[allow(dead_code)] // Part of JSON-RPC spec
     jsonrpc: String,
     id: Option<Value>,
     method: String,

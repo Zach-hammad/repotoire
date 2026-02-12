@@ -9,7 +9,7 @@
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::Path;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::blame::GitBlame;
 use super::history::GitHistory;
@@ -37,6 +37,7 @@ pub struct EnrichmentStats {
 /// Git enricher for the code graph.
 pub struct GitEnricher<'a> {
     blame: GitBlame,
+    #[allow(dead_code)] // Stored for future commit history analysis
     history: &'a GitHistory,
     graph: &'a GraphStore,
     /// Track commits we've already created

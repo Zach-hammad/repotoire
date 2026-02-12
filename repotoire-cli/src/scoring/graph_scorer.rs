@@ -3,7 +3,7 @@
 //! Uses the code graph to compute positive architectural signals,
 //! combined with finding penalties for the final score.
 
-use crate::graph::{GraphStore, EdgeKind, NodeKind};
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use crate::config::ProjectConfig;
 use std::collections::{HashMap, HashSet};
@@ -237,7 +237,7 @@ impl<'a> GraphScorer<'a> {
         let functions = self.graph.get_functions();
         let files = self.graph.get_files();
         let calls = self.graph.get_calls();
-        let imports = self.graph.get_imports();
+        let _imports = self.graph.get_imports();
 
         // Count modules (unique directories)
         let modules: HashSet<String> = files.iter()

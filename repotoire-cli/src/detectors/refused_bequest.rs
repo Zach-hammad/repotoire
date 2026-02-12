@@ -61,6 +61,7 @@ static EXCLUDE_PARENT_PATTERNS: &[&str] = &[
 
 /// Detects classes that inherit but don't use parent functionality
 pub struct RefusedBequestDetector {
+    #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     thresholds: RefusedBequestThresholds,
 }
@@ -80,6 +81,7 @@ impl RefusedBequestDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = RefusedBequestThresholds {
             min_overrides: config.get_option_or("min_overrides", 2),
@@ -311,7 +313,7 @@ impl Detector for RefusedBequestDetector {
         let mut findings = Vec::new();
         
         // Build set of all class names for polymorphism detection
-        let all_classes: HashSet<String> = graph.get_classes()
+        let _all_classes: HashSet<String> = graph.get_classes()
             .into_iter()
             .map(|c| c.qualified_name.clone())
             .collect();

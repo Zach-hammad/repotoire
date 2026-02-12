@@ -345,6 +345,7 @@ pub fn get_graph_context(
 }
 
 /// Batch get graph context for multiple files in a single query
+#[allow(dead_code)] // Public API helper - may be used by external callers
 pub fn batch_get_graph_context(
     graph: &crate::graph::GraphStore,
     file_paths: &[String],
@@ -369,6 +370,7 @@ pub fn batch_get_graph_context(
 }
 
 /// Estimate fix effort based on severity
+#[allow(dead_code)] // Public API helper - may be used by external callers
 pub fn estimate_fix_effort(severity: &str) -> &'static str {
     match severity.to_lowercase().as_str() {
         "critical" => "30 minutes",
@@ -380,6 +382,7 @@ pub fn estimate_fix_effort(severity: &str) -> &'static str {
 }
 
 /// Check if a tool is installed
+#[allow(dead_code)] // Public API helper - may be used by external callers
 pub fn is_tool_installed(tool: &str) -> bool {
     Command::new(tool)
         .arg("--version")

@@ -55,6 +55,7 @@ impl Default for InappropriateIntimacyThresholds {
 
 /// Detects classes that are too tightly coupled
 pub struct InappropriateIntimacyDetector {
+    #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     thresholds: InappropriateIntimacyThresholds,
 }
@@ -218,7 +219,7 @@ impl Detector for InappropriateIntimacyDetector {
         use std::collections::HashMap;
         
         // Expected architectural layers - these calling down is normal, not intimacy
-        fn is_expected_layer_dependency(from: &str, to: &str) -> bool {
+        fn is_expected_layer_dependency(from: &str, _to: &str) -> bool {
             // CLI can call anything
             if from.contains("/cli/") { return true; }
             // Handlers can call core modules

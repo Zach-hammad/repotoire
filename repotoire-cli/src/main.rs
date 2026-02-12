@@ -3,9 +3,8 @@
 //! A fast, local-first code analysis tool that uses knowledge graphs
 //! to detect code smells, architectural issues, and technical debt.
 
+// Allow dead code for public API methods exposed for library users and future features
 #![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_imports)]
 
 pub mod ai;
 pub mod cache;

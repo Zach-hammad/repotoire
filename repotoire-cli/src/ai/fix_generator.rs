@@ -68,7 +68,7 @@ pub struct FixProposal {
 
 impl FixProposal {
     /// Generate a unified diff for the changes
-    pub fn diff(&self, repo_path: &Path) -> String {
+    pub fn diff(&self, _repo_path: &Path) -> String {
         let mut diff = String::new();
 
         for change in &self.changes {

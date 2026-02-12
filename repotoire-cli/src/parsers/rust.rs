@@ -361,7 +361,7 @@ fn parse_impl_method(
     path: &Path,
     type_name: &str,
     trait_name: Option<&str>,
-    impl_line: u32,
+    _impl_line: u32,
 ) -> Option<Function> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source).ok()?.to_string();

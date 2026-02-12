@@ -40,6 +40,7 @@ impl CoreUtilityDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let high_complexity_threshold = config.get_option_or("high_complexity_threshold", 20);
         let min_callers_threshold = config.get_option_or("min_callers_threshold", 2);
@@ -100,7 +101,7 @@ impl CoreUtilityDetector {
     fn create_central_coordinator_finding(
         &self,
         name: &str,
-        qualified_name: &str,
+        _qualified_name: &str,
         file_path: &str,
         line_number: Option<u32>,
         harmonic: f64,
@@ -197,7 +198,7 @@ impl CoreUtilityDetector {
     fn create_isolated_code_finding(
         &self,
         name: &str,
-        qualified_name: &str,
+        _qualified_name: &str,
         file_path: &str,
         line_number: Option<u32>,
         harmonic: f64,

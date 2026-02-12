@@ -127,7 +127,7 @@ impl Detector for ExpressSecurityDetector {
     fn name(&self) -> &'static str { "express-security" }
     fn description(&self) -> &'static str { "Detects Express.js security issues" }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
 

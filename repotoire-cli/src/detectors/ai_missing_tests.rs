@@ -14,6 +14,8 @@
 //! - Python: test_*.py, *_test.py, tests/*.py
 //! - JavaScript/TypeScript: *.test.js, *.spec.ts, __tests__/*
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
 use crate::graph::GraphStore;
@@ -299,7 +301,7 @@ describe('{}', () => {{
     /// Create a finding for a function without tests
     fn create_finding(
         &self,
-        qualified_name: &str,
+        _qualified_name: &str,
         name: &str,
         file_path: &str,
         line_start: Option<u32>,

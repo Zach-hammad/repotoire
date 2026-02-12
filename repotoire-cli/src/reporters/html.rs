@@ -69,7 +69,7 @@ fn render_head(report: &HealthReport) -> String {
     )
 }
 
-fn render_header(report: &HealthReport) -> String {
+fn render_header(_report: &HealthReport) -> String {
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
     format!(
         r#"<div class="header">

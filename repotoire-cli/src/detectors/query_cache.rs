@@ -3,6 +3,8 @@
 //! Caches common graph data, enabling O(1) lookups instead of
 //! repeated graph queries across detectors.
 
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 

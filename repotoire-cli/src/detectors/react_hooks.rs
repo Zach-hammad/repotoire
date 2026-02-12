@@ -22,6 +22,7 @@ static CONDITIONAL: OnceLock<Regex> = OnceLock::new();
 static LOOP: OnceLock<Regex> = OnceLock::new();
 static NESTED_FUNC: OnceLock<Regex> = OnceLock::new();
 static COMPONENT: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)] // Used by use_effect() for future hook dependency analysis
 static USE_EFFECT: OnceLock<Regex> = OnceLock::new();
 
 fn hook_call() -> &'static Regex {
@@ -48,6 +49,7 @@ fn component() -> &'static Regex {
     })
 }
 
+#[allow(dead_code)] // Reserved for future hook dependency analysis
 fn use_effect() -> &'static Regex {
     USE_EFFECT.get_or_init(|| {
         Regex::new(r"(useEffect|useMemo|useCallback)\s*\(\s*(?:\([^)]*\)|[^,]+)\s*,\s*\[([^\]]*)\]").unwrap()

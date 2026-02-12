@@ -505,6 +505,7 @@ pub fn default_detectors_with_config(repository_path: &Path, project_config: &Pr
 /// Create all Python detectors for a repository
 ///
 /// Includes: Bandit, Ruff, Mypy, Pylint, Radon, Vulture
+#[allow(dead_code)] // Public API - may be used by external callers
 pub fn python_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
     vec![
         Arc::new(BanditDetector::new(repository_path)),
@@ -520,6 +521,7 @@ pub fn python_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
 /// Create all JavaScript/TypeScript detectors for a repository
 ///
 /// Includes: ESLint, tsc, npm audit
+#[allow(dead_code)] // Public API - may be used by external callers
 pub fn javascript_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
     vec![
         Arc::new(ESLintDetector::new(repository_path)),
@@ -531,6 +533,7 @@ pub fn javascript_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
 /// Create security-focused detectors for a repository
 ///
 /// Includes: Bandit, Semgrep, npm audit, GitHub Actions injection, secrets, path traversal, etc.
+#[allow(dead_code)] // Public API - may be used by external callers
 pub fn security_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
     vec![
         Arc::new(BanditDetector::new(repository_path)),
@@ -572,6 +575,7 @@ pub fn all_external_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> 
 /// Create a detector engine with all default detectors
 ///
 /// Convenience function for quickly setting up detection.
+#[allow(dead_code)] // Public API - may be used by external callers
 pub fn create_default_engine(workers: usize, repository_path: &Path) -> DetectorEngine {
     DetectorEngineBuilder::new()
         .workers(workers)
@@ -580,6 +584,7 @@ pub fn create_default_engine(workers: usize, repository_path: &Path) -> Detector
 }
 
 /// Create a detector engine with all detectors for a repository
+#[allow(dead_code)] // Public API - may be used by external callers
 pub fn create_full_engine(workers: usize, repository_path: &Path) -> DetectorEngine {
     let mut detectors = default_detectors(repository_path);
     detectors.extend(all_external_detectors(repository_path));

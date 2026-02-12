@@ -5,7 +5,6 @@
 use crate::models::{Class, Function};
 use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
-use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::{Node, Parser, Query, QueryCursor};
 
