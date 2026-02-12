@@ -434,8 +434,8 @@ impl Detector for DataClumpsDetector {
                     clump.params.iter().map(|p| format!("    {}: Type,", p)).collect::<Vec<_>>().join("\n"),
                     struct_name,
                     clump.params.len(),
-                    if clump.is_call_chain { 
-                        "\n\nSince these functions call each other, the refactoring can be done incrementally." 
+                    if clump.is_call_chain {
+                        "\n\nSince these functions call each other, the refactoring can be done incrementally."
                     } else { "" }
                 )),
                 estimated_effort: Some(if clump.funcs.len() >= 6 || clump.is_call_chain {

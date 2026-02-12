@@ -238,7 +238,7 @@ impl Detector for InsecureCookieDetector {
                             id: Uuid::new_v4().to_string(),
                             detector: "InsecureCookieDetector".to_string(),
                             severity,
-                            title: format!("Cookie missing {} flag{}", 
+                            title: format!("Cookie missing {} flag{}",
                                 missing[0],
                                 if missing.len() > 1 { "s" } else { "" }
                             ),
@@ -252,9 +252,9 @@ impl Detector for InsecureCookieDetector {
                             suggested_fix: Some(suggestion),
                             estimated_effort: Some("5 minutes".to_string()),
                             category: Some("security".to_string()),
-                            cwe_id: Some(if !flags.has_httponly { 
+                            cwe_id: Some(if !flags.has_httponly {
                                 "CWE-1004".to_string()  // Sensitive Cookie Without HttpOnly
-                            } else { 
+                            } else {
                                 "CWE-614".to_string()   // Sensitive Cookie Without Secure
                             }),
                             why_it_matters: Some(

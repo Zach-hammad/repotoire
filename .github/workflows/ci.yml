@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: repotoire-cli
+      
+      - name: Run tests
+        run: cd repotoire-cli && cargo test --all-features
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: repotoire-cli
+      
+      - name: Run Clippy
+        run: cd repotoire-cli && cargo clippy --all-features -- -D warnings
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      
+      - name: Check formatting
+        run: cd repotoire-cli && cargo fmt --all -- --check
+
+  # Self-analysis with repotoire
+  analyze:
+    name: Repotoire Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: repotoire-cli
+      
+      - name: Build repotoire
+        run: cd repotoire-cli && cargo build --release
+      
+      - name: Run self-analysis
+        run: |
+          cd repotoire-cli
+          ./target/release/repotoire analyze --fail-on critical
+          echo "## Repotoire Analysis" >> $GITHUB_STEP_SUMMARY
+          ./target/release/repotoire analyze --format text | head -30 >> $GITHUB_STEP_SUMMARY

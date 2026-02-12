@@ -757,7 +757,7 @@ impl GraphStore {
         cycles.dedup();
 
         // Sort by size (largest cycles first - they're usually most important)
-        cycles.sort_by(|a, b| b.len().cmp(&a.len()));
+        cycles.sort_by_key(|c| std::cmp::Reverse(c.len()));
 
         cycles
     }
@@ -898,8 +898,8 @@ impl Drop for GraphStore {
         // Explicitly flush and close the sled database to release the lock
         if let Some(ref db) = self.db {
             let _ = db.flush();
-            // Force sync to disk
-            let _ = db.flush_async();
+            // Trigger async flush (we don't need to await it)
+            drop(db.flush_async());
         }
         // Taking ownership of db triggers sled's Drop which releases the lock
         let _ = self.db.take();

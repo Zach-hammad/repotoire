@@ -660,7 +660,7 @@ fn render_agents_panel(f: &mut Frame, area: Rect, app: &App) {
         .agents
         .iter()
         .filter(|a| matches!(a.status, AgentStatus::Running))
-        .last()
+        .next_back()
         .map(|agent| {
             tail_file(&agent.log_file, 15)
                 .into_iter()

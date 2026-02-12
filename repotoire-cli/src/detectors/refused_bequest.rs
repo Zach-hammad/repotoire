@@ -397,7 +397,7 @@ impl Detector for RefusedBequestDetector {
                             description: format!(
                                 "Class '{}' inherits from '{}' but may not use inherited behavior properly.\n\n\
                                  {} of {} methods appear to override without using parent.{}",
-                                child.name, 
+                                child.name,
                                 parent_qn.rsplit("::").next().unwrap_or(&parent_qn),
                                 potential_refusals.len(),
                                 child_methods.len(),
@@ -412,7 +412,7 @@ impl Detector for RefusedBequestDetector {
                                         "Since '{}' is used polymorphically, consider:\n\
                                          1. Fix the overrides to properly extend parent behavior\n\
                                          2. Extract a new interface that both classes implement\n\
-                                         3. Use the Strategy pattern if behavior varies", 
+                                         3. Use the Strategy pattern if behavior varies",
                                         child.name
                                     )
                                 } else {

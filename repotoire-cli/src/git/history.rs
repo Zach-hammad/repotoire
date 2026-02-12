@@ -217,9 +217,7 @@ impl GitHistory {
         revwalk.set_sorting(Sort::TIME)?;
         revwalk.push_head()?;
 
-        let mut commit_count = 0;
-
-        for oid_result in revwalk {
+        for (commit_count, oid_result) in revwalk.enumerate() {
             if commit_count >= max_commits {
                 break;
             }
@@ -268,8 +266,6 @@ impl GitHistory {
             // Get line stats
             let _stats = diff.stats()?;
             // Note: Per-file line stats require iterating patches, done in get_commit_file_stats
-
-            commit_count += 1;
         }
 
         Ok(churn_map)

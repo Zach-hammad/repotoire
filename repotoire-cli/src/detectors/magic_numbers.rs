@@ -302,10 +302,10 @@ impl Detector for MagicNumbersDetector {
                                         "Extract into a named constant:\n```\nconst {} = {};\n```",
                                         suggested_name, num
                                     )),
-                                    estimated_effort: Some(if in_multiple_files { 
-                                        "15 minutes".to_string() 
-                                    } else { 
-                                        "5 minutes".to_string() 
+                                    estimated_effort: Some(if in_multiple_files {
+                                        "15 minutes".to_string()
+                                    } else {
+                                        "5 minutes".to_string()
                                     }),
                                     category: Some("readability".to_string()),
                                     cwe_id: None,

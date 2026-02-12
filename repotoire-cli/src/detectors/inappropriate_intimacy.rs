@@ -403,11 +403,11 @@ impl Detector for InappropriateIntimacyDetector {
                         "Bidirectional coupling:\n\
                          - {} → {} ({} calls to {} functions)\n\
                          - {} → {} ({} calls to {} functions){}",
-                        file_a.rsplit('/').next().unwrap_or(file_a), 
-                        file_b.rsplit('/').next().unwrap_or(file_b), 
+                        file_a.rsplit('/').next().unwrap_or(file_a),
+                        file_b.rsplit('/').next().unwrap_or(file_b),
                         count_a_to_b, funcs_a_to_b,
-                        file_b.rsplit('/').next().unwrap_or(file_b), 
-                        file_a.rsplit('/').next().unwrap_or(file_a), 
+                        file_b.rsplit('/').next().unwrap_or(file_b),
+                        file_a.rsplit('/').next().unwrap_or(file_a),
                         count_b_to_a, funcs_b_to_a,
                         pattern_notes
                     ),
