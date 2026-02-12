@@ -142,37 +142,6 @@ impl AIMissingTestsDetector {
         false
     }
 
-    /// Check if function should be skipped
-    fn should_skip_function(&self, name: &str, file_path: &str) -> bool {
-        if name.is_empty() {
-            return true;
-        }
-
-        let name_lower = name.to_lowercase();
-
-        // Skip test functions themselves
-        if name_lower.starts_with("test") || name_lower.ends_with("_test") {
-            return true;
-        }
-
-        // Skip functions in test files
-        if self.is_test_file(file_path) {
-            return true;
-        }
-
-        // Skip private functions if configured
-        if self.exclude_private && name.starts_with('_') && !name.starts_with("__") {
-            return true;
-        }
-
-        // Skip dunder methods if configured
-        if self.exclude_dunder && name.starts_with("__") && name.ends_with("__") {
-            return true;
-        }
-
-        false
-    }
-
     /// Get possible test function names for a given function
     fn get_test_function_variants(&self, func_name: &str) -> Vec<String> {
         let name_lower = func_name.to_lowercase();
@@ -567,27 +536,6 @@ mod tests {
 
         assert!(!detector.is_test_file("module.py"));
         assert!(!detector.is_test_file("app.js"));
-    }
-
-    #[test]
-    fn test_should_skip_function() {
-        let detector = AIMissingTestsDetector::new();
-
-        // Test functions should be skipped
-        assert!(detector.should_skip_function("test_something", "module.py"));
-        assert!(detector.should_skip_function("something_test", "module.py"));
-
-        // Functions in test files should be skipped
-        assert!(detector.should_skip_function("helper", "test_module.py"));
-
-        // Private functions should be skipped (by default)
-        assert!(detector.should_skip_function("_private", "module.py"));
-
-        // Dunder methods should be skipped (by default)
-        assert!(detector.should_skip_function("__init__", "module.py"));
-
-        // Regular functions should not be skipped
-        assert!(!detector.should_skip_function("process_data", "module.py"));
     }
 
     #[test]

@@ -173,6 +173,26 @@ impl CircularDependencyDetector {
         }
     }
 
+    /// Check if all files in the cycle are siblings (same parent directory)
+    /// This catches plugin architectures where all modules share a common base
+    fn is_sibling_only_cycle(files: &[String]) -> bool {
+        if files.len() < 2 {
+            return false;
+        }
+        
+        // Extract parent directory from first file
+        let first_parent = files[0]
+            .rsplit_once('/')
+            .map(|(parent, _)| parent)
+            .unwrap_or("");
+        
+        // Check if all files share the same parent directory
+        files.iter().all(|f| {
+            let parent = f.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+            parent == first_parent
+        })
+    }
+
     /// Create a finding from an SCC with coupling analysis
     fn create_finding(&self, scc_files: Vec<String>, scc_size: usize, coupling: CouplingAnalysis, graph: &GraphStore) -> Finding {
         let finding_id = Uuid::new_v4().to_string();
@@ -320,6 +340,14 @@ impl Detector for CircularDependencyDetector {
             seen_cycles.insert(normalized);
 
             let scc_size = scc.len();
+            
+            // Skip large sibling-only cycles (files in same directory sharing common base)
+            // This is expected for plugin architectures like detector/parser modules
+            // Small cycles (< 10 files) are still flagged as they may be fixable
+            if scc_size >= 10 && Self::is_sibling_only_cycle(&scc) {
+                debug!("Skipping large sibling-only cycle with {} files", scc_size);
+                continue;
+            }
             
             // Analyze coupling strength to find the best place to break
             let coupling = self.analyze_coupling(&scc, graph);
