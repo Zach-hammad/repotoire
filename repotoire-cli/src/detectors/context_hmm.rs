@@ -341,12 +341,16 @@ impl FunctionFeatures {
     pub fn looks_like_utility(&self) -> bool {
         // C-style: short prefix + high fan-in
         (self.has_short_prefix && self.is_high_fan_in)
-        // Go: exported helper in util path
+        // Go: exported function with high fan-in (cross-package utility)
+        || (self.is_go_exported && self.is_high_fan_in)
+        // Go: exported in util/common/helpers path
         || (self.is_go_exported && self.in_util_path)
         // Any language: in util path with high fan-in
         || (self.in_util_path && self.is_high_fan_in)
-        // High fan-in with spread callers
+        // High fan-in with spread callers (universal pattern)
         || (self.fan_in_ratio > 0.3 && self.caller_file_spread > 0.5)
+        // Very high fan-in alone (top 20% callers)
+        || self.fan_in_ratio > 0.2
     }
     
     /// Quick check if this looks like a handler/callback (any language)

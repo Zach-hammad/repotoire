@@ -1055,7 +1055,9 @@ fn run_detectors(
         println!("\n{}Running detectors...", style("🕵️  ").bold());
     }
 
-    let mut engine = DetectorEngine::new(workers);
+    // Set up HMM cache in .repotoire directory
+    let hmm_cache_path = repo_path.join(".repotoire");
+    let mut engine = DetectorEngine::new(workers).with_hmm_cache(hmm_cache_path);
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
     // Register default detectors

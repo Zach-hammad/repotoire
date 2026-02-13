@@ -55,6 +55,8 @@ pub struct DetectorEngine {
     /// Skip findings from test files (default: true)
     /// This filters out findings where all affected_files are test files
     skip_test_files: bool,
+    /// Path to cache HMM model for faster subsequent runs
+    hmm_cache_path: Option<std::path::PathBuf>,
 }
 
 impl DetectorEngine {
@@ -80,7 +82,14 @@ impl DetectorEngine {
             function_contexts: None,
             hmm_contexts: None,
             skip_test_files: true, // Skip test files by default
+            hmm_cache_path: None,
         }
+    }
+
+    /// Set path for HMM model caching
+    pub fn with_hmm_cache(mut self, path: std::path::PathBuf) -> Self {
+        self.hmm_cache_path = Some(path);
+        self
     }
 
     /// Create engine with default settings
@@ -137,6 +146,20 @@ impl DetectorEngine {
         if let Some(ref ctx) = self.hmm_contexts {
             return Arc::clone(ctx);
         }
+
+        // Try to load cached HMM model
+        let cache_path = self.hmm_cache_path.clone();
+        let mut classifier = if let Some(ref path) = cache_path {
+            let model_path = path.join("hmm_model.json");
+            if model_path.exists() {
+                info!("Loading cached HMM model from {:?}", model_path);
+                ContextClassifier::for_codebase(Some(&model_path))
+            } else {
+                ContextClassifier::new()
+            }
+        } else {
+            ContextClassifier::new()
+        };
 
         info!("Building HMM function contexts from graph...");
         let mut functions = graph.get_functions();
@@ -195,8 +218,7 @@ impl DetectorEngine {
         let avg_loc = total_loc as f64 / functions.len().max(1) as f64;
         let avg_params = total_params as f64 / functions.len().max(1) as f64;
 
-        // Extract features and train HMM
-        let mut classifier = ContextClassifier::new();
+        // Extract features for training
         let mut function_data = Vec::new();
 
         for func in &functions {
@@ -234,6 +256,20 @@ impl DetectorEngine {
 
         // Bootstrap training from call graph patterns
         classifier.train(&function_data);
+
+        // Save trained model to cache
+        if let Some(ref path) = cache_path {
+            if let Err(e) = std::fs::create_dir_all(path) {
+                warn!("Failed to create HMM cache directory: {}", e);
+            } else {
+                let model_path = path.join("hmm_model.json");
+                if let Err(e) = classifier.save(&model_path) {
+                    warn!("Failed to save HMM model: {}", e);
+                } else {
+                    info!("Saved HMM model to {:?}", model_path);
+                }
+            }
+        }
 
         // Classify all functions
         let mut contexts = HashMap::new();
