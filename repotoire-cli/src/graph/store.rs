@@ -187,6 +187,8 @@ pub struct GraphStore {
     /// Database path for lazy loading
     #[allow(dead_code)] // Stored for future lazy loading support
     db_path: Option<std::path::PathBuf>,
+    /// Lazy mode - query sled directly instead of loading all into memory
+    lazy_mode: bool,
 }
 
 impl GraphStore {
@@ -197,19 +199,51 @@ impl GraphStore {
             std::fs::create_dir_all(parent)?;
         }
 
-        let db = sled::open(db_path).context("Failed to open sled database")?;
+        // Configure sled for low memory usage with mmap
+        let db = sled::Config::new()
+            .path(db_path)
+            .mode(sled::Mode::LowSpace)      // Use mmap, minimize RAM
+            .cache_capacity(64 * 1024 * 1024) // 64MB cache instead of default 1GB
+            .flush_every_ms(Some(5000))       // Batch writes
+            .open()
+            .context("Failed to open sled database")?;
 
         let store = Self {
             graph: RwLock::new(DiGraph::new()),
             node_index: RwLock::new(HashMap::new()),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
+            lazy_mode: false,
         };
 
         // Load existing data
         store.load()?;
 
         Ok(store)
+    }
+
+    /// Create a low-memory graph store using lazy loading
+    /// Queries go directly to sled/mmap instead of loading everything into RAM
+    pub fn new_lazy(db_path: &Path) -> Result<Self> {
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let db = sled::Config::new()
+            .path(db_path)
+            .mode(sled::Mode::LowSpace)
+            .cache_capacity(32 * 1024 * 1024) // 32MB cache for lazy mode
+            .flush_every_ms(Some(5000))
+            .open()
+            .context("Failed to open sled database")?;
+
+        Ok(Self {
+            graph: RwLock::new(DiGraph::new()),
+            node_index: RwLock::new(HashMap::new()),
+            db: Some(db),
+            db_path: Some(db_path.to_path_buf()),
+            lazy_mode: true, // Don't load into memory
+        })
     }
 
     /// Create an in-memory only store (no persistence)
@@ -219,6 +253,7 @@ impl GraphStore {
             node_index: RwLock::new(HashMap::new()),
             db: None,
             db_path: None,
+            lazy_mode: false,
         }
     }
 

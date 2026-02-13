@@ -69,6 +69,18 @@ impl Detector for XssDetector {
             if is_test_file(path) {
                 continue;
             }
+            
+            // Skip framework internals (React/Vue/Angular core SSR code)
+            let path_str_lower = path.to_string_lossy().to_lowercase();
+            if path_str_lower.contains("fizzconfig")  // React SSR core
+                || path_str_lower.contains("server/react")
+                || path_str_lower.contains("dom-bindings")  // React DOM bindings
+                || path_str_lower.contains("/packages/react-dom/")
+                || path_str_lower.contains("/packages/vue/")
+                || path_str_lower.contains("/packages/angular/")
+            {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let file_str = path.to_string_lossy();

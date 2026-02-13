@@ -46,6 +46,8 @@ pub enum ProjectType {
     Compiler,
     /// Reusable libraries - focus on public API
     Library,
+    /// UI frameworks, component libraries - high internal coupling expected
+    Framework,
     /// Command-line tools - command dispatch patterns
     Cli,
     /// Operating systems, embedded - syscalls, interrupts
@@ -60,8 +62,9 @@ impl ProjectType {
         match self {
             ProjectType::Web => 1.0,          // Strict - CRUD should have clean separation
             ProjectType::Interpreter => 2.5,  // Very lenient - eval loops touch everything
-            ProjectType::Compiler => 2.0,     // Lenient - pipeline stages couple
+            ProjectType::Compiler => 3.0,     // Very lenient - HIR/MIR/AST shared everywhere
             ProjectType::Library => 1.5,      // Moderate - internal coupling OK
+            ProjectType::Framework => 3.0,    // Very lenient - React/Vue cores couple heavily
             ProjectType::Cli => 1.3,          // Slight leniency - command dispatch
             ProjectType::Kernel => 3.0,       // Most lenient - syscalls, interrupts
             ProjectType::Game => 2.0,         // Lenient - ECS, frame loops
@@ -75,6 +78,7 @@ impl ProjectType {
             ProjectType::Interpreter => 1.8,  // Opcodes switches are complex
             ProjectType::Compiler => 1.5,     // Parser/codegen complexity
             ProjectType::Library => 1.2,
+            ProjectType::Framework => 1.5,    // Core reconciler, scheduler complexity
             ProjectType::Cli => 1.1,
             ProjectType::Kernel => 2.0,       // Interrupt handlers, state machines
             ProjectType::Game => 1.5,         // Frame update loops
@@ -85,7 +89,7 @@ impl ProjectType {
     pub fn lenient_dead_code(&self) -> bool {
         matches!(
             self,
-            ProjectType::Interpreter | ProjectType::Kernel | ProjectType::Game
+            ProjectType::Interpreter | ProjectType::Kernel | ProjectType::Game | ProjectType::Framework
         )
     }
 
@@ -97,6 +101,9 @@ impl ProjectType {
         }
         if has_compiler_markers(repo_path) {
             return ProjectType::Compiler;
+        }
+        if has_framework_markers(repo_path) {
+            return ProjectType::Framework;
         }
         if has_kernel_markers(repo_path) {
             return ProjectType::Kernel;
@@ -117,6 +124,64 @@ impl ProjectType {
         // Default to library (most neutral)
         ProjectType::Library
     }
+}
+
+/// Check for UI framework markers (React, Vue, Angular, Svelte, etc.)
+fn has_framework_markers(repo_path: &Path) -> bool {
+    const FRAMEWORK_DIRS: &[&str] = &[
+        "reconciler", "scheduler", "renderer", "dom", "fiber", 
+        "packages/react", "packages/vue", "packages/angular",
+    ];
+    const FRAMEWORK_FILES: &[&str] = &[
+        "package.json",  // Check content for framework name
+    ];
+
+    // Check for framework-specific directories
+    for dir in FRAMEWORK_DIRS {
+        if repo_path.join(dir).is_dir() {
+            return true;
+        }
+    }
+    
+    // Check package.json for framework name in "name" field
+    let package_json = repo_path.join("package.json");
+    if package_json.exists() {
+        if let Ok(content) = std::fs::read_to_string(&package_json) {
+            // Check if this IS a framework (not just uses one)
+            if (content.contains("\"name\": \"react\"") 
+                || content.contains("\"name\": \"vue\"")
+                || content.contains("\"name\": \"angular\"")
+                || content.contains("\"name\": \"svelte\"")
+                || content.contains("\"name\": \"preact\"")
+                || content.contains("\"name\": \"solid-js\""))
+            {
+                return true;
+            }
+        }
+    }
+    
+    // Check for monorepo packages that indicate framework
+    if let Ok(packages) = std::fs::read_dir(repo_path.join("packages")) {
+        let mut framework_signals = 0;
+        for entry in packages.filter_map(|e| e.ok()) {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.contains("reconciler") 
+                || name_str.contains("scheduler")
+                || name_str.contains("dom")
+                || name_str.contains("core")
+                || name_str.contains("runtime")
+            {
+                framework_signals += 1;
+            }
+        }
+        // Multiple framework-like packages = likely a framework
+        if framework_signals >= 2 {
+            return true;
+        }
+    }
+    
+    false
 }
 
 /// Check for interpreter/VM markers
@@ -148,14 +213,33 @@ fn has_interpreter_markers(repo_path: &Path) -> bool {
 fn has_compiler_markers(repo_path: &Path) -> bool {
     const COMPILER_DIRS: &[&str] = &[
         "parser", "lexer", "codegen", "ast", "ir", "optimizer", "frontend", "backend",
+        "compiler", "HIR", "MIR", "LIR", "transform", "analysis",
     ];
 
     let mut count = 0;
     for dir in COMPILER_DIRS {
-        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
+        if repo_path.join(dir).is_dir() 
+            || repo_path.join(format!("src/{}", dir)).is_dir()
+            || repo_path.join(format!("packages/{}", dir)).is_dir()  // Monorepo
+        {
             count += 1;
         }
     }
+    
+    // Also check for packages/*/compiler pattern (monorepo like React)
+    if let Ok(packages) = std::fs::read_dir(repo_path.join("packages")) {
+        for entry in packages.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name.contains("compiler") || name.contains("transform") {
+                    count += 2;  // Strong signal
+                    break;
+                }
+            }
+        }
+    }
+    
     // Need at least 2 compiler-related dirs to be confident
     count >= 2
 }
@@ -617,10 +701,13 @@ impl ProjectConfig {
     /// Get the effective project type (explicit config > auto-detected > default)
     pub fn get_project_type(&self, repo_path: &Path) -> ProjectType {
         if let Some(explicit) = self.project_type {
+            debug!("Using explicit project type: {:?}", explicit);
             return explicit;
         }
         // Auto-detect based on repo structure
-        ProjectType::detect(repo_path)
+        let detected = ProjectType::detect(repo_path);
+        debug!("Auto-detected project type: {:?} (coupling multiplier: {})", detected, detected.coupling_multiplier());
+        detected
     }
 
     /// Get coupling threshold multiplier based on project type

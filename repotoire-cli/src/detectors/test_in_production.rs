@@ -27,8 +27,10 @@ fn test_import() -> &'static Regex {
 }
 
 fn test_usage() -> &'static Regex {
+    // Note: Removed expect( as it's used in production assertion/error libraries
+    // Removed describe( and it( as they conflict with normal code patterns
     TEST_USAGE.get_or_init(|| {
-        Regex::new(r"(?i)(mock\.|Mock\(|MagicMock|patch\(|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|describe\(|it\(|expect\(|\.toBe|\.toEqual|fixture|@Before|@After|@BeforeEach)").unwrap()
+        Regex::new(r"(?i)(mock\.|Mock\(|MagicMock|patch\(|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|\.toBe\(|\.toEqual\(|\.toHaveBeenCalled|\.toThrow\(|fixture|@Before|@After|@BeforeEach)").unwrap()
     })
 }
 
@@ -136,12 +138,15 @@ impl Detector for TestInProductionDetector {
 
             let path_str = path.to_string_lossy().to_string();
 
-            // Skip actual test files
+            // Skip actual test files and devtools (devtools legitimately use debug patterns)
             if path_str.contains("test")
                 || path_str.contains("spec")
                 || path_str.contains("__tests__")
                 || path_str.contains("fixtures")
                 || path_str.contains("conftest")
+                || path_str.contains("devtools")
+                || path_str.contains("debug")
+                || path_str.contains("/scripts/")
             {
                 continue;
             }

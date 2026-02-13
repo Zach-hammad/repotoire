@@ -101,6 +101,20 @@ impl Detector for CommandInjectionDetector {
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let file_str = path.to_string_lossy();
+                
+                // Check if this is a build/script file (developer-controlled, not user-facing)
+                let is_build_script = file_str.contains("/scripts/")
+                    || file_str.contains("/build/")
+                    || file_str.contains("/tools/")
+                    || file_str.contains("/ci/")
+                    || file_str.contains("/.github/")
+                    || file_str.contains("/gulp")
+                    || file_str.contains("/grunt")
+                    || file_str.contains("webpack")
+                    || file_str.contains("rollup")
+                    || file_str.contains("vite.config")
+                    || file_str.ends_with(".config.js")
+                    || file_str.ends_with(".config.ts");
 
                 // First pass: find template literals with RISKY interpolation stored in variables
                 // e.g., const cmd = `echo ${userId}`;  // userId could be user input
@@ -201,14 +215,34 @@ impl Detector for CommandInjectionDetector {
                         let has_shell_true =
                             line.contains("shell=True") || line.contains("shell: true");
 
+                        // Check for SAFE patterns that reduce risk:
+                        // 1. process.env.* - environment variables are developer-controlled
+                        // 2. __dirname, __filename - Node.js path constants
+                        // 3. path.join, path.resolve - safe path construction
+                        // 4. UPPER_CASE variables - likely constants
+                        let has_safe_source = line.contains("process.env")
+                            || line.contains("__dirname")
+                            || line.contains("__filename")
+                            || line.contains("path.join")
+                            || line.contains("path.resolve")
+                            || line.contains("cwd()")
+                            || line.contains("${ROOT")
+                            || line.contains("${DIR")
+                            || line.contains("${PATH");
+                        
+                        // Check if ONLY safe sources are interpolated (no user input)
+                        let only_safe_interpolation = has_template_interpolation 
+                            && has_safe_source 
+                            && !has_user_input;
+
                         // HIGH RISK conditions:
                         // 1. shell=True (Python) - always dangerous
                         // 2. exec with user input AND interpolation on same line
-                        // 3. exec with template literal + ${} on same line (obvious injection)
+                        // 3. exec with template literal + ${} on same line (unless safe source)
                         // 4. exec using a variable that was built from template with ${}
                         let is_risky = has_shell_true
                             || (has_user_input && has_interpolation)
-                            || has_template_interpolation
+                            || (has_template_interpolation && !only_safe_interpolation)
                             || uses_dangerous_var;
 
                         if is_risky {
@@ -222,7 +256,15 @@ impl Detector for CommandInjectionDetector {
                                 "Shell command execution with potential user input."
                             };
 
-                            let (severity, description) = check_taint(base_desc);
+                            let (mut severity, description) = check_taint(base_desc);
+                            
+                            // Reduce severity for build scripts (developer-controlled)
+                            if is_build_script && severity == Severity::Critical {
+                                severity = Severity::Low;  // Build scripts are not user-facing
+                            } else if has_safe_source && !has_user_input && severity == Severity::Critical {
+                                // Safe sources (env vars, path constants) without user input
+                                severity = Severity::Medium;
+                            }
 
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
