@@ -407,6 +407,36 @@ impl Detector for AIComplexitySpikeDetector {
                 || func.file_path.contains("/vendor/") {
                 continue;
             }
+            
+            // Skip build outputs and bundled code (not source we control)
+            if func.file_path.contains("/npm/")
+                || func.file_path.contains("/umd/")
+                || func.file_path.contains("/cjs/")
+                || func.file_path.contains("/esm/")
+                || func.file_path.contains("/dist/")
+                || func.file_path.contains(".min.")
+                || func.file_path.contains(".bundle.")
+            {
+                continue;
+            }
+            
+            // Skip test fixtures and compatibility shims
+            if func.file_path.contains("/fixtures/")
+                || func.file_path.contains("/legacy-jsx-runtimes/")
+                || func.file_path.contains("-shell/")
+                || func.file_path.contains("/mocks/")
+            {
+                continue;
+            }
+            
+            // Skip compiler internals (complex by nature)
+            if func.file_path.contains("/compiler/")
+                || func.file_path.contains("/babel-plugin-")
+                || func.file_path.contains("/HIR/")
+                || func.file_path.contains("/MIR/")
+            {
+                continue;
+            }
 
             // Skip interpreter/runtime functions (short prefix + underscore pattern)
             if Self::has_runtime_prefix(&func.name) {

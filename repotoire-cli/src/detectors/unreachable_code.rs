@@ -377,6 +377,28 @@ impl UnreachableCodeDetector {
             {
                 continue;
             }
+            
+            // Skip build outputs and bundled code (not source)
+            if func.file_path.contains("/npm/")           // npm package outputs
+                || func.file_path.contains("/umd/")       // UMD bundles
+                || func.file_path.contains("/cjs/")       // CommonJS bundles
+                || func.file_path.contains("/esm/")       // ESM bundles
+                || func.file_path.contains("/dist/")      // Distribution builds
+                || func.file_path.contains(".min.")       // Minified files
+                || func.file_path.contains(".bundle.")    // Bundle files
+            {
+                continue;
+            }
+            
+            // Skip fixtures and test infrastructure
+            if func.file_path.contains("/fixtures/")
+                || func.file_path.contains("/legacy-jsx-runtimes/")
+                || func.file_path.contains("-shell/")     // devtools-shell, etc.
+                || func.file_path.contains("/mocks/")
+                || func.file_path.contains("/__mocks__/")
+            {
+                continue;
+            }
 
             // Skip CLI-related functions (often entry points)
             if func.file_path.contains("/cli")
