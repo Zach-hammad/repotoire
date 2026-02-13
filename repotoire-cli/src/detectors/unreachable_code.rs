@@ -84,8 +84,9 @@ const ENTRY_POINT_PATTERNS: &[&str] = &[
     "analyze",
 ];
 
-/// Paths that indicate entry points
+/// Paths that indicate entry points or dispatch-table code
 const ENTRY_POINT_PATHS: &[&str] = &[
+    // Direct entry points
     "/cli/",
     "/cmd/",
     "/main",
@@ -97,6 +98,20 @@ const ENTRY_POINT_PATHS: &[&str] = &[
     "/__main__",
     "/tests/",
     "_test.",
+    // Dispatch table patterns (functions called via pointers, not direct calls)
+    "/jets/",       // JIT/dispatch tables (interpreters)
+    "/opcodes/",    // Opcode handlers
+    "/callbacks/",  // Callback functions
+    "/hooks/",      // Hook functions
+    "/vtable/",     // Virtual table implementations
+    "/impls/",      // Trait/interface implementations
+    "/builtins/",   // Built-in functions
+    "/intrinsics/", // Compiler intrinsics
+    "/primitives/", // Primitive operations
+    "/ops/",        // Operation implementations
+    "/ffi/",        // FFI bindings
+    "/bindings/",   // Language bindings
+    "/wasm/",       // WebAssembly exports
 ];
 
 pub struct UnreachableCodeDetector {

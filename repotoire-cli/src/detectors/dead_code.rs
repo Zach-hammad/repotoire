@@ -15,9 +15,10 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-/// Paths that indicate FFI/binding code (functions called from other languages)
-/// These functions have external callers not visible in the call graph.
-static FFI_PATHS: &[&str] = &[
+/// Paths that indicate dynamically-dispatched code (called via tables, not direct calls)
+/// These functions have callers not visible in the static call graph.
+static DISPATCH_PATHS: &[&str] = &[
+    // FFI/language bindings
     "/ffi/",       // FFI bindings
     "/bindings/",  // Language bindings
     "/extern/",    // External interfaces
@@ -26,6 +27,18 @@ static FFI_PATHS: &[&str] = &[
     "/wasm/",      // WebAssembly exports
     "/capi/",      // C API exports
     "/exports/",   // Exported functions
+    // Dispatch table patterns (functions called via pointers)
+    "/jets/",      // JIT/dispatch tables (common in interpreters)
+    "/opcodes/",   // Opcode handlers
+    "/handlers/",  // Event/message handlers
+    "/callbacks/", // Callback functions
+    "/hooks/",     // Hook functions
+    "/vtable/",    // Virtual table implementations
+    "/impls/",     // Trait/interface implementations
+    "/builtins/",  // Built-in function implementations
+    "/intrinsics/",// Compiler intrinsics
+    "/primitives/",// Primitive operations
+    "/ops/",       // Operation implementations
 ];
 
 /// Entry points that should not be flagged as dead code
@@ -689,10 +702,10 @@ impl DeadCodeDetector {
                 continue;
             }
 
-            // Skip functions in FFI/binding paths (called from other languages)
+            // Skip functions in dispatch/FFI paths (called via tables, not direct calls)
             let path_lower = file_path.to_lowercase();
-            if FFI_PATHS.iter().any(|p| path_lower.contains(p)) {
-                debug!("Skipping FFI path function: {} in {}", name, file_path);
+            if DISPATCH_PATHS.iter().any(|p| path_lower.contains(p)) {
+                debug!("Skipping dispatch path function: {} in {}", name, file_path);
                 continue;
             }
 
