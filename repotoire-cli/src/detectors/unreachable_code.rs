@@ -112,6 +112,14 @@ const ENTRY_POINT_PATHS: &[&str] = &[
     "/ffi/",        // FFI bindings
     "/bindings/",   // Language bindings
     "/wasm/",       // WebAssembly exports
+    // Vendored/third-party code (shouldn't flag external code)
+    "/ext/",        // External dependencies
+    "/vendor/",     // Vendored code
+    "/third_party/",// Third-party libraries
+    "/thirdparty/", // Third-party libraries (alt)
+    "/external/",   // External dependencies
+    "/deps/",       // Dependencies
+    "/node_modules/", // npm packages
 ];
 
 pub struct UnreachableCodeDetector {

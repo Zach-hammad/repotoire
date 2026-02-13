@@ -39,6 +39,14 @@ static DISPATCH_PATHS: &[&str] = &[
     "/intrinsics/",// Compiler intrinsics
     "/primitives/",// Primitive operations
     "/ops/",       // Operation implementations
+    // Vendored/third-party code (shouldn't flag external code)
+    "/ext/",        // External dependencies
+    "/vendor/",     // Vendored code
+    "/third_party/",// Third-party libraries
+    "/thirdparty/", // Third-party libraries (alt)
+    "/external/",   // External dependencies
+    "/deps/",       // Dependencies
+    "/node_modules/", // npm packages
 ];
 
 /// Entry points that should not be flagged as dead code
