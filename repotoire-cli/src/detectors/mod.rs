@@ -370,19 +370,29 @@ pub fn default_detectors_with_config(
     repository_path: &Path,
     project_config: &ProjectConfig,
 ) -> Vec<Arc<dyn Detector>> {
+    // Get project type for coupling/complexity multipliers
+    let project_type = project_config.get_project_type(repository_path);
+    tracing::info!(
+        "Detected project type: {:?} (coupling multiplier: {:.1}x)",
+        project_type,
+        project_type.coupling_multiplier()
+    );
+
     vec![
         // Core detectors (with project config support)
         Arc::new(CircularDependencyDetector::new()),
         Arc::new(GodClassDetector::with_config(
-            DetectorConfig::from_project_config("GodClassDetector", project_config),
+            DetectorConfig::from_project_config_with_type("GodClassDetector", project_config, repository_path),
         )),
         Arc::new(LongParameterListDetector::with_config(
-            DetectorConfig::from_project_config("LongParameterListDetector", project_config),
+            DetectorConfig::from_project_config_with_type("LongParameterListDetector", project_config, repository_path),
         )),
         // Code smell detectors
         Arc::new(DataClumpsDetector::new()),
         Arc::new(DeadCodeDetector::new()),
-        Arc::new(FeatureEnvyDetector::new()),
+        Arc::new(FeatureEnvyDetector::with_config(
+            DetectorConfig::from_project_config_with_type("FeatureEnvyDetector", project_config, repository_path),
+        )),
         Arc::new(InappropriateIntimacyDetector::new()),
         Arc::new(LazyClassDetector::new()),
         Arc::new(MessageChainDetector::new(repository_path)),
@@ -398,10 +408,14 @@ pub fn default_detectors_with_config(
         // Graph/architecture detectors
         Arc::new(ArchitecturalBottleneckDetector::new()),
         Arc::new(CoreUtilityDetector::new()),
-        Arc::new(DegreeCentralityDetector::new()),
+        Arc::new(DegreeCentralityDetector::with_config(
+            DetectorConfig::from_project_config_with_type("DegreeCentralityDetector", project_config, repository_path),
+        )),
         Arc::new(InfluentialCodeDetector::new()),
         Arc::new(ModuleCohesionDetector::new()),
-        Arc::new(ShotgunSurgeryDetector::new()),
+        Arc::new(ShotgunSurgeryDetector::with_config(
+            DetectorConfig::from_project_config_with_type("ShotgunSurgeryDetector", project_config, repository_path),
+        )),
         // Security detectors (need repository path for file scanning)
         Arc::new(EvalDetector::with_repository_path(
             repository_path.to_path_buf(),

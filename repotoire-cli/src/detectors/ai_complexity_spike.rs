@@ -361,6 +361,14 @@ impl Detector for AIComplexitySpikeDetector {
         // Find outliers (>2 standard deviations above mean)
         let threshold = avg + 2.0 * std_dev;
 
+        // Utility function prefixes (inherently complex runtime/core code)
+        const UTILITY_PREFIXES: &[&str] = &[
+            // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
+            "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
+            "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h",
+            "_cq", "_cw",  // Internal jet helpers
+        ];
+
         for func in functions {
             // Skip detector files (they have inherently complex parsing logic)
             if func.file_path.contains("/detectors/") {
@@ -369,6 +377,12 @@ impl Detector for AIComplexitySpikeDetector {
 
             // Skip parser files (parsing code is naturally complex)
             if func.file_path.contains("/parsers/") {
+                continue;
+            }
+
+            // Skip interpreter/runtime core utility functions
+            let name_lower = func.name.to_lowercase();
+            if UTILITY_PREFIXES.iter().any(|p| name_lower.starts_with(p)) {
                 continue;
             }
 

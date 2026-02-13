@@ -12,7 +12,7 @@ mod user_config;
 
 pub use project_config::{
     load_project_config, normalize_detector_name, CliDefaults, DetectorConfigOverride,
-    ExcludeConfig, PillarWeights, ProjectConfig, ScoringConfig, ThresholdValue,
+    ExcludeConfig, PillarWeights, ProjectConfig, ProjectType, ScoringConfig, ThresholdValue,
 };
 
 pub use user_config::UserConfig;

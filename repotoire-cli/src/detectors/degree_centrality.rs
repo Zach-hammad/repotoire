@@ -50,11 +50,13 @@ impl DegreeCentralityDetector {
     /// Create with custom config
     #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
+        // Apply coupling multiplier to thresholds (higher multiplier = more lenient)
+        let multiplier = config.coupling_multiplier;
         Self {
-            high_complexity_threshold: config.get_option_or("high_complexity_threshold", 15),
-            min_total_degree: config.get_option_or("min_total_degree", 30),
-            min_elevated_fanin: config.get_option_or("min_elevated_fanin", 8),
-            min_elevated_fanout: config.get_option_or("min_elevated_fanout", 8),
+            high_complexity_threshold: ((config.get_option_or("high_complexity_threshold", 15) as f64) * multiplier) as u32,
+            min_total_degree: ((config.get_option_or("min_total_degree", 30) as f64) * multiplier) as usize,
+            min_elevated_fanin: ((config.get_option_or("min_elevated_fanin", 8) as f64) * multiplier) as usize,
+            min_elevated_fanout: ((config.get_option_or("min_elevated_fanout", 8) as f64) * multiplier) as usize,
             config,
         }
     }
@@ -115,6 +117,10 @@ impl DegreeCentralityDetector {
         "log_", "debug_", "trace_", "info_", "warn_", "error_", "print_",
         // String/buffer operations
         "str_", "buf_", "fmt_",
+        // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
+        "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
+        "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h",
+        "_cq", "_cw",  // Internal jet helpers
     ];
 
     /// Legacy name-based skip check (fallback when no context available)

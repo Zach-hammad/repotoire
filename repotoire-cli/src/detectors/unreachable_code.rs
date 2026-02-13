@@ -82,6 +82,11 @@ const ENTRY_POINT_PATTERNS: &[&str] = &[
     "find",
     "calculate",
     "analyze",
+    // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
+    // These are called via dispatch tables, not direct C calls
+    "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
+    "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h", "u3_",
+    "_cq", "_cw",  // Internal jet helpers
 ];
 
 /// Paths that indicate entry points or dispatch-table code

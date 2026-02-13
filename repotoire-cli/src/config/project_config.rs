@@ -33,9 +33,288 @@ use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, warn};
 
+/// Project type affects detector thresholds and scoring
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectType {
+    /// Web apps, REST APIs, CRUD - strictest coupling analysis (default)
+    #[default]
+    Web,
+    /// Language interpreters, VMs - lenient coupling, skip dispatch tables
+    Interpreter,
+    /// Compilers, transpilers - pipeline architecture
+    Compiler,
+    /// Reusable libraries - focus on public API
+    Library,
+    /// Command-line tools - command dispatch patterns
+    Cli,
+    /// Operating systems, embedded - syscalls, interrupts
+    Kernel,
+    /// Game engines - ECS, tight loops
+    Game,
+}
+
+impl ProjectType {
+    /// Coupling threshold multiplier (higher = more lenient)
+    pub fn coupling_multiplier(&self) -> f64 {
+        match self {
+            ProjectType::Web => 1.0,          // Strict - CRUD should have clean separation
+            ProjectType::Interpreter => 2.5,  // Very lenient - eval loops touch everything
+            ProjectType::Compiler => 2.0,     // Lenient - pipeline stages couple
+            ProjectType::Library => 1.5,      // Moderate - internal coupling OK
+            ProjectType::Cli => 1.3,          // Slight leniency - command dispatch
+            ProjectType::Kernel => 3.0,       // Most lenient - syscalls, interrupts
+            ProjectType::Game => 2.0,         // Lenient - ECS, frame loops
+        }
+    }
+
+    /// Complexity threshold multiplier
+    pub fn complexity_multiplier(&self) -> f64 {
+        match self {
+            ProjectType::Web => 1.0,
+            ProjectType::Interpreter => 1.8,  // Opcodes switches are complex
+            ProjectType::Compiler => 1.5,     // Parser/codegen complexity
+            ProjectType::Library => 1.2,
+            ProjectType::Cli => 1.1,
+            ProjectType::Kernel => 2.0,       // Interrupt handlers, state machines
+            ProjectType::Game => 1.5,         // Frame update loops
+        }
+    }
+
+    /// Whether to skip dead code analysis for dispatch-like patterns
+    pub fn lenient_dead_code(&self) -> bool {
+        matches!(
+            self,
+            ProjectType::Interpreter | ProjectType::Kernel | ProjectType::Game
+        )
+    }
+
+    /// Detect project type from directory structure and file contents
+    pub fn detect(repo_path: &Path) -> ProjectType {
+        // Check for explicit markers first
+        if has_interpreter_markers(repo_path) {
+            return ProjectType::Interpreter;
+        }
+        if has_compiler_markers(repo_path) {
+            return ProjectType::Compiler;
+        }
+        if has_kernel_markers(repo_path) {
+            return ProjectType::Kernel;
+        }
+        if has_game_markers(repo_path) {
+            return ProjectType::Game;
+        }
+        if has_cli_markers(repo_path) {
+            return ProjectType::Cli;
+        }
+        if has_library_markers(repo_path) {
+            return ProjectType::Library;
+        }
+        if has_web_markers(repo_path) {
+            return ProjectType::Web;
+        }
+
+        // Default to library (most neutral)
+        ProjectType::Library
+    }
+}
+
+/// Check for interpreter/VM markers
+fn has_interpreter_markers(repo_path: &Path) -> bool {
+    const INTERPRETER_DIRS: &[&str] = &[
+        "vm", "interpreter", "bytecode", "runtime", "eval", "noun", "opcode",
+        "jit", "gc", "allocator",
+    ];
+    const INTERPRETER_FILES: &[&str] = &[
+        "vm.c", "vm.rs", "interpreter.c", "interpreter.rs", "eval.c", "eval.rs",
+        "bytecode.c", "bytecode.rs", "opcode.h", "opcodes.h",
+    ];
+
+    for dir in INTERPRETER_DIRS {
+        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() 
+            || repo_path.join(format!("pkg/{}", dir)).is_dir() {
+            return true;
+        }
+    }
+    for file in INTERPRETER_FILES {
+        if repo_path.join(file).exists() || repo_path.join(format!("src/{}", file)).exists() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check for compiler markers
+fn has_compiler_markers(repo_path: &Path) -> bool {
+    const COMPILER_DIRS: &[&str] = &[
+        "parser", "lexer", "codegen", "ast", "ir", "optimizer", "frontend", "backend",
+    ];
+
+    let mut count = 0;
+    for dir in COMPILER_DIRS {
+        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
+            count += 1;
+        }
+    }
+    // Need at least 2 compiler-related dirs to be confident
+    count >= 2
+}
+
+/// Check for kernel/embedded markers
+fn has_kernel_markers(repo_path: &Path) -> bool {
+    const KERNEL_DIRS: &[&str] = &[
+        "kernel", "drivers", "arch", "syscall", "interrupt", "hal", "bsp",
+    ];
+    const KERNEL_FILES: &[&str] = &[
+        "Kconfig", "Makefile.inc", "linker.ld", "boot.S", "startup.s",
+    ];
+
+    for dir in KERNEL_DIRS {
+        if repo_path.join(dir).is_dir() {
+            return true;
+        }
+    }
+    for file in KERNEL_FILES {
+        if repo_path.join(file).exists() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check for game engine markers
+fn has_game_markers(repo_path: &Path) -> bool {
+    const GAME_DIRS: &[&str] = &[
+        "engine", "ecs", "physics", "renderer", "assets", "scenes", "shaders",
+    ];
+    const GAME_FILES: &[&str] = &[
+        "game.rs", "game.cpp", "engine.rs", "engine.cpp",
+    ];
+
+    for dir in GAME_DIRS {
+        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
+            return true;
+        }
+    }
+    for file in GAME_FILES {
+        if repo_path.join(file).exists() || repo_path.join(format!("src/{}", file)).exists() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check for CLI tool markers
+fn has_cli_markers(repo_path: &Path) -> bool {
+    const CLI_DIRS: &[&str] = &["cli", "cmd", "commands"];
+    const CLI_FILES: &[&str] = &["main.rs", "main.go", "cli.rs", "cli.go"];
+
+    // Check for clap, cobra, click, argparse in deps
+    let cargo_toml = repo_path.join("Cargo.toml");
+    if cargo_toml.exists() {
+        if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+            if content.contains("clap") || content.contains("structopt") {
+                return true;
+            }
+        }
+    }
+
+    for dir in CLI_DIRS {
+        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
+            return true;
+        }
+    }
+    for file in CLI_FILES {
+        if repo_path.join(file).exists() || repo_path.join(format!("src/{}", file)).exists() {
+            // main.rs alone isn't enough, need cli-specific structure
+            if *file == "cli.rs" || *file == "cli.go" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Check for library markers (lib.rs, no main, published crate)
+fn has_library_markers(repo_path: &Path) -> bool {
+    let lib_rs = repo_path.join("src/lib.rs");
+    let main_rs = repo_path.join("src/main.rs");
+    
+    // Pure library: has lib.rs but no main.rs
+    if lib_rs.exists() && !main_rs.exists() {
+        return true;
+    }
+
+    // Check Cargo.toml for [lib] section without [[bin]]
+    let cargo_toml = repo_path.join("Cargo.toml");
+    if cargo_toml.exists() {
+        if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+            if content.contains("[lib]") && !content.contains("[[bin]]") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check for web framework markers
+fn has_web_markers(repo_path: &Path) -> bool {
+    // Check for common web framework dependencies
+    let cargo_toml = repo_path.join("Cargo.toml");
+    if cargo_toml.exists() {
+        if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+            let web_deps = ["actix-web", "axum", "rocket", "warp", "tide", "hyper"];
+            for dep in web_deps {
+                if content.contains(dep) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    let package_json = repo_path.join("package.json");
+    if package_json.exists() {
+        if let Ok(content) = std::fs::read_to_string(&package_json) {
+            let web_deps = ["express", "fastify", "koa", "hapi", "next", "nuxt", "react", "vue", "angular"];
+            for dep in web_deps {
+                if content.contains(dep) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    let requirements = repo_path.join("requirements.txt");
+    if requirements.exists() {
+        if let Ok(content) = std::fs::read_to_string(&requirements) {
+            let web_deps = ["flask", "django", "fastapi", "starlette", "tornado"];
+            for dep in web_deps {
+                if content.contains(dep) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check for routes/controllers/handlers directories
+    const WEB_DIRS: &[&str] = &["routes", "controllers", "handlers", "views", "api", "endpoints"];
+    for dir in WEB_DIRS {
+        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Project-level configuration loaded from repotoire.toml or similar
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProjectConfig {
+    /// Project type (auto-detected if not specified)
+    #[serde(default)]
+    pub project_type: Option<ProjectType>,
+
     /// Per-detector configuration overrides
     #[serde(default)]
     pub detectors: HashMap<String, DetectorConfigOverride>,
@@ -51,6 +330,10 @@ pub struct ProjectConfig {
     /// Default CLI flags
     #[serde(default)]
     pub defaults: CliDefaults,
+
+    /// Cached auto-detected project type (not serialized)
+    #[serde(skip)]
+    detected_type: Option<ProjectType>,
 }
 
 /// Configuration override for a specific detector
@@ -331,6 +614,25 @@ fn load_yaml_config(path: &Path) -> anyhow::Result<ProjectConfig> {
 }
 
 impl ProjectConfig {
+    /// Get the effective project type (explicit config > auto-detected > default)
+    pub fn get_project_type(&self, repo_path: &Path) -> ProjectType {
+        if let Some(explicit) = self.project_type {
+            return explicit;
+        }
+        // Auto-detect based on repo structure
+        ProjectType::detect(repo_path)
+    }
+
+    /// Get coupling threshold multiplier based on project type
+    pub fn coupling_multiplier(&self, repo_path: &Path) -> f64 {
+        self.get_project_type(repo_path).coupling_multiplier()
+    }
+
+    /// Get complexity threshold multiplier based on project type
+    pub fn complexity_multiplier(&self, repo_path: &Path) -> f64 {
+        self.get_project_type(repo_path).complexity_multiplier()
+    }
+
     /// Check if a detector is enabled (defaults to true if not specified)
     pub fn is_detector_enabled(&self, name: &str) -> bool {
         // Normalize detector name for lookup (support both kebab-case and snake_case)

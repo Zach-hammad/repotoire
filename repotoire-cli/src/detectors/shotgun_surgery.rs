@@ -56,11 +56,13 @@ impl ShotgunSurgeryDetector {
 
     #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
+        // Apply coupling multiplier to thresholds (higher multiplier = more lenient)
+        let multiplier = config.coupling_multiplier;
         let thresholds = ShotgunSurgeryThresholds {
-            min_callers: config.get_option_or("min_callers", 5),
-            medium_files: config.get_option_or("medium_files", 3),
-            high_files: config.get_option_or("high_files", 5),
-            critical_modules: config.get_option_or("critical_modules", 4),
+            min_callers: ((config.get_option_or("min_callers", 5) as f64) * multiplier) as usize,
+            medium_files: ((config.get_option_or("medium_files", 3) as f64) * multiplier) as usize,
+            high_files: ((config.get_option_or("high_files", 5) as f64) * multiplier) as usize,
+            critical_modules: ((config.get_option_or("critical_modules", 4) as f64) * multiplier) as usize,
         };
         Self { config, thresholds }
     }
@@ -284,6 +286,10 @@ impl Detector for ShotgunSurgeryDetector {
             "log_", "debug_", "trace_", "info_", "warn_", "error_", "print_",
             // String/buffer operations
             "str_", "buf_", "fmt_",
+            // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
+            "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
+            "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h",
+            "_cq", "_cw",  // Internal jet helpers
         ];
         const UTILITY_SUFFIXES: &[&str] = &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
         const UTILITY_PATHS: &[&str] = &[

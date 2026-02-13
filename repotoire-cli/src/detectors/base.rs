@@ -60,12 +60,22 @@ pub struct DetectorConfig {
     pub max_findings: Option<usize>,
     /// Detector-specific thresholds and options
     pub options: HashMap<String, serde_json::Value>,
+    /// Coupling threshold multiplier based on project type (1.0 = web/CRUD, higher = more lenient)
+    pub coupling_multiplier: f64,
+    /// Complexity threshold multiplier based on project type
+    pub complexity_multiplier: f64,
 }
 
 impl DetectorConfig {
     /// Create a new config with default values
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            repo_id: None,
+            max_findings: None,
+            options: HashMap::new(),
+            coupling_multiplier: 1.0,
+            complexity_multiplier: 1.0,
+        }
     }
 
     /// Create a config populated from project-level detector thresholds
@@ -99,6 +109,22 @@ impl DetectorConfig {
             }
         }
 
+        config
+    }
+
+    /// Create a config with project type multipliers
+    ///
+    /// Uses the project type (auto-detected or explicit) to set coupling and complexity
+    /// multipliers. Interpreters/VMs get more lenient thresholds than web apps.
+    pub fn from_project_config_with_type(
+        detector_name: &str,
+        project_config: &crate::config::ProjectConfig,
+        repo_path: &std::path::Path,
+    ) -> Self {
+        let mut config = Self::from_project_config(detector_name, project_config);
+        let project_type = project_config.get_project_type(repo_path);
+        config.coupling_multiplier = project_type.coupling_multiplier();
+        config.complexity_multiplier = project_type.complexity_multiplier();
         config
     }
 

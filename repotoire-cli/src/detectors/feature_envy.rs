@@ -95,15 +95,17 @@ impl FeatureEnvyDetector {
     /// Create with custom config
     #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
+        // Apply coupling multiplier to thresholds (higher multiplier = more lenient)
+        let multiplier = config.coupling_multiplier;
         let thresholds = FeatureEnvyThresholds {
-            threshold_ratio: config.get_option_or("threshold_ratio", 3.0),
-            min_external_uses: config.get_option_or("min_external_uses", 15),
-            critical_ratio: config.get_option_or("critical_ratio", 10.0),
-            critical_min_uses: config.get_option_or("critical_min_uses", 30),
-            high_ratio: config.get_option_or("high_ratio", 5.0),
-            high_min_uses: config.get_option_or("high_min_uses", 20),
-            medium_ratio: config.get_option_or("medium_ratio", 3.0),
-            medium_min_uses: config.get_option_or("medium_min_uses", 10),
+            threshold_ratio: config.get_option_or("threshold_ratio", 3.0) * multiplier,
+            min_external_uses: ((config.get_option_or("min_external_uses", 15) as f64) * multiplier) as usize,
+            critical_ratio: config.get_option_or("critical_ratio", 10.0) * multiplier,
+            critical_min_uses: ((config.get_option_or("critical_min_uses", 30) as f64) * multiplier) as usize,
+            high_ratio: config.get_option_or("high_ratio", 5.0) * multiplier,
+            high_min_uses: ((config.get_option_or("high_min_uses", 20) as f64) * multiplier) as usize,
+            medium_ratio: config.get_option_or("medium_ratio", 3.0) * multiplier,
+            medium_min_uses: ((config.get_option_or("medium_min_uses", 10) as f64) * multiplier) as usize,
         };
 
         Self {
@@ -340,6 +342,10 @@ impl Detector for FeatureEnvyDetector {
             "util_", "helper_", "common_", "core_", "base_", "lib_", "shared_",
             // Memory/string operations
             "alloc_", "free_", "mem_", "str_", "buf_", "fmt_",
+            // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
+            "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
+            "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h",
+            "_cq", "_cw",  // Internal jet helpers
         ];
 
         // Skip utility function suffixes
