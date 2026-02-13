@@ -80,6 +80,9 @@
 mod base;
 mod engine;
 
+// Context classification using HMM
+pub mod context_hmm;
+
 // Graph-based detector implementations
 mod circular_dependency;
 mod god_class;

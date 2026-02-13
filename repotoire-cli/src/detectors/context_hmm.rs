@@ -1,0 +1,585 @@
+//! Hidden Markov Model for function context classification
+//!
+//! Learns codebase-specific patterns to classify functions into roles:
+//! - UTILITY: High fan-in expected, skip coupling warnings
+//! - HANDLER: Callbacks/dispatch, skip dead code warnings  
+//! - CORE: Main business logic, apply all detectors
+//! - INTERNAL: Private helpers, lenient thresholds
+//! - TEST: Test functions, skip most detectors
+//!
+//! The HMM is trained per-codebase using self-supervised learning from
+//! call graph patterns and naming conventions.
+
+use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+
+/// Function context/role classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FunctionContext {
+    /// Utility function - designed to be called from many places
+    Utility,
+    /// Handler/callback - called via dispatch tables or function pointers
+    Handler,
+    /// Core business logic - main functionality
+    Core,
+    /// Internal helper - private implementation details
+    Internal,
+    /// Test function - testing code
+    Test,
+}
+
+impl FunctionContext {
+    /// All possible states
+    pub const ALL: [FunctionContext; 5] = [
+        FunctionContext::Utility,
+        FunctionContext::Handler,
+        FunctionContext::Core,
+        FunctionContext::Internal,
+        FunctionContext::Test,
+    ];
+
+    /// Index for matrix operations
+    pub fn index(&self) -> usize {
+        match self {
+            FunctionContext::Utility => 0,
+            FunctionContext::Handler => 1,
+            FunctionContext::Core => 2,
+            FunctionContext::Internal => 3,
+            FunctionContext::Test => 4,
+        }
+    }
+
+    /// From index
+    pub fn from_index(i: usize) -> Self {
+        match i {
+            0 => FunctionContext::Utility,
+            1 => FunctionContext::Handler,
+            2 => FunctionContext::Core,
+            3 => FunctionContext::Internal,
+            _ => FunctionContext::Test,
+        }
+    }
+
+    /// Should skip coupling analysis for this context?
+    pub fn skip_coupling(&self) -> bool {
+        matches!(self, FunctionContext::Utility | FunctionContext::Handler | FunctionContext::Test)
+    }
+
+    /// Should skip dead code analysis for this context?
+    pub fn skip_dead_code(&self) -> bool {
+        matches!(self, FunctionContext::Handler | FunctionContext::Test)
+    }
+
+    /// Coupling threshold multiplier
+    pub fn coupling_multiplier(&self) -> f64 {
+        match self {
+            FunctionContext::Utility => 3.0,   // Very lenient
+            FunctionContext::Handler => 2.5,   // Lenient
+            FunctionContext::Core => 1.0,      // Normal
+            FunctionContext::Internal => 1.5,  // Slightly lenient
+            FunctionContext::Test => 5.0,      // Very lenient (tests touch everything)
+        }
+    }
+}
+
+/// Observable features extracted from a function
+#[derive(Debug, Clone, Default)]
+pub struct FunctionFeatures {
+    // Naming features
+    pub has_short_prefix: bool,      // 2-4 char prefix + underscore
+    pub has_test_prefix: bool,       // test_, spec_, etc.
+    pub has_handler_suffix: bool,    // _cb, _handler, _hook
+    pub has_internal_prefix: bool,   // _, __, internal_
+    pub is_capitalized: bool,        // PascalCase (exported in Go)
+    
+    // Path features
+    pub in_test_path: bool,          // /tests/, /test/, _test.
+    pub in_util_path: bool,          // /util/, /utils/, /common/
+    pub in_handler_path: bool,       // /handlers/, /callbacks/
+    pub in_internal_path: bool,      // /internal/, /private/
+    
+    // Call graph features (normalized 0-1)
+    pub fan_in_ratio: f64,           // fan_in / max_fan_in
+    pub fan_out_ratio: f64,          // fan_out / max_fan_out
+    pub caller_file_spread: f64,     // unique_caller_files / total_callers
+    
+    // Code features
+    pub complexity_ratio: f64,       // complexity / avg_complexity
+    pub loc_ratio: f64,              // loc / avg_loc
+    pub param_count_ratio: f64,      // params / avg_params
+    
+    // Address-taken (callback indicator)
+    pub address_taken: bool,
+}
+
+impl FunctionFeatures {
+    /// Extract features from function metadata
+    pub fn extract(
+        name: &str,
+        file_path: &str,
+        fan_in: usize,
+        fan_out: usize,
+        max_fan_in: usize,
+        max_fan_out: usize,
+        caller_files: usize,
+        complexity: Option<i64>,
+        avg_complexity: f64,
+        loc: u32,
+        avg_loc: f64,
+        param_count: usize,
+        avg_params: f64,
+        address_taken: bool,
+    ) -> Self {
+        let name_lower = name.to_lowercase();
+        let path_lower = file_path.to_lowercase();
+        
+        Self {
+            // Naming features
+            has_short_prefix: Self::has_short_prefix(name),
+            has_test_prefix: name_lower.starts_with("test_") 
+                || name_lower.starts_with("spec_")
+                || name_lower.starts_with("it_"),
+            has_handler_suffix: name_lower.ends_with("_cb")
+                || name_lower.ends_with("_callback")
+                || name_lower.ends_with("_handler")
+                || name_lower.ends_with("_hook")
+                || name_lower.ends_with("_fn"),
+            has_internal_prefix: name.starts_with('_') && !name.starts_with("__"),
+            is_capitalized: name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false),
+            
+            // Path features
+            in_test_path: path_lower.contains("/test")
+                || path_lower.contains("_test.")
+                || path_lower.contains("/spec"),
+            in_util_path: path_lower.contains("/util")
+                || path_lower.contains("/common")
+                || path_lower.contains("/helper")
+                || path_lower.contains("/lib/"),
+            in_handler_path: path_lower.contains("/handler")
+                || path_lower.contains("/callback")
+                || path_lower.contains("/hook"),
+            in_internal_path: path_lower.contains("/internal")
+                || path_lower.contains("/private")
+                || path_lower.contains("/_"),
+            
+            // Call graph features
+            fan_in_ratio: if max_fan_in > 0 { fan_in as f64 / max_fan_in as f64 } else { 0.0 },
+            fan_out_ratio: if max_fan_out > 0 { fan_out as f64 / max_fan_out as f64 } else { 0.0 },
+            caller_file_spread: if fan_in > 0 { caller_files as f64 / fan_in as f64 } else { 0.0 },
+            
+            // Code features
+            complexity_ratio: complexity.map(|c| c as f64 / avg_complexity.max(1.0)).unwrap_or(1.0),
+            loc_ratio: loc as f64 / avg_loc.max(1.0),
+            param_count_ratio: param_count as f64 / avg_params.max(1.0),
+            
+            address_taken,
+        }
+    }
+    
+    /// Check for short prefix pattern (2-4 chars + underscore)
+    fn has_short_prefix(name: &str) -> bool {
+        if let Some(underscore_pos) = name.find('_') {
+            if underscore_pos >= 2 && underscore_pos <= 4 {
+                let prefix = &name[..underscore_pos];
+                if prefix.chars().all(|c| c.is_alphanumeric()) {
+                    let prefix_lower = prefix.to_lowercase();
+                    const COMMON_WORDS: &[&str] = &[
+                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del",
+                        "pop", "put", "run", "try", "end", "use", "for", "the", "and", "not",
+                        "dead", "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo",
+                        "bar", "baz", "qux", "call", "read", "load", "save", "send", "recv",
+                    ];
+                    return !COMMON_WORDS.contains(&prefix_lower.as_str());
+                }
+            }
+        }
+        false
+    }
+    
+    /// Convert to feature vector for HMM
+    pub fn to_vector(&self) -> [f64; 16] {
+        [
+            self.has_short_prefix as u8 as f64,
+            self.has_test_prefix as u8 as f64,
+            self.has_handler_suffix as u8 as f64,
+            self.has_internal_prefix as u8 as f64,
+            self.is_capitalized as u8 as f64,
+            self.in_test_path as u8 as f64,
+            self.in_util_path as u8 as f64,
+            self.in_handler_path as u8 as f64,
+            self.in_internal_path as u8 as f64,
+            self.fan_in_ratio,
+            self.fan_out_ratio,
+            self.caller_file_spread,
+            self.complexity_ratio.min(3.0) / 3.0,  // Normalize to 0-1
+            self.loc_ratio.min(3.0) / 3.0,
+            self.param_count_ratio.min(3.0) / 3.0,
+            self.address_taken as u8 as f64,
+        ]
+    }
+}
+
+/// Hidden Markov Model for function context classification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextHMM {
+    /// Initial state probabilities (5 states)
+    pub initial: [f64; 5],
+    
+    /// Transition probabilities (5x5 matrix)
+    /// transition[i][j] = P(state_j | state_i)
+    pub transition: [[f64; 5]; 5],
+    
+    /// Emission parameters for each state
+    /// Each state has mean and variance for each of 16 features
+    pub emission_mean: [[f64; 16]; 5],
+    pub emission_var: [[f64; 16]; 5],
+}
+
+impl Default for ContextHMM {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ContextHMM {
+    /// Create a new HMM with default (heuristic-based) parameters
+    pub fn new() -> Self {
+        // Initial probabilities (prior)
+        let initial = [0.15, 0.10, 0.50, 0.20, 0.05];  // Utility, Handler, Core, Internal, Test
+        
+        // Transition matrix (functions in same file tend to have similar roles)
+        let transition = [
+            // To:    Util   Hand   Core   Int    Test
+            /* Util */ [0.60, 0.10, 0.15, 0.10, 0.05],
+            /* Hand */ [0.10, 0.50, 0.20, 0.15, 0.05],
+            /* Core */ [0.10, 0.10, 0.55, 0.20, 0.05],
+            /* Int  */ [0.15, 0.10, 0.25, 0.45, 0.05],
+            /* Test */ [0.05, 0.05, 0.10, 0.05, 0.75],
+        ];
+        
+        // Emission means for each feature per state
+        // Features: [short_prefix, test_prefix, handler_suffix, internal_prefix, capitalized,
+        //           test_path, util_path, handler_path, internal_path,
+        //           fan_in_ratio, fan_out_ratio, caller_spread,
+        //           complexity_ratio, loc_ratio, param_ratio, address_taken]
+        let emission_mean = [
+            // Utility: short prefix, high fan-in, spread callers
+            [0.7, 0.0, 0.1, 0.1, 0.3, 0.0, 0.6, 0.0, 0.1, 0.7, 0.3, 0.8, 0.3, 0.3, 0.4, 0.2],
+            // Handler: handler suffix, address taken, moderate fan-in
+            [0.3, 0.0, 0.8, 0.1, 0.2, 0.0, 0.1, 0.7, 0.1, 0.3, 0.4, 0.5, 0.4, 0.4, 0.5, 0.8],
+            // Core: normal everything
+            [0.1, 0.0, 0.1, 0.1, 0.4, 0.0, 0.1, 0.1, 0.1, 0.3, 0.4, 0.4, 0.5, 0.5, 0.4, 0.1],
+            // Internal: internal prefix, low fan-in
+            [0.2, 0.0, 0.1, 0.7, 0.1, 0.0, 0.1, 0.0, 0.5, 0.1, 0.3, 0.3, 0.4, 0.3, 0.3, 0.1],
+            // Test: test prefix, test path, low complexity
+            [0.0, 0.9, 0.0, 0.0, 0.3, 0.9, 0.0, 0.0, 0.0, 0.1, 0.5, 0.2, 0.3, 0.4, 0.3, 0.0],
+        ];
+        
+        // Emission variances (how much each feature varies within a state)
+        let emission_var = [[0.2; 16]; 5];  // Start with uniform variance
+        
+        Self {
+            initial,
+            transition,
+            emission_mean,
+            emission_var,
+        }
+    }
+    
+    /// Classify a single function
+    pub fn classify(&self, features: &FunctionFeatures) -> FunctionContext {
+        let vec = features.to_vector();
+        let mut best_state = FunctionContext::Core;
+        let mut best_prob = f64::NEG_INFINITY;
+        
+        for state in FunctionContext::ALL {
+            let prob = self.log_emission_prob(state, &vec) + self.initial[state.index()].ln();
+            if prob > best_prob {
+                best_prob = prob;
+                best_state = state;
+            }
+        }
+        
+        best_state
+    }
+    
+    /// Classify a sequence of functions using Viterbi algorithm
+    pub fn classify_sequence(&self, features: &[FunctionFeatures]) -> Vec<FunctionContext> {
+        if features.is_empty() {
+            return vec![];
+        }
+        
+        let n = features.len();
+        let n_states = 5;
+        
+        // Viterbi tables
+        let mut viterbi = vec![[f64::NEG_INFINITY; 5]; n];
+        let mut backpointer = vec![[0usize; 5]; n];
+        
+        // Initialize
+        let first_vec = features[0].to_vector();
+        for s in 0..n_states {
+            viterbi[0][s] = self.initial[s].ln() + self.log_emission_prob(FunctionContext::from_index(s), &first_vec);
+        }
+        
+        // Forward pass
+        for t in 1..n {
+            let vec = features[t].to_vector();
+            for s in 0..n_states {
+                let emission = self.log_emission_prob(FunctionContext::from_index(s), &vec);
+                
+                for prev_s in 0..n_states {
+                    let prob = viterbi[t-1][prev_s] + self.transition[prev_s][s].ln() + emission;
+                    if prob > viterbi[t][s] {
+                        viterbi[t][s] = prob;
+                        backpointer[t][s] = prev_s;
+                    }
+                }
+            }
+        }
+        
+        // Find best final state
+        let mut best_last = 0;
+        for s in 1..n_states {
+            if viterbi[n-1][s] > viterbi[n-1][best_last] {
+                best_last = s;
+            }
+        }
+        
+        // Backtrack
+        let mut path = vec![FunctionContext::Core; n];
+        path[n-1] = FunctionContext::from_index(best_last);
+        for t in (0..n-1).rev() {
+            path[t] = FunctionContext::from_index(backpointer[t+1][path[t+1].index()]);
+        }
+        
+        path
+    }
+    
+    /// Log probability of observing features given state (Gaussian emission)
+    fn log_emission_prob(&self, state: FunctionContext, features: &[f64; 16]) -> f64 {
+        let s = state.index();
+        let mut log_prob = 0.0;
+        
+        for i in 0..16 {
+            let mean = self.emission_mean[s][i];
+            let var = self.emission_var[s][i].max(0.01);  // Avoid div by zero
+            let x = features[i];
+            
+            // Log of Gaussian PDF (ignoring constant)
+            log_prob += -0.5 * ((x - mean).powi(2) / var + var.ln());
+        }
+        
+        log_prob
+    }
+    
+    /// Update model parameters from labeled examples (simplified Baum-Welch)
+    pub fn update(&mut self, examples: &[(FunctionFeatures, FunctionContext)]) {
+        if examples.is_empty() {
+            return;
+        }
+        
+        // Count state occurrences and accumulate feature values
+        let mut state_counts = [0.0f64; 5];
+        let mut feature_sums = [[0.0f64; 16]; 5];
+        let mut feature_sq_sums = [[0.0f64; 16]; 5];
+        
+        for (features, context) in examples {
+            let s = context.index();
+            state_counts[s] += 1.0;
+            
+            let vec = features.to_vector();
+            for i in 0..16 {
+                feature_sums[s][i] += vec[i];
+                feature_sq_sums[s][i] += vec[i] * vec[i];
+            }
+        }
+        
+        // Update initial probabilities
+        let total: f64 = state_counts.iter().sum();
+        for s in 0..5 {
+            self.initial[s] = (state_counts[s] + 1.0) / (total + 5.0);  // Laplace smoothing
+        }
+        
+        // Update emission parameters
+        for s in 0..5 {
+            if state_counts[s] > 0.0 {
+                for i in 0..16 {
+                    let n = state_counts[s];
+                    let mean = feature_sums[s][i] / n;
+                    let var = (feature_sq_sums[s][i] / n - mean * mean).max(0.01);
+                    
+                    // Smooth update (don't completely overwrite)
+                    self.emission_mean[s][i] = 0.7 * self.emission_mean[s][i] + 0.3 * mean;
+                    self.emission_var[s][i] = 0.7 * self.emission_var[s][i] + 0.3 * var;
+                }
+            }
+        }
+    }
+    
+    /// Bootstrap training from call graph heuristics
+    pub fn bootstrap_from_graph(&mut self, function_data: &[(FunctionFeatures, usize, usize, bool)]) {
+        // function_data: (features, fan_in, fan_out, address_taken)
+        let mut examples = Vec::new();
+        
+        for (features, fan_in, _fan_out, address_taken) in function_data {
+            // Heuristic labeling based on call graph patterns
+            let context = if features.has_test_prefix || features.in_test_path {
+                FunctionContext::Test
+            } else if *address_taken || features.has_handler_suffix || features.in_handler_path {
+                FunctionContext::Handler
+            } else if features.has_short_prefix && *fan_in > 10 && features.caller_file_spread > 0.5 {
+                FunctionContext::Utility
+            } else if features.has_internal_prefix || features.in_internal_path {
+                FunctionContext::Internal
+            } else {
+                FunctionContext::Core
+            };
+            
+            examples.push((features.clone(), context));
+        }
+        
+        self.update(&examples);
+    }
+}
+
+/// Context classifier that wraps the HMM
+pub struct ContextClassifier {
+    hmm: ContextHMM,
+    cache: HashMap<String, FunctionContext>,
+}
+
+impl ContextClassifier {
+    pub fn new() -> Self {
+        Self {
+            hmm: ContextHMM::new(),
+            cache: HashMap::new(),
+        }
+    }
+    
+    /// Load or create HMM for a codebase
+    pub fn for_codebase(cache_path: Option<&std::path::Path>) -> Self {
+        let hmm = if let Some(path) = cache_path {
+            if path.exists() {
+                std::fs::read_to_string(path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_default()
+            } else {
+                ContextHMM::new()
+            }
+        } else {
+            ContextHMM::new()
+        };
+        
+        Self {
+            hmm,
+            cache: HashMap::new(),
+        }
+    }
+    
+    /// Classify a function
+    pub fn classify(&mut self, name: &str, features: &FunctionFeatures) -> FunctionContext {
+        if let Some(&cached) = self.cache.get(name) {
+            return cached;
+        }
+        
+        let context = self.hmm.classify(features);
+        self.cache.insert(name.to_string(), context);
+        context
+    }
+    
+    /// Train on codebase data
+    pub fn train(&mut self, function_data: &[(FunctionFeatures, usize, usize, bool)]) {
+        self.hmm.bootstrap_from_graph(function_data);
+        self.cache.clear();
+    }
+    
+    /// Save model
+    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let json = serde_json::to_string_pretty(&self.hmm)?;
+        std::fs::write(path, json)
+    }
+}
+
+impl Default for ContextClassifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_feature_extraction() {
+        let features = FunctionFeatures::extract(
+            "u3r_word", "pkg/noun/retrieve.c",
+            50, 10, 100, 50, 20,
+            Some(15), 10.0, 30, 25.0, 2, 2.5, false,
+        );
+        
+        assert!(features.has_short_prefix);
+        assert!(!features.has_test_prefix);
+        assert!(!features.has_handler_suffix);
+        assert!(features.fan_in_ratio > 0.4);
+    }
+    
+    #[test]
+    fn test_classify_utility() {
+        let hmm = ContextHMM::new();
+        let features = FunctionFeatures {
+            has_short_prefix: true,
+            fan_in_ratio: 0.8,
+            caller_file_spread: 0.7,
+            in_util_path: true,
+            ..Default::default()
+        };
+        
+        let context = hmm.classify(&features);
+        assert_eq!(context, FunctionContext::Utility);
+    }
+    
+    #[test]
+    fn test_classify_handler() {
+        let hmm = ContextHMM::new();
+        let features = FunctionFeatures {
+            has_handler_suffix: true,
+            address_taken: true,
+            in_handler_path: true,
+            ..Default::default()
+        };
+        
+        let context = hmm.classify(&features);
+        assert_eq!(context, FunctionContext::Handler);
+    }
+    
+    #[test]
+    fn test_classify_test() {
+        let hmm = ContextHMM::new();
+        let features = FunctionFeatures {
+            has_test_prefix: true,
+            in_test_path: true,
+            ..Default::default()
+        };
+        
+        let context = hmm.classify(&features);
+        assert_eq!(context, FunctionContext::Test);
+    }
+    
+    #[test]
+    fn test_viterbi() {
+        let hmm = ContextHMM::new();
+        
+        // Sequence of functions that should be classified as Test
+        let features = vec![
+            FunctionFeatures { has_test_prefix: true, in_test_path: true, ..Default::default() },
+            FunctionFeatures { has_test_prefix: true, in_test_path: true, ..Default::default() },
+            FunctionFeatures { has_test_prefix: true, in_test_path: true, ..Default::default() },
+        ];
+        
+        let path = hmm.classify_sequence(&features);
+        assert!(path.iter().all(|&c| c == FunctionContext::Test));
+    }
+}
