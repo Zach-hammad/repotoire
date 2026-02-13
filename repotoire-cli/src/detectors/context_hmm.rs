@@ -113,6 +113,78 @@ impl FunctionContext {
     }
 }
 
+/// File-level context for hierarchical classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum FileContext {
+    TestFile,      // test_*, *_test.*, *.test.*, *.spec.*
+    UtilFile,      // utils/*, helpers/*, common/*
+    HandlerFile,   // handlers/*, callbacks/*, hooks/*
+    InternalFile,  // internal/*, _*, private/*
+    #[default]
+    SourceFile,    // Regular source file
+}
+
+impl FileContext {
+    /// Classify a file based on its path
+    pub fn from_path(path: &str) -> Self {
+        let path_lower = path.to_lowercase();
+        
+        // Test files
+        if path_lower.contains("/test")
+            || path_lower.contains("_test.")
+            || path_lower.contains(".test.")
+            || path_lower.contains(".spec.")
+            || path_lower.contains("/__tests__")
+            || path_lower.contains("/__mocks__")
+        {
+            return FileContext::TestFile;
+        }
+        
+        // Util/helper files
+        if path_lower.contains("/util")
+            || path_lower.contains("/utils")
+            || path_lower.contains("/helper")
+            || path_lower.contains("/helpers")
+            || path_lower.contains("/common")
+            || path_lower.contains("/shared")
+            || path_lower.contains("/lib/")
+        {
+            return FileContext::UtilFile;
+        }
+        
+        // Handler files
+        if path_lower.contains("/handler")
+            || path_lower.contains("/callback")
+            || path_lower.contains("/hook")
+            || path_lower.contains("/events")
+        {
+            return FileContext::HandlerFile;
+        }
+        
+        // Internal files
+        if path_lower.contains("/internal")
+            || path_lower.contains("/private")
+            || path_lower.contains("/_")
+            || path_lower.contains("/pkg/")
+        {
+            return FileContext::InternalFile;
+        }
+        
+        FileContext::SourceFile
+    }
+    
+    /// Bias toward a function context based on file context
+    pub fn function_bias(&self) -> Option<FunctionContext> {
+        match self {
+            FileContext::TestFile => Some(FunctionContext::Test),
+            FileContext::UtilFile => None,  // Don't force, let features decide
+            FileContext::HandlerFile => None,
+            FileContext::InternalFile => None,
+            FileContext::SourceFile => None,
+        }
+    }
+}
+
 /// Observable features extracted from a function
 #[derive(Debug, Clone, Default)]
 pub struct FunctionFeatures {
@@ -152,6 +224,9 @@ pub struct FunctionFeatures {
     
     // High fan-in indicator (direct utility signal)
     pub is_high_fan_in: bool,        // fan_in > 10
+    
+    // Hierarchical: file-level context
+    pub file_context: FileContext,
 }
 
 impl FunctionFeatures {
@@ -283,6 +358,9 @@ impl FunctionFeatures {
             
             address_taken,
             is_high_fan_in: fan_in > 10,
+            
+            // Hierarchical context
+            file_context: FileContext::from_path(file_path),
         }
     }
     
@@ -363,7 +441,9 @@ impl FunctionFeatures {
     
     /// Quick check if this looks like a test function (any language)
     pub fn looks_like_test(&self) -> bool {
-        self.has_test_prefix || self.in_test_path
+        self.has_test_prefix 
+            || self.in_test_path
+            || matches!(self.file_context, FileContext::TestFile)
     }
     
     /// Quick check if this looks like internal/private (any language)
@@ -833,10 +913,17 @@ impl ContextClassifier {
         }
     }
     
-    /// Classify a function using ensemble of HMM + CRF
+    /// Classify a function using hierarchical HMM + CRF
     pub fn classify(&mut self, name: &str, features: &FunctionFeatures) -> FunctionContext {
         if let Some(&cached) = self.cache.get(name) {
             return cached;
+        }
+        
+        // Hierarchical: Check file-level bias first
+        if let Some(file_bias) = features.file_context.function_bias() {
+            // Strong file-level signal (e.g., test file → all functions are Test)
+            self.cache.insert(name.to_string(), file_bias);
+            return file_bias;
         }
         
         // Use ensemble if weight < 1.0, otherwise pure HMM
