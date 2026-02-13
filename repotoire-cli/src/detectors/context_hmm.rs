@@ -117,17 +117,25 @@ impl FunctionContext {
 #[derive(Debug, Clone, Default)]
 pub struct FunctionFeatures {
     // Naming features
-    pub has_short_prefix: bool,      // 2-4 char prefix + underscore
-    pub has_test_prefix: bool,       // test_, spec_, etc.
-    pub has_handler_suffix: bool,    // _cb, _handler, _hook
-    pub has_internal_prefix: bool,   // _, __, internal_
+    pub has_short_prefix: bool,      // 2-4 char prefix + underscore (C-style)
+    pub has_test_prefix: bool,       // test_, spec_, Test, it_, etc.
+    pub has_handler_suffix: bool,    // _cb, _handler, _hook, Handler, Callback
+    pub has_internal_prefix: bool,   // _, __, internal_, lowercase (Go)
     pub is_capitalized: bool,        // PascalCase (exported in Go)
     
+    // Language-specific utility indicators
+    pub is_go_exported: bool,        // Go: PascalCase = exported
+    pub is_go_internal: bool,        // Go: lowercase = internal
+    pub is_js_export: bool,          // JS: export function, module.exports
+    pub is_js_arrow_handler: bool,   // JS: arrow function callback pattern
+    pub is_python_dunder: bool,      // Python: __init__, __call__, etc.
+    pub is_python_private: bool,     // Python: _private, __mangled
+    
     // Path features
-    pub in_test_path: bool,          // /tests/, /test/, _test.
-    pub in_util_path: bool,          // /util/, /utils/, /common/
-    pub in_handler_path: bool,       // /handlers/, /callbacks/
-    pub in_internal_path: bool,      // /internal/, /private/
+    pub in_test_path: bool,          // /tests/, /test/, _test., .test., .spec.
+    pub in_util_path: bool,          // /util/, /utils/, /common/, /helpers/
+    pub in_handler_path: bool,       // /handlers/, /callbacks/, /hooks/
+    pub in_internal_path: bool,      // /internal/, /private/, /src/
     
     // Call graph features (normalized 0-1)
     pub fan_in_ratio: f64,           // fan_in / max_fan_in
@@ -141,6 +149,9 @@ pub struct FunctionFeatures {
     
     // Address-taken (callback indicator)
     pub address_taken: bool,
+    
+    // High fan-in indicator (direct utility signal)
+    pub is_high_fan_in: bool,        // fan_in > 10
 }
 
 impl FunctionFeatures {
@@ -164,34 +175,101 @@ impl FunctionFeatures {
         let name_lower = name.to_lowercase();
         let path_lower = file_path.to_lowercase();
         
+        // Detect language from file extension
+        let is_go = path_lower.ends_with(".go");
+        let is_js = path_lower.ends_with(".js") || path_lower.ends_with(".jsx") 
+            || path_lower.ends_with(".ts") || path_lower.ends_with(".tsx");
+        let is_python = path_lower.ends_with(".py");
+        let is_c = path_lower.ends_with(".c") || path_lower.ends_with(".h")
+            || path_lower.ends_with(".cpp") || path_lower.ends_with(".hpp");
+        
+        // Go: PascalCase = exported, lowercase = internal
+        let first_char = name.chars().next();
+        let is_go_exported = is_go && first_char.map(|c| c.is_uppercase()).unwrap_or(false);
+        let is_go_internal = is_go && first_char.map(|c| c.is_lowercase()).unwrap_or(false);
+        
+        // JS: Common patterns
+        let is_js_handler = is_js && (
+            name_lower.starts_with("on") ||  // onClick, onSubmit
+            name_lower.starts_with("handle") ||  // handleClick
+            name_lower.ends_with("handler") ||
+            name_lower.ends_with("callback") ||
+            name_lower.ends_with("listener")
+        );
+        
+        // Python: Dunder and private methods
+        let is_python_dunder = is_python && name.starts_with("__") && name.ends_with("__");
+        let is_python_private = is_python && name.starts_with('_') && !name.starts_with("__");
+        
+        // Test patterns (language-aware)
+        let has_test_prefix = name_lower.starts_with("test_") 
+            || name_lower.starts_with("test")  // Go: TestFoo
+            || name_lower.starts_with("spec_")
+            || name_lower.starts_with("it_")
+            || (is_go && name.starts_with("Test"))  // Go convention
+            || (is_js && (name_lower.starts_with("it(") || name_lower.starts_with("describe(")));
+        
+        // Handler patterns (language-aware)
+        let has_handler_suffix = name_lower.ends_with("_cb")
+            || name_lower.ends_with("_callback")
+            || name_lower.ends_with("_handler")
+            || name_lower.ends_with("_hook")
+            || name_lower.ends_with("_fn")
+            || (is_go && name.ends_with("Handler"))  // Go: FooHandler
+            || (is_go && name.ends_with("Func"))     // Go: FooFunc
+            || is_js_handler;
+            
+        // Utility path detection (more comprehensive)
+        let in_util_path = path_lower.contains("/util")
+            || path_lower.contains("/utils")
+            || path_lower.contains("/common")
+            || path_lower.contains("/helper")
+            || path_lower.contains("/helpers")
+            || path_lower.contains("/lib/")
+            || path_lower.contains("/shared")
+            || path_lower.contains("/core/")
+            || (is_js && path_lower.contains("/src/"))  // JS: src often has utils
+            || path_lower.contains("utils.")
+            || path_lower.contains("helpers.");
+        
+        // Test path detection (more comprehensive)
+        let in_test_path = path_lower.contains("/test")
+            || path_lower.contains("/tests")
+            || path_lower.contains("_test.")
+            || path_lower.contains(".test.")
+            || path_lower.contains(".spec.")
+            || path_lower.contains("/spec")
+            || path_lower.contains("/__tests__")  // Jest convention
+            || path_lower.contains("/__mocks__"); // Jest mocks
+        
         Self {
             // Naming features
-            has_short_prefix: Self::has_short_prefix(name),
-            has_test_prefix: name_lower.starts_with("test_") 
-                || name_lower.starts_with("spec_")
-                || name_lower.starts_with("it_"),
-            has_handler_suffix: name_lower.ends_with("_cb")
-                || name_lower.ends_with("_callback")
-                || name_lower.ends_with("_handler")
-                || name_lower.ends_with("_hook")
-                || name_lower.ends_with("_fn"),
+            has_short_prefix: is_c && Self::has_short_prefix(name),  // Only for C
+            has_test_prefix,
+            has_handler_suffix,
             has_internal_prefix: name.starts_with('_') && !name.starts_with("__"),
-            is_capitalized: name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false),
+            is_capitalized: first_char.map(|c| c.is_uppercase()).unwrap_or(false),
+            
+            // Language-specific
+            is_go_exported,
+            is_go_internal,
+            is_js_export: is_js && in_util_path,  // Approximate
+            is_js_arrow_handler: is_js_handler,
+            is_python_dunder,
+            is_python_private,
             
             // Path features
-            in_test_path: path_lower.contains("/test")
-                || path_lower.contains("_test.")
-                || path_lower.contains("/spec"),
-            in_util_path: path_lower.contains("/util")
-                || path_lower.contains("/common")
-                || path_lower.contains("/helper")
-                || path_lower.contains("/lib/"),
+            in_test_path,
+            in_util_path,
             in_handler_path: path_lower.contains("/handler")
                 || path_lower.contains("/callback")
-                || path_lower.contains("/hook"),
+                || path_lower.contains("/hook")
+                || path_lower.contains("/hooks")
+                || path_lower.contains("/events"),
             in_internal_path: path_lower.contains("/internal")
                 || path_lower.contains("/private")
-                || path_lower.contains("/_"),
+                || path_lower.contains("/_")
+                || (is_go && path_lower.contains("/pkg/")),  // Go internal convention
             
             // Call graph features
             fan_in_ratio: if max_fan_in > 0 { fan_in as f64 / max_fan_in as f64 } else { 0.0 },
@@ -204,6 +282,7 @@ impl FunctionFeatures {
             param_count_ratio: param_count as f64 / avg_params.max(1.0),
             
             address_taken,
+            is_high_fan_in: fan_in > 10,
         }
     }
     
@@ -227,28 +306,73 @@ impl FunctionFeatures {
         false
     }
     
-    /// Convert to feature vector for HMM
-    pub fn to_vector(&self) -> [f64; 16] {
+    /// Convert to feature vector for HMM (20 features)
+    pub fn to_vector(&self) -> [f64; 20] {
         [
+            // Naming (5)
             self.has_short_prefix as u8 as f64,
             self.has_test_prefix as u8 as f64,
             self.has_handler_suffix as u8 as f64,
             self.has_internal_prefix as u8 as f64,
             self.is_capitalized as u8 as f64,
+            // Language-specific (6)
+            self.is_go_exported as u8 as f64,
+            self.is_go_internal as u8 as f64,
+            self.is_js_export as u8 as f64,
+            self.is_js_arrow_handler as u8 as f64,
+            self.is_python_dunder as u8 as f64,
+            self.is_python_private as u8 as f64,
+            // Paths (4)
             self.in_test_path as u8 as f64,
             self.in_util_path as u8 as f64,
             self.in_handler_path as u8 as f64,
             self.in_internal_path as u8 as f64,
+            // Call graph (3)
             self.fan_in_ratio,
             self.fan_out_ratio,
             self.caller_file_spread,
-            self.complexity_ratio.min(3.0) / 3.0,  // Normalize to 0-1
-            self.loc_ratio.min(3.0) / 3.0,
-            self.param_count_ratio.min(3.0) / 3.0,
+            // Metadata (2)
             self.address_taken as u8 as f64,
+            self.is_high_fan_in as u8 as f64,
         ]
     }
+    
+    /// Quick check if this looks like a utility function (any language)
+    pub fn looks_like_utility(&self) -> bool {
+        // C-style: short prefix + high fan-in
+        (self.has_short_prefix && self.is_high_fan_in)
+        // Go: exported helper in util path
+        || (self.is_go_exported && self.in_util_path)
+        // Any language: in util path with high fan-in
+        || (self.in_util_path && self.is_high_fan_in)
+        // High fan-in with spread callers
+        || (self.fan_in_ratio > 0.3 && self.caller_file_spread > 0.5)
+    }
+    
+    /// Quick check if this looks like a handler/callback (any language)
+    pub fn looks_like_handler(&self) -> bool {
+        self.has_handler_suffix
+        || self.is_js_arrow_handler
+        || self.address_taken
+        || self.in_handler_path
+    }
+    
+    /// Quick check if this looks like a test function (any language)
+    pub fn looks_like_test(&self) -> bool {
+        self.has_test_prefix || self.in_test_path
+    }
+    
+    /// Quick check if this looks like internal/private (any language)
+    pub fn looks_like_internal(&self) -> bool {
+        self.has_internal_prefix
+        || self.is_go_internal
+        || self.is_python_private
+        || self.in_internal_path
+    }
 }
+
+/// Number of features in the model
+const NUM_FEATURES: usize = 20;
 
 /// Hidden Markov Model for function context classification
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,9 +385,9 @@ pub struct ContextHMM {
     pub transition: [[f64; 5]; 5],
     
     /// Emission parameters for each state
-    /// Each state has mean and variance for each of 16 features
-    pub emission_mean: [[f64; 16]; 5],
-    pub emission_var: [[f64; 16]; 5],
+    /// Each state has mean and variance for each of NUM_FEATURES features
+    pub emission_mean: [[f64; NUM_FEATURES]; 5],
+    pub emission_var: [[f64; NUM_FEATURES]; 5],
 }
 
 impl Default for ContextHMM {
@@ -288,26 +412,26 @@ impl ContextHMM {
             /* Test */ [0.05, 0.05, 0.10, 0.05, 0.75],
         ];
         
-        // Emission means for each feature per state
-        // Features: [short_prefix, test_prefix, handler_suffix, internal_prefix, capitalized,
-        //           test_path, util_path, handler_path, internal_path,
-        //           fan_in_ratio, fan_out_ratio, caller_spread,
-        //           complexity_ratio, loc_ratio, param_ratio, address_taken]
+        // Emission means for each feature per state (20 features)
+        // [short_prefix, test_prefix, handler_suffix, internal_prefix, capitalized,
+        //  go_exported, go_internal, js_export, js_handler, py_dunder, py_private,
+        //  test_path, util_path, handler_path, internal_path,
+        //  fan_in_ratio, fan_out_ratio, caller_spread, address_taken, high_fan_in]
         let emission_mean = [
-            // Utility: short prefix, high fan-in, spread callers
-            [0.7, 0.0, 0.1, 0.1, 0.3, 0.0, 0.6, 0.0, 0.1, 0.7, 0.3, 0.8, 0.3, 0.3, 0.4, 0.2],
-            // Handler: handler suffix, address taken, moderate fan-in
-            [0.3, 0.0, 0.8, 0.1, 0.2, 0.0, 0.1, 0.7, 0.1, 0.3, 0.4, 0.5, 0.4, 0.4, 0.5, 0.8],
-            // Core: normal everything
-            [0.1, 0.0, 0.1, 0.1, 0.4, 0.0, 0.1, 0.1, 0.1, 0.3, 0.4, 0.4, 0.5, 0.5, 0.4, 0.1],
-            // Internal: internal prefix, low fan-in
-            [0.2, 0.0, 0.1, 0.7, 0.1, 0.0, 0.1, 0.0, 0.5, 0.1, 0.3, 0.3, 0.4, 0.3, 0.3, 0.1],
-            // Test: test prefix, test path, low complexity
-            [0.0, 0.9, 0.0, 0.0, 0.3, 0.9, 0.0, 0.0, 0.0, 0.1, 0.5, 0.2, 0.3, 0.4, 0.3, 0.0],
+            // Utility: high fan-in, spread callers, util path, exported
+            [0.5, 0.0, 0.1, 0.1, 0.5, 0.6, 0.2, 0.4, 0.1, 0.1, 0.1, 0.0, 0.7, 0.0, 0.1, 0.7, 0.3, 0.7, 0.2, 0.8],
+            // Handler: handler suffix/path, address taken, js handlers
+            [0.2, 0.0, 0.8, 0.1, 0.3, 0.3, 0.3, 0.2, 0.8, 0.1, 0.1, 0.0, 0.1, 0.8, 0.1, 0.3, 0.4, 0.4, 0.8, 0.3],
+            // Core: normal everything, moderate fan-in
+            [0.1, 0.0, 0.1, 0.1, 0.4, 0.4, 0.4, 0.3, 0.1, 0.1, 0.1, 0.0, 0.1, 0.1, 0.1, 0.3, 0.4, 0.4, 0.1, 0.3],
+            // Internal: internal prefix, low fan-in, internal path
+            [0.1, 0.0, 0.1, 0.7, 0.2, 0.1, 0.7, 0.1, 0.1, 0.1, 0.6, 0.0, 0.1, 0.0, 0.7, 0.1, 0.3, 0.3, 0.1, 0.1],
+            // Test: test prefix/path
+            [0.0, 0.9, 0.0, 0.0, 0.3, 0.3, 0.3, 0.1, 0.1, 0.1, 0.1, 0.9, 0.0, 0.0, 0.0, 0.1, 0.5, 0.2, 0.0, 0.1],
         ];
         
         // Emission variances (how much each feature varies within a state)
-        let emission_var = [[0.2; 16]; 5];  // Start with uniform variance
+        let emission_var = [[0.2; NUM_FEATURES]; 5];  // Start with uniform variance
         
         Self {
             initial,
@@ -388,11 +512,11 @@ impl ContextHMM {
     }
     
     /// Log probability of observing features given state (Gaussian emission)
-    fn log_emission_prob(&self, state: FunctionContext, features: &[f64; 16]) -> f64 {
+    fn log_emission_prob(&self, state: FunctionContext, features: &[f64; NUM_FEATURES]) -> f64 {
         let s = state.index();
         let mut log_prob = 0.0;
         
-        for i in 0..16 {
+        for i in 0..NUM_FEATURES {
             let mean = self.emission_mean[s][i];
             let var = self.emission_var[s][i].max(0.01);  // Avoid div by zero
             let x = features[i];
@@ -412,15 +536,15 @@ impl ContextHMM {
         
         // Count state occurrences and accumulate feature values
         let mut state_counts = [0.0f64; 5];
-        let mut feature_sums = [[0.0f64; 16]; 5];
-        let mut feature_sq_sums = [[0.0f64; 16]; 5];
+        let mut feature_sums = [[0.0f64; NUM_FEATURES]; 5];
+        let mut feature_sq_sums = [[0.0f64; NUM_FEATURES]; 5];
         
         for (features, context) in examples {
             let s = context.index();
             state_counts[s] += 1.0;
             
             let vec = features.to_vector();
-            for i in 0..16 {
+            for i in 0..NUM_FEATURES {
                 feature_sums[s][i] += vec[i];
                 feature_sq_sums[s][i] += vec[i] * vec[i];
             }
@@ -435,7 +559,7 @@ impl ContextHMM {
         // Update emission parameters
         for s in 0..5 {
             if state_counts[s] > 0.0 {
-                for i in 0..16 {
+                for i in 0..NUM_FEATURES {
                     let n = state_counts[s];
                     let mean = feature_sums[s][i] / n;
                     let var = (feature_sq_sums[s][i] / n - mean * mean).max(0.01);
@@ -453,19 +577,15 @@ impl ContextHMM {
         // function_data: (features, fan_in, fan_out, address_taken)
         let mut examples = Vec::new();
         
-        for (features, fan_in, _fan_out, address_taken) in function_data {
-            // Heuristic labeling based on call graph patterns
-            let context = if features.has_test_prefix || features.in_test_path {
+        for (features, _fan_in, _fan_out, _address_taken) in function_data {
+            // Use the new language-aware helper methods
+            let context = if features.looks_like_test() {
                 FunctionContext::Test
-            } else if *address_taken || features.has_handler_suffix || features.in_handler_path {
+            } else if features.looks_like_handler() {
                 FunctionContext::Handler
-            } else if features.has_short_prefix && (*fan_in > 5 || features.in_util_path) {
-                // Looser criteria for Utility: short prefix + (high fan-in OR in util path)
+            } else if features.looks_like_utility() {
                 FunctionContext::Utility
-            } else if features.in_util_path && *fan_in > 3 {
-                // Also utility if in util path with moderate fan-in
-                FunctionContext::Utility
-            } else if features.has_internal_prefix || features.in_internal_path {
+            } else if features.looks_like_internal() {
                 FunctionContext::Internal
             } else {
                 FunctionContext::Core

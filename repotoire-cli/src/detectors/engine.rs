@@ -139,12 +139,29 @@ impl DetectorEngine {
         }
 
         info!("Building HMM function contexts from graph...");
-        let functions = graph.get_functions();
+        let mut functions = graph.get_functions();
         
         if functions.is_empty() {
             let empty = Arc::new(HashMap::new());
             self.hmm_contexts = Some(Arc::clone(&empty));
             return empty;
+        }
+
+        // Limit function count to prevent OOM on huge codebases
+        const MAX_FUNCTIONS_FOR_HMM: usize = 20_000;
+        if functions.len() > MAX_FUNCTIONS_FOR_HMM {
+            warn!(
+                "Limiting HMM analysis to {} functions (codebase has {})",
+                MAX_FUNCTIONS_FOR_HMM,
+                functions.len()
+            );
+            // Keep functions with highest fan-in (most important to classify correctly)
+            functions.sort_by(|a, b| {
+                let a_callers = graph.get_callers(&a.qualified_name).len();
+                let b_callers = graph.get_callers(&b.qualified_name).len();
+                b_callers.cmp(&a_callers)
+            });
+            functions.truncate(MAX_FUNCTIONS_FOR_HMM);
         }
 
         // Compute graph statistics for normalization
