@@ -168,6 +168,29 @@ impl ShotgunSurgeryDetector {
             Severity::Low
         }
     }
+
+    /// Detect common runtime/interpreter naming patterns
+    /// Pattern: 2-4 alphanumeric prefix + underscore (e.g., u3r_, Py_, lua_, rb_)
+    fn has_runtime_prefix(func_name: &str) -> bool {
+        if let Some(underscore_pos) = func_name.find('_') {
+            if underscore_pos >= 2 && underscore_pos <= 4 {
+                let prefix = &func_name[..underscore_pos];
+                if prefix.chars().all(|c| c.is_alphanumeric()) {
+                    let prefix_lower = prefix.to_lowercase();
+                    const COMMON_WORDS: &[&str] = &[
+                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del",
+                        "pop", "put", "run", "try", "end", "use", "for", "the", "and", "not",
+                        "dead", "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo",
+                        "bar", "baz", "qux", "call", "read", "load", "save", "send", "recv",
+                    ];
+                    if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 struct ImpactAnalysis {
@@ -286,10 +309,13 @@ impl Detector for ShotgunSurgeryDetector {
             "log_", "debug_", "trace_", "info_", "warn_", "error_", "print_",
             // String/buffer operations
             "str_", "buf_", "fmt_",
-            // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
-            "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
-            "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h",
-            "_cq", "_cw",  // Internal jet helpers
+            // Common interpreter/runtime prefixes
+            "py_", "pyobject_", "_py",  // CPython
+            "lua_", "lual_", "luav_",   // Lua
+            "rb_", "ruby_",             // Ruby
+            "v8_", "js_",               // JavaScript engines
+            "g_", "gtk_", "gdk_",       // GLib/GTK
+            "uv_", "uv__",              // libuv
         ];
         const UTILITY_SUFFIXES: &[&str] = &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
         const UTILITY_PATHS: &[&str] = &[
@@ -347,8 +373,15 @@ impl Detector for ShotgunSurgeryDetector {
                 continue;
             }
 
+            // Skip runtime/interpreter functions (short prefix + underscore pattern)
+            if Self::has_runtime_prefix(&func.name) {
+                continue;
+            }
+
             // Skip utility functions by suffix
-            if UTILITY_SUFFIXES.iter().any(|s| name_lower.ends_with(s)) {
+            if UTILITY_SUFFIXES.iter().any(|s| name_lower.ends_with(s)) 
+                || name_lower.ends_with("_cb") || name_lower.ends_with("_callback")
+                || name_lower.ends_with("_handler") || name_lower.ends_with("_hook") {
                 continue;
             }
 

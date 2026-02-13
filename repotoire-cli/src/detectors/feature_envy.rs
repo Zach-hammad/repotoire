@@ -342,10 +342,13 @@ impl Detector for FeatureEnvyDetector {
             "util_", "helper_", "common_", "core_", "base_", "lib_", "shared_",
             // Memory/string operations
             "alloc_", "free_", "mem_", "str_", "buf_", "fmt_",
-            // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
-            "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
-            "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h",
-            "_cq", "_cw",  // Internal jet helpers
+            // Common interpreter/runtime prefixes
+            "py_", "pyobject_", "_py",  // CPython
+            "lua_", "lual_", "luav_",   // Lua
+            "rb_", "ruby_",             // Ruby
+            "v8_", "js_",               // JavaScript engines
+            "g_", "gtk_", "gdk_",       // GLib/GTK
+            "uv_", "uv__",              // libuv
         ];
 
         // Skip utility function suffixes

@@ -82,11 +82,26 @@ const ENTRY_POINT_PATTERNS: &[&str] = &[
     "find",
     "calculate",
     "analyze",
-    // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
-    // These are called via dispatch tables, not direct C calls
-    "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
-    "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h", "u3_",
-    "_cq", "_cw",  // Internal jet helpers
+    // Callback/handler patterns (called via function pointers)
+    "_cb",        // callback suffix
+    "_callback",
+    "_handler",
+    "_hook",
+    "_fn",
+    // Common interpreter/runtime prefixes (called via dispatch tables)
+    // CPython: Py_, PyObject_, PyList_, etc.
+    "py_", "pyobject_", "pylist_", "pydict_", "pytuple_", "pyset_",
+    "_py",  // internal CPython
+    // Lua: lua_, luaL_, luaV_, etc.
+    "lua_", "lual_", "luav_", "luac_", "luad_", "luag_", "luah_",
+    // Ruby: rb_, RUBY_
+    "rb_", "ruby_",
+    // V8/JavaScript engines
+    "v8_", "js_",
+    // GLib/GTK
+    "g_", "gtk_", "gdk_",
+    // libuv
+    "uv_", "uv__",
 ];
 
 /// Paths that indicate entry points or dispatch-table code
@@ -147,7 +162,7 @@ impl UnreachableCodeDetector {
         // Check name patterns
         if ENTRY_POINT_PATTERNS
             .iter()
-            .any(|p| name_lower.starts_with(p) || name_lower == *p)
+            .any(|p| name_lower.starts_with(p) || name_lower == *p || name_lower.ends_with(p))
         {
             return true;
         }
@@ -167,6 +182,40 @@ impl UnreachableCodeDetector {
             return true;
         }
 
+        // Detect runtime/interpreter naming convention: short_prefix + underscore + name
+        // Examples: u3r_word, Py_Initialize, lua_pushnil, rb_str_new
+        // Pattern: 2-4 alphanumeric chars followed by underscore
+        if Self::has_runtime_prefix(func_name) {
+            return true;
+        }
+
+        false
+    }
+
+    /// Detect common runtime/interpreter naming patterns
+    /// Pattern: 2-4 alphanumeric prefix + underscore (e.g., u3r_, Py_, lua_, rb_)
+    fn has_runtime_prefix(func_name: &str) -> bool {
+        // Find first underscore
+        if let Some(underscore_pos) = func_name.find('_') {
+            // Prefix must be 2-4 characters
+            if underscore_pos >= 2 && underscore_pos <= 4 {
+                let prefix = &func_name[..underscore_pos];
+                // Prefix must be alphanumeric (allow mixed case for Py_, Rb_, etc.)
+                if prefix.chars().all(|c| c.is_alphanumeric()) {
+                    // Additional check: avoid false positives from common words
+                    let prefix_lower = prefix.to_lowercase();
+                    const COMMON_WORDS: &[&str] = &[
+                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del",
+                        "pop", "put", "run", "try", "end", "use", "for", "the", "and", "not",
+                        "dead", "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo",
+                        "bar", "baz", "qux", "call", "read", "load", "save", "send", "recv",
+                    ];
+                    if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
+                        return true;
+                    }
+                }
+            }
+        }
         false
     }
 

@@ -315,6 +315,29 @@ impl AIComplexitySpikeDetector {
             "Extra Large (2+ days)".to_string()
         }
     }
+
+    /// Detect common runtime/interpreter naming patterns
+    /// Pattern: 2-4 alphanumeric prefix + underscore (e.g., u3r_, Py_, lua_, rb_)
+    fn has_runtime_prefix(func_name: &str) -> bool {
+        if let Some(underscore_pos) = func_name.find('_') {
+            if underscore_pos >= 2 && underscore_pos <= 4 {
+                let prefix = &func_name[..underscore_pos];
+                if prefix.chars().all(|c| c.is_alphanumeric()) {
+                    let prefix_lower = prefix.to_lowercase();
+                    const COMMON_WORDS: &[&str] = &[
+                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del",
+                        "pop", "put", "run", "try", "end", "use", "for", "the", "and", "not",
+                        "dead", "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo",
+                        "bar", "baz", "qux", "call", "read", "load", "save", "send", "recv",
+                    ];
+                    if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 impl Default for AIComplexitySpikeDetector {
@@ -361,14 +384,6 @@ impl Detector for AIComplexitySpikeDetector {
         // Find outliers (>2 standard deviations above mean)
         let threshold = avg + 2.0 * std_dev;
 
-        // Utility function prefixes (inherently complex runtime/core code)
-        const UTILITY_PREFIXES: &[&str] = &[
-            // Urbit/Vere interpreter core (noun/memory/jet/hash operations)
-            "u3r", "u3i", "u3a", "u3m", "u3z", "u3n", "u3t", "u3x", "u3j", "u3q", "u3w",
-            "u3k", "u3l", "u3s", "u3v", "u3c", "u3e", "u3h",
-            "_cq", "_cw",  // Internal jet helpers
-        ];
-
         for func in functions {
             // Skip detector files (they have inherently complex parsing logic)
             if func.file_path.contains("/detectors/") {
@@ -380,9 +395,21 @@ impl Detector for AIComplexitySpikeDetector {
                 continue;
             }
 
-            // Skip interpreter/runtime core utility functions
-            let name_lower = func.name.to_lowercase();
-            if UTILITY_PREFIXES.iter().any(|p| name_lower.starts_with(p)) {
+            // Skip runtime/interpreter/core code paths
+            if func.file_path.contains("/runtime/")
+                || func.file_path.contains("/vm/")
+                || func.file_path.contains("/interpreter/")
+                || func.file_path.contains("/bytecode/")
+                || func.file_path.contains("/jets/")
+                || func.file_path.contains("/opcodes/")
+                || func.file_path.contains("/noun/")
+                || func.file_path.contains("/ext/")
+                || func.file_path.contains("/vendor/") {
+                continue;
+            }
+
+            // Skip interpreter/runtime functions (short prefix + underscore pattern)
+            if Self::has_runtime_prefix(&func.name) {
                 continue;
             }
 
