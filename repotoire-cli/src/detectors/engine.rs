@@ -147,13 +147,16 @@ impl DetectorEngine {
             return Arc::clone(ctx);
         }
 
-        // Try to load cached HMM model
+        // Try to load cached HMM+CRF model
         let cache_path = self.hmm_cache_path.clone();
         let mut classifier = if let Some(ref path) = cache_path {
             let model_path = path.join("hmm_model.json");
             if model_path.exists() {
-                info!("Loading cached HMM model from {:?}", model_path);
-                ContextClassifier::for_codebase(Some(&model_path))
+                info!("Loading cached HMM+CRF model from {:?}", model_path);
+                ContextClassifier::load(&model_path).unwrap_or_else(|| {
+                    // Fallback to legacy format
+                    ContextClassifier::for_codebase(Some(&model_path))
+                })
             } else {
                 ContextClassifier::new()
             }
