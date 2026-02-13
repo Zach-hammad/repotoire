@@ -496,7 +496,7 @@ mod tests {
         let finding = create_test_finding(&file_path.to_string_lossy());
 
         // Cache findings
-        cache.cache_findings(&file_path, &[finding.clone()]);
+        cache.cache_findings(&file_path, std::slice::from_ref(&finding));
 
         // Retrieve cached findings
         let cached = cache.get_cached_findings(&file_path);

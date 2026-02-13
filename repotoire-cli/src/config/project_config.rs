@@ -559,9 +559,9 @@ mod tests {
         assert_eq!(int_val.as_f64(), Some(42.0));
         assert_eq!(int_val.as_bool(), None);
 
-        let float_val = ThresholdValue::Float(3.14);
-        assert_eq!(float_val.as_i64(), Some(3));
-        assert_eq!(float_val.as_f64(), Some(3.14));
+        let float_val = ThresholdValue::Float(2.5);
+        assert_eq!(float_val.as_i64(), Some(2));
+        assert_eq!(float_val.as_f64(), Some(2.5));
 
         let bool_val = ThresholdValue::Boolean(true);
         assert_eq!(bool_val.as_bool(), Some(true));

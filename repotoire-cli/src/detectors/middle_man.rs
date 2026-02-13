@@ -329,7 +329,7 @@ mod tests {
             // Each method delegates to the same target
             graph.add_node(
                 CodeNode::function(&format!("real_{}", i), "src/real.py")
-                    .with_qualified_name(&format!("real::RealClass::{}", format!("real_{}", i)))
+                    .with_qualified_name(&format!("real::RealClass::real_{}", i))
                     .with_lines(i * 10, i * 10 + 5),
             );
 

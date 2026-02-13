@@ -958,7 +958,12 @@ mod tests {
             let store = GraphStore::new(&path).unwrap();
             store.add_node(CodeNode::file("test.py"));
             store.save().unwrap();
+            // Explicit drop to release lock before reopening
+            drop(store);
         }
+
+        // Small delay to ensure OS releases the file lock
+        std::thread::sleep(std::time::Duration::from_millis(50));
 
         // Reload and verify
         {

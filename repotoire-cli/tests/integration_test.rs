@@ -122,10 +122,12 @@ fn test_analyze_fixtures_produces_findings() {
     );
 
     // Parse the JSON output
-    let report: serde_json::Value = parse_json(&stdout).expect(&format!(
-        "Output should be valid JSON. Got: {}",
-        &stdout[..stdout.len().min(500)]
-    ));
+    let report: serde_json::Value = parse_json(&stdout).unwrap_or_else(|_| {
+        panic!(
+            "Output should be valid JSON. Got: {}",
+            &stdout[..stdout.len().min(500)]
+        )
+    });
 
     // Should have findings array
     assert!(
@@ -167,7 +169,7 @@ fn test_analyze_fixtures_finds_code_smells() {
 
     // Our fixtures should trigger at least some detectors
     assert!(
-        findings.len() >= 1,
+        !findings.is_empty(),
         "Should find at least 1 issue. Found: {}. Detectors: {:?}",
         findings.len(),
         finding_detectors
@@ -670,14 +672,18 @@ fn test_bad_code_has_lower_score_than_good_code() {
 
     assert_eq!(bad_exit, 0, "Bad code analysis failed: {}", bad_stderr);
 
-    let good_report: serde_json::Value = parse_json(&good_stdout).expect(&format!(
-        "Good code JSON parse failed: {}",
-        &good_stdout[..good_stdout.len().min(500)]
-    ));
-    let bad_report: serde_json::Value = parse_json(&bad_stdout).expect(&format!(
-        "Bad code JSON parse failed: {}",
-        &bad_stdout[..bad_stdout.len().min(500)]
-    ));
+    let good_report: serde_json::Value = parse_json(&good_stdout).unwrap_or_else(|_| {
+        panic!(
+            "Good code JSON parse failed: {}",
+            &good_stdout[..good_stdout.len().min(500)]
+        )
+    });
+    let bad_report: serde_json::Value = parse_json(&bad_stdout).unwrap_or_else(|_| {
+        panic!(
+            "Bad code JSON parse failed: {}",
+            &bad_stdout[..bad_stdout.len().min(500)]
+        )
+    });
 
     let good_score = good_report["overall_score"].as_f64().unwrap();
     let bad_score = bad_report["overall_score"].as_f64().unwrap();
