@@ -9,6 +9,37 @@
 //!
 //! The HMM is trained per-codebase using self-supervised learning from
 //! call graph patterns and naming conventions.
+//!
+//! ## Research Notes
+//!
+//! Our implementation follows best practices from HMM literature:
+//!
+//! 1. **Gaussian Emissions**: We use continuous Gaussian emissions rather than
+//!    discrete emissions because our features (fan-in ratio, complexity ratio)
+//!    are naturally continuous. This avoids information loss from discretization.
+//!
+//! 2. **Viterbi Decoding**: For sequence classification, Viterbi finds the most
+//!    likely state sequence in O(T*N²) time where T=sequence length, N=states.
+//!
+//! 3. **Bootstrap + Incremental Learning**: We initialize from heuristics (prior
+//!    knowledge) then refine with Baum-Welch style updates. This is more robust
+//!    than random initialization, especially for small codebases.
+//!
+//! 4. **Log-space Computation**: All probabilities computed in log-space to
+//!    prevent numerical underflow with long sequences.
+//!
+//! ### Alternatives Considered
+//!
+//! - **CRF (Conditional Random Fields)**: Discriminative model, often better for
+//!   classification. However, requires labeled training data. HMM can be trained
+//!   unsupervised from call graph patterns.
+//!
+//! - **Neural Networks**: Could learn complex patterns but requires more data
+//!   and adds heavy dependencies. HMM is lightweight and interpretable.
+//!
+//! - **Per-class HMMs**: Train separate HMM for each context type, classify by
+//!   comparing likelihoods. We use single HMM for simplicity and to model
+//!   transitions between contexts (e.g., test file → all functions are TEST).
 
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
@@ -428,7 +459,11 @@ impl ContextHMM {
                 FunctionContext::Test
             } else if *address_taken || features.has_handler_suffix || features.in_handler_path {
                 FunctionContext::Handler
-            } else if features.has_short_prefix && *fan_in > 10 && features.caller_file_spread > 0.5 {
+            } else if features.has_short_prefix && (*fan_in > 5 || features.in_util_path) {
+                // Looser criteria for Utility: short prefix + (high fan-in OR in util path)
+                FunctionContext::Utility
+            } else if features.in_util_path && *fan_in > 3 {
+                // Also utility if in util path with moderate fan-in
                 FunctionContext::Utility
             } else if features.has_internal_prefix || features.in_internal_path {
                 FunctionContext::Internal
