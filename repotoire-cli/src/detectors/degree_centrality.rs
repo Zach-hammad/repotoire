@@ -41,9 +41,9 @@ impl DegreeCentralityDetector {
         Self {
             config: DetectorConfig::new(),
             high_complexity_threshold: 15,
-            min_total_degree: 30,
-            min_elevated_fanin: 8,
-            min_elevated_fanout: 8,
+            min_total_degree: 50,      // Raised from 30 (too noisy for C code)
+            min_elevated_fanin: 15,    // Raised from 8
+            min_elevated_fanout: 15,   // Raised from 8
         }
     }
 
@@ -63,10 +63,10 @@ impl DegreeCentralityDetector {
     fn calculate_severity(&self, fan_in: usize, fan_out: usize, role: FunctionRole) -> Severity {
         let total = fan_in + fan_out;
 
-        // Base severity from raw metrics
-        let base_severity = if total >= 60 && fan_in >= 15 && fan_out >= 15 {
+        // Base severity from raw metrics (raised thresholds for C code)
+        let base_severity = if total >= 100 && fan_in >= 25 && fan_out >= 25 {
             Severity::High
-        } else if total >= 40 {
+        } else if total >= 70 {
             Severity::Medium
         } else {
             Severity::Low
@@ -476,7 +476,7 @@ mod tests {
     fn test_new_detector() {
         let detector = DegreeCentralityDetector::new();
         assert_eq!(detector.high_complexity_threshold, 15);
-        assert_eq!(detector.min_elevated_fanin, 8);
+        assert_eq!(detector.min_elevated_fanin, 15);  // Raised from 8
     }
 
     #[test]
@@ -487,12 +487,12 @@ mod tests {
         let sev = detector.calculate_severity(50, 5, FunctionRole::Utility);
         assert_eq!(sev, Severity::Low);
 
-        // Hub with high both = Medium (total=40, needs 60+ for High)
-        let sev = detector.calculate_severity(20, 20, FunctionRole::Hub);
+        // Hub with medium both = Low (total=80, needs 100+ for High)
+        let sev = detector.calculate_severity(40, 40, FunctionRole::Hub);
         assert_eq!(sev, Severity::Medium);
 
-        // Hub with very high both = High
-        let sev = detector.calculate_severity(35, 35, FunctionRole::Hub);
+        // Hub with very high both = High (total=100, fan_in=50, fan_out=50)
+        let sev = detector.calculate_severity(50, 50, FunctionRole::Hub);
         assert_eq!(sev, Severity::High);
     }
 
