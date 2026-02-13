@@ -796,11 +796,17 @@ pub struct ContextClassifier {
 
 impl ContextClassifier {
     pub fn new() -> Self {
+        // Allow tuning via environment variable
+        let hmm_weight = std::env::var("REPOTOIRE_HMM_WEIGHT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.9);
+        
         Self {
             hmm: ContextHMM::new(),
             crf: CRFWeights::new(),
             cache: HashMap::new(),
-            hmm_weight: 0.9,  // HMM-dominant (CRF assists, doesn't override)
+            hmm_weight,
         }
     }
     
@@ -833,9 +839,12 @@ impl ContextClassifier {
             return cached;
         }
         
-        // Use pure HMM classification (most reliable)
-        // CRF can be used for tiebreaking in future versions
-        let context = self.hmm.classify(features);
+        // Use ensemble if weight < 1.0, otherwise pure HMM
+        let context = if self.hmm_weight < 1.0 {
+            self.ensemble_classify(features)
+        } else {
+            self.hmm.classify(features)
+        };
         self.cache.insert(name.to_string(), context);
         context
     }
@@ -885,8 +894,19 @@ impl ContextClassifier {
         // Train HMM with bootstrap (no EM to avoid drift)
         self.hmm.bootstrap_from_graph(function_data);
         
-        // CRF training disabled - causes regression on some codebases
-        // Will re-enable after proper hyperparameter tuning
+        // Train CRF if ensemble is enabled
+        if self.hmm_weight < 1.0 {
+            let examples: Vec<_> = function_data
+                .iter()
+                .map(|(features, _, _, _)| {
+                    let ctx = self.hmm.classify(features);
+                    (features.clone(), ctx)
+                })
+                .collect();
+            
+            // Perceptron training (1 epoch, low learning rate)
+            self.crf.train(&examples, 0.05);
+        }
         
         self.cache.clear();
     }
