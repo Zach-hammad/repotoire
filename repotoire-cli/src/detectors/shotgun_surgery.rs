@@ -274,6 +274,22 @@ impl Detector for ShotgunSurgeryDetector {
 
         // Also check high-impact functions (not just classes)
         // Skip common trait methods that are expected to have many callers
+        // Also skip utility function prefixes (these are DESIGNED to be called everywhere)
+        const UTILITY_PREFIXES: &[&str] = &[
+            // Generic utility prefixes
+            "util_", "helper_", "common_", "core_", "base_", "lib_", "shared_",
+            // Memory/allocation functions (core runtime, called everywhere)
+            "alloc_", "free_", "malloc_", "realloc_", "mem_",
+            // Logging/debug (called from everywhere)
+            "log_", "debug_", "trace_", "info_", "warn_", "error_", "print_",
+            // String/buffer operations
+            "str_", "buf_", "fmt_",
+        ];
+        const UTILITY_SUFFIXES: &[&str] = &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
+        const UTILITY_PATHS: &[&str] = &[
+            "/util/", "/utils/", "/common/", "/core/", "/lib/", "/helpers/", "/shared/",
+            "/allocator/", "/memory/", "/alloc/", "/runtime/", "/internal/",
+        ];
         const SKIP_METHODS: &[&str] = &[
             "new",
             "default",
@@ -317,6 +333,22 @@ impl Detector for ShotgunSurgeryDetector {
                 .iter()
                 .any(|m| name_lower == *m || name_lower.starts_with(m))
             {
+                continue;
+            }
+
+            // Skip utility functions by prefix (designed to be called everywhere)
+            if UTILITY_PREFIXES.iter().any(|p| name_lower.starts_with(p)) {
+                continue;
+            }
+
+            // Skip utility functions by suffix
+            if UTILITY_SUFFIXES.iter().any(|s| name_lower.ends_with(s)) {
+                continue;
+            }
+
+            // Skip functions in utility paths
+            let path_lower = func.file_path.to_lowercase();
+            if UTILITY_PATHS.iter().any(|p| path_lower.contains(p)) {
                 continue;
             }
 

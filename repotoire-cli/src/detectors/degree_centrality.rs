@@ -105,8 +105,33 @@ impl DegreeCentralityDetector {
         }
     }
 
+    /// Utility function patterns (designed to be highly connected)
+    const UTILITY_PREFIXES: &[&str] = &[
+        // Generic utility prefixes
+        "util_", "helper_", "common_", "core_", "base_", "lib_", "shared_",
+        // Memory/allocation functions (core runtime, called everywhere)
+        "alloc_", "free_", "malloc_", "realloc_", "mem_",
+        // Logging/debug (called from everywhere)
+        "log_", "debug_", "trace_", "info_", "warn_", "error_", "print_",
+        // String/buffer operations
+        "str_", "buf_", "fmt_",
+    ];
+
     /// Legacy name-based skip check (fallback when no context available)
     fn should_skip_by_name(&self, name: &str) -> bool {
+        let name_lower = name.to_lowercase();
+        
+        // Skip utility function prefixes (designed to be called everywhere)
+        if Self::UTILITY_PREFIXES.iter().any(|p| name_lower.starts_with(p)) {
+            return true;
+        }
+
+        // Skip utility function suffixes
+        if name_lower.ends_with("_util") || name_lower.ends_with("_utils") 
+            || name_lower.ends_with("_helper") || name_lower.ends_with("_common") {
+            return true;
+        }
+
         const SKIP_NAMES: &[&str] = &[
             "new",
             "default",
@@ -172,20 +197,35 @@ impl DegreeCentralityDetector {
         })
     }
 
-    /// Check if path is a natural hub file
+    /// Check if path is a natural hub file or utility location
     fn is_hub_file(&self, path: &str) -> bool {
         const SKIP_PATHS: &[&str] = &[
+            // Natural hub files (entry points, module roots)
             "/mod.rs",
             "/lib.rs",
             "/main.rs",
+            "/index.",
             "/cli/",
             "/handlers/",
-            "/mcp/",
-            "/parsers/",
-            "/server.rs",
-            "/router.rs",
+            "/server.",
+            "/router.",
+            // Utility directories (expected to be highly connected)
+            "/util/",
+            "/utils/",
+            "/common/",
+            "/core/",
+            "/lib/",
+            "/helpers/",
+            "/shared/",
+            "/internal/",
+            // Runtime/memory (naturally called from everywhere)
+            "/allocator/",
+            "/memory/",
+            "/alloc/",
+            "/runtime/",
         ];
-        SKIP_PATHS.iter().any(|&pat| path.contains(pat))
+        let path_lower = path.to_lowercase();
+        SKIP_PATHS.iter().any(|&pat| path_lower.contains(pat))
     }
 
     /// Create a coupling finding

@@ -15,6 +15,19 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
+/// Paths that indicate FFI/binding code (functions called from other languages)
+/// These functions have external callers not visible in the call graph.
+static FFI_PATHS: &[&str] = &[
+    "/ffi/",       // FFI bindings
+    "/bindings/",  // Language bindings
+    "/extern/",    // External interfaces
+    "/jni/",       // Java Native Interface
+    "/napi/",      // Node.js Native API
+    "/wasm/",      // WebAssembly exports
+    "/capi/",      // C API exports
+    "/exports/",   // Exported functions
+];
+
 /// Entry points that should not be flagged as dead code
 static ENTRY_POINTS: &[&str] = &[
     "main",
@@ -666,6 +679,20 @@ impl DeadCodeDetector {
 
             // Skip test functions and entry points
             if name.starts_with("test_") || self.is_entry_point(name) {
+                continue;
+            }
+
+            // Skip functions whose address is taken (callbacks, dispatch tables, FFI)
+            // This is the primary mechanism for detecting dynamically-called functions
+            if func.get_bool("address_taken").unwrap_or(false) {
+                debug!("Skipping address_taken function: {}", name);
+                continue;
+            }
+
+            // Skip functions in FFI/binding paths (called from other languages)
+            let path_lower = file_path.to_lowercase();
+            if FFI_PATHS.iter().any(|p| path_lower.contains(p)) {
+                debug!("Skipping FFI path function: {} in {}", name, file_path);
                 continue;
             }
 

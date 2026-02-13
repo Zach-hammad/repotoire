@@ -324,11 +324,33 @@ impl Detector for FeatureEnvyDetector {
             "render",
             "format",
             "report",
+            "convert",
+            "transform",
+            "serialize",
+            "deserialize",
+            "encode",
+            "decode",
+            "route",
+            "validate",
         ];
 
-        // Skip files that are naturally orchestration points
-        const ORCHESTRATOR_PATHS: &[&str] =
-            &["/cli/", "/handlers/", "/main.rs", "/mod.rs", "/lib.rs"];
+        // Skip utility function prefixes (designed to work across modules)
+        const UTILITY_PREFIXES: &[&str] = &[
+            // Generic utility prefixes
+            "util_", "helper_", "common_", "core_", "base_", "lib_", "shared_",
+            // Memory/string operations
+            "alloc_", "free_", "mem_", "str_", "buf_", "fmt_",
+        ];
+
+        // Skip utility function suffixes
+        const UTILITY_SUFFIXES: &[&str] = &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
+
+        // Skip files that are naturally orchestration points or utilities
+        const SKIP_PATHS: &[&str] = &[
+            "/cli/", "/handlers/", "/main.rs", "/mod.rs", "/lib.rs", "/index.",
+            "/util/", "/utils/", "/common/", "/core/", "/lib/", "/helpers/", "/shared/",
+            "/internal/", "/runtime/", "/allocator/", "/memory/",
+        ];
 
         for func in graph.get_functions() {
             // Skip test functions (they naturally access many things for fixtures)
@@ -355,11 +377,19 @@ impl Detector for FeatureEnvyDetector {
                 continue;
             }
 
-            // Skip orchestrator files
-            if ORCHESTRATOR_PATHS
-                .iter()
-                .any(|&pat| func.file_path.contains(pat))
-            {
+            // Skip utility functions by prefix
+            if UTILITY_PREFIXES.iter().any(|&p| name_lower.starts_with(p)) {
+                continue;
+            }
+
+            // Skip utility functions by suffix
+            if UTILITY_SUFFIXES.iter().any(|&s| name_lower.ends_with(s)) {
+                continue;
+            }
+
+            // Skip utility/orchestrator files
+            let path_lower = func.file_path.to_lowercase();
+            if SKIP_PATHS.iter().any(|&pat| path_lower.contains(pat)) {
                 continue;
             }
 

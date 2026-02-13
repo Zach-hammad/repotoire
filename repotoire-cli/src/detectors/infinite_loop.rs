@@ -75,7 +75,7 @@ impl InfiniteLoopDetector {
 
     /// Check if loop appears to be intentional server/event loop
     fn is_intentional_loop(lines: &[&str], loop_start: usize, path: &str) -> bool {
-        // Common intentional infinite loop patterns
+        // Common intentional infinite loop patterns in path
         let path_lower = path.to_lowercase();
         if path_lower.contains("server")
             || path_lower.contains("main")
@@ -83,6 +83,20 @@ impl InfiniteLoopDetector {
             || path_lower.contains("worker")
             || path_lower.contains("event")
             || path_lower.contains("run")
+            || path_lower.contains("loop")
+            || path_lower.contains("poll")
+            || path_lower.contains("listen")
+            || path_lower.contains("serve")
+            || path_lower.contains("dispatch")
+            || path_lower.contains("scheduler")
+            || path_lower.contains("executor")
+            || path_lower.contains("runtime")
+            // Urbit-specific
+            || path_lower.contains("pier")
+            || path_lower.contains("king")
+            || path_lower.contains("lord")
+            || path_lower.contains("serf")
+            || path_lower.contains("vere")
         {
             return true;
         }
@@ -101,15 +115,56 @@ impl InfiniteLoopDetector {
             }
         }
 
-        // Check loop body for server-like operations
-        for line in lines.iter().skip(loop_start).take(20) {
+        // Check loop body for server-like/event-loop operations
+        for line in lines.iter().skip(loop_start).take(30) {
             let lower = line.to_lowercase();
+            // Network/IO blocking calls
             if lower.contains("accept(")
                 || lower.contains("recv(")
                 || lower.contains("listen")
                 || lower.contains("await")
-                || lower.contains("poll")
+                || lower.contains("poll(")
                 || lower.contains("select(")
+                || lower.contains("epoll")
+                || lower.contains("kqueue")
+                || lower.contains("read(")
+                || lower.contains("write(")
+                || lower.contains("getchar")
+                || lower.contains("fgets(")
+                || lower.contains("scanf")
+            {
+                return true;
+            }
+            // Synchronization/waiting
+            if lower.contains("sleep(")
+                || lower.contains("usleep")
+                || lower.contains("nanosleep")
+                || lower.contains("wait(")
+                || lower.contains("waitpid")
+                || lower.contains("pthread_cond_wait")
+                || lower.contains("sem_wait")
+                || lower.contains("mutex_lock")
+                || lower.contains("condition_variable")
+            {
+                return true;
+            }
+            // Event loop keywords
+            if lower.contains("event")
+                || lower.contains("message")
+                || lower.contains("signal")
+                || lower.contains("dispatch")
+                || lower.contains("handler")
+                || lower.contains("callback")
+                || lower.contains("queue")
+            {
+                return true;
+            }
+            // Urbit-specific event loop patterns
+            if lower.contains("u3_pier")
+                || lower.contains("_pier_work")
+                || lower.contains("_king_")
+                || lower.contains("_lord_")
+                || lower.contains("_serf_")
             {
                 return true;
             }
