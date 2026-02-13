@@ -128,6 +128,10 @@ pub struct ParseResult {
 
     /// Function calls as (caller_qualified_name, callee_name) pairs
     pub calls: Vec<(String, String)>,
+
+    /// Function names whose addresses are taken (used as callbacks, in tables, etc.)
+    /// These should not be flagged as dead code even if they have zero direct callers.
+    pub address_taken: std::collections::HashSet<String>,
 }
 
 impl ParseResult {
@@ -143,6 +147,7 @@ impl ParseResult {
         self.classes.extend(other.classes);
         self.imports.extend(other.imports);
         self.calls.extend(other.calls);
+        self.address_taken.extend(other.address_taken);
     }
 
     /// Check if the result is empty
@@ -197,6 +202,7 @@ mod tests {
             classes: vec![],
             imports: vec![ImportInfo::runtime("os")],
             calls: vec![],
+            address_taken: std::collections::HashSet::new(),
         };
 
         let result2 = ParseResult {
@@ -222,6 +228,7 @@ mod tests {
             }],
             imports: vec![ImportInfo::runtime("sys")],
             calls: vec![("test::func1:1".to_string(), "func2".to_string())],
+            address_taken: std::collections::HashSet::new(),
         };
 
         result1.merge(result2);

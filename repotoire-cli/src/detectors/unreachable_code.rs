@@ -168,6 +168,12 @@ impl UnreachableCodeDetector {
                 continue;
             }
 
+            // Skip functions whose address is taken (callbacks, dispatch tables, etc.)
+            // These are invoked indirectly via function pointers, not direct calls
+            if func.get_bool("address_taken").unwrap_or(false) {
+                continue;
+            }
+
             // Skip test files for this check
             if func.file_path.contains("/test")
                 || func.file_path.contains("_test.")

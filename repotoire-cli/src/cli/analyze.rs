@@ -752,6 +752,7 @@ fn build_graph(
                 1
             };
             let complexity = func.complexity.unwrap_or(1);
+            let address_taken = result.address_taken.contains(&func.name);
 
             func_nodes.push(
                 CodeNode::new(NodeKind::Function, &func.name, &relative_str)
@@ -759,7 +760,8 @@ fn build_graph(
                     .with_lines(func.line_start, func.line_end)
                     .with_property("is_async", func.is_async)
                     .with_property("complexity", complexity as i64)
-                    .with_property("loc", loc as i64),
+                    .with_property("loc", loc as i64)
+                    .with_property("address_taken", address_taken),
             );
             edges.push((
                 relative_str.clone(),

@@ -38,6 +38,7 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
     extract_structs(&root, source_bytes, path, &mut result)?;
     extract_includes(&root, source_bytes, &mut result)?;
     extract_calls(&root, source_bytes, path, &mut result)?;
+    extract_address_taken(&root, source_bytes, &mut result)?;
 
     Ok(result)
 }
@@ -370,6 +371,122 @@ fn extract_call_target(node: &Node, source: &[u8]) -> Option<String> {
     }
 }
 
+/// Extract functions whose addresses are taken (used as callbacks, in tables, etc.)
+///
+/// Detects patterns like:
+/// - `&function_name` (address-of operator)
+/// - `table[] = { func1, func2 }` (array initializers)
+/// - `struct.callback = handler` (assignment to function pointer)
+/// - `register_callback(my_handler)` (passed as argument without calling)
+fn extract_address_taken(root: &Node, source: &[u8], result: &mut ParseResult) -> Result<()> {
+    // Build set of known function names for quick lookup
+    let function_names: std::collections::HashSet<String> =
+        result.functions.iter().map(|f| f.name.clone()).collect();
+
+    if function_names.is_empty() {
+        return Ok(());
+    }
+
+    // Find all identifiers that reference functions but aren't being called
+    extract_address_taken_recursive(root, source, &function_names, result, false);
+
+    Ok(())
+}
+
+/// Recursively find function references that aren't calls
+fn extract_address_taken_recursive(
+    node: &Node,
+    source: &[u8],
+    function_names: &std::collections::HashSet<String>,
+    result: &mut ParseResult,
+    in_call_function_position: bool,
+) {
+    match node.kind() {
+        // Skip function definitions - the name in a definition is not an address reference
+        "function_definition" => {
+            // Only recurse into the body, not the declarator (which contains the function name)
+            if let Some(body) = node.child_by_field_name("body") {
+                extract_address_taken_recursive(&body, source, function_names, result, false);
+            }
+            return;
+        }
+        // For declarations (e.g., function prototypes, variable declarations),
+        // skip the declarator but process any initializers
+        "declaration" => {
+            for child in node.children(&mut node.walk()) {
+                // Skip declarators (contain the declared name) but process init_declarators
+                if child.kind() == "init_declarator" {
+                    // Process the value/initializer, not the name
+                    if let Some(value) = child.child_by_field_name("value") {
+                        extract_address_taken_recursive(&value, source, function_names, result, false);
+                    }
+                }
+            }
+            return;
+        }
+        "call_expression" => {
+            // For call expressions, only the function position is a "call"
+            // Arguments are potential address references
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                // Check if this child is the "function" field by comparing byte ranges
+                let is_function_position = if let Some(func_node) = node.child_by_field_name("function") {
+                    child.start_byte() == func_node.start_byte() 
+                        && child.end_byte() == func_node.end_byte()
+                } else {
+                    false
+                };
+                extract_address_taken_recursive(
+                    &child,
+                    source,
+                    function_names,
+                    result,
+                    is_function_position,
+                );
+            }
+            return; // Don't recurse normally
+        }
+        "pointer_expression" => {
+            // &function_name - address-of operator
+            if let Some(operand) = node.child_by_field_name("argument") {
+                if operand.kind() == "identifier" {
+                    if let Ok(name) = operand.utf8_text(source) {
+                        if function_names.contains(name) {
+                            result.address_taken.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        "identifier" => {
+            // Bare identifier that matches a function name and isn't being called
+            if !in_call_function_position {
+                if let Ok(name) = node.utf8_text(source) {
+                    if function_names.contains(name) {
+                        // This function name appears without being called = address taken
+                        result.address_taken.insert(name.to_string());
+                    }
+                }
+            }
+            return; // No children to recurse
+        }
+        "initializer_list" | "argument_list" => {
+            // Array/struct initializers and function arguments
+            // All identifiers here that match function names are address references
+            for child in node.children(&mut node.walk()) {
+                extract_address_taken_recursive(&child, source, function_names, result, false);
+            }
+            return;
+        }
+        _ => {}
+    }
+
+    // Default: recurse into children
+    for child in node.children(&mut node.walk()) {
+        extract_address_taken_recursive(&child, source, function_names, result, false);
+    }
+}
+
 /// Calculate cyclomatic complexity of a function
 fn calculate_complexity(node: &Node, _source: &[u8]) -> u32 {
     let mut complexity = 1;
@@ -532,5 +649,67 @@ int complex_func(int x) {
 
         let func = &result.functions[0];
         assert!(func.complexity.unwrap() >= 3);
+    }
+
+    #[test]
+    fn test_address_taken_detection() {
+        let source = r#"
+void handler1() {}
+void handler2() {}
+void direct_call() {}
+
+typedef void (*callback_t)(void);
+
+// Function pointers in struct
+struct callbacks {
+    callback_t on_event;
+};
+
+void register_callback(callback_t cb);
+
+void setup() {
+    // Address-of operator
+    callback_t cb = &handler1;
+    
+    // Passed as callback argument
+    register_callback(handler2);
+    
+    // Direct call - should NOT be address_taken
+    direct_call();
+}
+"#;
+        let path = PathBuf::from("test.c");
+        let result = parse_source(source, &path).unwrap();
+
+        // handler1 and handler2 should have their addresses taken
+        assert!(result.address_taken.contains("handler1"), "handler1 should be address_taken");
+        assert!(result.address_taken.contains("handler2"), "handler2 should be address_taken");
+        
+        // direct_call is only called, not referenced by address
+        assert!(!result.address_taken.contains("direct_call"), "direct_call should NOT be address_taken");
+    }
+
+    #[test]
+    fn test_address_taken_in_array_initializer() {
+        let source = r#"
+void func1() {}
+void func2() {}
+void func3() {}
+
+typedef void (*handler_t)(void);
+
+// Dispatch table pattern (like Urbit jets)
+handler_t handlers[] = {
+    func1,
+    func2,
+    func3
+};
+"#;
+        let path = PathBuf::from("test.c");
+        let result = parse_source(source, &path).unwrap();
+
+        assert!(result.address_taken.contains("func1"));
+        assert!(result.address_taken.contains("func2"));
+        assert!(result.address_taken.contains("func3"));
     }
 }
