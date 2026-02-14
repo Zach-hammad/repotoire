@@ -111,6 +111,7 @@ pub fn run(
     incremental: bool,
     since: Option<String>,
     explain_score: bool,
+    verify: bool,
 ) -> Result<()> {
     let start_time = Instant::now();
 
@@ -162,6 +163,14 @@ pub fn run(
         &findings,
     );
     apply_detector_overrides(&mut findings, &env.project_config);
+    
+    // Phase 4.5: Escalate compound smells (multiple issues in same location)
+    crate::scoring::escalate_compound_smells(&mut findings);
+    
+    // Phase 4.6: LLM verification of HIGH findings (if --verify flag)
+    if verify {
+        findings = crate::ai::verify_findings(findings, path);
+    }
 
     // Phase 5: Calculate scores and build report
     let score_result = calculate_scores(&graph, &env.project_config, &findings);

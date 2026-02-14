@@ -78,6 +78,7 @@
 //! ```
 
 mod base;
+pub mod content_classifier;
 mod engine;
 
 // Context classification using HMM

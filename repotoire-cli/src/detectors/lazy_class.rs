@@ -202,6 +202,19 @@ impl Detector for LazyClassDetector {
         let mut findings = Vec::new();
 
         for class in graph.get_classes() {
+            // Skip bundled/generated code: path check (semantic) + content check (additional)
+            if crate::detectors::content_classifier::is_likely_bundled_path(&class.file_path) {
+                continue;
+            }
+            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&class.file_path)) {
+                if crate::detectors::content_classifier::is_bundled_code(&content)
+                    || crate::detectors::content_classifier::is_minified_code(&content)
+                    || crate::detectors::content_classifier::is_fixture_code(&class.file_path, &content)
+                {
+                    continue;
+                }
+            }
+            
             // Skip interfaces and type aliases
             if class.qualified_name.contains("::interface::")
                 || class.qualified_name.contains("::type::")

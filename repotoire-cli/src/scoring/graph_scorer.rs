@@ -7,7 +7,67 @@ use crate::config::ProjectConfig;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+
+/// Mark compound smells (multiple different issues co-located) for prioritization
+/// Research shows compound smells correlate with 78% more dependencies (arXiv:2509.03896)
+/// NOTE: This adds metadata only - does NOT change severity (to preserve accurate scoring)
+pub fn escalate_compound_smells(findings: &mut [Finding]) {
+    // Group findings by location (file + overlapping line ranges)
+    let mut location_groups: HashMap<String, Vec<usize>> = HashMap::new();
+    
+    for (idx, finding) in findings.iter().enumerate() {
+        if finding.affected_files.is_empty() {
+            continue;
+        }
+        
+        let file = finding.affected_files[0].to_string_lossy().to_string();
+        let line_start = finding.line_start.unwrap_or(0);
+        let _line_end = finding.line_end.unwrap_or(line_start);
+        
+        // Use 50-line buckets to group nearby findings
+        let bucket = line_start / 50;
+        let key = format!("{}:{}", file, bucket);
+        
+        location_groups.entry(key).or_default().push(idx);
+    }
+    
+    // Check each location for compound smells
+    for (_location, indices) in location_groups.iter() {
+        if indices.len() < 2 {
+            continue;
+        }
+        
+        // Count unique detector types
+        let unique_detectors: HashSet<&str> = indices
+            .iter()
+            .map(|&idx| findings[idx].detector.as_str())
+            .collect();
+        
+        let detector_count = unique_detectors.len();
+        
+        if detector_count >= 2 {
+            // Mark as compound smell (for prioritization in UI/reports)
+            for &idx in indices {
+                // Add metadata without changing severity
+                if !findings[idx].description.starts_with("[COMPOUND") {
+                    findings[idx].description = format!(
+                        "[COMPOUND: {} co-located issues] {}",
+                        detector_count, findings[idx].description
+                    );
+                    // Boost confidence for compound smells (used in prioritization)
+                    findings[idx].confidence = Some(
+                        findings[idx].confidence.unwrap_or(0.7).min(1.0) + 0.1
+                    );
+                }
+            }
+            debug!(
+                "Marked {} findings as compound smell ({} detectors)",
+                indices.len(), detector_count
+            );
+        }
+    }
+}
 
 /// Maximum bonus percentages for each positive signal
 const MAX_MODULARITY_BONUS: f64 = 0.10; // 10% max

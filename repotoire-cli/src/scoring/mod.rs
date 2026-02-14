@@ -41,4 +41,4 @@
 
 mod graph_scorer;
 
-pub use graph_scorer::{GraphScorer, PillarBreakdown, ScoreBreakdown};
+pub use graph_scorer::{escalate_compound_smells, GraphScorer, PillarBreakdown, ScoreBreakdown};

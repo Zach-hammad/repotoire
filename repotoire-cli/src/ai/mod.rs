@@ -22,10 +22,12 @@
 mod client;
 mod fix_generator;
 mod prompts;
+mod verify;
 
 pub use client::{AiClient, AiConfig, LlmBackend, Message, Role};
 pub use fix_generator::{CodeChange, FixConfidence, FixGenerator, FixProposal, FixType};
 pub use prompts::{FixPromptBuilder, PromptTemplate};
+pub use verify::{verify_findings, FindingVerifier, VerifyResult};
 
 use thiserror::Error;
 

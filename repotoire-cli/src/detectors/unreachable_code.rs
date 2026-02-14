@@ -378,26 +378,17 @@ impl UnreachableCodeDetector {
                 continue;
             }
             
-            // Skip build outputs and bundled code (not source)
-            if func.file_path.contains("/npm/")           // npm package outputs
-                || func.file_path.contains("/umd/")       // UMD bundles
-                || func.file_path.contains("/cjs/")       // CommonJS bundles
-                || func.file_path.contains("/esm/")       // ESM bundles
-                || func.file_path.contains("/dist/")      // Distribution builds
-                || func.file_path.contains(".min.")       // Minified files
-                || func.file_path.contains(".bundle.")    // Bundle files
-            {
+            // Skip bundled/generated code: path check (semantic) + content check (additional)
+            if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
                 continue;
             }
-            
-            // Skip fixtures and test infrastructure
-            if func.file_path.contains("/fixtures/")
-                || func.file_path.contains("/legacy-jsx-runtimes/")
-                || func.file_path.contains("-shell/")     // devtools-shell, etc.
-                || func.file_path.contains("/mocks/")
-                || func.file_path.contains("/__mocks__/")
-            {
-                continue;
+            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+                if crate::detectors::content_classifier::is_bundled_code(&content)
+                    || crate::detectors::content_classifier::is_minified_code(&content)
+                    || crate::detectors::content_classifier::is_fixture_code(&func.file_path, &content)
+                {
+                    continue;
+                }
             }
 
             // Skip CLI-related functions (often entry points)

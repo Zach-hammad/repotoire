@@ -112,6 +112,10 @@ pub enum Commands {
         /// Explain the scoring formula with full breakdown
         #[arg(long)]
         explain_score: bool,
+        
+        /// Verify HIGH findings with LLM to filter false positives (requires API key)
+        #[arg(long)]
+        verify: bool,
     },
 
     /// View findings from last analysis
@@ -232,6 +236,7 @@ pub fn run(cli: Cli) -> Result<()> {
             fail_on,
             no_emoji,
             explain_score,
+            verify,
         }) => {
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
@@ -256,6 +261,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 false,
                 None,
                 explain_score,
+                verify,
             )
         }
 
@@ -421,6 +427,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 false,
                 None,
                 false,
+                false, // verify
             )
         }
     }

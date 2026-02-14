@@ -395,7 +395,7 @@ impl Detector for AIComplexitySpikeDetector {
                 continue;
             }
 
-            // Skip runtime/interpreter/core code paths
+            // Skip runtime/interpreter/core code paths (legitimately complex by design)
             if func.file_path.contains("/runtime/")
                 || func.file_path.contains("/vm/")
                 || func.file_path.contains("/interpreter/")
@@ -408,34 +408,27 @@ impl Detector for AIComplexitySpikeDetector {
                 continue;
             }
             
-            // Skip build outputs and bundled code (not source we control)
-            if func.file_path.contains("/npm/")
-                || func.file_path.contains("/umd/")
-                || func.file_path.contains("/cjs/")
-                || func.file_path.contains("/esm/")
-                || func.file_path.contains("/dist/")
-                || func.file_path.contains(".min.")
-                || func.file_path.contains(".bundle.")
-            {
+            // Skip bundled/generated code: path check (semantic) + content check (additional)
+            if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
                 continue;
             }
             
-            // Skip test fixtures and compatibility shims
-            if func.file_path.contains("/fixtures/")
-                || func.file_path.contains("/legacy-jsx-runtimes/")
-                || func.file_path.contains("-shell/")
-                || func.file_path.contains("/mocks/")
-            {
-                continue;
-            }
+            // Compiler/AST code gets higher threshold by path
+            let is_compiler_path = crate::detectors::content_classifier::is_compiler_code_path(&func.file_path);
             
-            // Skip compiler internals (complex by nature)
-            if func.file_path.contains("/compiler/")
-                || func.file_path.contains("/babel-plugin-")
-                || func.file_path.contains("/HIR/")
-                || func.file_path.contains("/MIR/")
-            {
-                continue;
+            let mut is_ast_code = is_compiler_path;
+            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+                if crate::detectors::content_classifier::is_bundled_code(&content)
+                    || crate::detectors::content_classifier::is_minified_code(&content)
+                    || crate::detectors::content_classifier::is_fixture_code(&func.file_path, &content)
+                {
+                    continue;
+                }
+                
+                // Also check content for AST manipulation patterns
+                if !is_ast_code {
+                    is_ast_code = crate::detectors::content_classifier::is_ast_manipulation_code(&func.name, &content);
+                }
             }
 
             // Skip interpreter/runtime functions (short prefix + underscore pattern)
@@ -444,7 +437,11 @@ impl Detector for AIComplexitySpikeDetector {
             }
 
             if let Some(complexity) = func.complexity() {
-                if complexity as f64 > threshold && complexity > 20 {
+                // Apply higher threshold for AST/compiler code (legitimately complex)
+            let effective_threshold = if is_ast_code { threshold * 1.5 } else { threshold };
+            let min_complexity = if is_ast_code { 35 } else { 20 };
+            
+            if complexity as f64 > effective_threshold && complexity > min_complexity {
                     let z_score = (complexity as f64 - avg) / std_dev;
 
                     let severity = if z_score > 3.0 {
