@@ -2,8 +2,22 @@
 //!
 //! Contains system prompts and prompt builders for different fix types.
 
-use crate::ai::fix_generator::FixType;
 use crate::models::{Finding, Severity};
+use serde::{Deserialize, Serialize};
+
+/// Type of fix being suggested
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FixType {
+    Refactor,
+    Simplify,
+    Extract,
+    Rename,
+    Remove,
+    Security,
+    TypeHint,
+    Documentation,
+}
 
 /// System prompts for different languages
 pub struct PromptTemplate;

@@ -2,26 +2,13 @@
 //!
 //! Uses LLM to generate code fixes based on analysis findings.
 
-use crate::ai::{AiClient, AiError, AiResult, FixPromptBuilder, Message, PromptTemplate};
+use crate::ai::prompts::{FixPromptBuilder, FixType, PromptTemplate};
+use crate::ai::{AiClient, AiError, AiResult, Message};
 use crate::models::{Finding, Severity};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// Type of fix being proposed
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FixType {
-    Refactor,
-    Simplify,
-    Extract,
-    Rename,
-    Remove,
-    Security,
-    TypeHint,
-    Documentation,
-}
 
 /// Confidence level of the fix
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
