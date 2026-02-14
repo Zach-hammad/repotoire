@@ -313,7 +313,8 @@ fn setup_environment(
     );
 
     let quiet_mode = format == "json" || format == "sarif";
-    print_header(&repo_path, config.no_emoji, format);
+    let detected_type = project_config.get_project_type(&repo_path);
+    print_header(&repo_path, config.no_emoji, format, &detected_type);
 
     let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
         .with_context(|| "Failed to create cache directory")?;
@@ -603,7 +604,7 @@ fn apply_config_defaults(
 }
 
 /// Print analysis header
-fn print_header(repo_path: &Path, no_emoji: bool, format: &str) {
+fn print_header(repo_path: &Path, no_emoji: bool, format: &str, project_type: &crate::config::ProjectType) {
     // Suppress progress output for machine-readable formats
     if format == "json" || format == "sarif" {
         return;
@@ -611,12 +612,18 @@ fn print_header(repo_path: &Path, no_emoji: bool, format: &str) {
 
     let icon_analyze = if no_emoji { "" } else { "🎼 " };
     let icon_search = if no_emoji { "" } else { "🔍 " };
+    let icon_type = if no_emoji { "" } else { "📦 " };
 
     println!("\n{}Repotoire Analysis\n", style(icon_analyze).bold());
     println!(
-        "{}Analyzing: {}\n",
+        "{}Analyzing: {}",
         style(icon_search).bold(),
         style(repo_path.display()).cyan()
+    );
+    println!(
+        "{}Detected:  {:?}\n",
+        style(icon_type).dim(),
+        project_type
     );
 }
 
