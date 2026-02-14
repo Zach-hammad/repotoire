@@ -88,7 +88,7 @@ pub fn supported_extensions() -> &'static [&'static str] {
 }
 
 /// Import information including whether it's type-only
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ImportInfo {
     /// The import path/module
     pub path: String,
@@ -115,7 +115,7 @@ impl ImportInfo {
 }
 
 /// Result of parsing a source file
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParseResult {
     /// Functions found in the file (including top-level and nested)
     pub functions: Vec<crate::models::Function>,

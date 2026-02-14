@@ -120,12 +120,21 @@ struct GraphCache {
     detectors: HashMap<String, Vec<CachedFinding>>,
 }
 
+/// Cached parse result for a file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CachedParseResult {
+    hash: String,
+    result: crate::parsers::ParseResult,
+}
+
 /// Full cache structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CacheData {
     version: u32,
     files: HashMap<String, CachedFile>,
     graph: GraphCache,
+    #[serde(default)]
+    parse_cache: HashMap<String, CachedParseResult>,
 }
 
 impl Default for CacheData {
@@ -134,6 +143,7 @@ impl Default for CacheData {
             version: CACHE_VERSION,
             files: HashMap::new(),
             graph: GraphCache::default(),
+            parse_cache: HashMap::new(),
         }
     }
 }
@@ -184,6 +194,37 @@ impl IncrementalCache {
         }
 
         instance
+    }
+    
+    /// Check if a warm cache exists (for auto-incremental)
+    pub fn has_cache(&self) -> bool {
+        !self.cache.files.is_empty() || !self.cache.parse_cache.is_empty()
+    }
+    
+    /// Get cached parse result for a file if unchanged
+    pub fn get_cached_parse(&self, path: &Path) -> Option<crate::parsers::ParseResult> {
+        let key = path.to_string_lossy().to_string();
+        let hash = self.get_file_hash(path);
+        
+        self.cache.parse_cache.get(&key).and_then(|cached| {
+            if cached.hash == hash {
+                Some(cached.result.clone())
+            } else {
+                None
+            }
+        })
+    }
+    
+    /// Cache a parse result for a file
+    pub fn cache_parse_result(&mut self, path: &Path, result: &crate::parsers::ParseResult) {
+        let key = path.to_string_lossy().to_string();
+        let hash = self.get_file_hash(path);
+        
+        self.cache.parse_cache.insert(key, CachedParseResult {
+            hash,
+            result: result.clone(),
+        });
+        self.dirty = true;
     }
 
     /// Compute fast content hash of a file

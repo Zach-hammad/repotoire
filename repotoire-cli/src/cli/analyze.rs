@@ -319,6 +319,22 @@ fn setup_environment(
     let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
         .with_context(|| "Failed to create cache directory")?;
     let incremental_cache = IncrementalCache::new(&repotoire_dir.join("incremental"));
+    
+    // Auto-enable incremental mode if warm cache exists
+    let has_warm_cache = incremental_cache.has_cache();
+    let auto_incremental = has_warm_cache && !config.is_incremental_mode;
+    let config = if auto_incremental {
+        if !quiet_mode {
+            println!("{}Using cached analysis (auto-incremental)\n", 
+                if config.no_emoji { "" } else { "⚡ " });
+        }
+        AnalysisConfig {
+            is_incremental_mode: true,
+            ..config
+        }
+    } else {
+        config
+    };
 
     Ok(EnvironmentSetup {
         repo_path,
@@ -379,13 +395,20 @@ fn initialize_graph(
     let graph =
         Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?);
 
-    // Parse files and build graph
+    // Parse files and build graph (with parse caching)
+    let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
     let parse_result = parse_files(
         &file_result.files_to_parse,
         multi,
         &bar_style,
         env.config.is_incremental_mode,
+        &cache_mutex,
     )?;
+    
+    // Save parse cache
+    if let Ok(mut cache) = cache_mutex.into_inner() {
+        let _ = cache.save_cache();
+    }
 
     build_graph(
         &graph,
@@ -732,12 +755,13 @@ fn get_cached_findings_for_unchanged(
     cached
 }
 
-/// Parse files in parallel
+/// Parse files in parallel with optional caching
 fn parse_files(
     files: &[PathBuf],
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
     is_incremental: bool,
+    cache: &std::sync::Mutex<IncrementalCache>,
 ) -> Result<ParsePhaseResult> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -745,13 +769,14 @@ fn parse_files(
     let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
     parse_bar.set_style(bar_style.clone());
     let parse_msg = if is_incremental {
-        "Parsing changed files (parallel)..."
+        "Parsing (cached)..."
     } else {
         "Parsing files (parallel)..."
     };
     parse_bar.set_message(parse_msg);
 
     let counter = AtomicUsize::new(0);
+    let cache_hits = AtomicUsize::new(0);
     let total_files = files.len();
 
     let parse_results: Vec<(PathBuf, ParseResult)> = files
@@ -762,8 +787,22 @@ fn parse_files(
                 parse_bar.set_position(count as u64);
             }
 
+            // Try cache first
+            if let Ok(cache_guard) = cache.lock() {
+                if let Some(cached) = cache_guard.get_cached_parse(file_path) {
+                    cache_hits.fetch_add(1, Ordering::Relaxed);
+                    return Some((file_path.clone(), cached));
+                }
+            }
+
+            // Parse and cache
             match parse_file(file_path) {
-                Ok(result) => Some((file_path.clone(), result)),
+                Ok(result) => {
+                    if let Ok(mut cache_guard) = cache.lock() {
+                        cache_guard.cache_parse_result(file_path, &result);
+                    }
+                    Some((file_path.clone(), result))
+                }
                 Err(e) => {
                     tracing::warn!("Failed to parse {}: {}", file_path.display(), e);
                     None
@@ -771,16 +810,25 @@ fn parse_files(
             }
         })
         .collect();
+    
+    let hits = cache_hits.load(Ordering::Relaxed);
 
     let total_functions: usize = parse_results.iter().map(|(_, r)| r.functions.len()).sum();
     let total_classes: usize = parse_results.iter().map(|(_, r)| r.classes.len()).sum();
 
+    let cache_msg = if hits > 0 {
+        format!(" ({} cached)", hits)
+    } else {
+        String::new()
+    };
+    
     parse_bar.finish_with_message(format!(
-        "{}Parsed {} files ({} functions, {} classes)",
+        "{}Parsed {} files ({} functions, {} classes){}",
         style("✓ ").green(),
         style(total_files).cyan(),
         style(total_functions).cyan(),
         style(total_classes).cyan(),
+        style(cache_msg).dim(),
     ));
 
     Ok(ParsePhaseResult {
