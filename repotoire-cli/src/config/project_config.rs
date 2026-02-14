@@ -54,6 +54,10 @@ pub enum ProjectType {
     Kernel,
     /// Game engines - ECS, tight loops
     Game,
+    /// ML/AI, data science - notebooks, complex pipelines
+    DataScience,
+    /// iOS/Android mobile apps
+    Mobile,
 }
 
 impl ProjectType {
@@ -68,6 +72,8 @@ impl ProjectType {
             ProjectType::Cli => 1.3,          // Slight leniency - command dispatch
             ProjectType::Kernel => 3.0,       // Most lenient - syscalls, interrupts
             ProjectType::Game => 2.0,         // Lenient - ECS, frame loops
+            ProjectType::DataScience => 2.0,  // Lenient - notebooks, pipelines
+            ProjectType::Mobile => 1.5,       // Moderate - MVC/MVVM patterns
         }
     }
 
@@ -82,6 +88,8 @@ impl ProjectType {
             ProjectType::Cli => 1.1,
             ProjectType::Kernel => 2.0,       // Interrupt handlers, state machines
             ProjectType::Game => 1.5,         // Frame update loops
+            ProjectType::DataScience => 1.8,  // Data pipelines, complex transforms
+            ProjectType::Mobile => 1.3,       // UI state, lifecycle complexity
         }
     }
 
@@ -89,57 +97,51 @@ impl ProjectType {
     pub fn lenient_dead_code(&self) -> bool {
         matches!(
             self,
-            ProjectType::Interpreter | ProjectType::Kernel | ProjectType::Game | ProjectType::Framework
+            ProjectType::Interpreter | ProjectType::Kernel | ProjectType::Game | ProjectType::Framework | ProjectType::DataScience
         )
     }
 
     /// Detect project type from directory structure and file contents
     pub fn detect(repo_path: &Path) -> ProjectType {
-        // Check for explicit markers first
-        if has_interpreter_markers(repo_path) {
-            return ProjectType::Interpreter;
-        }
-        if has_compiler_markers(repo_path) {
-            return ProjectType::Compiler;
-        }
-        if has_framework_markers(repo_path) {
-            return ProjectType::Framework;
-        }
-        if has_kernel_markers(repo_path) {
-            return ProjectType::Kernel;
-        }
-        if has_game_markers(repo_path) {
-            return ProjectType::Game;
-        }
-        if has_cli_markers(repo_path) {
-            return ProjectType::Cli;
-        }
-        if has_library_markers(repo_path) {
+        // Score each project type and pick the highest
+        let mut scores: Vec<(ProjectType, u32)> = vec![
+            (ProjectType::Interpreter, score_interpreter_markers(repo_path)),
+            (ProjectType::Compiler, score_compiler_markers(repo_path)),
+            (ProjectType::Framework, score_framework_markers(repo_path)),
+            (ProjectType::Kernel, score_kernel_markers(repo_path)),
+            (ProjectType::Game, score_game_markers(repo_path)),
+            (ProjectType::DataScience, score_datascience_markers(repo_path)),
+            (ProjectType::Mobile, score_mobile_markers(repo_path)),
+            (ProjectType::Cli, score_cli_markers(repo_path)),
+            (ProjectType::Library, score_library_markers(repo_path)),
+            (ProjectType::Web, score_web_markers(repo_path)),
+        ];
+        
+        // Sort by score descending
+        scores.sort_by(|a, b| b.1.cmp(&a.1));
+        
+        // If top score is 0 or very low, default to Library
+        if scores[0].1 < 2 {
             return ProjectType::Library;
         }
-        if has_web_markers(repo_path) {
-            return ProjectType::Web;
-        }
-
-        // Default to library (most neutral)
-        ProjectType::Library
+        
+        scores[0].0
     }
 }
 
-/// Check for UI framework markers (React, Vue, Angular, Svelte, etc.)
-fn has_framework_markers(repo_path: &Path) -> bool {
+/// Score UI framework markers (React, Vue, Angular, Svelte, etc.)
+fn score_framework_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
     const FRAMEWORK_DIRS: &[&str] = &[
         "reconciler", "scheduler", "renderer", "dom", "fiber", 
         "packages/react", "packages/vue", "packages/angular",
-    ];
-    const FRAMEWORK_FILES: &[&str] = &[
-        "package.json",  // Check content for framework name
     ];
 
     // Check for framework-specific directories
     for dir in FRAMEWORK_DIRS {
         if repo_path.join(dir).is_dir() {
-            return true;
+            score += 3;
         }
     }
     
@@ -148,21 +150,20 @@ fn has_framework_markers(repo_path: &Path) -> bool {
     if package_json.exists() {
         if let Ok(content) = std::fs::read_to_string(&package_json) {
             // Check if this IS a framework (not just uses one)
-            if (content.contains("\"name\": \"react\"") 
+            if content.contains("\"name\": \"react\"") 
                 || content.contains("\"name\": \"vue\"")
                 || content.contains("\"name\": \"angular\"")
                 || content.contains("\"name\": \"svelte\"")
                 || content.contains("\"name\": \"preact\"")
-                || content.contains("\"name\": \"solid-js\""))
+                || content.contains("\"name\": \"solid-js\"")
             {
-                return true;
+                score += 10; // Strong signal
             }
         }
     }
     
     // Check for monorepo packages that indicate framework
     if let Ok(packages) = std::fs::read_dir(repo_path.join("packages")) {
-        let mut framework_signals = 0;
         for entry in packages.filter_map(|e| e.ok()) {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
@@ -172,22 +173,20 @@ fn has_framework_markers(repo_path: &Path) -> bool {
                 || name_str.contains("core")
                 || name_str.contains("runtime")
             {
-                framework_signals += 1;
+                score += 2;
             }
-        }
-        // Multiple framework-like packages = likely a framework
-        if framework_signals >= 2 {
-            return true;
         }
     }
     
-    false
+    score
 }
 
-/// Check for interpreter/VM markers
-fn has_interpreter_markers(repo_path: &Path) -> bool {
+/// Score interpreter/VM markers
+fn score_interpreter_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
     const INTERPRETER_DIRS: &[&str] = &[
-        "vm", "interpreter", "bytecode", "runtime", "eval", "noun", "opcode",
+        "vm", "interpreter", "bytecode", "runtime", "eval", "opcode",
         "jit", "gc", "allocator",
     ];
     const INTERPRETER_FILES: &[&str] = &[
@@ -198,54 +197,55 @@ fn has_interpreter_markers(repo_path: &Path) -> bool {
     for dir in INTERPRETER_DIRS {
         if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() 
             || repo_path.join(format!("pkg/{}", dir)).is_dir() {
-            return true;
+            score += 3;
         }
     }
     for file in INTERPRETER_FILES {
         if repo_path.join(file).exists() || repo_path.join(format!("src/{}", file)).exists() {
-            return true;
+            score += 2;
         }
     }
-    false
+    score
 }
 
-/// Check for compiler markers
-fn has_compiler_markers(repo_path: &Path) -> bool {
+/// Score compiler markers
+fn score_compiler_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
     const COMPILER_DIRS: &[&str] = &[
         "parser", "lexer", "codegen", "ast", "ir", "optimizer", "frontend", "backend",
         "compiler", "HIR", "MIR", "LIR", "transform", "analysis",
     ];
 
-    let mut count = 0;
     for dir in COMPILER_DIRS {
         if repo_path.join(dir).is_dir() 
             || repo_path.join(format!("src/{}", dir)).is_dir()
-            || repo_path.join(format!("packages/{}", dir)).is_dir()  // Monorepo
+            || repo_path.join(format!("packages/{}", dir)).is_dir()
         {
-            count += 1;
+            score += 2;
         }
     }
     
-    // Also check for packages/*/compiler pattern (monorepo like React)
+    // Check for packages/*/compiler pattern (monorepo like React)
     if let Ok(packages) = std::fs::read_dir(repo_path.join("packages")) {
         for entry in packages.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.is_dir() {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if name.contains("compiler") || name.contains("transform") {
-                    count += 2;  // Strong signal
-                    break;
+                    score += 5; // Strong signal
                 }
             }
         }
     }
     
-    // Need at least 2 compiler-related dirs to be confident
-    count >= 2
+    score
 }
 
-/// Check for kernel/embedded markers
-fn has_kernel_markers(repo_path: &Path) -> bool {
+/// Score kernel/embedded markers
+fn score_kernel_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
     const KERNEL_DIRS: &[&str] = &[
         "kernel", "drivers", "arch", "syscall", "interrupt", "hal", "bsp",
     ];
@@ -255,19 +255,21 @@ fn has_kernel_markers(repo_path: &Path) -> bool {
 
     for dir in KERNEL_DIRS {
         if repo_path.join(dir).is_dir() {
-            return true;
+            score += 4;
         }
     }
     for file in KERNEL_FILES {
         if repo_path.join(file).exists() {
-            return true;
+            score += 5;
         }
     }
-    false
+    score
 }
 
-/// Check for game engine markers
-fn has_game_markers(repo_path: &Path) -> bool {
+/// Score game engine markers
+fn score_game_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
     const GAME_DIRS: &[&str] = &[
         "engine", "ecs", "physics", "renderer", "assets", "scenes", "shaders",
     ];
@@ -277,81 +279,134 @@ fn has_game_markers(repo_path: &Path) -> bool {
 
     for dir in GAME_DIRS {
         if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
-            return true;
+            score += 2;
         }
     }
     for file in GAME_FILES {
         if repo_path.join(file).exists() || repo_path.join(format!("src/{}", file)).exists() {
-            return true;
+            score += 3;
         }
     }
-    false
+    
+    // Check for game-specific dependencies
+    let cargo_toml = repo_path.join("Cargo.toml");
+    if cargo_toml.exists() {
+        if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+            let game_deps = ["bevy", "ggez", "amethyst", "macroquad", "fyrox", "godot"];
+            for dep in game_deps {
+                if content.contains(dep) {
+                    score += 5;
+                }
+            }
+        }
+    }
+    
+    score
 }
 
-/// Check for CLI tool markers
-fn has_cli_markers(repo_path: &Path) -> bool {
+/// Score CLI tool markers
+fn score_cli_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
     const CLI_DIRS: &[&str] = &["cli", "cmd", "commands"];
-    const CLI_FILES: &[&str] = &["main.rs", "main.go", "cli.rs", "cli.go"];
 
-    // Check for clap, cobra, click, argparse in deps
+    // Check for CLI framework deps
     let cargo_toml = repo_path.join("Cargo.toml");
     if cargo_toml.exists() {
         if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
             if content.contains("clap") || content.contains("structopt") {
-                return true;
+                score += 4;
+            }
+        }
+    }
+    
+    // Check go.mod for cobra
+    let go_mod = repo_path.join("go.mod");
+    if go_mod.exists() {
+        if let Ok(content) = std::fs::read_to_string(&go_mod) {
+            if content.contains("cobra") || content.contains("urfave/cli") {
+                score += 4;
+            }
+        }
+    }
+    
+    // Check for click/argparse in Python
+    let requirements = repo_path.join("requirements.txt");
+    let pyproject = repo_path.join("pyproject.toml");
+    for file_path in [requirements, pyproject] {
+        if file_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                if content.contains("click") || content.contains("typer") || content.contains("argparse") {
+                    score += 3;
+                }
             }
         }
     }
 
     for dir in CLI_DIRS {
         if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
-            return true;
+            score += 2;
         }
     }
-    for file in CLI_FILES {
-        if repo_path.join(file).exists() || repo_path.join(format!("src/{}", file)).exists() {
-            // main.rs alone isn't enough, need cli-specific structure
-            if *file == "cli.rs" || *file == "cli.go" {
-                return true;
-            }
-        }
+    
+    // cli.rs or cli.go is a strong signal
+    if repo_path.join("src/cli.rs").exists() || repo_path.join("cli.go").exists() 
+        || repo_path.join("cmd/main.go").exists() {
+        score += 3;
     }
-    false
+    
+    score
 }
 
-/// Check for library markers (lib.rs, no main, published crate)
-fn has_library_markers(repo_path: &Path) -> bool {
+/// Score library markers
+fn score_library_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
     let lib_rs = repo_path.join("src/lib.rs");
     let main_rs = repo_path.join("src/main.rs");
     
     // Pure library: has lib.rs but no main.rs
     if lib_rs.exists() && !main_rs.exists() {
-        return true;
+        score += 5;
+    } else if lib_rs.exists() {
+        score += 2; // Both lib and main = mixed
     }
 
-    // Check Cargo.toml for [lib] section without [[bin]]
+    // Check Cargo.toml for [lib] section
     let cargo_toml = repo_path.join("Cargo.toml");
     if cargo_toml.exists() {
         if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-            if content.contains("[lib]") && !content.contains("[[bin]]") {
-                return true;
+            if content.contains("[lib]") {
+                score += 2;
+            }
+            if !content.contains("[[bin]]") {
+                score += 1;
             }
         }
     }
+    
+    // Check for setup.py / pyproject.toml with library structure
+    if repo_path.join("setup.py").exists() || repo_path.join("pyproject.toml").exists() {
+        if !repo_path.join("__main__.py").exists() {
+            score += 3;
+        }
+    }
 
-    false
+    score
 }
 
-/// Check for web framework markers
-fn has_web_markers(repo_path: &Path) -> bool {
+/// Score web framework markers
+fn score_web_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
     // Check for common web framework dependencies
     let cargo_toml = repo_path.join("Cargo.toml");
     if cargo_toml.exists() {
         if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-            let web_deps = ["actix-web", "axum", "rocket", "warp", "tide", "hyper"];
+            let web_deps = ["actix-web", "axum", "rocket", "warp", "tide"];
             for dep in web_deps {
                 if content.contains(dep) {
-                    return true;
+                    score += 4;
                 }
             }
         }
@@ -360,22 +415,46 @@ fn has_web_markers(repo_path: &Path) -> bool {
     let package_json = repo_path.join("package.json");
     if package_json.exists() {
         if let Ok(content) = std::fs::read_to_string(&package_json) {
-            let web_deps = ["express", "fastify", "koa", "hapi", "next", "nuxt", "react", "vue", "angular"];
-            for dep in web_deps {
-                if content.contains(dep) {
-                    return true;
+            // Backend frameworks
+            let backend_deps = ["express", "fastify", "koa", "hapi", "nest"];
+            for dep in backend_deps {
+                if content.contains(&format!("\"{}\"", dep)) {
+                    score += 4;
+                }
+            }
+            // Frontend (but using, not being)
+            let frontend_deps = ["next", "nuxt", "gatsby"];
+            for dep in frontend_deps {
+                if content.contains(&format!("\"{}\"", dep)) {
+                    score += 3;
                 }
             }
         }
     }
 
     let requirements = repo_path.join("requirements.txt");
-    if requirements.exists() {
-        if let Ok(content) = std::fs::read_to_string(&requirements) {
-            let web_deps = ["flask", "django", "fastapi", "starlette", "tornado"];
-            for dep in web_deps {
+    let pyproject = repo_path.join("pyproject.toml");
+    for file_path in [requirements, pyproject] {
+        if file_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                let web_deps = ["flask", "django", "fastapi", "starlette", "tornado", "sanic"];
+                for dep in web_deps {
+                    if content.contains(dep) {
+                        score += 4;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Check go.mod for Go web frameworks
+    let go_mod = repo_path.join("go.mod");
+    if go_mod.exists() {
+        if let Ok(content) = std::fs::read_to_string(&go_mod) {
+            let go_web = ["gin-gonic", "echo", "fiber", "chi", "gorilla/mux"];
+            for dep in go_web {
                 if content.contains(dep) {
-                    return true;
+                    score += 4;
                 }
             }
         }
@@ -384,12 +463,108 @@ fn has_web_markers(repo_path: &Path) -> bool {
     // Check for routes/controllers/handlers directories
     const WEB_DIRS: &[&str] = &["routes", "controllers", "handlers", "views", "api", "endpoints"];
     for dir in WEB_DIRS {
-        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
-            return true;
+        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() 
+            || repo_path.join(format!("app/{}", dir)).is_dir() {
+            score += 2;
         }
     }
 
-    false
+    score
+}
+
+/// Score data science / ML markers
+fn score_datascience_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
+    // Check for Jupyter notebooks
+    if let Ok(entries) = std::fs::read_dir(repo_path) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let name = entry.file_name();
+            if name.to_string_lossy().ends_with(".ipynb") {
+                score += 3;
+            }
+        }
+    }
+    if repo_path.join("notebooks").is_dir() {
+        score += 4;
+    }
+    
+    // Check for ML/DS dependencies
+    let requirements = repo_path.join("requirements.txt");
+    let pyproject = repo_path.join("pyproject.toml");
+    for file_path in [requirements, pyproject] {
+        if file_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                let ml_deps = [
+                    "numpy", "pandas", "scikit-learn", "sklearn", "tensorflow", 
+                    "torch", "pytorch", "keras", "xgboost", "lightgbm", "transformers",
+                    "matplotlib", "seaborn", "plotly", "jupyter", "scipy",
+                ];
+                for dep in ml_deps {
+                    if content.contains(dep) {
+                        score += 2;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Check for data/models directories
+    const DS_DIRS: &[&str] = &["data", "models", "training", "inference", "experiments", "notebooks"];
+    for dir in DS_DIRS {
+        if repo_path.join(dir).is_dir() {
+            score += 1;
+        }
+    }
+    
+    score
+}
+
+/// Score mobile app markers
+fn score_mobile_markers(repo_path: &Path) -> u32 {
+    let mut score = 0u32;
+    
+    // iOS markers
+    if repo_path.join("Info.plist").exists() || repo_path.join("AppDelegate.swift").exists() {
+        score += 5;
+    }
+    if repo_path.join("Podfile").exists() || repo_path.join("Package.swift").exists() {
+        score += 3;
+    }
+    let xcodeproj = repo_path.read_dir().ok().and_then(|mut d| {
+        d.find(|e| e.as_ref().ok().map(|e| e.path().extension().map(|x| x == "xcodeproj").unwrap_or(false)).unwrap_or(false))
+    });
+    if xcodeproj.is_some() {
+        score += 5;
+    }
+    
+    // Android markers
+    if repo_path.join("AndroidManifest.xml").exists() 
+        || repo_path.join("app/src/main/AndroidManifest.xml").exists() {
+        score += 5;
+    }
+    if repo_path.join("build.gradle").exists() || repo_path.join("build.gradle.kts").exists() {
+        if let Ok(content) = std::fs::read_to_string(repo_path.join("build.gradle")) {
+            if content.contains("android") {
+                score += 4;
+            }
+        }
+    }
+    
+    // React Native / Flutter
+    let package_json = repo_path.join("package.json");
+    if package_json.exists() {
+        if let Ok(content) = std::fs::read_to_string(&package_json) {
+            if content.contains("react-native") {
+                score += 5;
+            }
+        }
+    }
+    if repo_path.join("pubspec.yaml").exists() {
+        score += 5; // Flutter
+    }
+    
+    score
 }
 
 /// Project-level configuration loaded from repotoire.toml or similar
