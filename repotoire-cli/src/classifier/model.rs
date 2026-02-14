@@ -267,16 +267,27 @@ impl HeuristicClassifier {
         // 49: has_suggested_fix
         // 50: has_cwe_id
         
+        // Path scores (needed early for security check)
+        let fp_path = vals.get(45).copied().unwrap_or(0.0);
+        
         // Security detectors are more likely TP
         // SQL injection, command injection, path traversal, XSS, crypto, torch.load
         let is_security_detector = (0..6).any(|i| vals.get(i).copied().unwrap_or(0.0) > 0.5);
+        let is_command_injection = vals.get(1).copied().unwrap_or(0.0) > 0.5;
+        
+        // Security in production code = high confidence TP
+        // Security in scripts/tools = still flag but lower confidence
         if is_security_detector {
-            tp_score += 0.25;
+            if fp_path > 0.0 && is_command_injection {
+                // Command injection in scripts is lower risk (not user-facing)
+                tp_score += 0.08;
+            } else {
+                tp_score += 0.25;
+            }
         }
         
         // Code quality detectors in utility paths are likely FP
         let is_quality_detector = (6..15).any(|i| vals.get(i).copied().unwrap_or(0.0) > 0.5);
-        let fp_path = vals.get(45).copied().unwrap_or(0.0);
         
         // ComplexitySpike (index 11) - CLI orchestrators are expected to be complex
         let is_complexity_spike = vals.get(11).copied().unwrap_or(0.0) > 0.5;
