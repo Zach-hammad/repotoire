@@ -26,6 +26,7 @@ mod parsers;
 mod pipeline;
 mod reporters;
 pub mod scoring;
+pub mod classifier;
 
 use anyhow::Result;
 use clap::Parser;

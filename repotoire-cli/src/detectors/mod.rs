@@ -107,6 +107,9 @@ mod ai_duplicate_block;
 mod ai_missing_tests;
 mod ai_naming_pattern;
 
+// ML/Data Science detectors (PyTorch, TensorFlow, Scikit-Learn, Pandas, NumPy)
+mod ml_smells;
+
 // Graph/architecture detectors
 mod architectural_bottleneck;
 mod core_utility;
@@ -242,6 +245,13 @@ pub use ai_complexity_spike::AIComplexitySpikeDetector;
 pub use ai_duplicate_block::AIDuplicateBlockDetector;
 pub use ai_missing_tests::AIMissingTestsDetector;
 pub use ai_naming_pattern::AINamingPatternDetector;
+
+// Re-export ML/Data Science detectors
+pub use ml_smells::{
+    ChainIndexingDetector, DeprecatedTorchApiDetector, ForwardMethodDetector,
+    MissingRandomSeedDetector, MissingZeroGradDetector, NanEqualityDetector,
+    RequireGradTypoDetector, TorchLoadUnsafeDetector,
+};
 
 // Re-export graph/architecture detectors
 pub use architectural_bottleneck::ArchitecturalBottleneckDetector;
@@ -409,6 +419,15 @@ pub fn default_detectors_with_config(
         Arc::new(AIDuplicateBlockDetector::new()),
         Arc::new(AIMissingTestsDetector::new()),
         Arc::new(AINamingPatternDetector::new()),
+        // ML/Data Science detectors (PyTorch, TensorFlow, Scikit-Learn, Pandas, NumPy)
+        Arc::new(TorchLoadUnsafeDetector::new(repository_path)),
+        Arc::new(NanEqualityDetector::new(repository_path)),
+        Arc::new(MissingZeroGradDetector::new(repository_path)),
+        Arc::new(ForwardMethodDetector::new(repository_path)),
+        Arc::new(MissingRandomSeedDetector::new(repository_path)),
+        Arc::new(ChainIndexingDetector::new(repository_path)),
+        Arc::new(RequireGradTypoDetector::new(repository_path)),
+        Arc::new(DeprecatedTorchApiDetector::new(repository_path)),
         // Graph/architecture detectors
         Arc::new(ArchitecturalBottleneckDetector::new()),
         Arc::new(CoreUtilityDetector::new()),

@@ -48,7 +48,7 @@ impl LlmBackend {
             LlmBackend::OpenAi => "gpt-4o",
             LlmBackend::Deepinfra => "meta-llama/Llama-3.3-70B-Instruct",
             LlmBackend::OpenRouter => "anthropic/claude-sonnet-4",
-            LlmBackend::Ollama => "llama3.3:70b",
+            LlmBackend::Ollama => "deepseek-coder:6.7b",
         }
     }
 

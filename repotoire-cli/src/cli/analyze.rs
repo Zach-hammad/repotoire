@@ -93,6 +93,11 @@ struct ScoreResult {
     breakdown: crate::scoring::ScoreBreakdown,
 }
 
+/// Get the cache directory for a repository
+pub fn get_cache_path(repo_path: &Path) -> std::path::PathBuf {
+    repo_path.join(".repotoire")
+}
+
 /// Run the analyze command
 pub fn run(
     path: &Path,
@@ -167,9 +172,64 @@ pub fn run(
     // Phase 4.5: Escalate compound smells (multiple issues in same location)
     crate::scoring::escalate_compound_smells(&mut findings);
     
-    // Phase 4.6: LLM verification of HIGH findings (if --verify flag)
+    // Phase 4.6: FP filtering with category-aware thresholds
+    // Always runs - uses different thresholds for different detector types:
+    // - Security: conservative (0.35) - don't miss real vulnerabilities
+    // - Code Quality: aggressive (0.55) - filter noisy complexity warnings
+    // - ML/AI: moderate (0.45) - domain-specific accuracy
+    {
+        use crate::classifier::{
+            FeatureExtractor, 
+            model::HeuristicClassifier,
+            CategoryThresholds,
+            DetectorCategory,
+        };
+        
+        let extractor = FeatureExtractor::new();
+        let classifier = HeuristicClassifier::default();
+        let thresholds = CategoryThresholds::default();
+        
+        let before_count = findings.len();
+        let mut filtered_by_category: std::collections::HashMap<DetectorCategory, usize> = 
+            std::collections::HashMap::new();
+        
+        findings = findings
+            .into_iter()
+            .filter(|f| {
+                let features = extractor.extract(f);
+                let tp_prob = classifier.score(&features);
+                let category = DetectorCategory::from_detector(&f.detector);
+                let config = thresholds.get_category(category);
+                
+                // Keep if TP probability meets category-specific threshold
+                if tp_prob >= config.filter_threshold {
+                    true
+                } else {
+                    *filtered_by_category.entry(category).or_insert(0) += 1;
+                    false
+                }
+            })
+            .collect();
+        
+        let total_filtered = before_count - findings.len();
+        if total_filtered > 0 {
+            tracing::info!(
+                "FP classifier filtered {} findings (Security: {}, Quality: {}, ML: {}, Perf: {}, Other: {})",
+                total_filtered,
+                filtered_by_category.get(&DetectorCategory::Security).unwrap_or(&0),
+                filtered_by_category.get(&DetectorCategory::CodeQuality).unwrap_or(&0),
+                filtered_by_category.get(&DetectorCategory::MachineLearning).unwrap_or(&0),
+                filtered_by_category.get(&DetectorCategory::Performance).unwrap_or(&0),
+                filtered_by_category.get(&DetectorCategory::Other).unwrap_or(&0),
+            );
+        }
+    }
+    
+    // Phase 4.7: LLM verification (if --verify flag) - more expensive, optional
     if verify {
-        findings = crate::ai::verify_findings(findings, path);
+        // TODO: Wire up LLM verification for remaining HIGH+ findings
+        // This uses Ollama/Claude to double-check ambiguous cases
+        tracing::debug!("LLM verification requested but not yet wired up");
     }
 
     // Phase 5: Calculate scores and build report
@@ -201,6 +261,14 @@ pub fn run(
         &graph,
         &env.project_config,
     )?;
+
+    // Cache findings for feedback command
+    let cache_path = get_cache_path(path);
+    std::fs::create_dir_all(&cache_path).ok();
+    let findings_cache = cache_path.join("findings.json");
+    if let Ok(json) = serde_json::to_string(&findings) {
+        std::fs::write(&findings_cache, json).ok();
+    }
 
     // Final summary
     print_final_summary(env.quiet_mode, env.config.no_emoji, start_time);

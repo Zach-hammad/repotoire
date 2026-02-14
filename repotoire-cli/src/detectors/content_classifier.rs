@@ -72,7 +72,7 @@ pub fn is_compiler_code_path(path: &str) -> bool {
 
 /// Check if file content appears to be bundled/generated code
 pub fn is_bundled_code(content: &str) -> bool {
-    let header = &content[..content.len().min(1000)];
+    let header: String = content.chars().take(1000).collect();
     
     // 1. License block at very top (build tools add these)
     if header.starts_with("/*!") 
@@ -93,12 +93,12 @@ pub fn is_bundled_code(content: &str) -> bool {
     }
     
     // 3. UMD wrapper pattern
-    if umd_wrapper_regex().is_match(header) {
+    if umd_wrapper_regex().is_match(&header) {
         return true;
     }
     
     // 4. CommonJS build output (starts with exports boilerplate)
-    if commonjs_wrapper_regex().is_match(header) {
+    if commonjs_wrapper_regex().is_match(&header) {
         // Extra check: must also have NODE_ENV guard (dev/prod builds)
         if content.contains("process.env.NODE_ENV") {
             return true;
@@ -106,7 +106,7 @@ pub fn is_bundled_code(content: &str) -> bool {
     }
     
     // 5. Generated file comments
-    if generated_comment_regex().is_match(header) {
+    if generated_comment_regex().is_match(&header) {
         return true;
     }
     
@@ -171,7 +171,8 @@ pub fn is_ast_manipulation_code(func_name: &str, content: &str) -> bool {
         "FunctionDeclaration", "VariableDeclaration", "BlockStatement",
     ];
     
-    let content_sample = &content[..content.len().min(2000)];
+    // Get first ~2000 chars safely (respecting UTF-8 boundaries)
+    let content_sample: String = content.chars().take(2000).collect();
     let matches = ast_keywords.iter().filter(|kw| content_sample.contains(*kw)).count();
     
     // If 3+ AST keywords in the sample, it's likely AST code
@@ -182,7 +183,7 @@ pub fn is_ast_manipulation_code(func_name: &str, content: &str) -> bool {
 /// These should be analyzed with test-context rules, not skipped entirely
 pub fn is_test_infrastructure(file_path: &str, content: &str) -> bool {
     let path_lower = file_path.to_lowercase();
-    let header = &content[..content.len().min(500)];
+    let header: String = content.chars().take(500).collect();
     
     // 1. Explicit fixture/mock markers in content
     if header.contains("@fixture")
@@ -226,7 +227,7 @@ pub fn is_test_infrastructure(file_path: &str, content: &str) -> bool {
 /// Check if this is test fixture code (simplified examples for testing)
 /// Returns true for code that exists only to be tested against, not production code
 pub fn is_fixture_code(_file_path: &str, content: &str) -> bool {
-    let header = &content[..content.len().min(1000)];
+    let header: String = content.chars().take(1000).collect();
     
     // 1. Explicit fixture markers
     if header.contains("@fixture")

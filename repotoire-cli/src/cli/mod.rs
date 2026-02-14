@@ -200,6 +200,39 @@ pub enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+
+    /// Label findings as true/false positives for training
+    Feedback {
+        /// Finding index to label
+        index: usize,
+        
+        /// Mark as true positive (real issue)
+        #[arg(long, conflicts_with = "fp")]
+        tp: bool,
+        
+        /// Mark as false positive (not a real issue)
+        #[arg(long, conflicts_with = "tp")]
+        fp: bool,
+        
+        /// Optional reason for the label
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Train the classifier on labeled data
+    Train {
+        /// Number of training epochs
+        #[arg(long, default_value = "100")]
+        epochs: usize,
+        
+        /// Learning rate
+        #[arg(long, default_value = "0.01")]
+        learning_rate: f32,
+        
+        /// Show training data statistics only
+        #[arg(long)]
+        stats: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -384,6 +417,82 @@ pub fn run(cli: Cli) -> Result<()> {
                     std::fs::write(&config_path, content)?;
                     println!("✅ Set {} in {}", key, config_path.display());
                     Ok(())
+                }
+            }
+        }
+
+        Some(Commands::Feedback { index, tp, fp, reason }) => {
+            use crate::classifier::FeedbackCollector;
+            
+            // Load findings from last analysis
+            let cache_path = crate::cli::analyze::get_cache_path(&cli.path);
+            let findings_path = cache_path.join("findings.json");
+            
+            if !findings_path.exists() {
+                anyhow::bail!("No analysis results found. Run 'repotoire analyze' first.");
+            }
+            
+            let content = std::fs::read_to_string(&findings_path)?;
+            let findings: Vec<crate::models::Finding> = serde_json::from_str(&content)?;
+            
+            if index == 0 || index > findings.len() {
+                anyhow::bail!("Invalid finding index {}. Valid range: 1-{}", index, findings.len());
+            }
+            
+            let finding = &findings[index - 1];
+            let is_tp = tp || !fp; // Default to TP if neither specified
+            
+            let collector = FeedbackCollector::default();
+            collector.record(finding, is_tp, reason.clone())?;
+            
+            let label = if is_tp { "TRUE POSITIVE" } else { "FALSE POSITIVE" };
+            println!("✅ Labeled finding #{} as {}", index, label);
+            println!("   {}: {}", finding.detector, finding.title);
+            if let Some(r) = &reason {
+                println!("   Reason: {}", r);
+            }
+            println!("\n   Data saved to: {}", collector.data_path().display());
+            
+            let stats = collector.stats()?;
+            println!("\n   Total labeled: {} ({} TP, {} FP)", 
+                stats.total, stats.true_positives, stats.false_positives);
+            
+            Ok(())
+        }
+
+        Some(Commands::Train { epochs, learning_rate, stats }) => {
+            use crate::classifier::{train, TrainConfig, FeedbackCollector};
+            
+            let collector = FeedbackCollector::default();
+            
+            if stats {
+                let training_stats = collector.stats()?;
+                println!("{}", training_stats);
+                return Ok(());
+            }
+            
+            let config = TrainConfig {
+                epochs,
+                learning_rate,
+                ..Default::default()
+            };
+            
+            println!("🧠 Training classifier...\n");
+            
+            match train(&config) {
+                Ok(result) => {
+                    println!("\n✅ Training complete!");
+                    println!("   Epochs: {}", result.epochs);
+                    println!("   Train accuracy: {:.1}%", result.train_accuracy * 100.0);
+                    if let Some(val_acc) = result.val_accuracy {
+                        println!("   Val accuracy:   {:.1}%", val_acc * 100.0);
+                    }
+                    println!("   Model saved to: {}", result.model_path.display());
+                    println!("\n   The trained model will be used automatically with --verify.");
+                    Ok(())
+                }
+                Err(e) => {
+                    anyhow::bail!("Training failed: {}", e);
                 }
             }
         }
