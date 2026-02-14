@@ -47,17 +47,41 @@ impl GitCache {
 
     /// Check if file cache is valid (mtime matches).
     pub fn is_valid(&self, file_path: &str, repo_root: &Path) -> bool {
-        if let Some(cached) = self.files.get(file_path) {
-            if let Ok(meta) = fs::metadata(repo_root.join(file_path)) {
-                if let Ok(mtime) = meta.modified() {
-                    if let Ok(duration) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
-                        return duration.as_secs() == cached.mtime_secs;
-                    }
-                }
-            }
-        }
-        false
+        let Some(cached) = self.files.get(file_path) else {
+            return false;
+        };
+        get_file_mtime_secs(repo_root.join(file_path))
+            .map(|mtime| mtime == cached.mtime_secs)
+            .unwrap_or(false)
     }
+}
+
+/// Get file modification time in seconds since epoch.
+fn get_file_mtime_secs(path: impl AsRef<Path>) -> Option<u64> {
+    fs::metadata(path.as_ref())
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
+/// Update disk cache with new blame entries.
+fn update_disk_cache(
+    disk_cache: &std::sync::RwLock<GitCache>,
+    file_path: &str,
+    repo_path: &Path,
+    entries: Vec<LineBlame>,
+) {
+    let Some(mtime_secs) = get_file_mtime_secs(repo_path.join(file_path)) else {
+        return;
+    };
+    let mut dc = disk_cache.write().unwrap();
+    dc.files.insert(
+        file_path.to_string(),
+        CachedBlame { entries, mtime_secs },
+    );
 }
 
 /// Blame information for a single line or contiguous range.
@@ -174,20 +198,12 @@ impl GitBlame {
                     mem_cache.insert(file_path.clone(), entries.clone());
 
                     // Update disk cache
-                    if let Ok(meta) = fs::metadata(repo_path.join(file_path)) {
-                        if let Ok(mtime) = meta.modified() {
-                            if let Ok(duration) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
-                                let mut dc = disk_cache.write().unwrap();
-                                dc.files.insert(
-                                    file_path.clone(),
-                                    CachedBlame {
-                                        entries,
-                                        mtime_secs: duration.as_secs(),
-                                    },
-                                );
-                            }
-                        }
-                    }
+                    update_disk_cache(
+                        &disk_cache,
+                        file_path,
+                        &repo_path,
+                        entries,
+                    );
                     computed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }
