@@ -276,14 +276,10 @@ impl HeuristicClassifier {
         let is_command_injection = vals.get(1).copied().unwrap_or(0.0) > 0.5;
         
         // Security in production code = high confidence TP
-        // Security in scripts/tools = still flag but lower confidence
+        // Security findings get full bonus regardless of path - security issues are
+        // security issues whether in src/, scripts/, or utils/
         if is_security_detector {
-            if fp_path > 0.0 && is_command_injection {
-                // Command injection in scripts is lower risk (not user-facing)
-                tp_score += 0.08;
-            } else {
-                tp_score += 0.25;
-            }
+            tp_score += 0.25;
         }
         
         // Code quality detectors in utility paths are likely FP
@@ -300,10 +296,13 @@ impl HeuristicClassifier {
             tp_score += 0.2;
         }
         
-        // Code pattern: test/mock/fixture = likely FP
+        // Code pattern: test/mock/fixture = likely FP (but NOT for security detectors)
+        // Security issues in test code are still security issues that could leak to prod
         // Indices 19-24 are test patterns
-        let test_patterns: f32 = (19..25).filter_map(|i| vals.get(i)).sum();
-        tp_score -= test_patterns * 0.15;
+        if !is_security_detector {
+            let test_patterns: f32 = (19..25).filter_map(|i| vals.get(i)).sum();
+            tp_score -= test_patterns * 0.15;
+        }
         
         // Code pattern: security keywords = likely TP (only for security detectors)
         // Indices 31-37 are security patterns (user_input, exec, eval, password, etc.)
@@ -314,8 +313,14 @@ impl HeuristicClassifier {
         
         // FP path patterns (test dirs, scripts, vendor, etc.)
         // More aggressive penalty for quality detectors in utility paths
+        // BUT: Cap penalty for security detectors to prevent FN on deeply nested paths
         if is_quality_detector && fp_path > 0.0 {
             tp_score -= fp_path * 0.35; // Very strong penalty
+        } else if is_security_detector && fp_path > 0.0 {
+            // Security findings: cap penalty to prevent FN in paths like scripts/tools/utils/
+            // Max penalty of 0.15 ensures security threshold (0.35) can still be met
+            let capped_penalty = (fp_path * 0.08).min(0.15);
+            tp_score -= capped_penalty;
         } else if fp_path > 0.0 {
             tp_score -= fp_path * 0.15;
         }
