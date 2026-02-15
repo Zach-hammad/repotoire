@@ -128,6 +128,11 @@ impl MessageChainDetector {
             if path_str.contains("/test") || path_str.contains("_test.") {
                 continue;
             }
+            
+            // Skip non-production paths
+            if crate::detectors::content_classifier::is_non_production_path(&path_str) {
+                continue;
+            }
 
             let rel_path = path
                 .strip_prefix(&self.repository_path)

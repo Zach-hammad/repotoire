@@ -127,6 +127,11 @@ impl Detector for DeepNestingDetector {
             if path_str_check.contains("/parsers/") {
                 continue;
             }
+            
+            // Skip non-production paths
+            if crate::detectors::content_classifier::is_non_production_path(&path_str_check) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let path_str = path.to_string_lossy().to_string();

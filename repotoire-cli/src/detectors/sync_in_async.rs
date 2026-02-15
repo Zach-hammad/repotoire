@@ -172,6 +172,11 @@ impl Detector for SyncInAsyncDetector {
             if path_str.contains("/detectors/") {
                 continue;
             }
+            
+            // Skip non-production paths (scripts, tests, examples)
+            if crate::detectors::content_classifier::is_non_production_path(&path_str) {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
