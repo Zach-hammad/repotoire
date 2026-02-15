@@ -116,6 +116,10 @@ pub enum Commands {
         /// Verify HIGH findings with LLM to filter false positives (requires API key)
         #[arg(long)]
         verify: bool,
+        
+        /// Fast mode: skip expensive graph-based detectors (circular-dependency, god-class, etc.)
+        #[arg(long)]
+        fast: bool,
     },
 
     /// View findings from last analysis
@@ -270,6 +274,7 @@ pub fn run(cli: Cli) -> Result<()> {
             no_emoji,
             explain_score,
             verify,
+            fast,
         }) => {
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
@@ -277,6 +282,26 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
+            
+            // In fast mode, skip expensive graph-based detectors
+            let mut skip_detectors = skip_detector;
+            if fast {
+                let expensive_detectors = vec![
+                    "circular-dependency".to_string(),
+                    "degree-centrality".to_string(),
+                    "feature-envy".to_string(),
+                    "inappropriate-intimacy".to_string(),
+                    "shotgun-surgery".to_string(),
+                    "god-class".to_string(),
+                    "architectural-bottleneck".to_string(),
+                    "duplicate-code".to_string(),
+                    "ai-boilerplate".to_string(),
+                    "ai-duplicate-block".to_string(),
+                    "module-cohesion".to_string(),
+                    "data-clumps".to_string(),
+                ];
+                skip_detectors.extend(expensive_detectors);
+            }
             
             analyze::run(
                 &cli.path,
@@ -286,7 +311,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 top,
                 page,
                 per_page,
-                skip_detector,
+                skip_detectors,
                 thorough,
                 no_git,
                 cli.workers,
