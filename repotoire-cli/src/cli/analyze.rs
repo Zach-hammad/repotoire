@@ -186,6 +186,8 @@ struct AnalysisConfig {
     per_page: usize,
     fail_on: Option<String>,
     is_incremental_mode: bool,
+    skip_graph: bool,
+    max_files: usize,
 }
 
 /// Result of environment setup phase
@@ -232,6 +234,8 @@ pub fn run(
     since: Option<String>,
     explain_score: bool,
     verify: bool,
+    skip_graph: bool,
+    max_files: usize,
 ) -> Result<()> {
     let start_time = Instant::now();
 
@@ -247,6 +251,8 @@ pub fn run(
         fail_on,
         incremental,
         since.is_some(),
+        skip_graph,
+        max_files,
     )?;
 
     // Fast path: Check if we have complete cached results (findings + scores)
@@ -484,6 +490,8 @@ fn setup_environment(
     fail_on: Option<String>,
     incremental: bool,
     has_since: bool,
+    skip_graph: bool,
+    max_files: usize,
 ) -> Result<EnvironmentSetup> {
     let repo_path = path
         .canonicalize()
@@ -502,6 +510,8 @@ fn setup_environment(
         fail_on,
         incremental,
         has_since,
+        skip_graph,
+        max_files,
         &project_config,
     );
 
@@ -550,7 +560,7 @@ fn initialize_graph(
 
     // Collect files - need mutable cache temporarily
     let mut cache_clone = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
-    let file_result = collect_files_for_analysis(
+    let mut file_result = collect_files_for_analysis(
         &env.repo_path,
         since,
         env.config.is_incremental_mode,
@@ -559,10 +569,30 @@ fn initialize_graph(
         &spinner_style,
     )?;
 
+    // Apply max_files limit if set (for memory-constrained analysis)
+    let max_files = env.config.max_files;
+    if max_files > 0 && file_result.all_files.len() > max_files {
+        if !env.quiet_mode {
+            println!(
+                "{}Limiting analysis to {} files (out of {} total) to reduce memory usage",
+                style("⚠️  ").yellow(),
+                style(max_files).cyan(),
+                style(file_result.all_files.len()).dim()
+            );
+        }
+        file_result.all_files.truncate(max_files);
+        // Re-filter files_to_parse to only include files in the truncated list
+        let all_set: std::collections::HashSet<_> = file_result.all_files.iter().collect();
+        file_result.files_to_parse.retain(|f| all_set.contains(f));
+        if file_result.files_to_parse.len() > max_files {
+            file_result.files_to_parse.truncate(max_files);
+        }
+    }
+
     if file_result.all_files.is_empty() {
         // Return early with empty results
         return Ok((
-            Arc::new(GraphStore::new(&env.repotoire_dir.join("graph_db"))?),
+            Arc::new(GraphStore::in_memory()),
             file_result,
             ParsePhaseResult {
                 parse_results: vec![],
@@ -579,40 +609,94 @@ fn initialize_graph(
         );
     }
 
-    // Initialize graph database
+    // Skip graph mode: use in-memory graph, parse files but don't build edges
+    if env.config.skip_graph {
+        if !env.quiet_mode {
+            println!("{}Skipping graph building (--skip-graph or --lite mode)", style("⏭ ").dim());
+        }
+        
+        let graph = Arc::new(GraphStore::in_memory());
+        
+        // Still parse files for function/class counts
+        let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
+        let parse_result = parse_files_lite(
+            &file_result.files_to_parse,
+            multi,
+            &bar_style,
+        )?;
+        
+        return Ok((graph, file_result, parse_result));
+    }
+
+    // Initialize graph database (use lazy mode for large repos to reduce memory)
     let db_path = env.repotoire_dir.join("graph_db");
+    let use_lazy = file_result.all_files.len() > 20000; // 20k+ files = use lazy loading
+    
     if !env.quiet_mode {
         let icon_graph = if env.config.no_emoji { "" } else { "🕸️  " };
-        println!("{}Initializing graph database...", style(icon_graph).bold());
+        let mode_info = if use_lazy { " (lazy mode)" } else { "" };
+        println!("{}Initializing graph database{}...", style(icon_graph).bold(), style(mode_info).dim());
     }
-    let graph =
-        Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?);
+    
+    let graph = if use_lazy {
+        Arc::new(GraphStore::new_lazy(&db_path).with_context(|| "Failed to initialize graph database")?)
+    } else {
+        Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?)
+    };
 
     // Parse files and build graph (with parse caching)
+    // Use chunked processing for very large repos to limit peak memory
     let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
-    let parse_result = parse_files(
-        &file_result.files_to_parse,
-        multi,
-        &bar_style,
-        env.config.is_incremental_mode,
-        &cache_mutex,
-    )?;
+    
+    let parse_result = if file_result.files_to_parse.len() > 10000 {
+        // Chunked parsing for huge repos
+        parse_files_chunked(
+            &file_result.files_to_parse,
+            multi,
+            &bar_style,
+            env.config.is_incremental_mode,
+            &cache_mutex,
+            5000, // Process 5000 files at a time
+        )?
+    } else {
+        parse_files(
+            &file_result.files_to_parse,
+            multi,
+            &bar_style,
+            env.config.is_incremental_mode,
+            &cache_mutex,
+        )?
+    };
     
     // Save parse cache
     if let Ok(mut cache) = cache_mutex.into_inner() {
         let _ = cache.save_cache();
     }
 
-    build_graph(
-        &graph,
-        &env.repo_path,
-        &parse_result.parse_results,
-        multi,
-        &bar_style,
-    )?;
+    // Build graph in chunks for large repos
+    if parse_result.parse_results.len() > 10000 {
+        build_graph_chunked(
+            &graph,
+            &env.repo_path,
+            &parse_result.parse_results,
+            multi,
+            &bar_style,
+            5000, // Build 5000 files at a time
+        )?;
+    } else {
+        build_graph(
+            &graph,
+            &env.repo_path,
+            &parse_result.parse_results,
+            multi,
+            &bar_style,
+        )?;
+    }
 
-    // Pre-warm file cache
-    crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
+    // Pre-warm file cache (skip for huge repos)
+    if file_result.all_files.len() < 20000 {
+        crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
+    }
 
     Ok((graph, file_result, parse_result))
 }
@@ -801,6 +885,8 @@ fn apply_config_defaults(
     fail_on: Option<String>,
     incremental: bool,
     has_since: bool,
+    skip_graph: bool,
+    max_files: usize,
     project_config: &ProjectConfig,
 ) -> AnalysisConfig {
     AnalysisConfig {
@@ -819,6 +905,8 @@ fn apply_config_defaults(
         },
         fail_on: fail_on.or_else(|| project_config.defaults.fail_on.clone()),
         is_incremental_mode: incremental || has_since,
+        skip_graph,
+        max_files,
     }
 }
 
@@ -1034,6 +1122,146 @@ fn parse_files(
     })
 }
 
+/// Lightweight parsing for --skip-graph mode (no caching, minimal memory)
+fn parse_files_lite(
+    files: &[PathBuf],
+    multi: &MultiProgress,
+    bar_style: &ProgressStyle,
+) -> Result<ParsePhaseResult> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
+    parse_bar.set_style(bar_style.clone());
+    parse_bar.set_message("Parsing files (lite mode)...");
+
+    let counter = AtomicUsize::new(0);
+    let total_functions = AtomicUsize::new(0);
+    let total_classes = AtomicUsize::new(0);
+
+    // Parse but don't store full results - just count functions and classes
+    files.par_iter().for_each(|file_path| {
+        let count = counter.fetch_add(1, Ordering::Relaxed);
+        if count % 500 == 0 {
+            parse_bar.set_position(count as u64);
+        }
+
+        if let Ok(result) = parse_file(file_path) {
+            total_functions.fetch_add(result.functions.len(), Ordering::Relaxed);
+            total_classes.fetch_add(result.classes.len(), Ordering::Relaxed);
+        }
+    });
+
+    let funcs = total_functions.load(Ordering::Relaxed);
+    let classes = total_classes.load(Ordering::Relaxed);
+
+    parse_bar.finish_with_message(format!(
+        "{}Parsed {} files ({} functions, {} classes) [lite]",
+        style("✓ ").green(),
+        style(files.len()).cyan(),
+        style(funcs).cyan(),
+        style(classes).cyan(),
+    ));
+
+    Ok(ParsePhaseResult {
+        parse_results: vec![], // Empty - lite mode doesn't store parse results
+        total_functions: funcs,
+        total_classes: classes,
+    })
+}
+
+/// Chunked parsing for very large repos - processes in batches to limit peak memory
+fn parse_files_chunked(
+    files: &[PathBuf],
+    multi: &MultiProgress,
+    bar_style: &ProgressStyle,
+    is_incremental: bool,
+    cache: &std::sync::Mutex<IncrementalCache>,
+    chunk_size: usize,
+) -> Result<ParsePhaseResult> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
+    parse_bar.set_style(bar_style.clone());
+    parse_bar.set_message("Parsing files (chunked)...");
+
+    let mut all_results = Vec::with_capacity(files.len());
+    let mut total_functions = 0usize;
+    let mut total_classes = 0usize;
+    let cache_hits = AtomicUsize::new(0);
+
+    // Process files in chunks to limit peak memory
+    for (chunk_idx, chunk) in files.chunks(chunk_size).enumerate() {
+        let counter = AtomicUsize::new(0);
+        let chunk_start = chunk_idx * chunk_size;
+        
+        let chunk_results: Vec<(PathBuf, ParseResult)> = chunk
+            .par_iter()
+            .filter_map(|file_path| {
+                let count = counter.fetch_add(1, Ordering::Relaxed);
+                if count % 200 == 0 {
+                    parse_bar.set_position((chunk_start + count) as u64);
+                }
+
+                // Try cache first
+                if let Ok(cache_guard) = cache.lock() {
+                    if let Some(cached) = cache_guard.get_cached_parse(file_path) {
+                        cache_hits.fetch_add(1, Ordering::Relaxed);
+                        return Some((file_path.clone(), cached));
+                    }
+                }
+
+                // Parse and cache
+                match parse_file(file_path) {
+                    Ok(result) => {
+                        if let Ok(mut cache_guard) = cache.lock() {
+                            cache_guard.cache_parse_result(file_path, &result);
+                        }
+                        Some((file_path.clone(), result))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse {}: {}", file_path.display(), e);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        // Accumulate results
+        for (path, result) in chunk_results {
+            total_functions += result.functions.len();
+            total_classes += result.classes.len();
+            all_results.push((path, result));
+        }
+        
+        // Hint to the allocator we're done with this chunk's temp memory
+        // (This helps on some systems but may not make a huge difference)
+    }
+
+    let hits = cache_hits.load(Ordering::Relaxed);
+    let cache_msg = if hits > 0 {
+        format!(" ({} cached)", hits)
+    } else {
+        String::new()
+    };
+
+    parse_bar.finish_with_message(format!(
+        "{}Parsed {} files ({} functions, {} classes){}",
+        style("✓ ").green(),
+        style(files.len()).cyan(),
+        style(total_functions).cyan(),
+        style(total_classes).cyan(),
+        style(cache_msg).dim(),
+    ));
+
+    Ok(ParsePhaseResult {
+        parse_results: all_results,
+        total_functions,
+        total_classes,
+    })
+}
+
 /// Build the code graph from parse results
 fn build_graph(
     graph: &Arc<GraphStore>,
@@ -1167,6 +1395,142 @@ fn build_graph(
     graph.add_edges_batch(all_edges);
 
     graph_bar.finish_with_message(format!("{}Built code graph", style("✓ ").green()));
+
+    // Persist graph and stats
+    graph
+        .save()
+        .with_context(|| "Failed to save graph database")?;
+    save_graph_stats(graph, repo_path)?;
+
+    Ok(())
+}
+
+/// Build the code graph in chunks to limit peak memory for huge repos
+fn build_graph_chunked(
+    graph: &Arc<GraphStore>,
+    repo_path: &Path,
+    parse_results: &[(PathBuf, ParseResult)],
+    multi: &MultiProgress,
+    bar_style: &ProgressStyle,
+    chunk_size: usize,
+) -> Result<()> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let graph_bar = multi.add(ProgressBar::new(parse_results.len() as u64));
+    graph_bar.set_style(bar_style.clone());
+    graph_bar.set_message("Building code graph (chunked)...");
+
+    // Build global lookup structures (unavoidable - needed for cross-file references)
+    // But we can at least build them more memory-efficiently
+    graph_bar.set_message("Building lookup tables...");
+    let global_func_map = build_global_function_map(parse_results);
+    let module_lookup = ModuleLookup::build(parse_results, repo_path);
+
+    let counter = AtomicUsize::new(0);
+    let total_chunks = (parse_results.len() + chunk_size - 1) / chunk_size;
+
+    // Process in chunks to limit peak memory from intermediate results
+    for (chunk_idx, chunk) in parse_results.chunks(chunk_size).enumerate() {
+        graph_bar.set_message(format!("Building graph (chunk {}/{})", chunk_idx + 1, total_chunks));
+        
+        // Process this chunk in parallel
+        let chunk_results: Vec<_> = chunk
+            .par_iter()
+            .map(|(file_path, result)| {
+                let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
+                let relative_str = relative_path.display().to_string();
+                let language = detect_language(file_path);
+                let loc = count_lines(file_path).unwrap_or(0);
+
+                let mut file_nodes = Vec::with_capacity(1);
+                let mut func_nodes = Vec::with_capacity(result.functions.len());
+                let mut class_nodes = Vec::with_capacity(result.classes.len());
+                let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
+
+                // File node
+                file_nodes.push(
+                    CodeNode::new(NodeKind::File, &relative_str, &relative_str)
+                        .with_qualified_name(&relative_str)
+                        .with_language(&language)
+                        .with_property("loc", loc as i64),
+                );
+
+                // Function nodes
+                for func in &result.functions {
+                    let loc = if func.line_end >= func.line_start {
+                        func.line_end - func.line_start + 1
+                    } else {
+                        1
+                    };
+                    let complexity = func.complexity.unwrap_or(1);
+                    let address_taken = result.address_taken.contains(&func.name);
+
+                    func_nodes.push(
+                        CodeNode::new(NodeKind::Function, &func.name, &relative_str)
+                            .with_qualified_name(&func.qualified_name)
+                            .with_lines(func.line_start, func.line_end)
+                            .with_property("is_async", func.is_async)
+                            .with_property("complexity", complexity as i64)
+                            .with_property("loc", loc as i64)
+                            .with_property("address_taken", address_taken),
+                    );
+                    edges.push((
+                        relative_str.clone(),
+                        func.qualified_name.clone(),
+                        CodeEdge::contains(),
+                    ));
+                }
+
+                // Class nodes
+                for class in &result.classes {
+                    class_nodes.push(
+                        CodeNode::new(NodeKind::Class, &class.name, &relative_str)
+                            .with_qualified_name(&class.qualified_name)
+                            .with_lines(class.line_start, class.line_end)
+                            .with_property("methodCount", class.methods.len() as i64),
+                    );
+                    edges.push((
+                        relative_str.clone(),
+                        class.qualified_name.clone(),
+                        CodeEdge::contains(),
+                    ));
+                }
+
+                // Call edges (using global lookup)
+                build_call_edges_fast(
+                    &mut edges,
+                    result,
+                    parse_results,
+                    repo_path,
+                    &global_func_map,
+                    &module_lookup,
+                );
+
+                // Import edges (using global lookup)
+                build_import_edges_fast(&mut edges, result, &relative_str, &module_lookup);
+
+                let count = counter.fetch_add(1, Ordering::Relaxed);
+                if count % 100 == 0 {
+                    graph_bar.set_position(count as u64);
+                }
+
+                (file_nodes, func_nodes, class_nodes, edges)
+            })
+            .collect();
+
+        // Insert this chunk's data immediately (don't accumulate all chunks)
+        for (file_nodes, func_nodes, class_nodes, edges) in chunk_results {
+            graph.add_nodes_batch(file_nodes);
+            graph.add_nodes_batch(func_nodes);
+            graph.add_nodes_batch(class_nodes);
+            graph.add_edges_batch(edges);
+        }
+        
+        // Memory is released here when chunk_results goes out of scope
+    }
+
+    graph_bar.finish_with_message(format!("{}Built code graph (chunked)", style("✓ ").green()));
 
     // Persist graph and stats
     graph

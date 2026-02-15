@@ -100,6 +100,18 @@ pub enum Commands {
         #[arg(long)]
         no_git: bool,
 
+        /// Skip graph building (faster, uses simpler file-level analysis)
+        #[arg(long)]
+        skip_graph: bool,
+
+        /// Maximum files to analyze (0 = unlimited, useful for huge repos)
+        #[arg(long, default_value = "0")]
+        max_files: usize,
+
+        /// Lite mode: --skip-graph --no-git --max-files=10000 (fast analysis for huge repos)
+        #[arg(long)]
+        lite: bool,
+
         /// Exit with code 1 if findings at this severity or higher exist
         /// Values: critical, high, medium, low (default: none - always exit 0)
         #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
@@ -279,6 +291,9 @@ pub fn run(cli: Cli) -> Result<()> {
             thorough,
             relaxed,
             no_git,
+            skip_graph,
+            max_files,
+            lite,
             fail_on,
             no_emoji,
             explain_score,
@@ -291,6 +306,13 @@ pub fn run(cli: Cli) -> Result<()> {
                 severity
             };
             
+            // Lite mode: fast analysis for huge repos
+            let (effective_no_git, effective_skip_graph, effective_max_files) = if lite {
+                (true, true, if max_files == 0 { 10000 } else { max_files })
+            } else {
+                (no_git, skip_graph, max_files)
+            };
+            
             analyze::run(
                 &cli.path,
                 &format,
@@ -301,7 +323,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 per_page,
                 skip_detector,
                 thorough,
-                no_git,
+                effective_no_git,
                 cli.workers,
                 fail_on,
                 no_emoji,
@@ -309,6 +331,8 @@ pub fn run(cli: Cli) -> Result<()> {
                 None,
                 explain_score,
                 verify,
+                effective_skip_graph,
+                effective_max_files,
             )
         }
 
@@ -551,6 +575,8 @@ pub fn run(cli: Cli) -> Result<()> {
                 None,
                 false,
                 false, // verify
+                false, // skip_graph
+                0,     // max_files (unlimited)
             )
         }
     }
