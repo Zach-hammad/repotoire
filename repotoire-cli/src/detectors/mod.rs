@@ -109,6 +109,7 @@ mod ai_naming_pattern;
 
 // ML/Data Science detectors (PyTorch, TensorFlow, Scikit-Learn, Pandas, NumPy)
 mod ml_smells;
+mod rust_smells;
 
 // Graph/architecture detectors
 mod architectural_bottleneck;
@@ -251,6 +252,13 @@ pub use ml_smells::{
     ChainIndexingDetector, DeprecatedTorchApiDetector, ForwardMethodDetector,
     MissingRandomSeedDetector, MissingZeroGradDetector, NanEqualityDetector,
     RequireGradTypoDetector, TorchLoadUnsafeDetector,
+};
+
+// Re-export Rust-specific detectors
+pub use rust_smells::{
+    UnwrapWithoutContextDetector, UnsafeWithoutSafetyCommentDetector,
+    CloneInHotPathDetector, MissingMustUseDetector, BoxDynTraitDetector,
+    MutexPoisoningRiskDetector,
 };
 
 // Re-export graph/architecture detectors
@@ -525,6 +533,13 @@ pub fn default_detectors_with_config(
         Arc::new(ReactHooksDetector::new(repository_path)),
         Arc::new(DjangoSecurityDetector::new(repository_path)),
         Arc::new(ExpressSecurityDetector::new(repository_path)),
+        // Rust-specific detectors
+        Arc::new(UnwrapWithoutContextDetector::new(repository_path)),
+        Arc::new(UnsafeWithoutSafetyCommentDetector::new(repository_path)),
+        Arc::new(CloneInHotPathDetector::new(repository_path)),
+        Arc::new(MissingMustUseDetector::new(repository_path)),
+        Arc::new(BoxDynTraitDetector::new(repository_path)),
+        Arc::new(MutexPoisoningRiskDetector::new(repository_path)),
     ]
 }
 

@@ -151,7 +151,8 @@ pub enum Commands {
 
     /// Generate fix for a finding (AI-powered or rule-based)
     Fix {
-        /// Finding index to fix
+        /// Finding index to fix (optional, interactive selection if omitted)
+        #[arg(default_value = "0")]
         index: usize,
 
         /// Apply fix automatically
@@ -161,6 +162,14 @@ pub enum Commands {
         /// Use rule-based fixes only (no AI, no API key needed)
         #[arg(long)]
         no_ai: bool,
+
+        /// Preview changes without applying
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Apply all available fixes without confirmation
+        #[arg(long)]
+        auto: bool,
     },
 
     /// Query the code graph directly
@@ -319,7 +328,7 @@ pub fn run(cli: Cli) -> Result<()> {
             }
         }
 
-        Some(Commands::Fix { index, apply, no_ai }) => fix::run(&cli.path, index, apply, no_ai),
+        Some(Commands::Fix { index, apply, no_ai, dry_run, auto }) => fix::run(&cli.path, Some(index).filter(|&i| i > 0), apply, no_ai, dry_run, auto),
 
         Some(Commands::Graph { query, format }) => graph::run(&cli.path, &query, &format),
 
