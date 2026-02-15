@@ -404,6 +404,32 @@ impl IncrementalCache {
             Some(cached_hash) => cached_hash != current_hash,
         }
     }
+    
+    /// Compute a combined hash of all files for graph-level cache validation
+    pub fn compute_all_files_hash(&self, files: &[std::path::PathBuf]) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let mut hasher = DefaultHasher::new();
+        
+        // Sort files for deterministic hashing
+        let mut sorted_files: Vec<_> = files.iter().collect();
+        sorted_files.sort();
+        
+        for path in sorted_files {
+            // Hash file path and content hash
+            path.to_string_lossy().hash(&mut hasher);
+            self.get_file_hash(path).hash(&mut hasher);
+        }
+        
+        format!("{:016x}", hasher.finish())
+    }
+    
+    /// Check if we can use cached detector results
+    pub fn can_use_cached_detectors(&self, files: &[std::path::PathBuf]) -> bool {
+        let current_hash = self.compute_all_files_hash(files);
+        !self.is_graph_changed(&current_hash) && !self.cache.graph.detectors.is_empty()
+    }
 
     /// Store findings from a graph-level detector
     pub fn cache_graph_findings(&mut self, detector_name: &str, findings: &[Finding]) {

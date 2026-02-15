@@ -218,7 +218,7 @@ mod xss;
 mod xxe;
 
 // Re-export base types
-pub use base::{DetectionSummary, Detector, DetectorConfig, DetectorResult, ProgressCallback};
+pub use base::{DetectionSummary, Detector, DetectorConfig, DetectorResult, DetectorScope, ProgressCallback};
 
 // Re-export engine
 pub use engine::{DetectorEngine, DetectorEngineBuilder};

@@ -442,7 +442,8 @@ fn execute_detection_phase(
         spinner_style,
     );
 
-    // Run detectors
+    // Run detectors (with caching)
+    let mut detector_cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
     let mut findings = run_detectors(
         graph,
         &env.repo_path,
@@ -453,6 +454,8 @@ fn execute_detection_phase(
         multi,
         spinner_style,
         env.quiet_mode,
+        &mut detector_cache,
+        &file_result.all_files,
     )?;
 
     // Apply voting engine
@@ -1182,7 +1185,22 @@ fn run_detectors(
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
     quiet_mode: bool,
+    cache: &mut IncrementalCache,
+    all_files: &[std::path::PathBuf],
 ) -> Result<Vec<Finding>> {
+    // Check if we can use cached detector results
+    if cache.can_use_cached_detectors(all_files) {
+        let cached_findings = cache.get_all_cached_graph_findings();
+        if !cached_findings.is_empty() && !quiet_mode {
+            println!(
+                "\n{}Using cached detector results ({} findings)",
+                style("⚡ ").bold(),
+                cached_findings.len()
+            );
+            return Ok(cached_findings);
+        }
+    }
+    
     if !quiet_mode {
         println!("\n{}Running detectors...", style("🕵️  ").bold());
     }
@@ -1227,6 +1245,13 @@ fn run_detectors(
         style(engine.detector_count()).cyan(),
         style(findings.len()).cyan(),
     ));
+    
+    // Cache the findings for next run
+    let graph_hash = cache.compute_all_files_hash(all_files);
+    cache.update_graph_hash(&graph_hash);
+    // Store all findings under a combined key
+    cache.cache_graph_findings("__all__", &findings);
+    let _ = cache.save_cache();
 
     Ok(findings)
 }
