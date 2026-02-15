@@ -450,6 +450,87 @@ pub fn parse_and_build_streaming_true(
     Ok((builder.stats, parse_stats))
 }
 
+/// Parse and build graph using PARALLEL PIPELINE
+///
+/// This is the highest-performance approach for large repos:
+/// - Producer thread feeds file paths
+/// - N worker threads parse in parallel (CPU-bound)
+/// - Consumer receives results and builds graph sequentially (stateful)
+///
+/// Benefits:
+/// - Uses all CPU cores for parsing
+/// - Bounded memory via channel capacities
+/// - No lock contention in graph building
+/// - Automatic backpressure
+///
+/// Memory target: <1.5GB for 20k files (vs 3GB+ with traditional approach)
+pub fn parse_and_build_pipeline(
+    files: Vec<std::path::PathBuf>,
+    repo_path: &Path,
+    graph: Arc<GraphStore>,
+    num_workers: usize,
+    buffer_size: usize,
+    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
+) -> Result<(StreamingGraphStats, LightweightParseStats)> {
+    use crate::parsers::parallel_pipeline::parse_files_pipeline;
+    
+    let total = files.len();
+    let mut builder = StreamingGraphBuilder::new(Arc::clone(&graph), repo_path);
+    let mut parse_stats = LightweightParseStats {
+        total_files: total,
+        ..Default::default()
+    };
+    
+    // Pass 1: Build module lookup from file paths (no parsing needed)
+    for path in &files {
+        let relative = path.strip_prefix(repo_path).unwrap_or(path);
+        let relative_str = relative.display().to_string();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let lang = crate::parsers::Language::from_extension(ext);
+        builder.module_lookup.add_file(&relative_str, lang);
+    }
+    
+    // Pass 2: Start parallel pipeline
+    let mut pipeline = parse_files_pipeline(files, num_workers, buffer_size);
+    
+    // Take the receiver from the pipeline
+    let receiver = pipeline.take_receiver().expect("receiver already taken");
+    
+    // Process results as they come in (sequential graph building)
+    let mut count = 0;
+    for info in receiver {
+        count += 1;
+        
+        if let Some(cb) = progress {
+            if count % 100 == 0 || count == total {
+                cb(count, total);
+            }
+        }
+        
+        parse_stats.add_file(&info);
+        
+        // Add to function lookup for later files' edge resolution
+        builder.function_lookup.add_from_info(&info);
+        
+        // Process file (adds nodes, collects edges)
+        if let Err(e) = builder.process_file(&info) {
+            tracing::warn!("Failed to process file: {}", e);
+        }
+        
+        // info is dropped here - only lookup keys remain
+    }
+    
+    // Wait for workers and collect final stats
+    let pipeline_stats = pipeline.join();
+    parse_stats.parse_errors = pipeline_stats.parse_errors;
+    parse_stats.parsed_files = pipeline_stats.parsed_files;
+    
+    // Finalize graph (batch insert edges)
+    builder.finalize()?;
+    
+    Ok((builder.stats, parse_stats))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

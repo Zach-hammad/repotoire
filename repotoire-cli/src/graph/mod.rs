@@ -8,8 +8,8 @@ pub mod streaming_builder;
 
 pub use store::{CodeEdge, CodeNode, EdgeKind, GraphStore, NodeKind};
 pub use streaming_builder::{
-    build_graph_streaming, parse_and_build_streaming_true, FunctionLookup, ModuleLookup,
-    StreamingGraphBuilder, StreamingGraphStats,
+    build_graph_streaming, parse_and_build_streaming_true, parse_and_build_pipeline,
+    FunctionLookup, ModuleLookup, StreamingGraphBuilder, StreamingGraphStats,
 };
 
 // Legacy Kuzu modules (kept for reference but not used)

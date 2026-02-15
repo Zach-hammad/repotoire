@@ -756,30 +756,49 @@ fn execute_detection_phase(
         spinner_style,
     );
 
-    // Run detectors (with caching)
-    let mut detector_cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
-    let mut findings = run_detectors(
-        graph,
-        &env.repo_path,
-        &env.project_config,
-        skip_detector,
-        env.config.thorough,
-        env.config.workers,
-        multi,
-        spinner_style,
-        env.quiet_mode,
-        &mut detector_cache,
-        &file_result.all_files,
-    )?;
+    // Use streaming detection for large repos (>5000 files) to prevent OOM
+    let use_streaming = file_result.all_files.len() > 5000;
+    
+    let mut findings = if use_streaming {
+        run_detectors_streaming(
+            graph,
+            &env.repo_path,
+            &env.repotoire_dir,
+            &env.project_config,
+            skip_detector,
+            env.config.thorough,
+            multi,
+            spinner_style,
+            env.quiet_mode,
+        )?
+    } else {
+        // Run detectors (with caching)
+        let mut detector_cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
+        run_detectors(
+            graph,
+            &env.repo_path,
+            &env.project_config,
+            skip_detector,
+            env.config.thorough,
+            env.config.workers,
+            multi,
+            spinner_style,
+            env.quiet_mode,
+            &mut detector_cache,
+            &file_result.all_files,
+        )?
+    };
 
-    // Apply voting engine
-    let (_voting_stats, _cached_count) = apply_voting(
-        &mut findings,
-        file_result.cached_findings.clone(),
-        env.config.is_incremental_mode,
-        multi,
-        spinner_style,
-    );
+    // Apply voting engine (skip for streaming - already filtered)
+    if !use_streaming {
+        let (_voting_stats, _cached_count) = apply_voting(
+            &mut findings,
+            file_result.cached_findings.clone(),
+            env.config.is_incremental_mode,
+            multi,
+            spinner_style,
+        );
+    }
 
     // Wait for git enrichment
     finish_git_enrichment(git_handle);
@@ -2223,6 +2242,70 @@ fn run_detectors(
     Ok(findings)
 }
 
+/// Run detectors in streaming mode for large repos
+///
+/// Writes findings to disk as they're generated to prevent OOM.
+/// Only loads high-severity findings for scoring.
+fn run_detectors_streaming(
+    graph: &Arc<GraphStore>,
+    repo_path: &Path,
+    cache_dir: &Path,
+    project_config: &ProjectConfig,
+    skip_detector: &[String],
+    thorough: bool,
+    multi: &MultiProgress,
+    spinner_style: &ProgressStyle,
+    quiet_mode: bool,
+) -> Result<Vec<Finding>> {
+    use crate::detectors::streaming_engine::{run_streaming_detection, StreamingDetectorEngine};
+    
+    if !quiet_mode {
+        println!(
+            "\n{}Running detectors (streaming mode for large repo)...",
+            style("🌊 ").bold()
+        );
+    }
+    
+    let detector_bar = multi.add(ProgressBar::new_spinner());
+    detector_bar.set_style(spinner_style.clone());
+    detector_bar.set_message("Streaming detection...");
+    detector_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+    
+    let (stats, findings_path) = run_streaming_detection(
+        graph,
+        repo_path,
+        cache_dir,
+        project_config,
+        skip_detector,
+        thorough,
+        Some(&|name, done, total| {
+            detector_bar.set_message(format!("[{}/{}] {}...", done, total, name));
+        }),
+    )?;
+    
+    detector_bar.finish_with_message(format!(
+        "{}Streaming detection: {} detectors, {}",
+        style("✓ ").green(),
+        style(stats.detectors_run).cyan(),
+        style(stats.summary()).cyan(),
+    ));
+    
+    // For scoring, load high-severity findings only (keeps memory bounded)
+    let engine = StreamingDetectorEngine::new(findings_path.clone());
+    let high_findings = engine.read_high_severity()?;
+    
+    if !quiet_mode {
+        println!(
+            "  {} Loaded {} high+ findings for scoring (full results in {})",
+            style("→").dim(),
+            high_findings.len(),
+            findings_path.display()
+        );
+    }
+    
+    Ok(high_findings)
+}
+
 /// Apply voting engine to consolidate findings
 fn apply_voting(
     findings: &mut Vec<Finding>,
@@ -2803,15 +2886,20 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
     }
 }
 
-/// Parse files and build graph using TRUE streaming architecture
+/// Parse files and build graph using BOUNDED PARALLEL PIPELINE
 /// 
-/// This function uses the new LightweightFileInfo-based streaming that:
-/// - Parses ONE file at a time
-/// - Extracts ONLY what detectors need into compact structs
-/// - DROPS the AST immediately after extraction
-/// - Never holds more than 1 AST in memory
+/// This function uses crossbeam channels with ADAPTIVE sizing:
+/// - Small repos (<5k files): buffer=100 for speed
+/// - Large repos (50k+ files): buffer=10 for memory
+/// - Periodic edge flushing prevents unbounded edge accumulation
 ///
-/// Memory target: <500MB for 20k files (vs 2GB+ with traditional approach)
+/// Benefits:
+/// - Parallel parsing uses all CPU cores
+/// - Bounded memory via adaptive channel capacities
+/// - Periodic edge flushing caps memory growth
+/// - True backpressure - parsers block when consumer is slow
+///
+/// Memory target: <1.5GB for 50k files, <2GB for 100k files
 fn parse_and_build_streaming(
     files: &[PathBuf],
     repo_path: &Path,
@@ -2819,15 +2907,25 @@ fn parse_and_build_streaming(
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
 ) -> Result<(usize, usize)> {
+    use crate::parsers::bounded_pipeline::{run_bounded_pipeline, PipelineConfig};
+    
     let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
     parse_bar.set_style(bar_style.clone());
-    parse_bar.set_message("TRUE streaming parse & build...");
     
-    // Use the new TRUE streaming approach
-    let (graph_stats, parse_stats) = crate::graph::parse_and_build_streaming_true(
-        files,
+    // Adaptive config based on repo size
+    let config = PipelineConfig::for_repo_size(files.len());
+    
+    parse_bar.set_message(format!(
+        "Bounded pipeline ({} workers, buf={}, flush@{})...",
+        config.num_workers, config.buffer_size, config.edge_flush_threshold
+    ));
+    
+    // Use the new bounded pipeline with adaptive sizing
+    let (graph_stats, parse_stats) = run_bounded_pipeline(
+        files.to_vec(),
         repo_path,
         graph,
+        config,
         Some(&|count, _total| {
             if count % 100 == 0 {
                 parse_bar.set_position(count as u64);
@@ -2835,13 +2933,19 @@ fn parse_and_build_streaming(
         }),
     )?;
     
+    let flush_info = if graph_stats.edge_flushes > 0 {
+        format!(", {} flushes", graph_stats.edge_flushes)
+    } else {
+        String::new()
+    };
+    
     parse_bar.finish_with_message(format!(
-        "{}TRUE streamed {} files ({} functions, {} classes, ~{})",
+        "{}Bounded pipeline: {} files ({} fns, {} cls{})",
         style("✓ ").green(),
         style(parse_stats.parsed_files).cyan(),
         style(graph_stats.functions_added).cyan(),
         style(graph_stats.classes_added).cyan(),
-        style(parse_stats.memory_human()).dim(),
+        style(flush_info).dim(),
     ));
     
     Ok((graph_stats.functions_added, graph_stats.classes_added))

@@ -63,6 +63,10 @@ rustc-hash = "2"
 petgraph = "0.7"
 sled = "0.34"
 
+# Parallel pipeline channels
+crossbeam = "0.8"
+num_cpus = "1.16"
+
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

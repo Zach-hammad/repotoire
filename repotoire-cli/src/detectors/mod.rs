@@ -80,6 +80,7 @@
 mod base;
 pub mod content_classifier;
 mod engine;
+pub mod streaming_engine;
 
 // Context classification using HMM
 pub mod context_hmm;
