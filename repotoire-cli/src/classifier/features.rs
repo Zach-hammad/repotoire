@@ -166,7 +166,9 @@ impl FeatureExtractor {
         
         // 5. Numeric features
         // Line count (normalized)
-        let line_span = finding.line_end.unwrap_or(1) - finding.line_start.unwrap_or(1) + 1;
+        let line_start = finding.line_start.unwrap_or(1);
+        let line_end = finding.line_end.unwrap_or(line_start);
+        let line_span = line_end.saturating_sub(line_start).saturating_add(1);
         features.push((line_span as f32).min(100.0) / 100.0);
         
         // Description length (normalized, longer = more context = more likely TP)

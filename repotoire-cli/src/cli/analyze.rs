@@ -1018,8 +1018,9 @@ fn build_graph(
     graph_bar.set_style(bar_style.clone());
     graph_bar.set_message("Building code graph (parallel)...");
 
-    // Build global function lookup (needed for call edge resolution)
+    // Build lookup structures in parallel (needed for O(1) edge resolution)
     let global_func_map = build_global_function_map(parse_results);
+    let module_lookup = ModuleLookup::build(parse_results, repo_path);
     let counter = AtomicUsize::new(0);
 
     // Parallel collection of nodes and edges per file
@@ -1086,16 +1087,17 @@ fn build_graph(
             }
 
             // Call edges
-            build_call_edges_parallel(
+            build_call_edges_fast(
                 &mut edges,
                 result,
                 parse_results,
                 repo_path,
                 &global_func_map,
+                &module_lookup,
             );
 
             // Import edges
-            build_import_edges(&mut edges, result, &relative_str, parse_results, repo_path);
+            build_import_edges_fast(&mut edges, result, &relative_str, &module_lookup);
 
             let count = counter.fetch_add(1, Ordering::Relaxed);
             if count % 100 == 0 {
@@ -1141,15 +1143,165 @@ fn build_graph(
     Ok(())
 }
 
-/// Build global function name -> qualified name map
+/// Build global function name -> qualified name map (parallel)
 fn build_global_function_map(parse_results: &[(PathBuf, ParseResult)]) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    for (_, result) in parse_results {
-        for func in &result.functions {
-            map.insert(func.name.clone(), func.qualified_name.clone());
-        }
+    use rayon::prelude::*;
+    
+    // Parallel collection then merge - avoids lock contention
+    let maps: Vec<HashMap<String, String>> = parse_results
+        .par_iter()
+        .map(|(_, result)| {
+            let mut local_map = HashMap::with_capacity(result.functions.len());
+            for func in &result.functions {
+                local_map.insert(func.name.clone(), func.qualified_name.clone());
+            }
+            local_map
+        })
+        .collect();
+    
+    // Merge all maps - estimate total size for efficiency
+    let total_size: usize = maps.iter().map(|m| m.len()).sum();
+    let mut final_map = HashMap::with_capacity(total_size);
+    for map in maps {
+        final_map.extend(map);
     }
-    map
+    final_map
+}
+
+/// Pre-computed lookup structures for efficient edge resolution
+struct ModuleLookup {
+    /// file_stem (e.g. "utils") -> Vec<(file_path_str, file_index)>
+    by_stem: HashMap<String, Vec<(String, usize)>>,
+    /// Various module path patterns -> Vec<(file_path_str, file_index)>
+    by_pattern: HashMap<String, Vec<(String, usize)>>,
+}
+
+impl ModuleLookup {
+    fn build(parse_results: &[(PathBuf, ParseResult)], repo_path: &Path) -> Self {
+        use rayon::prelude::*;
+        
+        // Build index entries in parallel
+        let entries: Vec<(usize, String, String, Vec<String>)> = parse_results
+            .par_iter()
+            .enumerate()
+            .map(|(idx, (file_path, _))| {
+                let relative = file_path.strip_prefix(repo_path).unwrap_or(file_path);
+                let relative_str = relative.display().to_string();
+                let file_stem = relative
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                
+                // Generate various pattern keys for this file
+                let mut patterns = Vec::new();
+                
+                // Rust module patterns
+                if relative_str.ends_with(".rs") {
+                    let rust_path = relative_str.trim_end_matches(".rs").replace('/', "::");
+                    patterns.push(rust_path);
+                }
+                
+                // TypeScript/JavaScript patterns
+                for ext in &[".ts", ".tsx", ".js", ".jsx", ".mjs"] {
+                    if relative_str.ends_with(ext) {
+                        let base = relative_str.trim_end_matches(ext);
+                        patterns.push(base.to_string());
+                        // index.ts -> parent dir name
+                        if base.ends_with("/index") {
+                            patterns.push(base.trim_end_matches("/index").to_string());
+                        }
+                    }
+                }
+                
+                // Python patterns
+                if relative_str.ends_with(".py") {
+                    let py_path = relative_str.trim_end_matches(".py").replace('/', ".");
+                    patterns.push(py_path);
+                    if relative_str.ends_with("/__init__.py") {
+                        let pkg = relative_str.trim_end_matches("/__init__.py").replace('/', ".");
+                        patterns.push(pkg);
+                    }
+                }
+                
+                (idx, relative_str, file_stem, patterns)
+            })
+            .collect();
+        
+        // Build lookup maps
+        let mut by_stem: HashMap<String, Vec<(String, usize)>> = HashMap::new();
+        let mut by_pattern: HashMap<String, Vec<(String, usize)>> = HashMap::new();
+        
+        for (idx, relative_str, file_stem, patterns) in entries {
+            by_stem
+                .entry(file_stem)
+                .or_default()
+                .push((relative_str.clone(), idx));
+            
+            for pattern in patterns {
+                by_pattern
+                    .entry(pattern)
+                    .or_default()
+                    .push((relative_str.clone(), idx));
+            }
+        }
+        
+        ModuleLookup { by_stem, by_pattern }
+    }
+    
+    fn find_matches(&self, import_path: &str, parse_results: &[(PathBuf, ParseResult)], repo_path: &Path) -> Vec<String> {
+        let clean_import = import_path
+            .trim_start_matches("./")
+            .trim_start_matches("../")
+            .trim_start_matches("crate::")
+            .trim_start_matches("super::");
+        
+        let module_parts: Vec<&str> = clean_import.split("::").collect();
+        let first_module = module_parts.first().copied().unwrap_or("");
+        let python_path = clean_import.replace('.', "/");
+        
+        let mut matches = Vec::new();
+        
+        // Try direct pattern lookup first (O(1) instead of O(n))
+        if let Some(candidates) = self.by_pattern.get(clean_import) {
+            for (path, _) in candidates {
+                matches.push(path.clone());
+            }
+        }
+        
+        // Try file stem lookup
+        if matches.is_empty() {
+            if let Some(candidates) = self.by_stem.get(first_module) {
+                for (path, _) in candidates {
+                    matches.push(path.clone());
+                }
+            }
+        }
+        
+        // If still no matches, fall back to pattern matching (but on fewer candidates)
+        if matches.is_empty() {
+            if let Some(candidates) = self.by_stem.get(clean_import) {
+                for (path, _) in candidates {
+                    matches.push(path.clone());
+                }
+            }
+        }
+        
+        // Final fallback: check all patterns for partial matches
+        if matches.is_empty() {
+            for (pattern, candidates) in &self.by_pattern {
+                if pattern.contains(clean_import) || clean_import.contains(pattern.as_str()) {
+                    for (path, _) in candidates {
+                        if !matches.contains(path) {
+                            matches.push(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+        
+        matches
+    }
 }
 
 /// Build call edges for a file
@@ -1326,6 +1478,140 @@ fn build_import_edges(
                 edges.push((relative_str.to_string(), other_str, import_edge));
                 break;
             }
+        }
+    }
+}
+
+/// Build call edges using pre-computed lookup (O(1) module resolution)
+fn build_call_edges_fast(
+    edges: &mut Vec<(String, String, CodeEdge)>,
+    result: &ParseResult,
+    parse_results: &[(PathBuf, ParseResult)],
+    repo_path: &Path,
+    global_func_map: &HashMap<String, String>,
+    module_lookup: &ModuleLookup,
+) {
+    for (caller, callee) in &result.calls {
+        let parts: Vec<&str> = callee.rsplitn(2, "::").collect();
+        let callee_name = parts[0];
+        let callee_module = if parts.len() > 1 {
+            Some(parts[1])
+        } else {
+            None
+        };
+        let callee_name = callee_name.rsplit('.').next().unwrap_or(callee_name);
+
+        // Try to find callee in this file first (fast path)
+        let callee_qn = if let Some(callee_func) =
+            result.functions.iter().find(|f| f.name == callee_name)
+        {
+            callee_func.qualified_name.clone()
+        } else {
+            // Use module lookup for O(1) resolution
+            let mut found = None;
+            if let Some(module) = callee_module {
+                // O(1) lookup by module name
+                if let Some(candidates) = module_lookup.by_stem.get(module) {
+                    for (file_path, idx) in candidates {
+                        if let Some((_, other_result)) = parse_results.get(*idx) {
+                            if let Some(func) = other_result
+                                .functions
+                                .iter()
+                                .find(|f| f.name == callee_name)
+                            {
+                                found = Some(func.qualified_name.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if found.is_none() {
+                found = global_func_map.get(callee_name).cloned();
+            }
+
+            match found {
+                Some(qn) => qn,
+                None => continue,
+            }
+        };
+        edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
+    }
+}
+
+/// Build import edges using pre-computed lookup (O(1) instead of O(n))
+fn build_import_edges_fast(
+    edges: &mut Vec<(String, String, CodeEdge)>,
+    result: &ParseResult,
+    relative_str: &str,
+    module_lookup: &ModuleLookup,
+) {
+    for import_info in &result.imports {
+        let clean_import = import_info
+            .path
+            .trim_start_matches("./")
+            .trim_start_matches("../")
+            .trim_start_matches("crate::")
+            .trim_start_matches("super::");
+        
+        let module_parts: Vec<&str> = clean_import.split("::").collect();
+        let first_module = module_parts.first().copied().unwrap_or("");
+        let python_path = clean_import.replace('.', "/");
+        
+        // Try fast lookup paths in order of specificity
+        let mut matched_file = None;
+        
+        // 1. Direct pattern match (most specific)
+        if let Some(candidates) = module_lookup.by_pattern.get(clean_import) {
+            for (path, _) in candidates {
+                if path != relative_str {
+                    matched_file = Some(path.clone());
+                    break;
+                }
+            }
+        }
+        
+        // 2. Python path pattern
+        if matched_file.is_none() {
+            if let Some(candidates) = module_lookup.by_pattern.get(&python_path) {
+                for (path, _) in candidates {
+                    if path != relative_str {
+                        matched_file = Some(path.clone());
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // 3. First module stem lookup
+        if matched_file.is_none() {
+            if let Some(candidates) = module_lookup.by_stem.get(first_module) {
+                for (path, _) in candidates {
+                    if path != relative_str {
+                        matched_file = Some(path.clone());
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // 4. Clean import as stem
+        if matched_file.is_none() {
+            if let Some(candidates) = module_lookup.by_stem.get(clean_import) {
+                for (path, _) in candidates {
+                    if path != relative_str {
+                        matched_file = Some(path.clone());
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if let Some(target_file) = matched_file {
+            let import_edge =
+                CodeEdge::imports().with_property("is_type_only", import_info.is_type_only);
+            edges.push((relative_str.to_string(), target_file, import_edge));
         }
     }
 }

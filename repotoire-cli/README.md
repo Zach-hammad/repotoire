@@ -1,277 +1,191 @@
 # Repotoire 🎼
 
-**Graph-Powered Code Intelligence — Local-First, Blazing Fast**
-
-Repotoire builds a knowledge graph of your codebase to detect architectural issues, code smells, and security vulnerabilities that traditional linters miss.
+**The code analyzer that understands your architecture — not just your syntax.**
 
 [![Crates.io](https://img.shields.io/crates/v/repotoire.svg)](https://crates.io/crates/repotoire)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
 
-## Why Repotoire?
+## The Problem
 
-Most linters analyze files in isolation. Repotoire sees the **whole picture**:
+Your linter catches syntax errors. Your tests catch bugs. But who catches the **architecture rot**?
+
+- Why does every PR touch 15 files?
+- Why is this "simple" change breaking production?
+- Why is the codebase slower to work in every month?
+
+**Traditional tools can't answer these questions** because they analyze files in isolation.
+
+## The Solution
+
+Repotoire builds a **knowledge graph** of your entire codebase and finds the structural problems that cause real pain:
 
 ```
-Traditional Linters          Repotoire
-─────────────────────        ─────────────────────
-file1.py ✓                   file1.py ──┐
-file2.py ✓                   file2.py ──┼── Knowledge Graph
-file3.py ✓                   file3.py ──┘
-                                  │
-                             Circular deps?
-                             God classes?
-                             Dead code?
-                             Coupling hotspots?
+┌─────────────────────────────────────────────────────────────────┐
+│  🔄 Circular Dependencies     │  Why: Change A breaks B and C  │
+│  🎯 God Classes               │  Why: 47 things depend on this │
+│  💀 Dead Code                 │  Why: Nothing calls this       │
+│  🔗 Coupling Hotspots         │  Why: This file is a bottleneck│
+│  🔒 Security Vulnerabilities  │  Why: User input → SQL query   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
 
-### Option 1: Download Binary (Easiest)
 ```bash
-# Linux
-curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
-sudo mv repotoire /usr/local/bin/
-
-# macOS (Apple Silicon)
-curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-aarch64.tar.gz | tar xz
-sudo mv repotoire /usr/local/bin/
-
-# macOS (Intel)
-curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-x86_64.tar.gz | tar xz
-sudo mv repotoire /usr/local/bin/
-```
-
-### Option 2: Cargo Binstall (No cmake needed)
-```bash
-cargo binstall repotoire
-```
-
-### Option 3: Cargo Install
-```bash
+# Install (pick one)
 cargo install repotoire
+cargo binstall repotoire  # Faster, no cmake needed
+brew install zachhammad/tap/repotoire  # macOS
+
+# Run
+cd your-project
+repotoire analyze .
 ```
 
-That's it. No API keys required. No Docker. No cloud account.
+**That's it.** No config files. No API keys. No Docker. No cloud account.
 
-## ⚡ Performance
+## What You Get
 
-Pure Rust. No external dependencies. Blazing fast.
-
-| Codebase | Files | Time | Speed |
-|----------|-------|------|-------|
-| Django | 3,000 | 55s | 54 files/sec |
-| Express.js | 141 | 0.4s | 350 files/sec |
-| Medium project | 500 | ~5s | 100 files/sec |
-
-Progress bars show you what's happening:
 ```
-Processing files... ████████████░░░░ 75% (375/500) 0:00:08
+🎼 Repotoire Analysis
+──────────────────────────────────────
+Score: 85.2/100  Grade: B  Files: 342  Functions: 1,847
+
+SCORES
+  Structure: 88  Quality: 82  Architecture: 86
+
+FINDINGS (47 total)
+  🔴 2 critical  🟠 12 high  🟡 28 medium  🔵 5 low
+
+#   SEV   DETECTOR              FILE                         LINE
+─────────────────────────────────────────────────────────────────────
+1   [C]   sql-injection         src/api/users.rs             142
+2   [C]   hardcoded-secret      src/config/keys.rs           23
+3   [H]   circular-dependency   src/auth ↔ src/users         -
+4   [H]   god-class             src/services/OrderManager    89
+...
 ```
 
-## What It Finds
+## Why Switch From Your Current Linter?
 
-**108 detectors** across 4 categories:
+| Your Linter | Repotoire |
+|-------------|-----------|
+| "This function is too long" | "This function is called by 47 other functions — changes here will cascade" |
+| "Unused import" | "This entire module is dead code — nothing in your codebase calls it" |
+| "Security warning on line 142" | "User input flows from `get_user()` → `validate()` → `query()` (taint traced)" |
+| File-by-file rules | Whole-codebase graph analysis |
 
-### 🏗️ Architecture
-- Circular dependencies (Tarjan's SCC algorithm)
-- Architectural bottlenecks (betweenness centrality)
-- Hub dependencies (fragile central nodes)
-- Module cohesion problems
+**Repotoire finds problems that exist *between* files, not *within* files.**
 
-### 🔍 Code Smells
-- God classes (too many responsibilities)
-- Dead code (unreachable functions/classes)
-- Feature envy (methods using wrong class data)
-- Shotgun surgery (changes ripple everywhere)
-- AI-generated code patterns (complexity spikes, churn, naming)
+## 108 Detectors
 
-### 🔒 Security
-- SQL injection patterns
-- Hardcoded secrets (API keys, passwords)
-- Unsafe deserialization (pickle, yaml.load)
-- Eval/exec with user input
-- GitHub Actions injection
+### 🏗️ Architecture (Graph-Powered)
+- **Circular dependencies** — Tarjan's algorithm finds cycles
+- **Architectural bottlenecks** — Betweenness centrality finds fragile hubs
+- **Module cohesion** — Detects modules that should be split
+- **Shotgun surgery** — Changes that ripple across the codebase
+
+### 🔒 Security (Taint Analysis)
+- **SQL injection** — Traces user input to queries
+- **Command injection** — `exec()` with untrusted data
+- **Hardcoded secrets** — API keys, passwords, tokens
+- **Unsafe deserialization** — Pickle, YAML, eval
+
+### 🧠 AI Code Watchdog
+- **AI complexity spikes** — Sudden cyclomatic complexity jumps
+- **AI churn patterns** — Files modified 3+ times in 48h
+- **AI boilerplate explosion** — Copy-paste patterns
+- **torch.load()** — Pickle RCE in ML code
 
 ### 📊 Quality
-- Complexity hotspots
-- Type hint coverage gaps
-- Duplicate code blocks
-- Missing tests for new functions
+- **God classes** — Too many responsibilities
+- **Dead code** — Unreachable functions
+- **Feature envy** — Methods using wrong class's data
+- **Duplicate code** — AST-level similarity detection
 
-## Sample Output
+## Performance
 
-```
-╔════════════════════ 🎼 Repotoire Health Report ════════════════════╗
-║  Grade: B                                                          ║
-║  Score: 82.5/100                                                   ║
-║  Good - Minor improvements recommended                             ║
-╚════════════════════════════════════════════════════════════════════╝
+| Codebase | Files | Cold Run | Warm Run |
+|----------|-------|----------|----------|
+| React | 4,443 | 2m 5s | **0.9s** |
+| Django | 3,000 | 55s | 0.8s |
+| Your project | 500 | ~8s | ~0.5s |
 
-┌─────────────────────┬────────┬───────────┐
-│ Category            │ Weight │ Score     │
-├─────────────────────┼────────┼───────────┤
-│ Graph Structure     │  40%   │ 85.0/100  │
-│ Code Quality        │  30%   │ 78.3/100  │
-│ Architecture Health │  30%   │ 84.2/100  │
-└─────────────────────┴────────┴───────────┘
+Warm runs use **smart caching** — only re-analyzes changed files.
 
-🔍 Findings (23 total)
-┌─────────────┬───────┐
-│ 🔴 Critical │     2 │
-│ 🟠 High     │     5 │
-│ 🟡 Medium   │    12 │
-│ 🔵 Low      │     4 │
-└─────────────┴───────┘
+### Need Faster Cold Runs?
+
+```bash
+repotoire analyze . --fast      # Skip expensive graph detectors
+repotoire analyze . --relaxed   # Only HIGH+ findings
 ```
 
 ## Supported Languages
 
-| Language | Parsing | Call Graph | Imports | Status |
-|----------|---------|------------|---------|--------|
-| Rust | ✅ | ✅ | ✅ | **Full Support** |
-| Python | ✅ | 🚧 | 🚧 | Parsing only |
-| TypeScript | ✅ | 🚧 | 🚧 | Parsing only |
-| JavaScript | ✅ | 🚧 | 🚧 | Parsing only |
-| Go | ✅ | 🚧 | 🚧 | Parsing only |
-| Java | ✅ | 🚧 | 🚧 | Parsing only |
-| C/C++ | ✅ | 🚧 | 🚧 | Parsing only |
-| C# | ✅ | 🚧 | 🚧 | Parsing only |
-| Kotlin | ✅ | 🚧 | 🚧 | Parsing only |
+Full parsing for: **Rust, Python, TypeScript, JavaScript, Go, Java, C/C++, C#, Kotlin**
 
-All languages use tree-sitter for parsing, compiled to native code via Rust.
-
-**Note:** Call graph analysis (function calls, imports) is currently implemented for Rust only. Other languages get full AST parsing with class/function/module detection — call graph support is actively in development and coming soon!
-
-## CLI Reference
-
-```bash
-# Analysis
-repotoire analyze .                    # Full analysis
-repotoire analyze . --offline          # Skip cloud sync
-repotoire analyze . --output report.json
-repotoire analyze . --format html
-
-# Graph operations
-repotoire ingest .                     # Build graph only
-repotoire ask "what calls UserService" # Natural language queries
-
-# Utilities
-repotoire doctor                       # Check your setup
-repotoire version                      # Show version info
-```
-
-### Doctor Output
-
-```
-$ repotoire doctor
-
-Repotoire Doctor
-
-✓ Python version: 3.12.0
-✓ Rust extension: Loaded
-⚠ API keys: Present: OPENAI | Missing: ANTHROPIC, DEEPINFRA
-✓ Kuzu database: Importable v0.11.3
-✓ Disk space (home): 150.2GB free (35% used)
-```
+All use tree-sitter compiled to native Rust — no external dependencies.
 
 ## AI-Powered Fixes (Optional)
 
-Bring your own API key — or use local AI for free:
-
 ```bash
-# Cloud providers (pick one):
-export ANTHROPIC_API_KEY=sk-ant-...   # Claude (best quality)
-export OPENAI_API_KEY=sk-...          # GPT-4
-export DEEPINFRA_API_KEY=...          # Llama 3.3 (cheapest cloud)
-export OPENROUTER_API_KEY=...         # Any model
+# Fix issue #1 with AI
+repotoire fix 1
 
-# Or use Ollama for 100% local, free AI:
-ollama pull llama3.3                  # One-time download
-repotoire fix 1                       # Auto-detects Ollama!
+# Uses your API key (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
+# Or use Ollama for free local AI:
+ollama pull deepseek-coder:6.7b
+repotoire fix 1  # Auto-detects Ollama
 ```
 
-**Get your key:**
-- Anthropic: https://console.anthropic.com/settings/keys
-- OpenAI: https://platform.openai.com/api-keys
-- Deepinfra: https://deepinfra.com/dash/api_keys
-- OpenRouter: https://openrouter.ai/keys
-- **Ollama: https://ollama.ai** (🆓 free, runs locally)
+No API key? No Ollama? **All analysis still works.** AI is optional.
 
-No API key and no Ollama? No problem. All analysis works offline.
+## CI/CD Integration
+
+### GitHub Actions
+
+```yaml
+name: Code Health
+on: [push, pull_request]
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: zachhammad/repotoire-action@v1
+        with:
+          fail-on: high  # Fail if any HIGH+ findings
+```
+
+### Pre-commit
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: repotoire
+        name: repotoire
+        entry: repotoire analyze . --fast --relaxed
+        language: system
+        pass_filenames: false
+```
 
 ## Configuration
 
-Create `repotoire.toml` in your repository root for project-specific settings:
-
 ```toml
-# repotoire.toml - Project Configuration
-
-# Detector-specific overrides
+# repotoire.toml
 [detectors.god-class]
-enabled = true
-thresholds = { method_count = 30, loc = 600 }
-
-[detectors.sql-injection]
-severity = "high"  # Downgrade from critical for this project
-enabled = true
-
-[detectors.long-parameter-list]
-thresholds = { max_params = 8 }  # More lenient than default (6)
+thresholds = { method_count = 30 }
 
 [detectors.magic-numbers]
-enabled = false  # Disable this detector entirely
+enabled = false
 
-# Scoring customization
-[scoring]
-security_multiplier = 5.0  # Weight security findings more heavily (default: 3.0)
-
-[scoring.pillar_weights]
-structure = 0.3      # Code structure/complexity (default: 0.4)
-quality = 0.4        # Code quality/smells (default: 0.3)
-architecture = 0.3   # Architectural health (default: 0.3)
-
-# Path exclusions (in addition to .gitignore)
 [exclude]
-paths = [
-    "generated/",
-    "vendor/",
-    "**/migrations/**",
-    "**/*.generated.ts",
-]
-
-# Default CLI flags (can still be overridden via command line)
-[defaults]
-format = "text"           # Default output format
-severity = "low"          # Minimum severity to report
-workers = 8               # Parallel workers
-per_page = 20             # Findings per page
-thorough = false          # Don't run external tools by default
-no_git = false            # Include git enrichment
-no_emoji = false          # Use emoji in output
-fail_on = "critical"      # CI failure threshold
-skip_detectors = []       # Always skip these detectors
+paths = ["vendor/", "generated/"]
 ```
 
-### Alternative Config Formats
-
-Repotoire also supports:
-- `.repotoirerc.json` (JSON format)
-- `.repotoire.yaml` or `.repotoire.yml` (YAML format)
-
-The search order is: `repotoire.toml` → `.repotoirerc.json` → `.repotoire.yaml`
-
-### Detector Names
-
-Use kebab-case for detector names in config (e.g., `god-class`, `sql-injection`).
-The following formats are all equivalent:
-- `god-class`
-- `god_class`
-- `GodClassDetector`
-
 ### Inline Suppression
-
-Suppress individual findings with comments:
 
 ```python
 # repotoire: ignore
@@ -279,139 +193,56 @@ def legacy_function():  # This line won't trigger findings
     pass
 ```
 
-```javascript
-// repotoire: ignore
-const sqlQuery = `SELECT * FROM ${table}`;  // Suppressed
-```
-
-```go
-// repotoire: ignore
-exec.Command(userInput)  // Suppressed
-```
-
-The comment must be on the line before or on the same line as the finding.
-Works with `#`, `//`, `/* */`, and `--` comment styles.
-
 ## How It Works
 
 ```
-┌──────────┐    ┌───────────────┐    ┌──────────────┐    ┌──────────┐
-│  Source  │───▶│ Rust Parser   │───▶│  Kuzu Graph  │───▶│ Detectors│
-│  Files   │    │ (tree-sitter) │    │  (embedded)  │    │   (108)   │
-└──────────┘    └───────────────┘    └──────────────┘    └──────────┘
-     │                                      │
-     │         6 languages                  │      Graph algorithms:
-     │         Parallel parsing             │      • Tarjan's SCC
-     │         ~100-400 files/sec           │      • Betweenness centrality
-     │                                      │      • Community detection
-     │                                      ▼
-     │                               ┌──────────────┐
-     └──────────────────────────────▶│   Reports    │
-                                     │ CLI/HTML/JSON│
-                                     └──────────────┘
-```
-
-**Key components:**
-- **Tree-sitter** — Fast, accurate parsing for all languages
-- **Kuzu** — Embedded graph database (no external deps)
-- **Rust extension** — Native speed for parsing + graph algorithms
-
-## CI/CD Integration
-
-### GitHub Actions
-
-```yaml
-- name: Code Health Check
-  run: |
-    pip install repotoire
-    repotoire analyze . --output report.json
-    
-- name: Fail on critical issues
-  run: |
-    CRITICAL=$(jq '.findings | map(select(.severity == "critical")) | length' report.json)
-    if [ "$CRITICAL" -gt 0 ]; then exit 1; fi
-```
-
-### Pre-commit Hook
-
-```yaml
-# .pre-commit-config.yaml
-repos:
-  - repo: local
-    hooks:
-      - id: repotoire
-        name: repotoire
-        entry: repotoire analyze . --offline
-        language: system
-        pass_filenames: false
+Source Files → Tree-sitter Parser → Kuzu Graph DB → 108 Detectors → Report
+                     │                    │
+              Native Rust           Graph algorithms:
+              ~400 files/sec        • Tarjan's SCC
+                                    • Betweenness centrality
+                                    • Taint propagation
 ```
 
 ## Comparison
 
-| Feature | Repotoire | SonarQube | CodeClimate |
-|---------|-----------|-----------|-------------|
-| Local-first | ✅ | ❌ | ❌ |
-| No Docker | ✅ | ❌ | ✅ |
-| Graph analysis | ✅ | Partial | ❌ |
-| Multi-language | 6 | Many | Many |
-| Circular deps | ✅ | ✅ | ❌ |
-| Dead code | ✅ | ✅ | ✅ |
-| AI code smell detection | ✅ | ❌ | ❌ |
-| BYOK AI fixes | ✅ | ❌ | ❌ |
-| Free | ✅ | Limited | Limited |
+| | Repotoire | SonarQube | Semgrep | ESLint |
+|---|:---:|:---:|:---:|:---:|
+| **Graph analysis** | ✅ | Partial | ❌ | ❌ |
+| **Circular deps** | ✅ | ✅ | ❌ | ❌ |
+| **Taint tracking** | ✅ | ✅ | ✅ | ❌ |
+| **Local-first** | ✅ | ❌ | ✅ | ✅ |
+| **No Docker** | ✅ | ❌ | ✅ | ✅ |
+| **AI fixes** | ✅ | ❌ | ❌ | ❌ |
+| **Multi-language** | 9 | Many | Many | JS only |
+| **Free** | ✅ | Limited | ✅ | ✅ |
+| **Setup time** | 30 sec | Hours | Minutes | Minutes |
 
 ## Troubleshooting
 
-### "Cannot open file .repotoire/kuzu_db/.lock: Not a directory"
-You have a stale database from a previous version. Delete it:
+**Stale database error?**
 ```bash
-rm -rf .repotoire
-repotoire analyze .
+rm -rf .repotoire && repotoire analyze .
 ```
 
-### "cmake not installed" during cargo install
-Install cmake first:
+**cmake not found during install?**
 ```bash
-# macOS
-brew install cmake
-
-# Ubuntu/Debian
-sudo apt install cmake build-essential
-
-# Or use cargo binstall (no cmake needed)
-cargo binstall repotoire
-```
-
-### Analysis is slow
-Use `--relaxed` for faster runs (only high-severity findings):
-```bash
-repotoire analyze . --relaxed
+cargo binstall repotoire  # No cmake needed
 ```
 
 ## Documentation
 
-- **[Schema Reference](docs/SCHEMA.md)** — Graph node/edge types and Cypher examples
-- **[Detectors](docs/DETECTORS.md)** — Full list of 108 detectors with configuration
-
-## Contributing
-
-```bash
-git clone https://github.com/Zach-hammad/repotoire
-cd repotoire
-pip install -e ".[dev]"
-pytest
-```
-
-The Rust extension builds automatically on first install.
+- [Getting Started](docs/GETTING_STARTED.md)
+- [All Detectors](docs/DETECTORS.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [CI/CD Guide](docs/CI_CD.md)
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT
 
 ---
 
-**[Get started →](https://pypi.org/project/repotoire/)** 
-
 ```bash
-pip install repotoire && repotoire analyze .
+cargo install repotoire && repotoire analyze .
 ```

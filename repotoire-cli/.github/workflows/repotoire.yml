@@ -1,0 +1,182 @@
+# Repotoire Code Analysis Workflow
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This workflow runs Repotoire code analysis on the repotoire-cli repository.
+# It also serves as the canonical example for using the Repotoire GitHub Action.
+#
+# COPY THIS WORKFLOW TO YOUR REPO:
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# name: Code Quality
+# on: [push, pull_request]
+# jobs:
+#   repotoire:
+#     runs-on: ubuntu-latest
+#     permissions:
+#       security-events: write
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: Zach-hammad/repotoire/.github/actions/repotoire@v1
+#         with:
+#           sarif: true
+#           threshold: 70
+#       - uses: github/codeql-action/upload-sarif@v3
+#         if: always()
+#         with:
+#           sarif_file: repotoire.sarif
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Repotoire Analysis
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: 'Minimum score threshold'
+        required: false
+        default: '70'
+      fast:
+        description: 'Fast mode (skip git analysis)'
+        required: false
+        default: 'false'
+        type: boolean
+      relaxed:
+        description: 'Relaxed mode (high/critical only)'
+        required: false
+        default: 'false'
+        type: boolean
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write  # Required for SARIF upload
+  pull-requests: write    # For PR comments (optional)
+
+jobs:
+  analyze:
+    name: Code Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git-based detectors
+      
+      # Use the local action (for testing the action itself)
+      # In your repo, use: Zach-hammad/repotoire/.github/actions/repotoire@v1
+      - name: Run Repotoire
+        id: repotoire
+        uses: ./.github/actions/repotoire
+        with:
+          sarif: true
+          threshold: ${{ github.event.inputs.threshold || '70' }}
+          fast: ${{ github.event.inputs.fast || 'false' }}
+          relaxed: ${{ github.event.inputs.relaxed || 'false' }}
+          cache: true
+      
+      # Upload SARIF to GitHub Code Scanning
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.repotoire.outputs.sarif-file != ''
+        with:
+          sarif_file: repotoire.sarif
+          category: repotoire
+      
+      # Optional: Comment on PR with results
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const score = '${{ steps.repotoire.outputs.score }}';
+            const findings = '${{ steps.repotoire.outputs.findings-count }}';
+            const critical = '${{ steps.repotoire.outputs.critical-count }}';
+            const high = '${{ steps.repotoire.outputs.high-count }}';
+            
+            // Determine grade
+            let grade;
+            if (score >= 90) grade = '🟢 A';
+            else if (score >= 80) grade = '🟢 B';
+            else if (score >= 70) grade = '🟡 C';
+            else if (score >= 60) grade = '🟠 D';
+            else grade = '🔴 F';
+            
+            const body = `## Repotoire Code Analysis
+            
+            | Metric | Value |
+            |--------|-------|
+            | **Score** | ${grade} (${score}/100) |
+            | **Findings** | ${findings} |
+            | **Critical** | ${critical} |
+            | **High** | ${high} |
+            
+            <details>
+            <summary>What does this mean?</summary>
+            
+            - **Score**: Overall code quality score (0-100)
+            - **Findings**: Issues detected by Repotoire's 108 detectors
+            - **Critical/High**: Severity breakdown of findings
+            
+            [View details in Security tab](../security/code-scanning)
+            </details>
+            
+            ---
+            *[Repotoire](https://github.com/Zach-hammad/repotoire) — Graph-powered code analysis*`;
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Repotoire Code Analysis')
+            );
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+  # Matrix job for testing on multiple OS (optional)
+  cross-platform:
+    name: Cross-Platform (${{ matrix.os }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Run Repotoire
+        uses: ./.github/actions/repotoire
+        with:
+          fast: true  # Faster for cross-platform testing
+          threshold: 0  # Don't fail, just test

@@ -488,8 +488,14 @@ impl<'a> GraphScorer<'a> {
             .filter(|f| matches!(f.severity, Severity::Critical))
             .count();
 
-        // Any critical finding caps grade at C
-        let max_grade = if critical_count > 0 { "C" } else { "A+" };
+        // Graduated caps based on critical count (less harsh)
+        let max_grade = match critical_count {
+            0 => "A+",
+            1..=2 => "B+",   // 1-2 criticals: cap at B+
+            3..=5 => "B-",   // 3-5 criticals: cap at B-
+            6..=10 => "C+",  // 6-10 criticals: cap at C+
+            _ => "C",        // 10+ criticals: cap at C
+        };
 
         let base_grade = if score >= 97.0 {
             "A+"
@@ -519,9 +525,13 @@ impl<'a> GraphScorer<'a> {
             "F"
         };
 
-        // Cap at max grade
-        if max_grade == "C" && base_grade.starts_with('A') || base_grade.starts_with('B') {
-            "C".to_string()
+        // Cap at max grade (compare grade order)
+        let grade_order = ["F", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+"];
+        let base_idx = grade_order.iter().position(|&g| g == base_grade).unwrap_or(0);
+        let max_idx = grade_order.iter().position(|&g| g == max_grade).unwrap_or(grade_order.len() - 1);
+        
+        if base_idx > max_idx {
+            max_grade.to_string()
         } else {
             base_grade.to_string()
         }
@@ -628,11 +638,14 @@ mod tests {
 
         let breakdown = scorer.calculate(&findings);
 
-        // Critical finding should cap grade at C
+        // 1-2 critical findings should cap grade at B+ (graduated capping)
         assert!(
-            breakdown.grade.starts_with('C')
+            breakdown.grade.starts_with('B')
+                || breakdown.grade.starts_with('C')
                 || breakdown.grade.starts_with('D')
-                || breakdown.grade == "F"
+                || breakdown.grade == "F",
+            "Expected grade capped at B or below, got {}",
+            breakdown.grade
         );
     }
 

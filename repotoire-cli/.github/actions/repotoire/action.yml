@@ -1,0 +1,383 @@
+# Repotoire Code Analysis Action
+# https://github.com/Zach-hammad/repotoire
+#
+# Graph-powered code analysis with 108 detectors for security, architecture, and code quality.
+#
+# EXAMPLE USAGE:
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Basic usage (analyze on every push/PR):
+#
+#   - uses: Zach-hammad/repotoire/.github/actions/repotoire@v1
+#
+# With GitHub Code Scanning integration:
+#
+#   - uses: Zach-hammad/repotoire/.github/actions/repotoire@v1
+#     with:
+#       sarif: true
+#   - uses: github/codeql-action/upload-sarif@v3
+#     with:
+#       sarif_file: repotoire.sarif
+#
+# Fail PR if score drops below 80:
+#
+#   - uses: Zach-hammad/repotoire/.github/actions/repotoire@v1
+#     with:
+#       threshold: 80
+#
+# Fast mode (skip git history analysis):
+#
+#   - uses: Zach-hammad/repotoire/.github/actions/repotoire@v1
+#     with:
+#       fast: true
+#
+# Relaxed mode (only high/critical findings):
+#
+#   - uses: Zach-hammad/repotoire/.github/actions/repotoire@v1
+#     with:
+#       relaxed: true
+#
+# Full workflow example:
+#
+#   name: Code Quality
+#   on: [push, pull_request]
+#   jobs:
+#     analyze:
+#       runs-on: ubuntu-latest
+#       permissions:
+#         security-events: write  # Required for SARIF upload
+#       steps:
+#         - uses: actions/checkout@v4
+#         - uses: Zach-hammad/repotoire/.github/actions/repotoire@v1
+#           with:
+#             sarif: true
+#             threshold: 70
+#         - uses: github/codeql-action/upload-sarif@v3
+#           if: always()
+#           with:
+#             sarif_file: repotoire.sarif
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: 'Repotoire Code Analysis'
+description: 'Graph-powered code analysis with 108 detectors for security, architecture, and code quality'
+author: 'Zach Hammad'
+branding:
+  icon: 'search'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Path to analyze (default: repository root)'
+    required: false
+    default: '.'
+  
+  version:
+    description: 'Repotoire version to use (default: latest)'
+    required: false
+    default: 'latest'
+  
+  threshold:
+    description: 'Minimum score threshold (0-100). Fails if score is below this value.'
+    required: false
+    default: '0'
+  
+  fail-on:
+    description: 'Fail if findings at this severity or higher exist. Values: critical, high, medium, low'
+    required: false
+    default: ''
+  
+  sarif:
+    description: 'Generate SARIF output for GitHub Code Scanning'
+    required: false
+    default: 'false'
+  
+  sarif-file:
+    description: 'SARIF output file path'
+    required: false
+    default: 'repotoire.sarif'
+  
+  fast:
+    description: 'Fast mode: skip git history analysis'
+    required: false
+    default: 'false'
+  
+  relaxed:
+    description: 'Relaxed mode: only report high/critical findings'
+    required: false
+    default: 'false'
+  
+  workers:
+    description: 'Number of parallel workers (1-64)'
+    required: false
+    default: '8'
+  
+  severity:
+    description: 'Minimum severity to report: critical, high, medium, low'
+    required: false
+    default: ''
+  
+  skip-detectors:
+    description: 'Comma-separated list of detectors to skip'
+    required: false
+    default: ''
+  
+  thorough:
+    description: 'Run thorough analysis (slower but more comprehensive)'
+    required: false
+    default: 'false'
+  
+  cache:
+    description: 'Enable caching of .repotoire directory'
+    required: false
+    default: 'true'
+  
+  token:
+    description: 'GitHub token for downloading releases (defaults to GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  score:
+    description: 'Overall code quality score (0-100)'
+    value: ${{ steps.analyze.outputs.score }}
+  
+  findings-count:
+    description: 'Total number of findings'
+    value: ${{ steps.analyze.outputs.findings_count }}
+  
+  critical-count:
+    description: 'Number of critical findings'
+    value: ${{ steps.analyze.outputs.critical_count }}
+  
+  high-count:
+    description: 'Number of high severity findings'
+    value: ${{ steps.analyze.outputs.high_count }}
+  
+  sarif-file:
+    description: 'Path to SARIF output file (if generated)'
+    value: ${{ steps.analyze.outputs.sarif_file }}
+
+runs:
+  using: 'composite'
+  steps:
+    # Cache .repotoire directory for faster incremental analysis
+    - name: Cache Repotoire data
+      if: inputs.cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ inputs.path }}/.repotoire
+          ~/.repotoire
+        key: repotoire-${{ runner.os }}-${{ hashFiles('**/*.py', '**/*.js', '**/*.ts', '**/*.rs', '**/*.go', '**/*.java') }}
+        restore-keys: |
+          repotoire-${{ runner.os }}-
+
+    # Download repotoire binary
+    - name: Download Repotoire
+      id: download
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        
+        # Determine platform
+        case "${{ runner.os }}" in
+          Linux)
+            PLATFORM="linux-x86_64"
+            ARCHIVE_EXT="tar.gz"
+            ;;
+          macOS)
+            if [[ "${{ runner.arch }}" == "ARM64" ]]; then
+              PLATFORM="macos-aarch64"
+            else
+              PLATFORM="macos-x86_64"
+            fi
+            ARCHIVE_EXT="tar.gz"
+            ;;
+          Windows)
+            PLATFORM="windows-x86_64"
+            ARCHIVE_EXT="zip"
+            ;;
+          *)
+            echo "::error::Unsupported platform: ${{ runner.os }}"
+            exit 1
+            ;;
+        esac
+        
+        # Get version
+        if [[ "$VERSION" == "latest" ]]; then
+          echo "Fetching latest release..."
+          RELEASE_URL="https://api.github.com/repos/Zach-hammad/repotoire/releases/latest"
+          VERSION=$(curl -sL -H "Authorization: Bearer $GH_TOKEN" "$RELEASE_URL" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Failed to fetch latest version"
+            exit 1
+          fi
+        fi
+        
+        echo "Installing repotoire $VERSION for $PLATFORM..."
+        
+        # Download binary
+        DOWNLOAD_URL="https://github.com/Zach-hammad/repotoire/releases/download/${VERSION}/repotoire-${PLATFORM}.${ARCHIVE_EXT}"
+        echo "Downloading from: $DOWNLOAD_URL"
+        
+        mkdir -p "$HOME/.local/bin"
+        cd "$HOME/.local/bin"
+        
+        if [[ "$ARCHIVE_EXT" == "tar.gz" ]]; then
+          curl -sL "$DOWNLOAD_URL" | tar xz
+        else
+          curl -sL "$DOWNLOAD_URL" -o repotoire.zip
+          unzip -q repotoire.zip
+          rm repotoire.zip
+        fi
+        
+        chmod +x repotoire*
+        
+        # Add to PATH
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        
+        # Verify installation
+        "$HOME/.local/bin/repotoire" version || "$HOME/.local/bin/repotoire" --version
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+    # Run analysis
+    - name: Analyze
+      id: analyze
+      shell: bash
+      env:
+        THRESHOLD: ${{ inputs.threshold }}
+        SARIF_ENABLED: ${{ inputs.sarif }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        set -euo pipefail
+        
+        cd "${{ inputs.path }}"
+        
+        # Build command
+        CMD=("$HOME/.local/bin/repotoire" "analyze" ".")
+        CMD+=("--no-emoji")
+        CMD+=("--workers" "${{ inputs.workers }}")
+        
+        # Add optional flags
+        if [[ "${{ inputs.fast }}" == "true" ]]; then
+          CMD+=("--no-git")
+        fi
+        
+        if [[ "${{ inputs.relaxed }}" == "true" ]]; then
+          CMD+=("--relaxed")
+        fi
+        
+        if [[ "${{ inputs.thorough }}" == "true" ]]; then
+          CMD+=("--thorough")
+        fi
+        
+        if [[ -n "${{ inputs.severity }}" ]]; then
+          CMD+=("--severity" "${{ inputs.severity }}")
+        fi
+        
+        if [[ -n "${{ inputs.fail-on }}" ]]; then
+          CMD+=("--fail-on" "${{ inputs.fail-on }}")
+        fi
+        
+        # Handle skip-detectors
+        SKIP_DETECTORS="${{ inputs.skip-detectors }}"
+        if [[ -n "$SKIP_DETECTORS" ]]; then
+          IFS=',' read -ra DETECTORS <<< "$SKIP_DETECTORS"
+          for detector in "${DETECTORS[@]}"; do
+            CMD+=("--skip-detector" "$(echo "$detector" | xargs)")
+          done
+        fi
+        
+        # Run JSON analysis first to extract metrics
+        echo "::group::Running Repotoire Analysis"
+        JSON_OUTPUT=$("${CMD[@]}" --format json 2>&1) || true
+        
+        # Extract metrics from JSON
+        SCORE=$(echo "$JSON_OUTPUT" | grep -oP '"score"\s*:\s*\K[0-9]+' | head -1 || echo "0")
+        FINDINGS=$(echo "$JSON_OUTPUT" | grep -oP '"total_findings"\s*:\s*\K[0-9]+' | head -1 || echo "0")
+        CRITICAL=$(echo "$JSON_OUTPUT" | grep -oP '"critical"\s*:\s*\K[0-9]+' | head -1 || echo "0")
+        HIGH=$(echo "$JSON_OUTPUT" | grep -oP '"high"\s*:\s*\K[0-9]+' | head -1 || echo "0")
+        
+        # Fallback: count findings if structured extraction fails
+        if [[ "$FINDINGS" == "0" ]] && [[ -n "$JSON_OUTPUT" ]]; then
+          FINDINGS=$(echo "$JSON_OUTPUT" | grep -c '"severity"' || echo "0")
+        fi
+        
+        echo "Score: $SCORE"
+        echo "Total Findings: $FINDINGS"
+        echo "Critical: $CRITICAL"
+        echo "High: $HIGH"
+        echo "::endgroup::"
+        
+        # Set outputs
+        echo "score=$SCORE" >> "$GITHUB_OUTPUT"
+        echo "findings_count=$FINDINGS" >> "$GITHUB_OUTPUT"
+        echo "critical_count=$CRITICAL" >> "$GITHUB_OUTPUT"
+        echo "high_count=$HIGH" >> "$GITHUB_OUTPUT"
+        
+        # Generate SARIF if requested
+        if [[ "$SARIF_ENABLED" == "true" ]]; then
+          echo "::group::Generating SARIF Output"
+          "${CMD[@]}" --format sarif --output "$SARIF_FILE" || true
+          echo "sarif_file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+          echo "SARIF written to: $SARIF_FILE"
+          echo "::endgroup::"
+        fi
+        
+        # Run human-readable output for logs
+        echo "::group::Analysis Results"
+        "${CMD[@]}" --format text || true
+        echo "::endgroup::"
+        
+        # Check threshold
+        if [[ "$THRESHOLD" -gt 0 ]] && [[ "$SCORE" -lt "$THRESHOLD" ]]; then
+          echo "::error::Code quality score ($SCORE) is below threshold ($THRESHOLD)"
+          exit 1
+        fi
+        
+        # Check fail-on severity (repotoire handles this, but we ensure it propagates)
+        if [[ -n "${{ inputs.fail-on }}" ]]; then
+          "${CMD[@]}" --format text > /dev/null 2>&1
+          # The exit code from repotoire will propagate
+        fi
+
+    # Summary
+    - name: Add Summary
+      if: always()
+      shell: bash
+      run: |
+        SCORE="${{ steps.analyze.outputs.score }}"
+        FINDINGS="${{ steps.analyze.outputs.findings_count }}"
+        CRITICAL="${{ steps.analyze.outputs.critical_count }}"
+        HIGH="${{ steps.analyze.outputs.high_count }}"
+        
+        # Determine score emoji
+        if [[ "$SCORE" -ge 90 ]]; then
+          GRADE="🟢 A"
+        elif [[ "$SCORE" -ge 80 ]]; then
+          GRADE="🟢 B"
+        elif [[ "$SCORE" -ge 70 ]]; then
+          GRADE="🟡 C"
+        elif [[ "$SCORE" -ge 60 ]]; then
+          GRADE="🟠 D"
+        else
+          GRADE="🔴 F"
+        fi
+        
+        cat >> "$GITHUB_STEP_SUMMARY" << EOF
+        ## Repotoire Code Analysis
+        
+        | Metric | Value |
+        |--------|-------|
+        | **Score** | $GRADE ($SCORE/100) |
+        | **Total Findings** | $FINDINGS |
+        | **Critical** | $CRITICAL |
+        | **High** | $HIGH |
+        
+        ---
+        *Powered by [Repotoire](https://github.com/Zach-hammad/repotoire) — Graph-powered code analysis*
+        EOF
