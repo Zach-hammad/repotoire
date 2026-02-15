@@ -99,3 +99,4 @@ benchmarks/
 # Playwright MCP
 .playwright-mcp/
 .repotoire/
+repotoire-vscode/
