@@ -57,6 +57,49 @@ pub fn is_likely_bundled_path(path: &str) -> bool {
         || path_lower.contains("-devtools/")
 }
 
+/// Check if file is in a non-production path (scripts, tests, examples, etc.)
+/// Security findings in these paths should have reduced severity
+pub fn is_non_production_path(path: &str) -> bool {
+    let path_lower = path.to_lowercase();
+    
+    // Build/CI scripts - not deployed code (check with and without leading slash)
+    path_lower.starts_with("scripts/")
+        || path_lower.contains("/scripts/")
+        || path_lower.starts_with(".github/")
+        || path_lower.contains("/.github/")
+        || path_lower.starts_with("ci/")
+        || path_lower.contains("/ci/")
+        // Test directories
+        || path_lower.starts_with("test/")
+        || path_lower.contains("/test/")
+        || path_lower.starts_with("tests/")
+        || path_lower.contains("/tests/")
+        || path_lower.contains("/__tests__/")
+        || path_lower.contains("/__mocks__/")
+        || path_lower.starts_with("spec/")
+        || path_lower.contains("/spec/")
+        || path_lower.contains("_test.")
+        || path_lower.contains(".test.")
+        || path_lower.contains(".spec.")
+        // Fixtures and examples
+        || path_lower.contains("/fixtures/")
+        || path_lower.contains("/__fixtures__/")
+        || path_lower.starts_with("examples/")
+        || path_lower.contains("/examples/")
+        || path_lower.starts_with("example/")
+        || path_lower.contains("/example/")
+        // Documentation
+        || path_lower.starts_with("docs/")
+        || path_lower.contains("/docs/")
+        // Benchmarks
+        || path_lower.contains("/benchmark/")
+        || path_lower.contains("/benchmarks/")
+        // Tools and utilities (not core product)
+        || path_lower.starts_with("tools/")
+        || path_lower.contains("/tools/")
+        || path_lower.contains("/devtools/")
+}
+
 /// Check if file is in a compiler/AST directory (needs higher thresholds, not skip)
 pub fn is_compiler_code_path(path: &str) -> bool {
     let path_lower = path.to_lowercase();

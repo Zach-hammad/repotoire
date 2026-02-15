@@ -318,6 +318,40 @@ pub fn run(
     // Phase 4.5: Escalate compound smells (multiple issues in same location)
     crate::scoring::escalate_compound_smells(&mut findings);
     
+    // Phase 4.55: Downgrade security findings in non-production paths
+    // Scripts, tests, fixtures, examples shouldn't have critical security findings
+    {
+        use crate::detectors::content_classifier::is_non_production_path;
+        
+        let security_detectors: &[&str] = &[
+            "CommandInjectionDetector",
+            "SQLInjectionDetector", 
+            "XssDetector",
+            "SsrfDetector",
+            "PathTraversalDetector",
+            "LogInjectionDetector",
+            "EvalDetector",
+            "InsecureRandomDetector",
+            "HardcodedCredentialsDetector",
+            "CleartextCredentialsDetector",
+        ];
+        
+        for finding in findings.iter_mut() {
+            // Check if any affected file is in a non-production path
+            let is_non_prod = finding.affected_files.iter().any(|p| {
+                is_non_production_path(&p.to_string_lossy())
+            });
+            
+            if is_non_prod && security_detectors.contains(&finding.detector.as_str()) {
+                // Downgrade critical/high to medium in non-prod paths
+                if finding.severity == Severity::Critical || finding.severity == Severity::High {
+                    finding.severity = Severity::Medium;
+                    finding.description = format!("[Non-production path] {}", finding.description);
+                }
+            }
+        }
+    }
+    
     // Phase 4.6: FP filtering with category-aware thresholds
     // Always runs - uses different thresholds for different detector types:
     // - Security: conservative (0.35) - don't miss real vulnerabilities
