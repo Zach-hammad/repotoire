@@ -47,6 +47,121 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
     "swift", // Swift
 ];
 
+/// Quick file list collection (no git, no incremental checking) for cache validation
+fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    
+    let walker = WalkBuilder::new(repo_path)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(false)
+        .git_exclude(true)
+        .build();
+    
+    for entry in walker.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if SUPPORTED_EXTENSIONS.contains(&ext) {
+                    files.push(path.to_path_buf());
+                }
+            }
+        }
+    }
+    
+    Ok(files)
+}
+
+/// Output results from fully cached data (fast path)
+fn output_cached_results(
+    env: &EnvironmentSetup,
+    findings: Vec<Finding>,
+    cached_score: &crate::detectors::CachedScoreResult,
+    format: &str,
+    start_time: Instant,
+    _explain_score: bool,
+) -> Result<()> {
+    let findings_summary = FindingsSummary::from_findings(&findings);
+    
+    // Build minimal health report from cached data
+    let health_report = HealthReport {
+        overall_score: cached_score.score,
+        grade: cached_score.grade.clone(),
+        structure_score: cached_score.score, // Approximation for cached
+        quality_score: cached_score.score,
+        architecture_score: Some(cached_score.score),
+        findings: findings.clone(),
+        findings_summary,
+        total_files: cached_score.total_files,
+        total_functions: cached_score.total_functions,
+        total_classes: cached_score.total_classes,
+    };
+    
+    // Output based on format
+    match format {
+        "json" => {
+            let output = serde_json::to_string_pretty(&health_report)?;
+            println!("{}", output);
+        }
+        "sarif" => {
+            // SARIF requires full reporter infrastructure, skip cache fast path
+            // This will be caught by the normal flow
+            anyhow::bail!("SARIF format not supported in cache fast path");
+        }
+        _ => {
+            // Simple text output for cached results
+            println!("\n{}", style("Repotoire Analysis").bold());
+            println!("{}", style("──────────────────────────────────────").dim());
+            
+            let grade_colored = match cached_score.grade.as_str() {
+                "A+" | "A" => style(&cached_score.grade).green().bold(),
+                "B" => style(&cached_score.grade).cyan().bold(),
+                "C" => style(&cached_score.grade).yellow().bold(),
+                _ => style(&cached_score.grade).red().bold(),
+            };
+            
+            println!(
+                "Score: {}  Grade: {}  Files: {}  Functions: {}  Classes: {}",
+                style(format!("{:.1}/100", cached_score.score)).bold(),
+                grade_colored,
+                cached_score.total_files,
+                cached_score.total_functions,
+                cached_score.total_classes,
+            );
+            
+            // Show findings summary
+            let high = findings.iter().filter(|f| f.severity == Severity::High || f.severity == Severity::Critical).count();
+            let medium = findings.iter().filter(|f| f.severity == Severity::Medium).count();
+            let low = findings.iter().filter(|f| f.severity == Severity::Low).count();
+            
+            println!(
+                "{} ({} total)",
+                style("FINDINGS").bold(),
+                findings.len()
+            );
+            
+            if high > 0 {
+                println!("  {}  {}  HIGH+", style("🔴").red(), high);
+            }
+            if medium > 0 {
+                println!("  {}  {}  MEDIUM", style("🟠").yellow(), medium);
+            }
+            if low > 0 {
+                println!("  {}  {}  LOW", style("🟢").green(), low);
+            }
+            
+            let elapsed = start_time.elapsed();
+            println!(
+                "\n{}Analysis complete in {:.2}s (cached)",
+                style("✨ ").bold(),
+                elapsed.as_secs_f64()
+            );
+        }
+    }
+    
+    Ok(())
+}
+
 /// Result of file collection phase
 struct FileCollectionResult {
     all_files: Vec<PathBuf>,
@@ -133,6 +248,37 @@ pub fn run(
         incremental,
         since.is_some(),
     )?;
+
+    // Fast path: Check if we have complete cached results (findings + scores)
+    // This avoids graph initialization entirely when nothing has changed
+    {
+        let cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
+        let all_files = collect_file_list(&env.repo_path)?;
+        
+        if cache.has_complete_cache(&all_files) {
+            let findings = cache.get_all_cached_graph_findings();
+            let cached_score = cache.get_cached_score().unwrap();
+            
+            if !env.quiet_mode {
+                println!(
+                    "\n{}Using fully cached results (no changes detected)\n",
+                    style("⚡ ").bold()
+                );
+            }
+            
+            // Output cached results
+            output_cached_results(
+                &env,
+                findings,
+                cached_score,
+                format,
+                start_time,
+                explain_score,
+            )?;
+            
+            return Ok(());
+        }
+    }
 
     // Phase 2: Initialize graph and collect files
     let (graph, file_result, parse_result) = initialize_graph(&env, &since, &MultiProgress::new())?;
@@ -242,10 +388,23 @@ pub fn run(
         top,
         page,
         per_page,
-        file_result.files_to_parse.len(),
+        file_result.all_files.len(),
         parse_result.total_functions,
         parse_result.total_classes,
     );
+    
+    // Cache scores for fast path on next run
+    {
+        let mut cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
+        cache.cache_score(
+            score_result.overall_score,
+            &score_result.grade,
+            file_result.all_files.len(),
+            parse_result.total_functions,
+            parse_result.total_classes,
+        );
+        let _ = cache.save_cache();
+    }
 
     // Phase 6: Generate output
     generate_reports(

@@ -113,11 +113,23 @@ struct CachedFile {
     timestamp: u64,
 }
 
+/// Cached score result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedScoreResult {
+    pub score: f64,
+    pub grade: String,
+    pub total_files: usize,
+    pub total_functions: usize,
+    pub total_classes: usize,
+}
+
 /// Graph-level cache data
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct GraphCache {
     hash: Option<String>,
     detectors: HashMap<String, Vec<CachedFinding>>,
+    #[serde(default)]
+    score: Option<CachedScoreResult>,
 }
 
 /// Cached parse result for a file
@@ -467,6 +479,31 @@ impl IncrementalCache {
     pub fn update_graph_hash(&mut self, hash: &str) {
         self.cache.graph.hash = Some(hash.to_string());
         self.dirty = true;
+    }
+    
+    /// Cache the score result
+    pub fn cache_score(&mut self, score: f64, grade: &str, files: usize, functions: usize, classes: usize) {
+        self.cache.graph.score = Some(CachedScoreResult {
+            score,
+            grade: grade.to_string(),
+            total_files: files,
+            total_functions: functions,
+            total_classes: classes,
+        });
+        self.dirty = true;
+    }
+    
+    /// Get cached score if available
+    pub fn get_cached_score(&self) -> Option<&CachedScoreResult> {
+        self.cache.graph.score.as_ref()
+    }
+    
+    /// Check if we have a complete cached result (findings + score)
+    pub fn has_complete_cache(&self, files: &[std::path::PathBuf]) -> bool {
+        let current_hash = self.compute_all_files_hash(files);
+        !self.is_graph_changed(&current_hash) 
+            && !self.cache.graph.detectors.is_empty()
+            && self.cache.graph.score.is_some()
     }
 
     /// Get cache statistics

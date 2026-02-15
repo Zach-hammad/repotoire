@@ -278,7 +278,7 @@ pub use health_delta::{
     estimate_batch_fix_impact, estimate_fix_impact, BatchHealthScoreDelta, HealthScoreDelta,
     HealthScoreDeltaCalculator, ImpactLevel, MetricsBreakdown,
 };
-pub use incremental_cache::{CacheStats, IncrementalCache};
+pub use incremental_cache::{CachedScoreResult, CacheStats, IncrementalCache};
 pub use query_cache::{ClassData, FileData, FunctionData, QueryCache};
 pub use risk_analyzer::{analyze_compound_risks, RiskAnalyzer, RiskAssessment, RiskFactor};
 pub use root_cause_analyzer::{RootCauseAnalysis, RootCauseAnalyzer, RootCauseSummary};
