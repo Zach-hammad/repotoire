@@ -18,6 +18,10 @@ use crate::git;
 use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
 use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
 use crate::parsers::{parse_file, ParseResult};
+use crate::parsers::streaming::{
+    ParsedFileInfo, FunctionIndex, ModuleIndex, StreamingGraphBuilder,
+    StreamingStats, stream_parse_files_parallel,
+};
 use crate::reporters;
 
 use anyhow::{Context, Result};
@@ -644,54 +648,86 @@ fn initialize_graph(
         Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?)
     };
 
-    // Parse files and build graph (with parse caching)
-    // Use chunked processing for very large repos to limit peak memory
-    let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
+    // Parse files and build graph
+    // Use streaming for massive repos (50k+), chunked for large (10k-50k), normal for small
+    let use_streaming = file_result.files_to_parse.len() > 50000;
     
-    let parse_result = if file_result.files_to_parse.len() > 10000 {
-        // Chunked parsing for huge repos
-        parse_files_chunked(
+    let parse_result = if use_streaming {
+        // STREAMING MODE: Parse and build graph one file at a time
+        // This prevents OOM on repos with 75k+ files
+        if !env.quiet_mode {
+            println!(
+                "{}Using streaming mode for {} files (memory efficient)",
+                style("🌊 ").bold(),
+                style(file_result.files_to_parse.len()).cyan()
+            );
+        }
+        
+        let (total_functions, total_classes) = parse_and_build_streaming(
             &file_result.files_to_parse,
+            &env.repo_path,
+            Arc::clone(&graph),
             multi,
             &bar_style,
-            env.config.is_incremental_mode,
-            &cache_mutex,
-            5000, // Process 5000 files at a time
-        )?
+        )?;
+        
+        // Return empty parse_results since we built the graph already
+        ParsePhaseResult {
+            parse_results: vec![],
+            total_functions,
+            total_classes,
+        }
     } else {
-        parse_files(
-            &file_result.files_to_parse,
-            multi,
-            &bar_style,
-            env.config.is_incremental_mode,
-            &cache_mutex,
-        )?
-    };
-    
-    // Save parse cache
-    if let Ok(mut cache) = cache_mutex.into_inner() {
-        let _ = cache.save_cache();
-    }
+        // Traditional mode: collect parse results then build graph
+        let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
+        
+        let result = if file_result.files_to_parse.len() > 10000 {
+            // Chunked parsing for large repos (10k-50k files)
+            parse_files_chunked(
+                &file_result.files_to_parse,
+                multi,
+                &bar_style,
+                env.config.is_incremental_mode,
+                &cache_mutex,
+                5000, // Process 5000 files at a time
+            )?
+        } else {
+            parse_files(
+                &file_result.files_to_parse,
+                multi,
+                &bar_style,
+                env.config.is_incremental_mode,
+                &cache_mutex,
+            )?
+        };
+        
+        // Save parse cache
+        if let Ok(mut cache) = cache_mutex.into_inner() {
+            let _ = cache.save_cache();
+        }
 
-    // Build graph in chunks for large repos
-    if parse_result.parse_results.len() > 10000 {
-        build_graph_chunked(
-            &graph,
-            &env.repo_path,
-            &parse_result.parse_results,
-            multi,
-            &bar_style,
-            5000, // Build 5000 files at a time
-        )?;
-    } else {
-        build_graph(
-            &graph,
-            &env.repo_path,
-            &parse_result.parse_results,
-            multi,
-            &bar_style,
-        )?;
-    }
+        // Build graph in chunks for large repos
+        if result.parse_results.len() > 10000 {
+            build_graph_chunked(
+                &graph,
+                &env.repo_path,
+                &result.parse_results,
+                multi,
+                &bar_style,
+                5000, // Build 5000 files at a time
+            )?;
+        } else {
+            build_graph(
+                &graph,
+                &env.repo_path,
+                &result.parse_results,
+                multi,
+                &bar_style,
+            )?;
+        }
+        
+        result
+    };
 
     // Pre-warm file cache (skip for huge repos)
     if file_result.all_files.len() < 20000 {
@@ -2623,4 +2659,206 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
     });
 
     Ok(files)
+}
+
+// ============================================================================
+// Streaming Graph Builder Implementation
+// ============================================================================
+
+/// Graph builder that processes files in streaming fashion
+/// 
+/// This implementation receives parsed files one at a time and immediately
+/// adds nodes to the graph. Edges are collected for batch insertion at the end.
+/// This prevents OOM on large repositories (75k+ files).
+struct StreamingGraphBuilderImpl {
+    graph: Arc<GraphStore>,
+    repo_path: PathBuf,
+    function_index: FunctionIndex,
+    module_index: ModuleIndex,
+    
+    // Collected edges for batch insertion
+    edges: Vec<(String, String, CodeEdge)>,
+    
+    // Stats
+    total_functions: usize,
+    total_classes: usize,
+}
+
+impl StreamingGraphBuilderImpl {
+    fn new(
+        graph: Arc<GraphStore>,
+        repo_path: PathBuf,
+        function_index: FunctionIndex,
+        module_index: ModuleIndex,
+    ) -> Self {
+        Self {
+            graph,
+            repo_path,
+            function_index,
+            module_index,
+            edges: Vec::new(),
+            total_functions: 0,
+            total_classes: 0,
+        }
+    }
+}
+
+impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
+    fn on_file(&mut self, info: ParsedFileInfo) -> Result<()> {
+        // Add file node immediately
+        let file_node = CodeNode::new(NodeKind::File, &info.relative_path, &info.relative_path)
+            .with_qualified_name(&info.relative_path)
+            .with_language(&info.language)
+            .with_property("loc", info.loc as i64);
+        self.graph.add_node(file_node);
+        
+        // Add function nodes immediately
+        for func in &info.functions {
+            let loc = if func.line_end >= func.line_start {
+                func.line_end - func.line_start + 1
+            } else {
+                1
+            };
+            let address_taken = info.address_taken.contains(&func.name);
+            
+            let func_node = CodeNode::new(NodeKind::Function, &func.name, &info.relative_path)
+                .with_qualified_name(&func.qualified_name)
+                .with_lines(func.line_start, func.line_end)
+                .with_property("is_async", func.is_async)
+                .with_property("complexity", func.complexity as i64)
+                .with_property("loc", loc as i64)
+                .with_property("address_taken", address_taken);
+            self.graph.add_node(func_node);
+            
+            // Collect contains edge
+            self.edges.push((
+                info.relative_path.clone(),
+                func.qualified_name.clone(),
+                CodeEdge::contains(),
+            ));
+            
+            self.total_functions += 1;
+        }
+        
+        // Add class nodes immediately
+        for class in &info.classes {
+            let class_node = CodeNode::new(NodeKind::Class, &class.name, &info.relative_path)
+                .with_qualified_name(&class.qualified_name)
+                .with_lines(class.line_start, class.line_end)
+                .with_property("methodCount", class.method_count as i64);
+            self.graph.add_node(class_node);
+            
+            // Collect contains edge
+            self.edges.push((
+                info.relative_path.clone(),
+                class.qualified_name.clone(),
+                CodeEdge::contains(),
+            ));
+            
+            self.total_classes += 1;
+        }
+        
+        // Collect call edges (resolve using index)
+        for (caller, callee) in &info.calls {
+            let parts: Vec<&str> = callee.rsplitn(2, "::").collect();
+            let callee_name = parts[0];
+            let callee_name = callee_name.rsplit('.').next().unwrap_or(callee_name);
+            
+            // Try to find callee - first check this file's functions
+            let callee_qn = if let Some(func) = info.functions.iter().find(|f| f.name == callee_name) {
+                func.qualified_name.clone()
+            } else if let Some(qn) = self.function_index.name_to_qualified.get(callee_name) {
+                qn.clone()
+            } else {
+                continue; // Can't resolve, skip this edge
+            };
+            
+            self.edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
+        }
+        
+        // Collect import edges (resolve using module index)
+        for import in &info.imports {
+            let matches = self.module_index.find_matches(&import.path);
+            if let Some(target) = matches.first() {
+                if target != &info.relative_path {
+                    let import_edge = CodeEdge::imports()
+                        .with_property("is_type_only", import.is_type_only);
+                    self.edges.push((info.relative_path.clone(), target.clone(), import_edge));
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    fn finalize(&mut self) -> Result<()> {
+        // Batch insert all collected edges
+        self.graph.add_edges_batch(std::mem::take(&mut self.edges));
+        
+        // Persist graph
+        self.graph.save()?;
+        
+        Ok(())
+    }
+}
+
+/// Parse files and build graph using streaming architecture
+/// 
+/// This function is used for very large repositories (20k+ files) to prevent OOM.
+/// Unlike the traditional approach that collects all ParseResults first,
+/// this processes one file at a time.
+fn parse_and_build_streaming(
+    files: &[PathBuf],
+    repo_path: &Path,
+    graph: Arc<GraphStore>,
+    multi: &MultiProgress,
+    bar_style: &ProgressStyle,
+) -> Result<(usize, usize)> {
+    let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
+    parse_bar.set_style(bar_style.clone());
+    parse_bar.set_message("Building indexes (Phase 1)...");
+    
+    // Phase 1: Build lightweight indexes for cross-file references
+    let (function_index, module_index) = crate::parsers::streaming::build_indexes_parallel(
+        files,
+        repo_path,
+        Some(&|count, total| {
+            if count % 500 == 0 {
+                parse_bar.set_position(count as u64);
+            }
+        }),
+    )?;
+    
+    parse_bar.set_message("Streaming parse & build (Phase 2)...");
+    parse_bar.set_position(0);
+    
+    // Phase 2: Stream parse and build graph
+    let mut builder = StreamingGraphBuilderImpl::new(
+        graph.clone(),
+        repo_path.to_path_buf(),
+        function_index,
+        module_index,
+    );
+    
+    let stats = stream_parse_files_parallel(
+        files,
+        repo_path,
+        &mut builder,
+        2000, // Process in batches of 2000 for parallelism
+        Some(&|count, total| {
+            if count % 200 == 0 {
+                parse_bar.set_position(count as u64);
+            }
+        }),
+    )?;
+    
+    parse_bar.finish_with_message(format!(
+        "{}Streamed {} files ({} functions, {} classes)",
+        style("✓ ").green(),
+        style(stats.parsed_files).cyan(),
+        style(builder.total_functions).cyan(),
+        style(builder.total_classes).cyan(),
+    ));
+    
+    Ok((builder.total_functions, builder.total_classes))
 }

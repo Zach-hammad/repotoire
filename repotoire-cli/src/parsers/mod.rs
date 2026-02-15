@@ -13,6 +13,9 @@ mod typescript;
 mod c;
 mod cpp;
 
+/// Streaming AST processing for memory-efficient large repo analysis
+pub mod streaming;
+
 use anyhow::Result;
 use std::path::Path;
 
