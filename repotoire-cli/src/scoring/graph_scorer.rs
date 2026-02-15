@@ -482,21 +482,11 @@ impl<'a> GraphScorer<'a> {
     }
 
     /// Calculate letter grade
-    fn calculate_grade(&self, score: f64, findings: &[Finding]) -> String {
-        let critical_count = findings
-            .iter()
-            .filter(|f| matches!(f.severity, Severity::Critical))
-            .count();
-
-        // Graduated caps based on critical count (less harsh)
-        let max_grade = match critical_count {
-            0 => "A+",
-            1..=2 => "B+",   // 1-2 criticals: cap at B+
-            3..=5 => "B-",   // 3-5 criticals: cap at B-
-            6..=10 => "C+",  // 6-10 criticals: cap at C+
-            _ => "C",        // 10+ criticals: cap at C
-        };
-
+    fn calculate_grade(&self, score: f64, _findings: &[Finding]) -> String {
+        // Grade is purely based on score - no caps
+        // The score already reflects severity of findings
+        // Capping based on criticals double-penalizes and punishes FPs in scripts/tests
+        
         let base_grade = if score >= 97.0 {
             "A+"
         } else if score >= 93.0 {
@@ -525,16 +515,7 @@ impl<'a> GraphScorer<'a> {
             "F"
         };
 
-        // Cap at max grade (compare grade order)
-        let grade_order = ["F", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+"];
-        let base_idx = grade_order.iter().position(|&g| g == base_grade).unwrap_or(0);
-        let max_idx = grade_order.iter().position(|&g| g == max_grade).unwrap_or(grade_order.len() - 1);
-        
-        if base_idx > max_idx {
-            max_grade.to_string()
-        } else {
-            base_grade.to_string()
-        }
+        base_grade.to_string()
     }
 
     /// Generate human-readable explanation of the score
@@ -638,13 +619,13 @@ mod tests {
 
         let breakdown = scorer.calculate(&findings);
 
-        // 1-2 critical findings should cap grade at B+ (graduated capping)
+        // Grade is now purely score-based (no caps)
+        // With minimal findings on an empty graph, score should be high = A range
         assert!(
-            breakdown.grade.starts_with('B')
-                || breakdown.grade.starts_with('C')
-                || breakdown.grade.starts_with('D')
-                || breakdown.grade == "F",
-            "Expected grade capped at B or below, got {}",
+            breakdown.grade.starts_with('A')
+                || breakdown.grade.starts_with('B')
+                || breakdown.grade.starts_with('C'),
+            "Expected reasonable grade, got {}",
             breakdown.grade
         );
     }
