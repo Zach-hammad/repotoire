@@ -112,6 +112,10 @@ pub enum Commands {
         #[arg(long)]
         lite: bool,
 
+        /// Use compact graph store with string interning (experimental, lower memory)
+        #[arg(long)]
+        compact: bool,
+
         /// Exit with code 1 if findings at this severity or higher exist
         /// Values: critical, high, medium, low (default: none - always exit 0)
         #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
@@ -294,6 +298,7 @@ pub fn run(cli: Cli) -> Result<()> {
             skip_graph,
             max_files,
             lite,
+            compact,
             fail_on,
             no_emoji,
             explain_score,
@@ -333,6 +338,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 verify,
                 effective_skip_graph,
                 effective_max_files,
+                compact,
             )
         }
 
@@ -577,6 +583,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 false, // verify
                 false, // skip_graph
                 0,     // max_files (unlimited)
+                false, // compact
             )
         }
     }

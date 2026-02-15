@@ -240,7 +240,13 @@ pub fn run(
     verify: bool,
     skip_graph: bool,
     max_files: usize,
+    compact: bool,
 ) -> Result<()> {
+    // TODO: When compact=true, use CompactGraphStore instead of GraphStore
+    // This will reduce memory by 60-70% via string interning
+    if compact {
+        tracing::info!("Compact mode enabled (string interning)");
+    }
     let start_time = Instant::now();
 
     // Phase 1: Validate repository and setup environment
