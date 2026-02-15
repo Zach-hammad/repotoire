@@ -7,7 +7,146 @@ use crate::parsers::ParseResult;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor};
+
+/// Function query string (shared across languages)
+const FUNC_QUERY_STR: &str = r#"
+    (function_declaration
+        name: (identifier) @func_name
+        parameters: (formal_parameters) @params
+    ) @func
+
+    (generator_function_declaration
+        name: (identifier) @func_name
+        parameters: (formal_parameters) @params
+    ) @func
+
+    (arrow_function
+        parameters: [(formal_parameters) (identifier)] @params
+    ) @arrow_func
+
+    (variable_declarator
+        name: (identifier) @var_name
+        value: (arrow_function
+            parameters: [(formal_parameters) (identifier)] @params
+        ) @arrow_func
+    )
+
+    (variable_declarator
+        name: (identifier) @var_name
+        value: (function_expression
+            parameters: (formal_parameters) @params
+        ) @func_expr
+    )
+
+    (export_statement
+        declaration: (function_declaration
+            name: (identifier) @func_name
+            parameters: (formal_parameters) @params
+        ) @func
+    )
+"#;
+
+/// Cached queries for TypeScript
+static TS_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
+static TS_CLASS_QUERY: OnceLock<Query> = OnceLock::new();
+static TS_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
+
+/// Cached queries for TSX
+static TSX_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
+static TSX_CLASS_QUERY: OnceLock<Query> = OnceLock::new();
+static TSX_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
+
+/// Cached queries for JavaScript
+static JS_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
+static JS_CLASS_QUERY: OnceLock<Query> = OnceLock::new();
+static JS_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
+
+/// Class query string for TypeScript
+const TS_CLASS_QUERY_STR: &str = r#"
+    (class_declaration
+        name: (type_identifier) @class_name
+    ) @class
+
+    (interface_declaration
+        name: (type_identifier) @iface_name
+    ) @interface
+
+    (type_alias_declaration
+        name: (type_identifier) @type_name
+    ) @type_alias
+
+    (export_statement
+        declaration: (class_declaration
+            name: (type_identifier) @class_name
+        ) @class
+    )
+"#;
+
+/// Class query string for JavaScript
+const JS_CLASS_QUERY_STR: &str = r#"
+    (class_declaration
+        name: (identifier) @class_name
+    ) @class
+
+    (export_statement
+        declaration: (class_declaration
+            name: (identifier) @class_name
+        ) @class
+    )
+"#;
+
+/// Import query string (shared)
+const IMPORT_QUERY_STR: &str = r#"
+    (import_statement
+        source: (string) @import_path
+    )
+    
+    (import_statement
+        (import_clause
+            (named_imports
+                (import_specifier
+                    name: (identifier) @import_name
+                )
+            )
+        )
+        source: (string) @import_path
+    )
+"#;
+
+/// Get or create cached function query for an extension
+fn get_func_query(ext: &str, language: &Language) -> &'static Query {
+    match ext {
+        "ts" => TS_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).unwrap()),
+        "tsx" => TSX_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).unwrap()),
+        _ => JS_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).unwrap()),
+    }
+}
+
+/// Get or create cached class query for an extension
+fn get_class_query(ext: &str, language: &Language) -> &'static Query {
+    match ext {
+        "ts" => TS_CLASS_QUERY.get_or_init(|| {
+            Query::new(language, TS_CLASS_QUERY_STR)
+                .unwrap_or_else(|_| Query::new(language, JS_CLASS_QUERY_STR).unwrap())
+        }),
+        "tsx" => TSX_CLASS_QUERY.get_or_init(|| {
+            Query::new(language, TS_CLASS_QUERY_STR)
+                .unwrap_or_else(|_| Query::new(language, JS_CLASS_QUERY_STR).unwrap())
+        }),
+        _ => JS_CLASS_QUERY.get_or_init(|| Query::new(language, JS_CLASS_QUERY_STR).unwrap()),
+    }
+}
+
+/// Get or create cached import query for an extension
+fn get_import_query(ext: &str, language: &Language) -> &'static Query {
+    match ext {
+        "ts" => TS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).unwrap()),
+        "tsx" => TSX_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).unwrap()),
+        _ => JS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).unwrap()),
+    }
+}
 
 /// Parse a TypeScript/JavaScript file and extract all code entities
 pub fn parse(path: &Path) -> Result<ParseResult> {
@@ -43,9 +182,9 @@ pub fn parse_source(source: &str, path: &Path, ext: &str) -> Result<ParseResult>
 
     let mut result = ParseResult::default();
 
-    extract_functions(&root, source_bytes, path, &mut result, &language)?;
-    extract_classes(&root, source_bytes, path, &mut result, &language)?;
-    extract_imports(&root, source_bytes, &mut result, &language)?;
+    extract_functions(&root, source_bytes, path, &mut result, &language, ext)?;
+    extract_classes(&root, source_bytes, path, &mut result, &language, ext)?;
+    extract_imports(&root, source_bytes, &mut result, &language, ext)?;
     extract_calls(&root, source_bytes, path, &mut result)?;
 
     Ok(result)
@@ -58,45 +197,9 @@ fn extract_functions(
     path: &Path,
     result: &mut ParseResult,
     language: &Language,
+    ext: &str,
 ) -> Result<()> {
-    let query_str = r#"
-        (function_declaration
-            name: (identifier) @func_name
-            parameters: (formal_parameters) @params
-        ) @func
-
-        (generator_function_declaration
-            name: (identifier) @func_name
-            parameters: (formal_parameters) @params
-        ) @func
-
-        (arrow_function
-            parameters: [(formal_parameters) (identifier)] @params
-        ) @arrow_func
-
-        (variable_declarator
-            name: (identifier) @var_name
-            value: (arrow_function
-                parameters: [(formal_parameters) (identifier)] @params
-            ) @arrow_func
-        )
-
-        (variable_declarator
-            name: (identifier) @var_name
-            value: (function_expression
-                parameters: (formal_parameters) @params
-            ) @func_expr
-        )
-
-        (export_statement
-            declaration: (function_declaration
-                name: (identifier) @func_name
-                parameters: (formal_parameters) @params
-            ) @func
-        )
-    "#;
-
-    let query = Query::new(language, query_str).context("Failed to create function query")?;
+    let query = get_func_query(ext, language);
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&query, *root, source);
@@ -276,45 +379,9 @@ fn extract_classes(
     path: &Path,
     result: &mut ParseResult,
     language: &Language,
+    ext: &str,
 ) -> Result<()> {
-    // Try TypeScript-style query first (uses type_identifier for class names)
-    let ts_query_str = r#"
-        (class_declaration
-            name: (type_identifier) @class_name
-        ) @class
-
-        (interface_declaration
-            name: (type_identifier) @iface_name
-        ) @interface
-
-        (type_alias_declaration
-            name: (type_identifier) @type_name
-        ) @type_alias
-
-        (export_statement
-            declaration: (class_declaration
-                name: (type_identifier) @class_name
-            ) @class
-        )
-    "#;
-
-    // JavaScript-style query (uses identifier for class names)
-    let js_query_str = r#"
-        (class_declaration
-            name: (identifier) @class_name
-        ) @class
-
-        (export_statement
-            declaration: (class_declaration
-                name: (identifier) @class_name
-            ) @class
-        )
-    "#;
-
-    // Try TS query first, fall back to JS query
-    let query = Query::new(language, ts_query_str)
-        .or_else(|_| Query::new(language, js_query_str))
-        .context("Failed to create class query")?;
+    let query = get_class_query(ext, language);
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&query, *root, source);
@@ -599,7 +666,9 @@ fn extract_imports(
     source: &[u8],
     result: &mut ParseResult,
     language: &Language,
+    ext: &str,
 ) -> Result<()> {
+    // Use a simple query that works for both TS and JS
     let query_str = r#"
         (import_statement) @import_stmt
         (export_statement
@@ -607,6 +676,7 @@ fn extract_imports(
         )
     "#;
 
+    // Note: Import queries are simple enough we don't need complex caching
     let query = Query::new(language, query_str).context("Failed to create import query")?;
 
     let mut cursor = QueryCursor::new();
