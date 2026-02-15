@@ -105,6 +105,20 @@ impl Detector for DebugCodeDetector {
             if Self::is_dev_only_path(&path_str) {
                 continue;
             }
+            
+            // Skip non-production paths (examples, docs, scripts)
+            if crate::detectors::content_classifier::is_non_production_path(&path_str) {
+                continue;
+            }
+            
+            // Skip example files
+            if path_str.contains("/examples/")
+                || path_str.contains("/example/")
+                || path_str.contains("/docs/")
+                || path_str.contains("/documentation/")
+            {
+                continue;
+            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx" | "rb" | "java") {

@@ -313,6 +313,11 @@ impl Detector for NPlusOneDetector {
             if crate::detectors::content_classifier::is_likely_bundled_path(&path_str) {
                 continue;
             }
+            
+            // Skip non-production paths
+            if crate::detectors::content_classifier::is_non_production_path(&path_str) {
+                continue;
+            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py" | "js" | "ts" | "rb" | "java" | "go") {

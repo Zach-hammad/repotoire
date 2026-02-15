@@ -171,6 +171,19 @@ impl Detector for ReactHooksDetector {
             {
                 continue;
             }
+            
+            // Skip playground/examples/apps (demo code, not production)
+            if path_str.contains("/playground/")
+                || path_str.contains("/apps/")
+                || path_str.contains("/fixtures/")
+            {
+                continue;
+            }
+            
+            // Skip non-production paths
+            if crate::detectors::content_classifier::is_non_production_path(&path_str) {
+                continue;
+            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "js" | "jsx" | "ts" | "tsx") {
