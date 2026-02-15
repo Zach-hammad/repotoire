@@ -1008,101 +1008,127 @@ fn build_graph(
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
 ) -> Result<()> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    
     let total_functions: usize = parse_results.iter().map(|(_, r)| r.functions.len()).sum();
     let total_classes: usize = parse_results.iter().map(|(_, r)| r.classes.len()).sum();
 
     let graph_bar = multi.add(ProgressBar::new(parse_results.len() as u64));
     graph_bar.set_style(bar_style.clone());
-    graph_bar.set_message("Building code graph...");
+    graph_bar.set_message("Building code graph (parallel)...");
 
-    // Collect all nodes
-    let mut file_nodes = Vec::with_capacity(parse_results.len());
-    let mut func_nodes = Vec::with_capacity(total_functions);
-    let mut class_nodes = Vec::with_capacity(total_classes);
-    let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
-
-    // Build global function lookup
+    // Build global function lookup (needed for call edge resolution)
     let global_func_map = build_global_function_map(parse_results);
+    let counter = AtomicUsize::new(0);
 
-    for (file_path, result) in parse_results {
-        let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
-        let relative_str = relative_path.display().to_string();
-        let language = detect_language(file_path);
-        let loc = count_lines(file_path).unwrap_or(0);
+    // Parallel collection of nodes and edges per file
+    let file_results: Vec<_> = parse_results
+        .par_iter()
+        .map(|(file_path, result)| {
+            let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
+            let relative_str = relative_path.display().to_string();
+            let language = detect_language(file_path);
+            let loc = count_lines(file_path).unwrap_or(0);
 
-        // File node
-        file_nodes.push(
-            CodeNode::new(NodeKind::File, &relative_str, &relative_str)
-                .with_qualified_name(&relative_str)
-                .with_language(&language)
-                .with_property("loc", loc as i64),
-        );
+            let mut file_nodes = Vec::with_capacity(1);
+            let mut func_nodes = Vec::with_capacity(result.functions.len());
+            let mut class_nodes = Vec::with_capacity(result.classes.len());
+            let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
 
-        // Function nodes
-        for func in &result.functions {
-            let loc = if func.line_end >= func.line_start {
-                func.line_end - func.line_start + 1
-            } else {
-                1
-            };
-            let complexity = func.complexity.unwrap_or(1);
-            let address_taken = result.address_taken.contains(&func.name);
-
-            func_nodes.push(
-                CodeNode::new(NodeKind::Function, &func.name, &relative_str)
-                    .with_qualified_name(&func.qualified_name)
-                    .with_lines(func.line_start, func.line_end)
-                    .with_property("is_async", func.is_async)
-                    .with_property("complexity", complexity as i64)
-                    .with_property("loc", loc as i64)
-                    .with_property("address_taken", address_taken),
+            // File node
+            file_nodes.push(
+                CodeNode::new(NodeKind::File, &relative_str, &relative_str)
+                    .with_qualified_name(&relative_str)
+                    .with_language(&language)
+                    .with_property("loc", loc as i64),
             );
-            edges.push((
-                relative_str.clone(),
-                func.qualified_name.clone(),
-                CodeEdge::contains(),
-            ));
-        }
 
-        // Class nodes
-        for class in &result.classes {
-            class_nodes.push(
-                CodeNode::new(NodeKind::Class, &class.name, &relative_str)
-                    .with_qualified_name(&class.qualified_name)
-                    .with_lines(class.line_start, class.line_end)
-                    .with_property("methodCount", class.methods.len() as i64),
+            // Function nodes
+            for func in &result.functions {
+                let loc = if func.line_end >= func.line_start {
+                    func.line_end - func.line_start + 1
+                } else {
+                    1
+                };
+                let complexity = func.complexity.unwrap_or(1);
+                let address_taken = result.address_taken.contains(&func.name);
+
+                func_nodes.push(
+                    CodeNode::new(NodeKind::Function, &func.name, &relative_str)
+                        .with_qualified_name(&func.qualified_name)
+                        .with_lines(func.line_start, func.line_end)
+                        .with_property("is_async", func.is_async)
+                        .with_property("complexity", complexity as i64)
+                        .with_property("loc", loc as i64)
+                        .with_property("address_taken", address_taken),
+                );
+                edges.push((
+                    relative_str.clone(),
+                    func.qualified_name.clone(),
+                    CodeEdge::contains(),
+                ));
+            }
+
+            // Class nodes
+            for class in &result.classes {
+                class_nodes.push(
+                    CodeNode::new(NodeKind::Class, &class.name, &relative_str)
+                        .with_qualified_name(&class.qualified_name)
+                        .with_lines(class.line_start, class.line_end)
+                        .with_property("methodCount", class.methods.len() as i64),
+                );
+                edges.push((
+                    relative_str.clone(),
+                    class.qualified_name.clone(),
+                    CodeEdge::contains(),
+                ));
+            }
+
+            // Call edges
+            build_call_edges_parallel(
+                &mut edges,
+                result,
+                parse_results,
+                repo_path,
+                &global_func_map,
             );
-            edges.push((
-                relative_str.clone(),
-                class.qualified_name.clone(),
-                CodeEdge::contains(),
-            ));
-        }
 
-        // Call edges
-        build_call_edges(
-            &mut edges,
-            result,
-            parse_results,
-            repo_path,
-            &global_func_map,
-        );
+            // Import edges
+            build_import_edges(&mut edges, result, &relative_str, parse_results, repo_path);
 
-        // Import edges
-        build_import_edges(&mut edges, result, &relative_str, parse_results, repo_path);
+            let count = counter.fetch_add(1, Ordering::Relaxed);
+            if count % 100 == 0 {
+                graph_bar.set_position(count as u64);
+            }
 
-        graph_bar.inc(1);
+            (file_nodes, func_nodes, class_nodes, edges)
+        })
+        .collect();
+
+    // Merge results from all threads
+    graph_bar.set_message("Merging graph data...");
+    let mut all_file_nodes = Vec::with_capacity(parse_results.len());
+    let mut all_func_nodes = Vec::with_capacity(total_functions);
+    let mut all_class_nodes = Vec::with_capacity(total_classes);
+    let mut all_edges = Vec::new();
+
+    for (file_nodes, func_nodes, class_nodes, edges) in file_results {
+        all_file_nodes.extend(file_nodes);
+        all_func_nodes.extend(func_nodes);
+        all_class_nodes.extend(class_nodes);
+        all_edges.extend(edges);
     }
 
     // Batch insert all nodes
     graph_bar.set_message("Inserting nodes...");
-    graph.add_nodes_batch(file_nodes);
-    graph.add_nodes_batch(func_nodes);
-    graph.add_nodes_batch(class_nodes);
+    graph.add_nodes_batch(all_file_nodes);
+    graph.add_nodes_batch(all_func_nodes);
+    graph.add_nodes_batch(all_class_nodes);
 
     // Batch insert all edges
     graph_bar.set_message("Inserting edges...");
-    graph.add_edges_batch(edges);
+    graph.add_edges_batch(all_edges);
 
     graph_bar.finish_with_message(format!("{}Built code graph", style("✓ ").green()));
 
@@ -1128,6 +1154,67 @@ fn build_global_function_map(parse_results: &[(PathBuf, ParseResult)]) -> HashMa
 
 /// Build call edges for a file
 fn build_call_edges(
+    edges: &mut Vec<(String, String, CodeEdge)>,
+    result: &ParseResult,
+    parse_results: &[(PathBuf, ParseResult)],
+    repo_path: &Path,
+    global_func_map: &HashMap<String, String>,
+) {
+    for (caller, callee) in &result.calls {
+        let parts: Vec<&str> = callee.rsplitn(2, "::").collect();
+        let callee_name = parts[0];
+        let callee_module = if parts.len() > 1 {
+            Some(parts[1])
+        } else {
+            None
+        };
+        let callee_name = callee_name.rsplit('.').next().unwrap_or(callee_name);
+
+        // Try to find callee in this file first
+        let callee_qn = if let Some(callee_func) =
+            result.functions.iter().find(|f| f.name == callee_name)
+        {
+            callee_func.qualified_name.clone()
+        } else {
+            // Look in other modules
+            let mut found = None;
+            if let Some(module) = callee_module {
+                for (other_path, other_result) in parse_results {
+                    let other_relative = other_path.strip_prefix(repo_path).unwrap_or(other_path);
+                    let other_str = other_relative.display().to_string();
+                    let file_stem = other_relative
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+
+                    if file_stem == module || other_str.contains(&format!("/{}.rs", module)) {
+                        if let Some(func) = other_result
+                            .functions
+                            .iter()
+                            .find(|f| f.name == callee_name)
+                        {
+                            found = Some(func.qualified_name.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if found.is_none() {
+                found = global_func_map.get(callee_name).cloned();
+            }
+
+            match found {
+                Some(qn) => qn,
+                None => continue,
+            }
+        };
+        edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
+    }
+}
+
+/// Build call edges for a file (parallel-safe version)
+fn build_call_edges_parallel(
     edges: &mut Vec<(String, String, CodeEdge)>,
     result: &ParseResult,
     parse_results: &[(PathBuf, ParseResult)],

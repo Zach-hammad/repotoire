@@ -91,6 +91,10 @@ pub enum Commands {
         /// Run thorough analysis (slower)
         #[arg(long)]
         thorough: bool,
+        
+        /// Fast mode: skip expensive graph detectors for quicker analysis
+        #[arg(long)]
+        fast: bool,
 
         /// Relaxed mode: filter to high/critical findings only (display filter, does not affect grade)
         #[arg(long)]
@@ -264,6 +268,7 @@ pub fn run(cli: Cli) -> Result<()> {
             per_page,
             skip_detector,
             thorough,
+            fast,
             relaxed,
             no_git,
             fail_on,
@@ -277,6 +282,26 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
+            
+            // In fast mode, skip expensive graph-based detectors
+            let mut skip = skip_detector;
+            if fast {
+                skip.extend(vec![
+                    "circular-dependency".to_string(),
+                    "degree-centrality".to_string(),
+                    "feature-envy".to_string(),
+                    "inappropriate-intimacy".to_string(),
+                    "shotgun-surgery".to_string(),
+                    "god-class".to_string(),
+                    "architectural-bottleneck".to_string(),
+                    "duplicate-code".to_string(),
+                    "ai-boilerplate".to_string(),
+                    "ai-duplicate-block".to_string(),
+                    "module-cohesion".to_string(),
+                    "data-clumps".to_string(),
+                ]);
+            }
+            
             analyze::run(
                 &cli.path,
                 &format,
@@ -285,7 +310,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 top,
                 page,
                 per_page,
-                skip_detector,
+                skip,
                 thorough,
                 no_git,
                 cli.workers,
