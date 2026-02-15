@@ -155,7 +155,7 @@ impl Detector for UnusedImportsDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut unused_per_file: HashMap<PathBuf, Vec<(String, u32)>> = HashMap::new();
 

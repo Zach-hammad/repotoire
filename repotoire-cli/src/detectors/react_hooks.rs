@@ -103,7 +103,7 @@ impl ReactHooksDetector {
     }
 
     /// Find containing component from graph
-    fn find_component(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
+    fn find_component(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -139,7 +139,7 @@ impl Detector for ReactHooksDetector {
         "Detects React hooks rules violations"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

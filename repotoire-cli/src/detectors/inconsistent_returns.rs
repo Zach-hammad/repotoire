@@ -27,7 +27,7 @@ impl InconsistentReturnsDetector {
     }
 
     /// Check if any caller uses the return value
-    fn return_value_is_used(graph: &GraphStore, func: &crate::graph::CodeNode) -> (bool, usize) {
+    fn return_value_is_used(graph: &dyn crate::graph::GraphQuery, func: &crate::graph::CodeNode) -> (bool, usize) {
         let callers = graph.get_callers(&func.qualified_name);
         let mut callers_using_value = 0;
 
@@ -128,7 +128,7 @@ impl Detector for InconsistentReturnsDetector {
         "Detects functions with inconsistent return paths"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         for func in graph.get_functions() {

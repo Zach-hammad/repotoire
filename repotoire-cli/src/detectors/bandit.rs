@@ -105,7 +105,7 @@ impl BanditDetector {
     }
 
     /// Create finding from bandit result
-    fn create_finding(&self, result: &JsonValue, graph: &GraphStore) -> Option<Finding> {
+    fn create_finding(&self, result: &JsonValue, graph: &dyn crate::graph::GraphQuery) -> Option<Finding> {
         let file_path = result.get("filename")?.as_str()?;
         let line = result.get("line_number")?.as_u64()? as u32;
         let test_id = result.get("test_id")?.as_str().unwrap_or("");
@@ -232,7 +232,7 @@ impl Detector for BanditDetector {
         "Detects security vulnerabilities in Python code using Bandit"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running Bandit security scan on {:?}", self.repository_path);
 
         let results = self.run_bandit();

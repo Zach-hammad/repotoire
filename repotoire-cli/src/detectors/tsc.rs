@@ -275,7 +275,7 @@ impl Detector for TscDetector {
         "Detects type errors in TypeScript using the TypeScript compiler"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         use crate::detectors::walk_source_files;
 
         info!("Running tsc type check on {:?}", self.repository_path);

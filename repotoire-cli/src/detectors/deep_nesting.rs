@@ -32,7 +32,7 @@ impl DeepNestingDetector {
     /// Find the function containing this line
     fn find_containing_function(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
         line: u32,
     ) -> Option<crate::graph::CodeNode> {
@@ -68,7 +68,7 @@ impl DeepNestingDetector {
     }
 
     /// Find callees at deep nesting that could be extracted
-    fn find_extraction_candidates(&self, graph: &GraphStore, func_qn: &str) -> Vec<String> {
+    fn find_extraction_candidates(&self, graph: &dyn crate::graph::GraphQuery, func_qn: &str) -> Vec<String> {
         let callees = graph.get_callees(func_qn);
 
         // Find callees that are called only from this function (private helpers)
@@ -93,7 +93,7 @@ impl Detector for DeepNestingDetector {
         "Detects excessive nesting depth"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

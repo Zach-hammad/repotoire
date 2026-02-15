@@ -53,7 +53,7 @@ impl WildcardImportsDetector {
     }
 
     /// Find what symbols from a module are actually used in the file
-    fn find_used_symbols(content: &str, module: &str, graph: &GraphStore) -> Vec<String> {
+    fn find_used_symbols(content: &str, module: &str, graph: &dyn crate::graph::GraphQuery) -> Vec<String> {
         // Get all functions/classes from the module
         let module_symbols: HashSet<String> = graph
             .get_functions()
@@ -79,7 +79,7 @@ impl Detector for WildcardImportsDetector {
         "Detects wildcard imports"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

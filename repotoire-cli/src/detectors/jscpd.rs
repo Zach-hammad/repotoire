@@ -161,7 +161,7 @@ impl JscpdDetector {
     }
 
     /// Create finding from duplicate
-    fn create_finding(&self, dup: &Duplicate, graph: &GraphStore) -> Finding {
+    fn create_finding(&self, dup: &Duplicate, graph: &dyn crate::graph::GraphQuery) -> Finding {
         let severity = Self::map_severity(dup.lines);
 
         // Get graph context for both files
@@ -245,7 +245,7 @@ impl Detector for JscpdDetector {
         "Detects duplicate code using jscpd"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running jscpd on {:?}", self.repository_path);
 
         let duplicates = self.run_jscpd();

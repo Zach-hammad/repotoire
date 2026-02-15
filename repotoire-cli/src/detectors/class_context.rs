@@ -155,7 +155,7 @@ pub type ClassContextMap = HashMap<String, ClassContext>;
 
 /// Builder that computes class contexts from the graph
 pub struct ClassContextBuilder<'a> {
-    graph: &'a GraphStore,
+    graph: &'a dyn crate::graph::GraphQuery,
     /// Threshold for average complexity to consider "thin wrapper"
     thin_wrapper_complexity: f64,
     /// Threshold for delegation ratio to consider "facade"
@@ -163,7 +163,7 @@ pub struct ClassContextBuilder<'a> {
 }
 
 impl<'a> ClassContextBuilder<'a> {
-    pub fn new(graph: &'a GraphStore) -> Self {
+    pub fn new(graph: &'a dyn crate::graph::GraphQuery) -> Self {
         Self {
             graph,
             thin_wrapper_complexity: 3.0, // Avg complexity <= 3 = thin methods

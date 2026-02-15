@@ -55,7 +55,7 @@ impl CircularDependencyDetector {
     }
 
     /// Analyze coupling strength between files in a cycle
-    fn analyze_coupling(&self, cycle: &[String], graph: &GraphStore) -> CouplingAnalysis {
+    fn analyze_coupling(&self, cycle: &[String], graph: &dyn crate::graph::GraphQuery) -> CouplingAnalysis {
         let mut edge_strengths: HashMap<(String, String), usize> = HashMap::new();
         let mut weakest_link: Option<(String, String, usize)> = None;
         let mut strongest_link: Option<(String, String, usize)> = None;
@@ -103,7 +103,7 @@ impl CircularDependencyDetector {
     fn find_scc_entry_points(
         &self,
         scc_files: &[String],
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
     ) -> Vec<(String, usize)> {
         let scc_set: std::collections::HashSet<&str> =
             scc_files.iter().map(|s| s.as_str()).collect();
@@ -203,7 +203,7 @@ impl CircularDependencyDetector {
         scc_files: Vec<String>,
         scc_size: usize,
         coupling: CouplingAnalysis,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
     ) -> Finding {
         let finding_id = Uuid::new_v4().to_string();
         let max_coupling = coupling.edge_strengths.values().max().copied().unwrap_or(1);
@@ -336,7 +336,7 @@ impl Detector for CircularDependencyDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         debug!("Starting circular dependency detection");
 
         // Use GraphStore's built-in cycle detection

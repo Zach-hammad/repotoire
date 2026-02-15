@@ -139,7 +139,7 @@ impl ExpressSecurityDetector {
 
     /// Find containing function
     fn find_containing_function(
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
         line: u32,
     ) -> Option<(String, usize)> {
@@ -159,7 +159,7 @@ impl Detector for ExpressSecurityDetector {
         "Detects Express.js security issues"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

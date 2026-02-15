@@ -70,7 +70,7 @@ impl ShotgunSurgeryDetector {
     /// Analyze impact of changing a class
     fn analyze_class_impact(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
     ) -> Option<ImpactAnalysis> {
         let functions = graph.get_functions();
@@ -125,7 +125,7 @@ impl ShotgunSurgeryDetector {
     /// Trace how far changes cascade through the call graph
     fn trace_cascade_depth(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         callers: &HashSet<String>,
         depth: usize,
     ) -> usize {
@@ -224,7 +224,7 @@ impl Detector for ShotgunSurgeryDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         for class in graph.get_classes() {

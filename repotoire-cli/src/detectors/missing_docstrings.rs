@@ -126,7 +126,7 @@ impl Detector for MissingDocstringsDetector {
         "Detects functions without documentation"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         for func in graph.get_functions() {

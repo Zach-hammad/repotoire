@@ -335,7 +335,7 @@ impl GraphContext {
 /// * `file_path` - Relative file path
 /// * `line` - Optional line number to find containing entity
 pub fn get_graph_context(
-    graph: &crate::graph::GraphStore,
+    graph: &dyn crate::graph::GraphQuery,
     file_path: &str,
     _line: Option<u32>,
 ) -> GraphContext {
@@ -355,7 +355,7 @@ pub fn get_graph_context(
 /// Batch get graph context for multiple files in a single query
 #[allow(dead_code)] // Public API helper - may be used by external callers
 pub fn batch_get_graph_context(
-    graph: &crate::graph::GraphStore,
+    graph: &dyn crate::graph::GraphQuery,
     file_paths: &[String],
 ) -> HashMap<String, GraphContext> {
     let mut contexts = HashMap::new();

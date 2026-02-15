@@ -112,7 +112,7 @@ impl PrototypePollutionDetector {
 
     /// Find containing function
     fn find_containing_function(
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
         line: u32,
     ) -> Option<(String, usize)> {
@@ -127,7 +127,7 @@ impl PrototypePollutionDetector {
     }
 
     /// Check if function receives external data
-    fn receives_external_data(graph: &GraphStore, func_name: &str, file_path: &str) -> bool {
+    fn receives_external_data(graph: &dyn crate::graph::GraphQuery, func_name: &str, file_path: &str) -> bool {
         // Check if function is called from route handlers
         if let Some(func) = graph
             .get_functions()
@@ -159,7 +159,7 @@ impl Detector for PrototypePollutionDetector {
         "Detects prototype pollution vulnerabilities"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

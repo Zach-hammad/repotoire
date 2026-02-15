@@ -177,7 +177,7 @@ impl RadonDetector {
     }
 
     /// Create finding from cyclomatic complexity result
-    fn create_cc_finding(&self, result: &CcResult, graph: &GraphStore) -> Option<Finding> {
+    fn create_cc_finding(&self, result: &CcResult, graph: &dyn crate::graph::GraphQuery) -> Option<Finding> {
         let severity = Self::cc_severity(&result.rank)?;
 
         let rel_path = Path::new(&result.file)
@@ -233,7 +233,7 @@ impl RadonDetector {
     }
 
     /// Create finding from maintainability index result
-    fn create_mi_finding(&self, result: &MiResult, graph: &GraphStore) -> Option<Finding> {
+    fn create_mi_finding(&self, result: &MiResult, graph: &dyn crate::graph::GraphQuery) -> Option<Finding> {
         let severity = Self::mi_severity(result.mi)?;
 
         let rel_path = Path::new(&result.file)
@@ -333,7 +333,7 @@ impl Detector for RadonDetector {
         "Detects complexity and maintainability issues in Python using radon"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running Radon on {:?}", self.repository_path);
 
         let cc_results = self.run_radon_cc();

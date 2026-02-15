@@ -51,7 +51,7 @@ impl StringConcatLoopDetector {
     }
 
     /// Find functions that do string concatenation
-    fn find_concat_functions(&self, graph: &GraphStore) -> HashSet<String> {
+    fn find_concat_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut concat_funcs = HashSet::new();
 
         for func in graph.get_functions() {
@@ -129,7 +129,7 @@ impl Detector for StringConcatLoopDetector {
         "Detects string concatenation in loops"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let concat_funcs = self.find_concat_functions(graph);
         let walker = ignore::WalkBuilder::new(&self.repository_path)

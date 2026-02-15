@@ -84,7 +84,7 @@ impl SyncInAsyncDetector {
     }
 
     /// Find all functions that contain blocking calls
-    fn find_blocking_functions(&self, graph: &GraphStore) -> HashSet<String> {
+    fn find_blocking_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut blocking_funcs = HashSet::new();
 
         for func in graph.get_functions() {
@@ -108,7 +108,7 @@ impl SyncInAsyncDetector {
     /// Check if an async function calls any known blocking functions
     fn check_transitive_blocking(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         func: &crate::graph::CodeNode,
         blocking_funcs: &HashSet<String>,
     ) -> Vec<String> {
@@ -125,7 +125,7 @@ impl SyncInAsyncDetector {
     }
 
     /// Find containing async function
-    fn find_async_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
+    fn find_async_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -142,7 +142,7 @@ impl Detector for SyncInAsyncDetector {
         "Detects blocking calls in async functions"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // First pass: identify all functions with blocking calls

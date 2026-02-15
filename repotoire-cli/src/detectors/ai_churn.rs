@@ -387,7 +387,7 @@ impl Detector for AIChurnDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         // Churn detection needs git history analysis
         let _ = graph;
         Ok(vec![])
@@ -396,7 +396,7 @@ impl Detector for AIChurnDetector {
 
 impl AIChurnDetector {
     /// Fallback detection without git history data
-    fn detect_without_git_history(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect_without_git_history(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         warn!(
             "AIChurnDetector: No git history data in graph. \
              For full churn detection, ensure git history is indexed."

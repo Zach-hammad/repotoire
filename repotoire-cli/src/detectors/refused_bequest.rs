@@ -190,7 +190,7 @@ impl RefusedBequestDetector {
     }
 
     /// Check if child class is used polymorphically (through parent type)
-    fn check_polymorphic_usage(&self, graph: &GraphStore, child_qn: &str, parent_qn: &str) -> bool {
+    fn check_polymorphic_usage(&self, graph: &dyn crate::graph::GraphQuery, child_qn: &str, parent_qn: &str) -> bool {
         // Look for functions that reference the parent type and might receive child instances
         // This is heuristic - check if parent is used as parameter/return type in callers of child methods
 
@@ -221,7 +221,7 @@ impl RefusedBequestDetector {
     }
 
     /// Get the depth of the inheritance hierarchy
-    fn get_inheritance_depth(&self, graph: &GraphStore, class_qn: &str) -> usize {
+    fn get_inheritance_depth(&self, graph: &dyn crate::graph::GraphQuery, class_qn: &str) -> usize {
         let mut depth = 0;
         let mut current = class_qn.to_string();
         let mut seen = HashSet::new();
@@ -249,7 +249,7 @@ impl RefusedBequestDetector {
     /// Check if child class methods are called differently than parent
     fn check_divergent_callers(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         child_methods: &[crate::graph::CodeNode],
         parent_qn: &str,
     ) -> bool {
@@ -312,7 +312,7 @@ impl Detector for RefusedBequestDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Build set of all class names for polymorphism detection

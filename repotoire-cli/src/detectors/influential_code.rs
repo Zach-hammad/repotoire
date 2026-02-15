@@ -245,7 +245,7 @@ impl Detector for InfluentialCodeDetector {
     }
 
     /// Legacy detection without context
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         for func in graph.get_functions() {
@@ -288,7 +288,7 @@ impl Detector for InfluentialCodeDetector {
     /// Enhanced detection with function context
     fn detect_with_context(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();

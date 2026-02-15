@@ -648,7 +648,7 @@ impl Detector for UnsafeTemplateDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         debug!("Starting unsafe template detection");
 
         let mut findings = Vec::new();

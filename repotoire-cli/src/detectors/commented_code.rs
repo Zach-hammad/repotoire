@@ -106,7 +106,7 @@ impl CommentedCodeDetector {
     }
 
     /// Check how many referenced functions exist in the graph
-    fn check_func_existence(graph: &GraphStore, refs: &HashSet<String>) -> (usize, usize) {
+    fn check_func_existence(graph: &dyn crate::graph::GraphQuery, refs: &HashSet<String>) -> (usize, usize) {
         let all_func_names: HashSet<String> =
             graph.get_functions().into_iter().map(|f| f.name).collect();
 
@@ -124,7 +124,7 @@ impl Detector for CommentedCodeDetector {
         "Detects large blocks of commented code"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

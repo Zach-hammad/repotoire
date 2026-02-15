@@ -213,7 +213,7 @@ impl MessageChainDetector {
     }
 
     /// Use call graph to find delegation chains across functions
-    fn find_delegation_chains(&self, graph: &GraphStore) -> Vec<Finding> {
+    fn find_delegation_chains(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
         let mut findings = Vec::new();
 
         // Find functions that are part of long call chains
@@ -263,7 +263,7 @@ impl MessageChainDetector {
     }
 
     /// Trace how deep a delegation chain goes
-    fn trace_chain_depth(&self, graph: &GraphStore, qn: &str, depth: i32) -> i32 {
+    fn trace_chain_depth(&self, graph: &dyn crate::graph::GraphQuery, qn: &str, depth: i32) -> i32 {
         if depth > 10 {
             return depth; // Prevent infinite recursion
         }
@@ -300,7 +300,7 @@ impl Detector for MessageChainDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Source code scanning for inline chains

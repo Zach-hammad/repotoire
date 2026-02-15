@@ -185,7 +185,7 @@ impl VultureDetector {
     }
 
     /// Create finding from vulture result
-    fn create_finding(&self, result: &VultureResult, graph: &GraphStore) -> Finding {
+    fn create_finding(&self, result: &VultureResult, graph: &dyn crate::graph::GraphQuery) -> Finding {
         let rel_path = Path::new(&result.file)
             .strip_prefix(&self.repository_path)
             .map(|p| p.to_string_lossy().to_string())
@@ -292,7 +292,7 @@ impl Detector for VultureDetector {
         "Detects unused Python code (dead code) using vulture"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running Vulture on {:?}", self.repository_path);
 
         let results = self.run_vulture();

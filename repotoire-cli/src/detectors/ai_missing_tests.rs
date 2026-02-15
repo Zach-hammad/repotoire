@@ -339,7 +339,7 @@ impl Detector for AIMissingTestsDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         use std::collections::HashSet;
 
@@ -422,7 +422,7 @@ impl Detector for AIMissingTestsDetector {
 
     fn detect_with_context(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();

@@ -208,7 +208,7 @@ impl Detector for UnwrapWithoutContextDetector {
         "Detects unwrap()/expect() calls that may panic without proper context"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -335,7 +335,7 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
         "Detects unsafe blocks without SAFETY comments"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -484,7 +484,7 @@ impl Detector for CloneInHotPathDetector {
         "Detects .clone() in loops and iterators"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -603,7 +603,7 @@ impl Detector for MissingMustUseDetector {
         "Detects Result-returning functions without #[must_use]"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -779,7 +779,7 @@ impl Detector for BoxDynTraitDetector {
         "Detects Box<dyn Trait> that could be replaced with generics"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -913,7 +913,7 @@ impl Detector for MutexPoisoningRiskDetector {
         "Detects Mutex poisoning risks from panic-prone lock handling"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

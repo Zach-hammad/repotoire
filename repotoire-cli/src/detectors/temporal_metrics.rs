@@ -75,12 +75,12 @@ pub struct MetricChange {
 /// - Calculate technical debt velocity
 /// - Compare commits (before/after analysis)
 pub struct TemporalMetrics<'a> {
-    graph: &'a GraphStore,
+    graph: &'a dyn crate::graph::GraphQuery,
 }
 
 impl<'a> TemporalMetrics<'a> {
     /// Create a new temporal metrics analyzer
-    pub fn new(graph: &'a GraphStore) -> Self {
+    pub fn new(graph: &'a dyn crate::graph::GraphQuery) -> Self {
         Self { graph }
     }
 

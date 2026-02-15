@@ -146,7 +146,7 @@ impl SemgrepDetector {
     }
 
     /// Create finding from semgrep result
-    fn create_finding(&self, result: &JsonValue, graph: &GraphStore) -> Option<Finding> {
+    fn create_finding(&self, result: &JsonValue, graph: &dyn crate::graph::GraphQuery) -> Option<Finding> {
         let path = result.get("path")?.as_str()?;
         let check_id = result.get("check_id")?.as_str().unwrap_or("");
         let extra = result.get("extra")?;
@@ -317,7 +317,7 @@ impl Detector for SemgrepDetector {
         "Detects security vulnerabilities using Semgrep pattern matching"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running Semgrep on {:?}", self.repository_path);
 
         let results = self.run_semgrep();

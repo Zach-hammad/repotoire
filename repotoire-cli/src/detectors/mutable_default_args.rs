@@ -76,7 +76,7 @@ impl MutableDefaultArgsDetector {
     }
 
     /// Find function info from graph
-    fn get_function_info(graph: &GraphStore, file_path: &str, func_name: &str) -> (usize, bool) {
+    fn get_function_info(graph: &dyn crate::graph::GraphQuery, file_path: &str, func_name: &str) -> (usize, bool) {
         if let Some(func) = graph
             .get_functions()
             .into_iter()
@@ -124,7 +124,7 @@ impl Detector for MutableDefaultArgsDetector {
         "Detects mutable default arguments in Python"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

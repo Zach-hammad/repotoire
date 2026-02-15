@@ -660,7 +660,7 @@ impl TaintAnalyzer {
     ///
     /// This uses BFS to find all paths from source functions to sink functions,
     /// tracking whether sanitizers are encountered along the way.
-    pub fn trace_taint(&self, graph: &GraphStore, category: TaintCategory) -> Vec<TaintPath> {
+    pub fn trace_taint(&self, graph: &dyn crate::graph::GraphQuery, category: TaintCategory) -> Vec<TaintPath> {
         let mut paths = Vec::new();
         let functions = graph.get_functions();
 
@@ -760,7 +760,7 @@ impl TaintAnalyzer {
     /// BFS from a source function to find paths to any sink
     fn bfs_to_sinks(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         source_qn: &str,
         sink_qns: &HashSet<&str>,
         category: TaintCategory,
@@ -821,7 +821,7 @@ impl TaintAnalyzer {
     /// for more comprehensive coverage.
     pub fn analyze_function(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         func_qn: &str,
         category: TaintCategory,
     ) -> Vec<TaintPath> {

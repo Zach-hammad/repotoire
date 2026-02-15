@@ -80,7 +80,7 @@ impl TestInProductionDetector {
     }
 
     /// Check if this file is imported by production code
-    fn is_imported_by_production(graph: &GraphStore, file_path: &str) -> bool {
+    fn is_imported_by_production(graph: &dyn crate::graph::GraphQuery, file_path: &str) -> bool {
         let funcs: Vec<_> = graph
             .get_functions()
             .into_iter()
@@ -101,7 +101,7 @@ impl TestInProductionDetector {
     }
 
     /// Find containing function
-    fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
+    fn find_containing_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -118,7 +118,7 @@ impl Detector for TestInProductionDetector {
         "Detects test code in production files"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut issues_per_file: HashMap<PathBuf, Vec<(u32, String, String)>> = HashMap::new();
 

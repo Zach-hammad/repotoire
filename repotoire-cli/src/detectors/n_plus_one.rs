@@ -47,7 +47,7 @@ impl NPlusOneDetector {
     }
 
     /// Find functions that contain database queries
-    fn find_query_functions(&self, graph: &GraphStore) -> HashSet<String> {
+    fn find_query_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut query_funcs = HashSet::new();
 
         for func in graph.get_functions() {
@@ -81,7 +81,7 @@ impl NPlusOneDetector {
     /// Check if a function transitively calls any query function
     fn calls_query_transitively(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         func_qn: &str,
         query_funcs: &HashSet<String>,
         depth: usize,
@@ -115,7 +115,7 @@ impl NPlusOneDetector {
     }
 
     /// Find N+1 patterns using graph traversal
-    fn find_graph_n_plus_one(&self, graph: &GraphStore) -> Vec<Finding> {
+    fn find_graph_n_plus_one(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
         let mut findings = Vec::new();
         let query_funcs = self.find_query_functions(graph);
 
@@ -275,7 +275,7 @@ impl Detector for NPlusOneDetector {
         "Detects N+1 query patterns"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // === Source-based detection (direct queries in loops) ===

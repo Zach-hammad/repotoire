@@ -100,7 +100,7 @@ impl StreamingDetectorEngine {
     /// Run detectors and stream findings to disk
     pub fn run(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         repo_path: &Path,
         project_config: &ProjectConfig,
         skip_detectors: &[String],
@@ -265,7 +265,7 @@ impl StreamingDetectorEngine {
 ///
 /// This is the main entry point for memory-efficient detection on large repos.
 pub fn run_streaming_detection(
-    graph: &GraphStore,
+    graph: &dyn crate::graph::GraphQuery,
     repo_path: &Path,
     cache_dir: &Path,
     project_config: &ProjectConfig,

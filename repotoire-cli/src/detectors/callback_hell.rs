@@ -31,7 +31,7 @@ impl CallbackHellDetector {
     }
 
     /// Find async functions in the codebase that could be used instead
-    fn find_async_alternatives(&self, graph: &GraphStore, file_path: &str) -> Vec<String> {
+    fn find_async_alternatives(&self, graph: &dyn crate::graph::GraphQuery, file_path: &str) -> Vec<String> {
         graph
             .get_functions()
             .into_iter()
@@ -70,7 +70,7 @@ impl Detector for CallbackHellDetector {
         "Detects deeply nested callbacks"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

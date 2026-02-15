@@ -39,7 +39,7 @@ impl TodoScanner {
 
     /// Find containing function
     fn find_containing_function(
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
         line: u32,
     ) -> Option<(String, usize)> {
@@ -54,7 +54,7 @@ impl TodoScanner {
     }
 
     /// Check if function is dead code (no callers and not an entry point)
-    fn is_in_dead_code(graph: &GraphStore, file_path: &str, line: u32) -> bool {
+    fn is_in_dead_code(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> bool {
         if let Some(func) = graph
             .get_functions()
             .into_iter()
@@ -109,7 +109,7 @@ impl Detector for TodoScanner {
         "Finds TODO, FIXME, HACK comments"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut todos_per_function: HashMap<String, usize> = HashMap::new();
         let walker = ignore::WalkBuilder::new(&self.repository_path)

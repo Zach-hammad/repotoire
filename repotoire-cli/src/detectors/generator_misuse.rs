@@ -83,7 +83,7 @@ impl GeneratorMisuseDetector {
     }
 
     /// Find all generators that are immediately converted to list
-    fn find_list_wrapped_generators(&self, _graph: &GraphStore) -> HashSet<String> {
+    fn find_list_wrapped_generators(&self, _graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut wrapped = HashSet::new();
 
         let walker = ignore::WalkBuilder::new(&self.repository_path)
@@ -115,7 +115,7 @@ impl GeneratorMisuseDetector {
     }
 
     /// Check if generator is consumed lazily anywhere
-    fn is_consumed_lazily(&self, func_name: &str, graph: &GraphStore) -> bool {
+    fn is_consumed_lazily(&self, func_name: &str, graph: &dyn crate::graph::GraphQuery) -> bool {
         // Check callers to see how the generator is consumed
         if let Some(func) = graph
             .get_functions()
@@ -161,7 +161,7 @@ impl Detector for GeneratorMisuseDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // Find generators that are always list()-wrapped

@@ -541,7 +541,7 @@ impl Detector for AIBoilerplateDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         // Boilerplate detection needs AST similarity analysis
         let _ = graph;
         Ok(vec![])

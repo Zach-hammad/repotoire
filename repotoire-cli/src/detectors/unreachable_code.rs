@@ -333,7 +333,7 @@ impl UnreachableCodeDetector {
     }
 
     /// Find functions with zero callers using the call graph
-    fn find_dead_functions(&self, graph: &GraphStore) -> Vec<Finding> {
+    fn find_dead_functions(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
         let mut findings = Vec::new();
         let functions = graph.get_functions();
 
@@ -590,7 +590,7 @@ impl UnreachableCodeDetector {
     /// Find functions that are transitively dead (only called by dead functions)
     fn find_transitively_dead(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         directly_dead: &HashSet<String>,
     ) -> HashSet<String> {
         let mut transitively_dead: HashSet<String> = HashSet::new();
@@ -762,7 +762,7 @@ impl Detector for UnreachableCodeDetector {
         "dead-code"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Graph-based: find functions with zero callers

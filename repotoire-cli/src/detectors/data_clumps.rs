@@ -131,7 +131,7 @@ impl DataClumpsDetector {
     }
 
     /// Find parameter clumps across functions
-    fn find_clumps(&self, graph: &GraphStore) -> Vec<DataClump> {
+    fn find_clumps(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<DataClump> {
         let functions = graph.get_functions();
 
         // Build map of param sets to functions
@@ -189,7 +189,7 @@ impl DataClumpsDetector {
     }
 
     /// Analyze call relationships between functions that share parameters
-    fn analyze_call_relationships(&self, graph: &GraphStore, funcs: &[FuncInfo]) -> (usize, bool) {
+    fn analyze_call_relationships(&self, graph: &dyn crate::graph::GraphQuery, funcs: &[FuncInfo]) -> (usize, bool) {
         let func_qns: HashSet<&str> = funcs.iter().map(|f| f.qualified_name.as_str()).collect();
         let mut call_count = 0;
         let mut has_chain = false;
@@ -357,7 +357,7 @@ impl Detector for DataClumpsDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         let clumps = self.find_clumps(graph);

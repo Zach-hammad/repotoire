@@ -30,7 +30,7 @@ impl LargeFilesDetector {
     }
 
     /// Analyze file structure using graph
-    fn analyze_file_structure(graph: &GraphStore, file_path: &str) -> FileAnalysis {
+    fn analyze_file_structure(graph: &dyn crate::graph::GraphQuery, file_path: &str) -> FileAnalysis {
         let functions: Vec<_> = graph
             .get_functions()
             .into_iter()
@@ -89,7 +89,7 @@ impl Detector for LargeFilesDetector {
         "Detects files exceeding size threshold"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

@@ -79,7 +79,7 @@ impl GlobalVariablesDetector {
     /// Check if variable is used by functions in other files
     fn check_cross_module_usage(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
         _var_name: &str,
     ) -> bool {
@@ -193,7 +193,7 @@ impl Detector for GlobalVariablesDetector {
         "Detects mutable global variables"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

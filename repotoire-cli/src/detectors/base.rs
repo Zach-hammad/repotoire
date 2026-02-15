@@ -241,7 +241,7 @@ pub fn is_test_file(path: &std::path::Path) -> bool {
 ///         "Detects my specific code smell"
 ///     }
 ///
-///     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+///     fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
 ///         // Query the graph and analyze results
 ///         Ok(vec![])
 ///     }
@@ -265,11 +265,11 @@ pub trait Detector: Send + Sync {
     /// 3. Return a list of findings with appropriate severity
     ///
     /// # Arguments
-    /// * `graph` - Graph store for querying code structure
+    /// * `graph` - Graph store implementing GraphQuery trait
     ///
     /// # Returns
     /// A list of findings, or an error if detection fails
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>>;
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>>;
 
     /// Run detection with function context
     ///
@@ -280,14 +280,14 @@ pub trait Detector: Send + Sync {
     /// Default implementation just calls detect() and ignores contexts.
     ///
     /// # Arguments
-    /// * `graph` - Graph store for querying code structure
+    /// * `graph` - Graph store implementing GraphQuery trait
     /// * `contexts` - Pre-computed function contexts with roles and metrics
     ///
     /// # Returns
     /// A list of findings, or an error if detection fails
     fn detect_with_context(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         _contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         // Default: ignore context, just call regular detect

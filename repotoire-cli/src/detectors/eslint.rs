@@ -276,7 +276,7 @@ impl Detector for ESLintDetector {
         "Detects code quality issues in TypeScript/JavaScript using ESLint"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running ESLint on {:?}", self.repository_path);
 
         let results = self.run_eslint();

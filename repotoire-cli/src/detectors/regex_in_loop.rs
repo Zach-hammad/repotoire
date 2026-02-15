@@ -43,7 +43,7 @@ impl RegexInLoopDetector {
     }
 
     /// Find functions that compile regexes
-    fn find_regex_functions(&self, graph: &GraphStore) -> HashSet<String> {
+    fn find_regex_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut regex_funcs = HashSet::new();
 
         for func in graph.get_functions() {
@@ -70,7 +70,7 @@ impl RegexInLoopDetector {
     /// Check if function transitively compiles regex
     fn calls_regex_transitively(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         func_qn: &str,
         regex_funcs: &HashSet<String>,
         visited: &mut HashSet<String>,
@@ -107,7 +107,7 @@ impl Detector for RegexInLoopDetector {
         "Detects regex compilation inside loops"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

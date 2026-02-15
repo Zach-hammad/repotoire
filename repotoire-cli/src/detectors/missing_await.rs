@@ -45,7 +45,7 @@ impl MissingAwaitDetector {
     }
 
     /// Identify async functions from the graph
-    fn find_async_functions(graph: &GraphStore) -> HashSet<String> {
+    fn find_async_functions(graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut async_funcs = HashSet::new();
 
         for func in graph.get_functions() {
@@ -80,7 +80,7 @@ impl MissingAwaitDetector {
     }
 
     /// Find containing function name
-    fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<String> {
+    fn find_containing_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -97,7 +97,7 @@ impl Detector for MissingAwaitDetector {
         "Detects async calls without await"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // Find all async functions in the codebase

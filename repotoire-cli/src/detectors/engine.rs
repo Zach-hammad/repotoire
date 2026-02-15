@@ -123,7 +123,7 @@ impl DetectorEngine {
     }
 
     /// Get function contexts (builds them from graph if not already set)
-    pub fn get_or_build_contexts(&mut self, graph: &GraphStore) -> Arc<FunctionContextMap> {
+    pub fn get_or_build_contexts(&mut self, graph: &dyn crate::graph::GraphQuery) -> Arc<FunctionContextMap> {
         if let Some(ref ctx) = self.function_contexts {
             return Arc::clone(ctx);
         }
@@ -142,7 +142,7 @@ impl DetectorEngine {
 
     /// Build HMM-based function contexts from the call graph
     /// This provides adaptive context classification per codebase
-    pub fn build_hmm_contexts(&mut self, graph: &GraphStore) -> Arc<HashMap<String, FunctionContext>> {
+    pub fn build_hmm_contexts(&mut self, graph: &dyn crate::graph::GraphQuery) -> Arc<HashMap<String, FunctionContext>> {
         if let Some(ref ctx) = self.hmm_contexts {
             return Arc::clone(ctx);
         }
@@ -342,7 +342,7 @@ impl DetectorEngine {
     ///
     /// # Returns
     /// All findings from all detectors, sorted by severity (highest first)
-    pub fn run(&mut self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    pub fn run(&mut self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let start = Instant::now();
         info!(
             "Starting detection with {} detectors on {} workers",
@@ -477,7 +477,7 @@ impl DetectorEngine {
     /// useful for debugging and detailed reporting.
     pub fn run_detailed(
         &mut self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
     ) -> Result<(Vec<DetectorResult>, DetectionSummary)> {
         let start = Instant::now();
 
@@ -545,7 +545,7 @@ impl DetectorEngine {
         &self,
         mut findings: Vec<Finding>,
         hmm_contexts: &HashMap<String, FunctionContext>,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
     ) -> Vec<Finding> {
         // Detectors that should skip UTILITY functions
         const COUPLING_DETECTORS: &[&str] = &[
@@ -598,7 +598,7 @@ impl DetectorEngine {
     }
 
     /// Try to extract the function qualified name from a finding
-    fn extract_function_from_finding(&self, finding: &Finding, graph: &GraphStore) -> Option<String> {
+    fn extract_function_from_finding(&self, finding: &Finding, graph: &dyn crate::graph::GraphQuery) -> Option<String> {
         // Try to find function by file path and line number
         if let (Some(file), Some(line)) = (finding.affected_files.first(), finding.line_start) {
             let file_str = file.to_string_lossy();
@@ -643,7 +643,7 @@ impl DetectorEngine {
     fn run_single_detector(
         &self,
         detector: &Arc<dyn Detector>,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         contexts: &Arc<FunctionContextMap>,
     ) -> DetectorResult {
         let name = detector.name().to_string();
@@ -811,7 +811,7 @@ mod tests {
             "Mock detector for testing"
         }
 
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
             Ok((0..self.findings_count)
                 .map(|i| Finding {
                     id: format!("{}-{}", self.name, i),

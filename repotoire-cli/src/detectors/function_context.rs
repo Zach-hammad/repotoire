@@ -118,7 +118,7 @@ pub type FunctionContextMap = HashMap<String, FunctionContext>;
 
 /// Builder that computes function contexts from the graph
 pub struct FunctionContextBuilder<'a> {
-    graph: &'a GraphStore,
+    graph: &'a dyn crate::graph::GraphQuery,
     /// Threshold for high in-degree (utility)
     utility_in_degree_threshold: usize,
     /// Threshold for caller module spread (utility)
@@ -130,7 +130,7 @@ pub struct FunctionContextBuilder<'a> {
 }
 
 impl<'a> FunctionContextBuilder<'a> {
-    pub fn new(graph: &'a GraphStore) -> Self {
+    pub fn new(graph: &'a dyn crate::graph::GraphQuery) -> Self {
         Self {
             graph,
             utility_in_degree_threshold: 10,

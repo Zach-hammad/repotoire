@@ -116,7 +116,7 @@ impl RuffLintDetector {
     }
 
     /// Create finding from ruff result
-    fn create_finding(&self, result: &JsonValue, graph: &GraphStore) -> Option<Finding> {
+    fn create_finding(&self, result: &JsonValue, graph: &dyn crate::graph::GraphQuery) -> Option<Finding> {
         let file_path = result.get("filename")?.as_str()?;
         let location = result.get("location")?;
         let line = location.get("row")?.as_u64()? as u32;
@@ -246,7 +246,7 @@ impl Detector for RuffLintDetector {
         "Detects code quality issues in Python using Ruff (100x faster than Pylint)"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running Ruff on {:?}", self.repository_path);
 
         let results = self.run_ruff();
@@ -314,7 +314,7 @@ impl Detector for RuffImportDetector {
         "Detects unused imports using Ruff's F401 rule"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running Ruff import check on {:?}", self.repository_path);
 
         let results = self.run_ruff();

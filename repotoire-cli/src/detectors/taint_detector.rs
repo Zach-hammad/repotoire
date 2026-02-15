@@ -576,7 +576,7 @@ impl Detector for TaintDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         debug!("Starting taint tracking detection");
 
         let findings = self.scan_source_files();

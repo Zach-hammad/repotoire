@@ -180,7 +180,7 @@ impl DeadStoreDetector {
     }
 
     /// Use graph to find functions with unused parameters
-    fn find_unused_params(&self, graph: &GraphStore) -> Vec<Finding> {
+    fn find_unused_params(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
         let mut findings = Vec::new();
 
         for func in graph.get_functions() {
@@ -244,7 +244,7 @@ impl DeadStoreDetector {
     }
 
     /// Find variables that are assigned, passed to a function, but function doesn't use them
-    fn find_cross_function_dead_stores(&self, graph: &GraphStore) -> Vec<Finding> {
+    fn find_cross_function_dead_stores(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
         // This requires tracking parameter usage within functions
         // For now, identify functions that receive values but don't propagate them
         let findings = Vec::new();
@@ -283,7 +283,7 @@ impl Detector for DeadStoreDetector {
         "dead-code"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Source-based local dead store detection

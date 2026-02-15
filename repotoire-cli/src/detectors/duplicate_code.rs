@@ -53,7 +53,7 @@ impl DuplicateCodeDetector {
     /// Find functions containing the duplicate at each location
     fn find_containing_functions(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         locations: &[(PathBuf, usize)],
     ) -> Vec<Option<String>> {
         locations
@@ -76,7 +76,7 @@ impl DuplicateCodeDetector {
     /// Analyze caller similarity for duplicated code
     fn analyze_caller_similarity(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         containing_funcs: &[Option<String>],
     ) -> (usize, String) {
         let valid_funcs: Vec<&String> =
@@ -149,7 +149,7 @@ impl Detector for DuplicateCodeDetector {
         "Detects copy-pasted code blocks"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut blocks: HashMap<String, Vec<(PathBuf, usize)>> = HashMap::new();
 

@@ -272,7 +272,7 @@ impl Detector for MagicNumbersDetector {
         "Detects unexplained numeric literals"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // First pass: count all occurrences

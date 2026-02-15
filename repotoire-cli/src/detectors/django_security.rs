@@ -57,7 +57,7 @@ impl DjangoSecurityDetector {
 
     /// Find containing function/view
     fn find_containing_function(
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
         line: u32,
     ) -> Option<(String, usize, bool)> {
@@ -106,7 +106,7 @@ impl Detector for DjangoSecurityDetector {
         "Detects Django security issues"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)

@@ -90,7 +90,7 @@ impl MiddleManDetector {
     /// Analyze delegation pattern for a class
     fn analyze_delegation(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
     ) -> Option<DelegationAnalysis> {
         let functions = graph.get_functions();
@@ -202,7 +202,7 @@ impl Detector for MiddleManDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         for class in graph.get_classes() {

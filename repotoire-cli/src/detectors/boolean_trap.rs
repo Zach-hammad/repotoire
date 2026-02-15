@@ -64,7 +64,7 @@ impl Detector for BooleanTrapDetector {
         "Detects multiple boolean arguments"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut func_call_counts: HashMap<String, usize> = HashMap::new();
         let walker = ignore::WalkBuilder::new(&self.repository_path)

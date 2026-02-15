@@ -720,7 +720,7 @@ impl DeadCodeDetector {
     }
 
     /// Find dead functions using GraphStore API
-    fn find_dead_functions(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn find_dead_functions(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Get all functions
@@ -842,7 +842,7 @@ impl DeadCodeDetector {
     }
 
     /// Find dead classes using GraphStore API
-    fn find_dead_classes(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn find_dead_classes(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Get all classes
@@ -979,7 +979,7 @@ impl Detector for DeadCodeDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         debug!("Starting dead code detection");
 
         let mut findings = Vec::new();

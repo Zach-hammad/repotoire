@@ -261,7 +261,7 @@ impl NpmAuditDetector {
     }
 
     /// Find files that import a vulnerable package
-    fn find_importing_files(&self, graph: &GraphStore, package: &str) -> Vec<String> {
+    fn find_importing_files(&self, graph: &dyn crate::graph::GraphQuery, package: &str) -> Vec<String> {
         // Get all import edges and filter for the package
         let imports = graph.get_imports();
         let mut files: Vec<String> = imports
@@ -277,7 +277,7 @@ impl NpmAuditDetector {
     }
 
     /// Create finding from vulnerability
-    fn create_finding(&self, vuln: &Vulnerability, graph: &GraphStore) -> Finding {
+    fn create_finding(&self, vuln: &Vulnerability, graph: &dyn crate::graph::GraphQuery) -> Finding {
         let affected_files = self.find_importing_files(graph, &vuln.package);
         let severity = Self::map_severity(&vuln.severity);
 
@@ -375,7 +375,7 @@ impl Detector for NpmAuditDetector {
         "Detects security vulnerabilities in npm dependencies"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running npm audit on {:?}", self.repository_path);
 
         let vulnerabilities = self.run_audit();

@@ -123,7 +123,7 @@ impl LazyClassDetector {
     }
 
     /// Count unique external callers of a class's methods
-    fn count_external_callers(&self, graph: &GraphStore, class: &crate::graph::CodeNode) -> usize {
+    fn count_external_callers(&self, graph: &dyn crate::graph::GraphQuery, class: &crate::graph::CodeNode) -> usize {
         let functions = graph.get_functions();
 
         // Find methods belonging to this class (by file + line range)
@@ -162,7 +162,7 @@ impl LazyClassDetector {
     /// Calculate usage ratio (callers per method)
     fn calculate_usage_ratio(
         &self,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
         method_count: usize,
     ) -> f64 {
@@ -198,7 +198,7 @@ impl Detector for LazyClassDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         for class in graph.get_classes() {

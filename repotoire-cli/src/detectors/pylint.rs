@@ -106,7 +106,7 @@ impl PylintDetector {
     fn create_finding(
         &self,
         result: &JsonValue,
-        graph: &GraphStore,
+        graph: &dyn crate::graph::GraphQuery,
     ) -> Option<Finding> {
         let file_path = result.get("path")?.as_str()?;
         let line = result.get("line")?.as_u64()? as u32;
@@ -218,7 +218,7 @@ impl Detector for PylintDetector {
         "Detects code quality issues in Python using Pylint"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         info!("Running Pylint on {:?}", self.repository_path);
 
         let results = self.run_pylint();

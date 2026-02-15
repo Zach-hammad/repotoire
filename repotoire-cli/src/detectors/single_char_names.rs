@@ -84,7 +84,7 @@ impl SingleCharNamesDetector {
     }
 
     /// Build a map of file -> function LOC ranges from graph
-    fn build_function_map(&self, graph: &GraphStore) -> HashMap<String, Vec<(u32, u32, String)>> {
+    fn build_function_map(&self, graph: &dyn crate::graph::GraphQuery) -> HashMap<String, Vec<(u32, u32, String)>> {
         let mut map: HashMap<String, Vec<(u32, u32, String)>> = HashMap::new();
 
         for func in graph.get_functions() {
@@ -143,7 +143,7 @@ impl Detector for SingleCharNamesDetector {
         "Detects single-character variable names"
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let func_map = self.build_function_map(graph);
         let walker = ignore::WalkBuilder::new(&self.repository_path)

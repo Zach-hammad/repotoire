@@ -540,7 +540,7 @@ impl Detector for EvalDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         debug!("Starting eval/exec detection");
 
         // Primary detection is via source scanning

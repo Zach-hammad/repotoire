@@ -199,7 +199,7 @@ impl InfiniteLoopDetector {
     }
 
     /// Check if any called function contains break/return/raise
-    fn calls_exit_function(calls: &[String], graph: &GraphStore) -> Vec<String> {
+    fn calls_exit_function(calls: &[String], graph: &dyn crate::graph::GraphQuery) -> Vec<String> {
         let mut exit_funcs = Vec::new();
 
         for call in calls {
@@ -246,7 +246,7 @@ impl Detector for InfiniteLoopDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
