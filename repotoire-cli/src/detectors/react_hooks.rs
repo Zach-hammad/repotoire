@@ -161,6 +161,16 @@ impl Detector for ReactHooksDetector {
             if path_str.contains("test") || path_str.contains("spec") {
                 continue;
             }
+            
+            // Skip React framework source itself (packages/react*, packages/shared, etc.)
+            // These files DEFINE hooks, they don't misuse them
+            if path_str.contains("/packages/react")
+                || path_str.contains("/packages/shared")
+                || path_str.contains("/packages/scheduler")
+                || path_str.contains("/packages/use-")
+            {
+                continue;
+            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "js" | "jsx" | "ts" | "tsx") {

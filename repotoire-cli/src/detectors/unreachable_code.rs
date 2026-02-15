@@ -163,6 +163,15 @@ const ENTRY_POINT_PATHS: &[&str] = &[
     "/external/",   // External dependencies
     "/deps/",       // Dependencies
     "/node_modules/", // npm packages
+    // Framework source code (exports are API surface, not dead code)
+    "/packages/react",      // React monorepo packages
+    "/packages/shared",     // React shared utilities
+    "/packages/scheduler",  // React scheduler
+    "/packages/use-",       // React hooks packages
+    "/reconciler/",         // React reconciler internals
+    "/scheduler/",          // Scheduler internals
+    "/forks/",              // React platform forks
+    "/fiber/",              // React Fiber internals
 ];
 
 pub struct UnreachableCodeDetector {
@@ -374,6 +383,23 @@ impl UnreachableCodeDetector {
             if func.file_path.contains("/scripts/")
                 || func.file_path.contains("/tools/")
                 || func.file_path.contains("/build/")
+            {
+                continue;
+            }
+            
+            // Skip non-production paths entirely
+            if crate::detectors::content_classifier::is_non_production_path(&func.file_path) {
+                continue;
+            }
+            
+            // Skip framework internal paths (exports used externally)
+            if func.file_path.contains("packages/react")
+                || func.file_path.contains("/react-dom/")
+                || func.file_path.contains("/react-server/")
+                || func.file_path.contains("/reconciler/")
+                || func.file_path.contains("/scheduler/")
+                || func.file_path.contains("/shared/")
+                || func.file_path.contains("/forks/")
             {
                 continue;
             }

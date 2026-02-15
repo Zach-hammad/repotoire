@@ -153,7 +153,7 @@ pub enum Commands {
         interactive: bool,
     },
 
-    /// Generate AI-powered fix for a finding
+    /// Generate fix for a finding (AI-powered or rule-based)
     Fix {
         /// Finding index to fix
         index: usize,
@@ -161,6 +161,10 @@ pub enum Commands {
         /// Apply fix automatically
         #[arg(long)]
         apply: bool,
+
+        /// Use rule-based fixes only (no AI, no API key needed)
+        #[arg(long)]
+        no_ai: bool,
     },
 
     /// Query the code graph directly
@@ -340,7 +344,7 @@ pub fn run(cli: Cli) -> Result<()> {
             }
         }
 
-        Some(Commands::Fix { index, apply }) => fix::run(&cli.path, index, apply),
+        Some(Commands::Fix { index, apply, no_ai }) => fix::run(&cli.path, index, apply, no_ai),
 
         Some(Commands::Graph { query, format }) => graph::run(&cli.path, &query, &format),
 

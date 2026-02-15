@@ -404,7 +404,19 @@ impl Detector for AIComplexitySpikeDetector {
                 || func.file_path.contains("/opcodes/")
                 || func.file_path.contains("/noun/")
                 || func.file_path.contains("/ext/")
-                || func.file_path.contains("/vendor/") {
+                || func.file_path.contains("/vendor/") 
+                // Framework-specific paths (React, Vue, Angular internals)
+                || func.file_path.contains("/reconciler/")
+                || func.file_path.contains("/scheduler/")
+                || func.file_path.contains("/react-dom/")
+                || func.file_path.contains("/react-server/")
+                || func.file_path.contains("/shared/")
+                || func.file_path.contains("packages/react")
+                || func.file_path.contains("/forks/")
+                || func.file_path.contains("/fiber/")
+                // Non-production paths
+                || crate::detectors::content_classifier::is_non_production_path(&func.file_path)
+            {
                 continue;
             }
             

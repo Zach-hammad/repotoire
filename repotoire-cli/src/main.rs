@@ -18,6 +18,7 @@ pub mod cache;
 mod cli;
 pub mod config;
 mod detectors;
+pub mod fixes;
 pub mod git;
 mod graph;
 mod mcp;

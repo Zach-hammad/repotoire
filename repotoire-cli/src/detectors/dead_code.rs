@@ -47,6 +47,15 @@ static DISPATCH_PATHS: &[&str] = &[
     "/external/",   // External dependencies
     "/deps/",       // Dependencies
     "/node_modules/", // npm packages
+    // Framework source code (exports are public API, not dead code)
+    "/packages/react",      // React monorepo packages
+    "/packages/shared",     // React shared utilities  
+    "/packages/scheduler",  // React scheduler
+    "/packages/use-",       // React hooks packages
+    "/reconciler/",         // React reconciler internals
+    "/scheduler/",          // Scheduler internals
+    "/forks/",              // React platform forks
+    "/fiber/",              // React Fiber internals
 ];
 
 /// Entry points that should not be flagged as dead code
@@ -81,12 +90,43 @@ static ENTRY_POINTS: &[&str] = &[
     "build",
     "with_config",
     "with_thresholds",
+    // React/Framework patterns (exported API, called externally)
+    "use",              // React hooks: useState, useEffect, useMemo
+    "render",           // React render functions
+    "create",           // Factory functions: createElement, createContext
+    "mount",            // Component mounting
+    "unmount",          // Component unmounting
+    "update",           // Update functions
+    "commit",           // Commit phase functions
+    "complete",         // Completion functions
+    "begin",            // Begin work functions
+    "finish",           // Finish work functions
+    "schedule",         // Scheduler functions
+    "flush",            // Flush functions
+    "reconcile",        // Reconciler functions
+    "diff",             // Diffing functions
+    "hydrate",          // Hydration functions
+    "prepare",          // Preparation functions
+    "dispose",          // Cleanup functions
+    "reset",            // Reset functions
+    "get",              // Getter patterns (exported getters)
+    "set",              // Setter patterns (exported setters)
 ];
 
 /// Framework-specific files where default exports are auto-loaded
 /// (Next.js, React Native Navigation, Fastify, Remix, etc.)
 /// Note: patterns without leading / also match at start of relative paths
 static FRAMEWORK_AUTO_LOAD_PATTERNS: &[&str] = &[
+    // React framework source (monorepo packages - exports are public API)
+    "/packages/react/",
+    "/packages/react-dom/",
+    "/packages/react-reconciler/",
+    "/packages/react-server/",
+    "/packages/react-client/",
+    "/packages/scheduler/",
+    "/packages/shared/",
+    "/packages/use-",
+    "packages/react",           // Without leading slash
     // Next.js App Router
     "/page.tsx",
     "/page.ts",

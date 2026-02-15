@@ -178,6 +178,23 @@ impl NPlusOneDetector {
             if func.file_path.contains("/graph/") {
                 continue;
             }
+            
+            // Skip framework source code (React, Vue, etc.)
+            // Framework code iterates over component trees, not DB queries
+            if func.file_path.contains("/packages/react")
+                || func.file_path.contains("/packages/shared")
+                || func.file_path.contains("/packages/scheduler")
+                || func.file_path.contains("/reconciler/")
+                || func.file_path.contains("/fiber/")
+                || func.file_path.contains("/forks/")
+            {
+                continue;
+            }
+            
+            // Skip bundled/generated code
+            if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
+                continue;
+            }
 
             // Check if this function contains a loop
             let has_loop = if let Some(content) =
@@ -278,6 +295,22 @@ impl Detector for NPlusOneDetector {
 
             let path_str = path.to_string_lossy();
             if path_str.contains("test") || path_str.contains("spec") {
+                continue;
+            }
+            
+            // Skip framework source code
+            if path_str.contains("/packages/react")
+                || path_str.contains("/packages/shared")
+                || path_str.contains("/packages/scheduler")
+                || path_str.contains("/reconciler/")
+                || path_str.contains("/fiber/")
+                || path_str.contains("/forks/")
+            {
+                continue;
+            }
+            
+            // Skip bundled/generated code
+            if crate::detectors::content_classifier::is_likely_bundled_path(&path_str) {
                 continue;
             }
 
