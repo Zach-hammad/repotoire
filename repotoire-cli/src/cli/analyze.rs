@@ -649,8 +649,9 @@ fn initialize_graph(
     };
 
     // Parse files and build graph
-    // Use streaming for massive repos (50k+), chunked for large (10k-50k), normal for small
-    let use_streaming = file_result.files_to_parse.len() > 50000;
+    // Use TRUE streaming for repos with 2k+ files to prevent memory issues
+    // This processes one file at a time, never holding more than 1 AST in memory
+    let use_streaming = file_result.files_to_parse.len() > 2000;
     
     let parse_result = if use_streaming {
         // STREAMING MODE: Parse and build graph one file at a time
@@ -2802,11 +2803,15 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
     }
 }
 
-/// Parse files and build graph using streaming architecture
+/// Parse files and build graph using TRUE streaming architecture
 /// 
-/// This function is used for very large repositories (20k+ files) to prevent OOM.
-/// Unlike the traditional approach that collects all ParseResults first,
-/// this processes one file at a time.
+/// This function uses the new LightweightFileInfo-based streaming that:
+/// - Parses ONE file at a time
+/// - Extracts ONLY what detectors need into compact structs
+/// - DROPS the AST immediately after extraction
+/// - Never holds more than 1 AST in memory
+///
+/// Memory target: <500MB for 20k files (vs 2GB+ with traditional approach)
 fn parse_and_build_streaming(
     files: &[PathBuf],
     repo_path: &Path,
@@ -2816,49 +2821,28 @@ fn parse_and_build_streaming(
 ) -> Result<(usize, usize)> {
     let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
     parse_bar.set_style(bar_style.clone());
-    parse_bar.set_message("Building indexes (Phase 1)...");
+    parse_bar.set_message("TRUE streaming parse & build...");
     
-    // Phase 1: Build lightweight indexes for cross-file references
-    let (function_index, module_index) = crate::parsers::streaming::build_indexes_parallel(
+    // Use the new TRUE streaming approach
+    let (graph_stats, parse_stats) = crate::graph::parse_and_build_streaming_true(
         files,
         repo_path,
-        Some(&|count, total| {
-            if count % 500 == 0 {
-                parse_bar.set_position(count as u64);
-            }
-        }),
-    )?;
-    
-    parse_bar.set_message("Streaming parse & build (Phase 2)...");
-    parse_bar.set_position(0);
-    
-    // Phase 2: Stream parse and build graph
-    let mut builder = StreamingGraphBuilderImpl::new(
-        graph.clone(),
-        repo_path.to_path_buf(),
-        function_index,
-        module_index,
-    );
-    
-    let stats = stream_parse_files_parallel(
-        files,
-        repo_path,
-        &mut builder,
-        2000, // Process in batches of 2000 for parallelism
-        Some(&|count, total| {
-            if count % 200 == 0 {
+        graph,
+        Some(&|count, _total| {
+            if count % 100 == 0 {
                 parse_bar.set_position(count as u64);
             }
         }),
     )?;
     
     parse_bar.finish_with_message(format!(
-        "{}Streamed {} files ({} functions, {} classes)",
+        "{}TRUE streamed {} files ({} functions, {} classes, ~{})",
         style("✓ ").green(),
-        style(stats.parsed_files).cyan(),
-        style(builder.total_functions).cyan(),
-        style(builder.total_classes).cyan(),
+        style(parse_stats.parsed_files).cyan(),
+        style(graph_stats.functions_added).cyan(),
+        style(graph_stats.classes_added).cyan(),
+        style(parse_stats.memory_human()).dim(),
     ));
     
-    Ok((builder.total_functions, builder.total_classes))
+    Ok((graph_stats.functions_added, graph_stats.classes_added))
 }

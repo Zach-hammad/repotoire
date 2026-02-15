@@ -16,6 +16,20 @@ mod cpp;
 /// Streaming AST processing for memory-efficient large repo analysis
 pub mod streaming;
 
+/// TRUE streaming with ultra-lightweight info extraction
+pub mod lightweight;
+pub mod lightweight_parser;
+
+// Re-export lightweight types for convenience
+pub use lightweight::{
+    Language, LightweightCall, LightweightClassInfo, LightweightFileInfo,
+    LightweightFunctionInfo, LightweightImport, LightweightParseStats,
+};
+pub use lightweight_parser::{
+    parse_file_lightweight, parse_files_parallel_streaming, parse_files_sequential_collect,
+    parse_files_streaming, stream_parse_with_callback,
+};
+
 use anyhow::Result;
 use std::path::Path;
 
