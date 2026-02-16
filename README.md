@@ -220,7 +220,7 @@ repos:
 ```
 ┌──────────┐    ┌───────────────┐    ┌──────────────┐    ┌──────────┐
 │  Source  │───▶│  Tree-sitter  │───▶│  petgraph +  │───▶│ 112      │
-│  Files   │    │  (Rust)       │    │  sled        │    │ Detectors│
+│  Files   │    │  (Rust)       │    │  redb        │    │ Detectors│
 └──────────┘    └───────────────┘    └──────────────┘    └──────────┘
                                             │
          13 languages                        │      Graph algorithms:
@@ -238,7 +238,7 @@ repos:
 **Pure Rust stack:**
 - **Tree-sitter** — Fast, accurate parsing (native Rust bindings)
 - **petgraph** — Graph data structure and algorithms
-- **sled** — Embedded key-value store for caching
+- **redb** — Embedded key-value store for caching
 - **rayon** — Parallel processing
 
 ## Comparison

@@ -10,6 +10,9 @@
 //! This is the architectural root cause of cache divergence bugs.
 
 pub mod paths;
+pub mod traits;
+
+pub use traits::{CacheCoordinator, CacheLayer};
 
 use dashmap::DashMap;
 use rayon::prelude::*;

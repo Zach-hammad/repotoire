@@ -1,6 +1,6 @@
 [package]
 name = "repotoire"
-version = "0.3.101"
+version = "0.3.102"
 edition = "2021"
 description = "Graph-powered code analysis CLI. 112 detectors for security, architecture, and code quality."
 license = "MIT"
@@ -61,7 +61,7 @@ tree-sitter-cpp = "0.23"
 rayon = "1.11"
 rustc-hash = "2"
 petgraph = "0.7"
-sled = "0.34"
+redb = "2.4"
 
 # Parallel pipeline channels
 crossbeam = "0.8"

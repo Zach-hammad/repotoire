@@ -530,6 +530,28 @@ impl IncrementalCache {
     }
 }
 
+impl crate::cache::CacheLayer for IncrementalCache {
+    fn name(&self) -> &str {
+        "incremental-findings"
+    }
+    
+    fn is_populated(&self) -> bool {
+        self.has_cache()
+    }
+    
+    fn invalidate_files(&mut self, changed_files: &[&std::path::Path]) {
+        for path in changed_files {
+            self.invalidate_file(path);
+        }
+    }
+    
+    fn invalidate_all(&mut self) {
+        // Clear all cached data
+        self.cache = CacheData::default();
+        self.dirty = true;
+    }
+}
+
 impl Drop for IncrementalCache {
     fn drop(&mut self) {
         if let Err(e) = self.save_cache() {

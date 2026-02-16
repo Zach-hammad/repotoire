@@ -1,4 +1,4 @@
-//! Pure Rust graph storage using petgraph + sled
+//! Pure Rust graph storage using petgraph + redb
 //!
 //! Replaces Kuzu for better cross-platform compatibility.
 //! No C++ dependencies, builds everywhere.
@@ -182,31 +182,30 @@ pub struct GraphStore {
     graph: RwLock<DiGraph<CodeNode, CodeEdge>>,
     /// Node lookup by qualified name
     node_index: RwLock<HashMap<String, NodeIndex>>,
-    /// Persistence layer (optional)
-    db: Option<sled::Db>,
+    /// Persistence layer (optional) — uses redb (ACID, well-maintained)
+    db: Option<redb::Database>,
     /// Database path for lazy loading
-    #[allow(dead_code)] // Stored for future lazy loading support
+    #[allow(dead_code)]
     db_path: Option<std::path::PathBuf>,
-    /// Lazy mode - query sled directly instead of loading all into memory
+    /// Lazy mode - query db directly instead of loading all into memory
     lazy_mode: bool,
 }
+
+// redb table definitions
+const NODES_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("nodes");
+const EDGES_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("edges");
 
 impl GraphStore {
     /// Create or open a graph store at the given path
     pub fn new(db_path: &Path) -> Result<Self> {
-        // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Configure sled for low memory usage with mmap
-        let db = sled::Config::new()
-            .path(db_path)
-            .mode(sled::Mode::LowSpace)      // Use mmap, minimize RAM
-            .cache_capacity(64 * 1024 * 1024) // 64MB cache instead of default 1GB
-            .flush_every_ms(Some(5000))       // Batch writes
-            .open()
-            .context("Failed to open sled database")?;
+        // redb uses a single file, not a directory
+        let db_file = db_path.join("graph.redb");
+        let db = redb::Database::create(&db_file)
+            .context("Failed to open redb database")?;
 
         let store = Self {
             graph: RwLock::new(DiGraph::new()),
@@ -223,26 +222,21 @@ impl GraphStore {
     }
 
     /// Create a low-memory graph store using lazy loading
-    /// Queries go directly to sled/mmap instead of loading everything into RAM
     pub fn new_lazy(db_path: &Path) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        let db = sled::Config::new()
-            .path(db_path)
-            .mode(sled::Mode::LowSpace)
-            .cache_capacity(32 * 1024 * 1024) // 32MB cache for lazy mode
-            .flush_every_ms(Some(5000))
-            .open()
-            .context("Failed to open sled database")?;
+        let db_file = db_path.join("graph.redb");
+        let db = redb::Database::create(&db_file)
+            .context("Failed to open redb database")?;
 
         Ok(Self {
             graph: RwLock::new(DiGraph::new()),
             node_index: RwLock::new(HashMap::new()),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
-            lazy_mode: true, // Don't load into memory
+            lazy_mode: true,
         })
     }
 
@@ -266,7 +260,11 @@ impl GraphStore {
         index.clear();
 
         if let Some(ref db) = self.db {
-            db.clear()?;
+            let write_txn = db.begin_write()?;
+            // Delete tables to clear all data
+            let _ = write_txn.delete_table(NODES_TABLE);
+            let _ = write_txn.delete_table(EDGES_TABLE);
+            write_txn.commit()?;
         }
 
         Ok(())
@@ -855,68 +853,91 @@ impl GraphStore {
 
     // ==================== Persistence ====================
 
-    /// Persist graph to sled
+    /// Persist graph to redb
     pub fn save(&self) -> Result<()> {
         let db = match &self.db {
             Some(db) => db,
-            None => return Ok(()), // In-memory only, nothing to save
+            None => return Ok(()),
         };
 
         let graph = self.graph.read().expect("graph lock poisoned");
 
-        // Clear old data
-        db.clear()?;
+        let write_txn = db.begin_write()?;
+        {
+            // Clear and rebuild nodes table
+            let mut table = write_txn.open_table(NODES_TABLE)?;
+            
+            // Save nodes
+            for node in graph.node_weights() {
+                let key = format!("node:{}", node.qualified_name);
+                let value = serde_json::to_vec(node)?;
+                table.insert(key.as_str(), value.as_slice())?;
+            }
 
-        // Save nodes
-        for node in graph.node_weights() {
-            let key = format!("node:{}", node.qualified_name);
-            let value = serde_json::to_vec(node)?;
-            db.insert(key.as_bytes(), value)?;
+            // Save edges as a single entry
+            let edges: Vec<_> = graph
+                .edge_references()
+                .filter_map(|e| {
+                    let src = graph.node_weight(e.source())?;
+                    let dst = graph.node_weight(e.target())?;
+                    Some((
+                        src.qualified_name.clone(),
+                        dst.qualified_name.clone(),
+                        e.weight().clone(),
+                    ))
+                })
+                .collect();
+
+            let edges_data = serde_json::to_vec(&edges)?;
+            
+            let mut edges_table = write_txn.open_table(EDGES_TABLE)?;
+            edges_table.insert("__edges__", edges_data.as_slice())?;
         }
+        write_txn.commit()?;
 
-        // Save edges
-        let edges: Vec<_> = graph
-            .edge_references()
-            .filter_map(|e| {
-                let src = graph.node_weight(e.source())?;
-                let dst = graph.node_weight(e.target())?;
-                Some((
-                    src.qualified_name.clone(),
-                    dst.qualified_name.clone(),
-                    e.weight().clone(),
-                ))
-            })
-            .collect();
-
-        let edges_data = serde_json::to_vec(&edges)?;
-        db.insert(b"__edges__", edges_data)?;
-
-        db.flush()?;
         Ok(())
     }
 
-    /// Load graph from sled
+    /// Load graph from redb
     fn load(&self) -> Result<()> {
         let db = match &self.db {
             Some(db) => db,
             None => return Ok(()),
         };
 
+        let read_txn = db.begin_read()?;
+        
+        // Try to open tables — if they don't exist yet, this is a fresh db
+        let nodes_table = match read_txn.open_table(NODES_TABLE) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+
         let mut graph = self.graph.write().expect("graph lock poisoned");
         let mut index = self.node_index.write().expect("graph lock poisoned");
 
         // Load nodes
-        for item in db.scan_prefix(b"node:") {
-            let (_, value) = item?;
-            let node: CodeNode = serde_json::from_slice(&value)?;
-            let qn = node.qualified_name.clone();
-            let idx = graph.add_node(node);
-            index.insert(qn, idx);
+        for item in nodes_table.range::<&str>(..)? {
+            let (key, value) = item?;
+            let key_str = key.value();
+            if key_str.starts_with("node:") {
+                let node: CodeNode = serde_json::from_slice(value.value())?;
+                let qn = node.qualified_name.clone();
+                let idx = graph.add_node(node);
+                index.insert(qn, idx);
+            }
         }
 
         // Load edges
-        if let Some(edges_data) = db.get(b"__edges__")? {
-            let edges: Vec<(String, String, CodeEdge)> = serde_json::from_slice(&edges_data)?;
+        let edges_table = match read_txn.open_table(EDGES_TABLE) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        
+        if let Some(edges_entry) = edges_table.get("__edges__")? {
+            let edges: Vec<(String, String, CodeEdge)> = serde_json::from_slice(edges_entry.value())?;
             for (src_qn, dst_qn, edge) in edges {
                 if let (Some(&src), Some(&dst)) = (index.get(&src_qn), index.get(&dst_qn)) {
                     graph.add_edge(src, dst, edge);
@@ -928,18 +949,7 @@ impl GraphStore {
     }
 }
 
-impl Drop for GraphStore {
-    fn drop(&mut self) {
-        // Explicitly flush and close the sled database to release the lock
-        if let Some(ref db) = self.db {
-            let _ = db.flush();
-            // Trigger async flush (we don't need to await it)
-            drop(db.flush_async());
-        }
-        // Taking ownership of db triggers sled's Drop which releases the lock
-        let _ = self.db.take();
-    }
-}
+// redb::Database handles cleanup on Drop automatically — no manual flush needed
 
 // Implement the GraphQuery trait for detector compatibility
 impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
