@@ -157,6 +157,12 @@ pub fn run(
     max_files: usize,
     compact: bool,
 ) -> Result<()> {
+    // Normalize skip_detector names to kebab-case so both "TodoScanner" and "todo-scanner" work
+    let skip_detector: Vec<String> = skip_detector
+        .into_iter()
+        .map(|s| normalize_to_kebab(&s))
+        .collect();
+
     // TODO: When compact=true, use CompactGraphStore instead of GraphStore
     // This will reduce memory by 60-70% via string interning
     if compact {
@@ -1141,6 +1147,22 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
     });
 
     Ok(files)
+}
+
+/// Convert PascalCase or camelCase to kebab-case (e.g. "TodoScanner" → "todo-scanner").
+/// Already-kebab strings pass through unchanged.
+fn normalize_to_kebab(s: &str) -> String {
+    if s.contains('-') {
+        return s.to_lowercase();
+    }
+    let mut result = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('-');
+        }
+        result.push(ch.to_ascii_lowercase());
+    }
+    result
 }
 
 // Graph building functions extracted to graph.rs

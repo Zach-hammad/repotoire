@@ -198,9 +198,7 @@ const EDGES_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::n
 impl GraphStore {
     /// Create or open a graph store at the given path
     pub fn new(db_path: &Path) -> Result<Self> {
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        std::fs::create_dir_all(db_path)?;
 
         // redb uses a single file, not a directory
         let db_file = db_path.join("graph.redb");
@@ -223,9 +221,7 @@ impl GraphStore {
 
     /// Create a low-memory graph store using lazy loading
     pub fn new_lazy(db_path: &Path) -> Result<Self> {
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        std::fs::create_dir_all(db_path)?;
 
         let db_file = db_path.join("graph.redb");
         let db = redb::Database::create(&db_file)
