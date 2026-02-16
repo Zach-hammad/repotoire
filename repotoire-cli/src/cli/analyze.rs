@@ -2487,16 +2487,8 @@ fn format_and_output(
     _displayed_findings: usize,
     no_emoji: bool,
 ) -> Result<()> {
-    // For machine-readable formats, include ALL findings (not paginated)
-    let report_for_output = if format == "json" || format == "sarif" {
-        HealthReport {
-            findings: all_findings.to_vec(),
-            findings_summary: FindingsSummary::from_findings(all_findings),
-            ..report.clone()
-        }
-    } else {
-        report.clone()
-    };
+    // Use the report as-is (already filtered + paginated by build_health_report)
+    let report_for_output = report.clone();
 
     let output = reporters::report(&report_for_output, format)?;
 
