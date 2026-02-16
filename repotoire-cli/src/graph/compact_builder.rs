@@ -4,7 +4,7 @@
 //! Target: 75k files in <2GB RAM.
 
 use super::compact_store::CompactGraphStore;
-use super::interner::StringInterner;
+
 use crate::parsers::lightweight::LightweightFileInfo;
 use anyhow::Result;
 use crossbeam::channel::bounded;
@@ -122,7 +122,7 @@ pub fn build_compact_graph(
         let relative = info.relative_path(repo_path);
         
         // Add file node
-        store.add_file(&relative, info.loc as u32, Some(info.language.as_str()));
+        store.add_file(&relative, info.loc, Some(info.language.as_str()));
         stats.files_processed += 1;
         
         // Add functions
@@ -134,7 +134,7 @@ pub fn build_compact_graph(
                 func.line_start,
                 func.line_end,
                 func.is_async,
-                func.complexity as u16,
+                func.complexity,
             );
             store.add_contains(&relative, &func.qualified_name);
             stats.functions_added += 1;
@@ -149,7 +149,7 @@ pub fn build_compact_graph(
                 &relative,
                 class.line_start,
                 class.line_end,
-                class.method_count as u16,
+                class.method_count,
             );
             store.add_contains(&relative, &class.qualified_name);
             stats.classes_added += 1;
@@ -159,7 +159,7 @@ pub fn build_compact_graph(
         // Add call edges
         for call in &info.calls {
             // Try to resolve callee - look up in functions we've seen
-            let callee_name = call.callee.rsplit(&[':', '.'][..]).next().unwrap_or(&call.callee);
+            let _callee_name = call.callee.rsplit(&[':', '.'][..]).next().unwrap_or(&call.callee);
             
             // For now, just add the edge with the callee name
             // Resolution will improve as more files are processed
@@ -232,7 +232,7 @@ mod tests {
         
         let files = vec![path.join("a.py"), path.join("b.py")];
         
-        let (store, stats, parse_stats) = build_compact_graph(
+        let (_store, stats, parse_stats) = build_compact_graph(
             files,
             path,
             2,

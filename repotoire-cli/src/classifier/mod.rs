@@ -104,7 +104,7 @@ pub fn filter_with_category_thresholds(
 /// the classifier's prediction. High-confidence TPs are left alone,
 /// likely FPs get flagged for review.
 pub fn annotate_findings(
-    mut findings: Vec<Finding>,
+    findings: Vec<Finding>,
     classifier: &FpClassifier,
     thresholds: &CategoryThresholds,
 ) -> Vec<(Finding, CategoryAwarePrediction)> {

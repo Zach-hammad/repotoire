@@ -135,7 +135,7 @@ impl StreamingDetectorEngine {
         
         // Build a minimal engine just for context building
         let mut context_engine = DetectorEngine::new(self.workers);
-        let contexts = context_engine.get_or_build_contexts(graph);
+        let _contexts = context_engine.get_or_build_contexts(graph);
         
         // Process detectors in batches
         for (batch_idx, batch) in detectors.chunks(self.batch_size).enumerate() {
@@ -249,11 +249,9 @@ impl StreamingDetectorEngine {
         
         let mut counts: HashMap<Severity, usize> = HashMap::new();
         
-        for line in reader.lines() {
-            if let Ok(l) = line {
-                if let Ok(finding) = serde_json::from_str::<Finding>(&l) {
-                    *counts.entry(finding.severity).or_insert(0) += 1;
-                }
+        for l in reader.lines().map_while(Result::ok) {
+            if let Ok(finding) = serde_json::from_str::<Finding>(&l) {
+                *counts.entry(finding.severity).or_insert(0) += 1;
             }
         }
         
@@ -308,11 +306,9 @@ mod tests {
             affected_files: vec![],
             line_start: None,
             line_end: None,
-            snippet: None,
             suggested_fix: None,
-            confidence: 1.0,
-            effort: None,
-            tags: vec![],
+            confidence: Some(1.0),
+            ..Default::default()
         };
         
         stats.add_finding(&finding);

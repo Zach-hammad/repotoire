@@ -367,7 +367,7 @@ impl FunctionFeatures {
     /// Check for short prefix pattern (2-4 chars + underscore)
     fn has_short_prefix(name: &str) -> bool {
         if let Some(underscore_pos) = name.find('_') {
-            if underscore_pos >= 2 && underscore_pos <= 4 {
+            if (2..=4).contains(&underscore_pos) {
                 let prefix = &name[..underscore_pos];
                 if prefix.chars().all(|c| c.is_alphanumeric()) {
                     let prefix_lower = prefix.to_lowercase();
@@ -416,6 +416,7 @@ impl FunctionFeatures {
     }
     
     /// Quick check if this looks like a utility function (any language)
+    #[allow(clippy::nonminimal_bool)]
     pub fn looks_like_utility(&self) -> bool {
         // C-style: short prefix + high fan-in
         (self.has_short_prefix && self.is_high_fan_in)

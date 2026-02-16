@@ -292,10 +292,10 @@ fn suggest_constant_name(number: &str, context: &str) -> String {
     
     // Common patterns
     if ctx_lower.contains("timeout") || ctx_lower.contains("delay") {
-        return format!("TIMEOUT_MS");
+        return "TIMEOUT_MS".to_string();
     }
     if ctx_lower.contains("port") {
-        return format!("PORT");
+        return "PORT".to_string();
     }
     if ctx_lower.contains("retry") || ctx_lower.contains("attempt") {
         return "MAX_RETRIES".to_string();
@@ -316,7 +316,7 @@ fn suggest_constant_name(number: &str, context: &str) -> String {
 
 /// Fix dead code by suggesting removal
 fn fix_dead_code(finding: &Finding, _repo_path: &Path) -> Option<RuleFix> {
-    let is_function = finding.title.contains("function");
+    let _is_function = finding.title.contains("function");
     let is_class = finding.title.contains("class");
     
     let item_type = if is_class { "class" } else { "function" };
@@ -345,7 +345,6 @@ fn fix_deep_nesting(finding: &Finding) -> Option<RuleFix> {
     let nesting_level: usize = finding.title
         .split(':')
         .nth(1)?
-        .trim()
         .split_whitespace()
         .next()?
         .parse()
@@ -394,7 +393,7 @@ fn fix_missing_await(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
     }
     
     let line = lines[line_num - 1];
-    let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let _ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     
     // Try to identify where to add await
     let trimmed = line.trim();
@@ -494,7 +493,7 @@ fn fix_global_variables(finding: &Finding) -> Option<RuleFix> {
 }
 
 /// Fix long methods
-fn fix_long_methods(finding: &Finding) -> Option<RuleFix> {
+fn fix_long_methods(_finding: &Finding) -> Option<RuleFix> {
     Some(RuleFix::suggestion(
         "Break down long method into smaller functions".to_string(),
         "Long methods are hard to understand, test, and maintain.".to_string(),
@@ -514,7 +513,7 @@ fn fix_long_methods(finding: &Finding) -> Option<RuleFix> {
 }
 
 /// Fix broad exception handling
-fn fix_broad_exception(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
+fn fix_broad_exception(finding: &Finding, _repo_path: &Path) -> Option<RuleFix> {
     let file_path = finding.affected_files.first()?;
     let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     
@@ -563,7 +562,7 @@ fn fix_broad_exception(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
 }
 
 /// Fix wildcard imports
-fn fix_wildcard_imports(finding: &Finding) -> Option<RuleFix> {
+fn fix_wildcard_imports(_finding: &Finding) -> Option<RuleFix> {
     Some(RuleFix::suggestion(
         "Replace wildcard import with explicit imports".to_string(),
         "Wildcard imports (`from x import *`) pollute the namespace and make it unclear what's being used.".to_string(),

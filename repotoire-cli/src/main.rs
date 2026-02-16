@@ -1,3 +1,8 @@
+// Clippy: allow indexed loops in ML/numerical code (classifier, HMM)
+#![allow(clippy::needless_range_loop)]
+// Clippy: allow enum variant naming (ContextFile etc. — domain-meaningful)
+#![allow(clippy::enum_variant_names)]
+
 //! Repotoire - Graph-powered code analysis CLI
 //!
 //! A fast, local-first code analysis tool that uses knowledge graphs

@@ -164,7 +164,7 @@ impl ModuleLookupCompact {
             .trim_start_matches("super::");
         
         // Try stem match
-        let stem = clean.split(&[':', '.', '/'][..]).last().unwrap_or(clean);
+        let stem = clean.split(&[':', '.', '/'][..]).next_back().unwrap_or(clean);
         self.by_stem.get(stem).and_then(|v| v.first())
     }
 }
@@ -452,7 +452,7 @@ pub fn run_bounded_pipeline_auto(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+
     use tempfile::TempDir;
     
     fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {

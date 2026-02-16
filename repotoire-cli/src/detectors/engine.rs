@@ -568,26 +568,24 @@ impl DetectorEngine {
             if let Some(name) = func_name {
                 if let Some(context) = hmm_contexts.get(&name) {
                     // Skip coupling findings for utility/handler/test functions
-                    if COUPLING_DETECTORS.iter().any(|d| finding.detector.contains(d)) {
-                        if context.skip_coupling() {
+                    if COUPLING_DETECTORS.iter().any(|d| finding.detector.contains(d))
+                        && context.skip_coupling() {
                             debug!(
                                 "HMM filter: skipping coupling finding for {} (context: {:?})",
                                 name, context
                             );
                             return false;
                         }
-                    }
                     
                     // Skip dead code findings for handler functions
-                    if DEAD_CODE_DETECTORS.iter().any(|d| finding.detector.contains(d)) {
-                        if context.skip_dead_code() {
+                    if DEAD_CODE_DETECTORS.iter().any(|d| finding.detector.contains(d))
+                        && context.skip_dead_code() {
                             debug!(
                                 "HMM filter: skipping dead code finding for {} (context: {:?})",
                                 name, context
                             );
                             return false;
                         }
-                    }
                 }
             }
             

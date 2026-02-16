@@ -7,7 +7,7 @@ use crate::config::ProjectConfig;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Mark compound smells (multiple different issues co-located) for prioritization
 /// Research shows compound smells correlate with 78% more dependencies (arXiv:2509.03896)

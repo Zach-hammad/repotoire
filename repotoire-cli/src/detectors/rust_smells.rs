@@ -364,7 +364,7 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
                     if unsafe_block().is_match(line) {
                         // Look for SAFETY comment in the 3 lines before
                         let has_safety = (i.saturating_sub(3)..i)
-                            .any(|j| lines.get(j).map_or(false, |l| safety_comment().is_match(l)));
+                            .any(|j| lines.get(j).is_some_and(|l| safety_comment().is_match(l)));
 
                         // Also check if SAFETY is on the same line (inline comment)
                         let has_inline_safety = safety_comment().is_match(line);
@@ -514,8 +514,8 @@ impl Detector for CloneInHotPathDetector {
                         continue;
                     }
 
-                    if clone_call().is_match(line) {
-                        if Self::is_hot_path_context(&content, i, line) {
+                    if clone_call().is_match(line)
+                        && Self::is_hot_path_context(&content, i, line) {
                             let file_str = path.to_string_lossy();
                             let line_num = (i + 1) as u32;
 
@@ -565,7 +565,6 @@ impl Detector for CloneInHotPathDetector {
                                 ..Default::default()
                             });
                         }
-                    }
                 }
             }
         }
@@ -640,7 +639,7 @@ impl Detector for MissingMustUseDetector {
 
                         // Skip if #[must_use] is on the previous line(s)
                         let has_must_use = (i.saturating_sub(3)..i)
-                            .any(|j| lines.get(j).map_or(false, |l| must_use_attr().is_match(l)));
+                            .any(|j| lines.get(j).is_some_and(|l| must_use_attr().is_match(l)));
 
                         // Skip common patterns that don't need #[must_use]
                         // - main() functions

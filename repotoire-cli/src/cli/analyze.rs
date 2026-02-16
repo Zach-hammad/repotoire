@@ -20,7 +20,7 @@ use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
 use crate::parsers::{parse_file, ParseResult};
 use crate::parsers::streaming::{
     ParsedFileInfo, FunctionIndex, ModuleIndex, StreamingGraphBuilder,
-    StreamingStats, stream_parse_files_parallel,
+
 };
 use crate::reporters;
 
@@ -78,7 +78,7 @@ fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
 
 /// Output results from fully cached data (fast path)
 fn output_cached_results(
-    env: &EnvironmentSetup,
+    _env: &EnvironmentSetup,
     findings: Vec<Finding>,
     cached_score: &crate::detectors::CachedScoreResult,
     format: &str,
@@ -382,16 +382,14 @@ pub fn run(
         };
         
         let extractor = FeatureExtractor::new();
-        let classifier = HeuristicClassifier::default();
+        let classifier = HeuristicClassifier;
         let thresholds = CategoryThresholds::default();
         
         let before_count = findings.len();
         let mut filtered_by_category: std::collections::HashMap<DetectorCategory, usize> = 
             std::collections::HashMap::new();
         
-        findings = findings
-            .into_iter()
-            .filter(|f| {
+        findings.retain(|f| {
                 let features = extractor.extract(f);
                 let tp_prob = classifier.score(&features);
                 let category = DetectorCategory::from_detector(&f.detector);
@@ -404,8 +402,7 @@ pub fn run(
                     *filtered_by_category.entry(category).or_insert(0) += 1;
                     false
                 }
-            })
-            .collect();
+            });
         
         let total_filtered = before_count - findings.len();
         if total_filtered > 0 {
@@ -628,7 +625,7 @@ fn initialize_graph(
         let graph = Arc::new(GraphStore::in_memory());
         
         // Still parse files for function/class counts
-        let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
+        let _cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
         let parse_result = parse_files_lite(
             &file_result.files_to_parse,
             multi,
@@ -1204,7 +1201,7 @@ fn parse_files_lite(
     // Parse but don't store full results - just count functions and classes
     files.par_iter().for_each(|file_path| {
         let count = counter.fetch_add(1, Ordering::Relaxed);
-        if count % 500 == 0 {
+        if count.is_multiple_of(500) {
             parse_bar.set_position(count as u64);
         }
 
@@ -1237,7 +1234,7 @@ fn parse_files_chunked(
     files: &[PathBuf],
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
-    is_incremental: bool,
+    _is_incremental: bool,
     cache: &std::sync::Mutex<IncrementalCache>,
     chunk_size: usize,
 ) -> Result<ParsePhaseResult> {
@@ -1262,7 +1259,7 @@ fn parse_files_chunked(
             .par_iter()
             .filter_map(|file_path| {
                 let count = counter.fetch_add(1, Ordering::Relaxed);
-                if count % 200 == 0 {
+                if count.is_multiple_of(200) {
                     parse_bar.set_position((chunk_start + count) as u64);
                 }
 
@@ -1424,7 +1421,7 @@ fn build_graph(
             build_import_edges_fast(&mut edges, result, &relative_str, &module_lookup);
 
             let count = counter.fetch_add(1, Ordering::Relaxed);
-            if count % 100 == 0 {
+            if count.is_multiple_of(100) {
                 graph_bar.set_position(count as u64);
             }
 
@@ -1490,7 +1487,7 @@ fn build_graph_chunked(
     let module_lookup = ModuleLookup::build(parse_results, repo_path);
 
     let counter = AtomicUsize::new(0);
-    let total_chunks = (parse_results.len() + chunk_size - 1) / chunk_size;
+    let total_chunks = parse_results.len().div_ceil(chunk_size);
 
     // Process in chunks to limit peak memory from intermediate results
     for (chunk_idx, chunk) in parse_results.chunks(chunk_size).enumerate() {
@@ -1573,7 +1570,7 @@ fn build_graph_chunked(
                 build_import_edges_fast(&mut edges, result, &relative_str, &module_lookup);
 
                 let count = counter.fetch_add(1, Ordering::Relaxed);
-                if count % 100 == 0 {
+                if count.is_multiple_of(100) {
                     graph_bar.set_position(count as u64);
                 }
 
@@ -1709,7 +1706,7 @@ impl ModuleLookup {
         ModuleLookup { by_stem, by_pattern }
     }
     
-    fn find_matches(&self, import_path: &str, parse_results: &[(PathBuf, ParseResult)], repo_path: &Path) -> Vec<String> {
+    fn find_matches(&self, import_path: &str, _parse_results: &[(PathBuf, ParseResult)], _repo_path: &Path) -> Vec<String> {
         let clean_import = import_path
             .trim_start_matches("./")
             .trim_start_matches("../")
@@ -1718,7 +1715,7 @@ impl ModuleLookup {
         
         let module_parts: Vec<&str> = clean_import.split("::").collect();
         let first_module = module_parts.first().copied().unwrap_or("");
-        let python_path = clean_import.replace('.', "/");
+        let _python_path = clean_import.replace('.', "/");
         
         let mut matches = Vec::new();
         
@@ -1947,7 +1944,7 @@ fn build_call_edges_fast(
     edges: &mut Vec<(String, String, CodeEdge)>,
     result: &ParseResult,
     parse_results: &[(PathBuf, ParseResult)],
-    repo_path: &Path,
+    _repo_path: &Path,
     global_func_map: &HashMap<String, String>,
     module_lookup: &ModuleLookup,
 ) {
@@ -1972,7 +1969,7 @@ fn build_call_edges_fast(
             if let Some(module) = callee_module {
                 // O(1) lookup by module name
                 if let Some(candidates) = module_lookup.by_stem.get(module) {
-                    for (file_path, idx) in candidates {
+                    for (_file_path, idx) in candidates {
                         if let Some((_, other_result)) = parse_results.get(*idx) {
                             if let Some(func) = other_result
                                 .functions

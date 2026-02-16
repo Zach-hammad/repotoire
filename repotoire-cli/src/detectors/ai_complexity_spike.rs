@@ -320,7 +320,7 @@ impl AIComplexitySpikeDetector {
     /// Pattern: 2-4 alphanumeric prefix + underscore (e.g., u3r_, Py_, lua_, rb_)
     fn has_runtime_prefix(func_name: &str) -> bool {
         if let Some(underscore_pos) = func_name.find('_') {
-            if underscore_pos >= 2 && underscore_pos <= 4 {
+            if (2..=4).contains(&underscore_pos) {
                 let prefix = &func_name[..underscore_pos];
                 if prefix.chars().all(|c| c.is_alphanumeric()) {
                     let prefix_lower = prefix.to_lowercase();

@@ -141,7 +141,7 @@ pub fn parse_files_parallel_streaming(
             .map(|path| {
                 let count = counter.fetch_add(1, Ordering::Relaxed);
                 if let Some(cb) = progress {
-                    if count % 200 == 0 {
+                    if count.is_multiple_of(200) {
                         cb(count, total);
                     }
                 }
@@ -159,11 +159,9 @@ pub fn parse_files_parallel_streaming(
             .collect();
         
         // Collect results from this batch
-        for info_opt in batch_results {
-            if let Some(info) = info_opt {
-                stats.add_file(&info);
-                all_results.push(info);
-            }
+        for info in batch_results.into_iter().flatten() {
+            stats.add_file(&info);
+            all_results.push(info);
         }
         
         // All ASTs from this batch are now dropped
@@ -243,7 +241,7 @@ mod tests {
         
         let info = result.unwrap();
         assert_eq!(info.language, Language::Python);
-        assert!(info.functions.len() >= 1);
+        assert!(!info.functions.is_empty());
     }
     
     #[test]

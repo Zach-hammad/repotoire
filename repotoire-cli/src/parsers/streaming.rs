@@ -364,7 +364,7 @@ pub fn build_indexes_parallel(
         .filter_map(|file_path| {
             let count = counter.fetch_add(1, Ordering::Relaxed);
             if let Some(cb) = progress_callback {
-                if count % 500 == 0 {
+                if count.is_multiple_of(500) {
                     cb(count, total);
                 }
             }
@@ -501,7 +501,7 @@ pub fn stream_parse_files_parallel<B: StreamingGraphBuilder>(
     batch_size: usize,
     progress_callback: Option<&(dyn Fn(usize, usize) + Sync)>,
 ) -> Result<StreamingStats> {
-    use std::sync::Mutex;
+
     
     let mut stats = StreamingStats {
         total_files: files.len(),
@@ -519,7 +519,7 @@ pub fn stream_parse_files_parallel<B: StreamingGraphBuilder>(
             .map(|file_path| {
                 let count = counter.fetch_add(1, Ordering::Relaxed);
                 if let Some(cb) = progress_callback {
-                    if count % 200 == 0 {
+                    if count.is_multiple_of(200) {
                         cb(count, total);
                     }
                 }

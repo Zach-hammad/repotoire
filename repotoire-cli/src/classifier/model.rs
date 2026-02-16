@@ -79,7 +79,7 @@ impl FpClassifier {
         w2: Vec<Vec<f32>>,
         b2: Vec<f32>,
     ) -> Self {
-        let input_size = w1.get(0).map(|r| r.len()).unwrap_or(0);
+        let input_size = w1.first().map(|r| r.len()).unwrap_or(0);
         let hidden_size = w1.len();
         
         Self {
@@ -230,7 +230,7 @@ impl FpClassifier {
 impl Default for FpClassifier {
     fn default() -> Self {
         // Use heuristic scoring instead of random weights
-        HeuristicClassifier::default().into()
+        HeuristicClassifier.into()
     }
 }
 
@@ -273,7 +273,7 @@ impl HeuristicClassifier {
         // Security detectors are more likely TP
         // SQL injection, command injection, path traversal, XSS, crypto, torch.load
         let is_security_detector = (0..6).any(|i| vals.get(i).copied().unwrap_or(0.0) > 0.5);
-        let is_command_injection = vals.get(1).copied().unwrap_or(0.0) > 0.5;
+        let _is_command_injection = vals.get(1).copied().unwrap_or(0.0) > 0.5;
         
         // Security in production code = high confidence TP
         // Security findings get full bonus regardless of path - security issues are
@@ -347,7 +347,7 @@ impl HeuristicClassifier {
         }
         
         // Clamp to [0, 1]
-        tp_score.max(0.0).min(1.0)
+        tp_score.clamp(0.0, 1.0)
     }
 }
 

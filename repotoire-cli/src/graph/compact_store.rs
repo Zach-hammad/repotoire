@@ -7,9 +7,9 @@ use super::interner::{CompactEdge, CompactEdgeKind, CompactNode, CompactNodeKind
 use super::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 use anyhow::Result;
 use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::Direction;
+
 use std::collections::HashMap;
-use std::path::Path;
+
 use std::sync::RwLock;
 
 /// Memory-efficient graph store
@@ -63,7 +63,7 @@ impl CompactGraphStore {
     }
     
     /// Add a file node
-    pub fn add_file(&mut self, path: &str, loc: u32, language: Option<&str>) -> usize {
+    pub fn add_file(&mut self, path: &str, _loc: u32, _language: Option<&str>) -> usize {
         let node = CompactNode::file(&self.interner, path);
         self.add_node_internal(node)
     }

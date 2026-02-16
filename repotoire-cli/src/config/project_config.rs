@@ -386,11 +386,10 @@ fn score_library_markers(repo_path: &Path) -> u32 {
     }
     
     // Check for setup.py / pyproject.toml with library structure
-    if repo_path.join("setup.py").exists() || repo_path.join("pyproject.toml").exists() {
-        if !repo_path.join("__main__.py").exists() {
+    if (repo_path.join("setup.py").exists() || repo_path.join("pyproject.toml").exists())
+        && !repo_path.join("__main__.py").exists() {
             score += 3;
         }
-    }
 
     score
 }

@@ -230,7 +230,7 @@ impl UnreachableCodeDetector {
         // Find first underscore
         if let Some(underscore_pos) = func_name.find('_') {
             // Prefix must be 2-4 characters
-            if underscore_pos >= 2 && underscore_pos <= 4 {
+            if (2..=4).contains(&underscore_pos) {
                 let prefix = &func_name[..underscore_pos];
                 // Prefix must be alphanumeric (allow mixed case for Py_, Rb_, etc.)
                 if prefix.chars().all(|c| c.is_alphanumeric()) {
@@ -288,11 +288,10 @@ impl UnreachableCodeDetector {
                     return true;
                 }
                 // export { funcName } or export { funcName as alias }
-                if line.contains("export {") || line.contains("export{") {
-                    if line.contains(func_pattern) {
+                if (line.contains("export {") || line.contains("export{"))
+                    && line.contains(func_pattern) {
                         return true;
                     }
-                }
                 // export default funcName
                 if line.contains("export default") && line.contains(func_pattern) {
                     return true;

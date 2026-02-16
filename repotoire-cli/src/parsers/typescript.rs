@@ -202,7 +202,7 @@ fn extract_functions(
     let query = get_func_query(ext, language);
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(query, *root, source);
 
     for m in matches {
         let mut func_node = None;
@@ -384,7 +384,7 @@ fn extract_classes(
     let query = get_class_query(ext, language);
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(query, *root, source);
 
     for m in matches {
         let mut class_node = None;
@@ -666,7 +666,7 @@ fn extract_imports(
     source: &[u8],
     result: &mut ParseResult,
     language: &Language,
-    ext: &str,
+    _ext: &str,
 ) -> Result<()> {
     // Use a simple query that works for both TS and JS
     let query_str = r#"

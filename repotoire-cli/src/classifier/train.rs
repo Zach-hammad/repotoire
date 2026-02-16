@@ -134,7 +134,7 @@ pub fn train(config: &TrainConfig) -> Result<TrainResult, String> {
         let train_acc = correct as f32 / train_data.len() as f32;
         
         // Validation
-        let (val_loss, val_acc) = if !val_data.is_empty() {
+        let (_val_loss, val_acc) = if !val_data.is_empty() {
             let mut loss = 0.0;
             let mut correct = 0;
             
