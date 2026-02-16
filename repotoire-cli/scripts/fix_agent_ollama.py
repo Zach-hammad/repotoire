@@ -314,9 +314,10 @@ def run_command(cmd: str, cwd: str, quiet: bool = False) -> tuple[int, str]:
     """Run a shell command."""
     if not quiet:
         print(f"🔧 Running: {cmd}", flush=True)
+    import shlex
     result = subprocess.run(
-        cmd,
-        shell=True,
+        shlex.split(cmd),
+        shell=False,
         cwd=cwd,
         capture_output=True,
         text=True,
