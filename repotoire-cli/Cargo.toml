@@ -2,7 +2,7 @@
 name = "repotoire"
 version = "0.3.100"
 edition = "2021"
-description = "Graph-powered code analysis CLI. 108 detectors for security, architecture, and code quality."
+description = "Graph-powered code analysis CLI. 112 detectors for security, architecture, and code quality."
 license = "MIT"
 repository = "https://github.com/Zach-hammad/repotoire"
 homepage = "https://repotoire.com"
@@ -85,7 +85,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Git history
-git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2"] }
+git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
 
 # Misc
 ignore = "0.4"  # .gitignore support
@@ -93,7 +93,6 @@ dashmap = "6"   # Concurrent hashmap for file cache
 regex = "1"
 chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
-lazy_static = "1.5"
 md5 = "0.7"
 ratatui = "0.30.0"
 crossterm = "0.29.0"

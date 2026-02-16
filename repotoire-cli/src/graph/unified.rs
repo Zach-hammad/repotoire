@@ -269,6 +269,7 @@ impl GraphQuery for UnifiedGraph {
     }
 }
 
-// Allow using UnifiedGraph with Arc for thread safety
-unsafe impl Send for UnifiedGraph {}
-unsafe impl Sync for UnifiedGraph {}
+// UnifiedGraph is Send+Sync because:
+// - Arc<GraphStore> is Send+Sync (Arc provides thread safety)
+// - CompactGraphStore contains only plain data types (Vec, HashMap, String)
+// No manual unsafe impl needed — the compiler derives these automatically.

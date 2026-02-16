@@ -318,9 +318,12 @@ fn fix_type_str(fix_type: FixType) -> &'static str {
 /// Sanitize text to prevent prompt injection
 fn sanitize_text(text: &str) -> String {
     use regex::Regex;
+    use std::sync::OnceLock;
 
-    lazy_static::lazy_static! {
-        static ref INJECTION_PATTERNS: Vec<Regex> = vec![
+    static INJECTION_PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+    
+    fn get_injection_patterns() -> &'static Vec<Regex> {
+        INJECTION_PATTERNS.get_or_init(|| vec![
             Regex::new(r"(?i)ignore\s+(all\s+)?previous\s+instructions?").unwrap(),
             Regex::new(r"(?i)disregard\s+(all\s+)?previous").unwrap(),
             Regex::new(r"(?i)forget\s+(all\s+)?previous").unwrap(),
@@ -330,11 +333,11 @@ fn sanitize_text(text: &str) -> String {
             Regex::new(r"(?i)human\s*:\s*").unwrap(),
             Regex::new(r"(?i)output\s+(your\s+)?(api\s*key|secret|password|credential)").unwrap(),
             Regex::new(r"(?i)reveal\s+(your\s+)?(api\s*key|secret|password|credential)").unwrap(),
-        ];
+        ])
     }
 
     let mut result = text.to_string();
-    for pattern in INJECTION_PATTERNS.iter() {
+    for pattern in get_injection_patterns().iter() {
         result = pattern.replace_all(&result, "[REDACTED]").to_string();
     }
 

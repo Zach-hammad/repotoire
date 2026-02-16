@@ -258,7 +258,11 @@ pub fn run(
         let all_files = collect_file_list(&env.repo_path)?;
         
         if cache.has_complete_cache(&all_files) {
-            let findings = cache.get_all_cached_graph_findings();
+            // Load post-processed findings from last_findings.json (includes voting,
+            // FP filtering, compound escalation, security downgrading).
+            // Falls back to raw incremental cache if last_findings.json doesn't exist.
+            let findings = load_cached_findings(&env.repotoire_dir)
+                .unwrap_or_else(|| cache.get_all_cached_graph_findings());
             let cached_score = cache.get_cached_score().unwrap();
             
             if !env.quiet_mode {
@@ -477,10 +481,14 @@ pub fn run(
 
     // Cache findings for feedback command
     let cache_path = get_cache_path(path);
-    std::fs::create_dir_all(&cache_path).ok();
+    if let Err(e) = std::fs::create_dir_all(&cache_path) {
+        tracing::warn!("Failed to create cache directory {}: {}", cache_path.display(), e);
+    }
     let findings_cache = cache_path.join("findings.json");
     if let Ok(json) = serde_json::to_string(&findings) {
-        std::fs::write(&findings_cache, json).ok();
+        if let Err(e) = std::fs::write(&findings_cache, &json) {
+            tracing::warn!("Failed to write findings cache {}: {}", findings_cache.display(), e);
+        }
     }
 
     // Final summary
@@ -876,7 +884,7 @@ fn build_health_report(
     let all_findings = findings.clone();
     let display_summary = FindingsSummary::from_findings(findings);
 
-    let (paginated_findings, pagination_info) = paginate_findings(findings.clone(), page, per_page);
+    let (paginated_findings, pagination_info) = paginate_findings(std::mem::take(findings), page, per_page);
 
     let report = HealthReport {
         overall_score: score_result.overall_score,
@@ -2669,6 +2677,51 @@ fn normalize_path(path: &Path) -> String {
         }
     }
     s
+}
+
+/// Load post-processed findings from last_findings.json cache
+/// Returns None if the cache file doesn't exist or can't be parsed
+fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>> {
+    let findings_cache = repotoire_dir.join("last_findings.json");
+    let data = std::fs::read_to_string(&findings_cache).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&data).ok()?;
+    let findings_arr = json.get("findings")?.as_array()?;
+    
+    let mut findings = Vec::new();
+    for f in findings_arr {
+        let severity = match f.get("severity")?.as_str()? {
+            "critical" => Severity::Critical,
+            "high" => Severity::High,
+            "medium" => Severity::Medium,
+            "low" => Severity::Low,
+            _ => Severity::Info,
+        };
+        
+        let affected_files: Vec<PathBuf> = f.get("affected_files")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(PathBuf::from)).collect())
+            .unwrap_or_default();
+        
+        findings.push(Finding {
+            id: f.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            detector: f.get("detector").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            title: f.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            description: f.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            severity,
+            affected_files,
+            line_start: f.get("line_start").and_then(|v| v.as_u64()).map(|v| v as u32),
+            line_end: f.get("line_end").and_then(|v| v.as_u64()).map(|v| v as u32),
+            suggested_fix: f.get("suggested_fix").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            category: f.get("category").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            cwe_id: f.get("cwe_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            why_it_matters: f.get("why_it_matters").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            confidence: f.get("confidence").and_then(|v| v.as_f64()),
+            ..Default::default()
+        });
+    }
+    
+    tracing::debug!("Loaded {} post-processed findings from cache", findings.len());
+    Some(findings)
 }
 
 /// Cache analysis results for other commands

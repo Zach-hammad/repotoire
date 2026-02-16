@@ -284,7 +284,7 @@ export function Hero() {
             <span className="hidden sm:block w-px h-4 bg-border" />
             <span>MIT License</span>
             <span className="hidden sm:block w-px h-4 bg-border" />
-            <span>Python & Rust</span>
+            <span>Pure Rust</span>
           </div>
         </motion.div>
       </div>

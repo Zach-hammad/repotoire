@@ -55,11 +55,11 @@ sudo mv repotoire /usr/local/bin/
 
 - **Parallel parsing** with tree-sitter (native Rust)
 - **Cached git blame** (7.7x faster than naive)
-- **81 detectors** running in parallel
+- **112 detectors** running in parallel
 
 ## What It Finds
 
-**81 detectors** across 5 categories:
+**112 detectors** across 5 categories:
 
 ### 🔒 Security (25+ detectors)
 - SQL/NoSQL injection, XSS, SSRF, XXE
@@ -219,11 +219,11 @@ repos:
 
 ```
 ┌──────────┐    ┌───────────────┐    ┌──────────────┐    ┌──────────┐
-│  Source  │───▶│  Tree-sitter  │───▶│  petgraph +  │───▶│ 81       │
+│  Source  │───▶│  Tree-sitter  │───▶│  petgraph +  │───▶│ 112      │
 │  Files   │    │  (Rust)       │    │  sled        │    │ Detectors│
 └──────────┘    └───────────────┘    └──────────────┘    └──────────┘
                                             │
-         9 languages                        │      Graph algorithms:
+         13 languages                        │      Graph algorithms:
          Parallel parsing                   │      • Tarjan's SCC
          ~7,500 files/sec                   │      • Betweenness centrality
                                             │      • PageRank

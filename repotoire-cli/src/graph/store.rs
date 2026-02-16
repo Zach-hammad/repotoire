@@ -259,8 +259,8 @@ impl GraphStore {
 
     /// Clear all data
     pub fn clear(&self) -> Result<()> {
-        let mut graph = self.graph.write().unwrap();
-        let mut index = self.node_index.write().unwrap();
+        let mut graph = self.graph.write().expect("graph lock poisoned");
+        let mut index = self.node_index.write().expect("graph lock poisoned");
 
         graph.clear();
         index.clear();
@@ -276,8 +276,8 @@ impl GraphStore {
 
     /// Add a node to the graph
     pub fn add_node(&self, node: CodeNode) -> NodeIndex {
-        let mut graph = self.graph.write().unwrap();
-        let mut index = self.node_index.write().unwrap();
+        let mut graph = self.graph.write().expect("graph lock poisoned");
+        let mut index = self.node_index.write().expect("graph lock poisoned");
 
         let qn = node.qualified_name.clone();
 
@@ -297,8 +297,8 @@ impl GraphStore {
 
     /// Add multiple nodes at once (batch operation, single lock acquisition)
     pub fn add_nodes_batch(&self, nodes: Vec<CodeNode>) -> Vec<NodeIndex> {
-        let mut graph = self.graph.write().unwrap();
-        let mut index = self.node_index.write().unwrap();
+        let mut graph = self.graph.write().expect("graph lock poisoned");
+        let mut index = self.node_index.write().expect("graph lock poisoned");
         let mut indices = Vec::with_capacity(nodes.len());
 
         for node in nodes {
@@ -321,13 +321,13 @@ impl GraphStore {
 
     /// Get node index by qualified name
     pub fn get_node_index(&self, qn: &str) -> Option<NodeIndex> {
-        self.node_index.read().unwrap().get(qn).copied()
+        self.node_index.read().expect("graph lock poisoned").get(qn).copied()
     }
 
     /// Get node by qualified name
     pub fn get_node(&self, qn: &str) -> Option<CodeNode> {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         index
             .get(qn)
@@ -341,10 +341,10 @@ impl GraphStore {
         key: &str,
         value: impl Into<serde_json::Value>,
     ) -> bool {
-        let index = self.node_index.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
         if let Some(&idx) = index.get(qn) {
             drop(index);
-            let mut graph = self.graph.write().unwrap();
+            let mut graph = self.graph.write().expect("graph lock poisoned");
             if let Some(node) = graph.node_weight_mut(idx) {
                 node.set_property(key, value);
                 return true;
@@ -355,10 +355,10 @@ impl GraphStore {
 
     /// Update multiple properties on a node
     pub fn update_node_properties(&self, qn: &str, props: &[(&str, serde_json::Value)]) -> bool {
-        let index = self.node_index.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
         if let Some(&idx) = index.get(qn) {
             drop(index);
-            let mut graph = self.graph.write().unwrap();
+            let mut graph = self.graph.write().expect("graph lock poisoned");
             if let Some(node) = graph.node_weight_mut(idx) {
                 for (key, value) in props {
                     node.set_property(key, value.clone());
@@ -371,7 +371,7 @@ impl GraphStore {
 
     /// Get all nodes of a specific kind
     pub fn get_nodes_by_kind(&self, kind: NodeKind) -> Vec<CodeNode> {
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         graph
             .node_weights()
@@ -397,7 +397,7 @@ impl GraphStore {
 
     /// Get functions in a specific file
     pub fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         graph
             .node_weights()
@@ -408,7 +408,7 @@ impl GraphStore {
 
     /// Get classes in a specific file
     pub fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         graph
             .node_weights()
@@ -419,7 +419,7 @@ impl GraphStore {
 
     /// Get functions with complexity above threshold
     pub fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         graph
             .node_weights()
@@ -432,7 +432,7 @@ impl GraphStore {
 
     /// Get functions with many parameters
     pub fn get_long_param_functions(&self, min_params: i64) -> Vec<CodeNode> {
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         graph
             .node_weights()
@@ -447,13 +447,13 @@ impl GraphStore {
 
     /// Add an edge between nodes by index
     pub fn add_edge(&self, from: NodeIndex, to: NodeIndex, edge: CodeEdge) {
-        let mut graph = self.graph.write().unwrap();
+        let mut graph = self.graph.write().expect("graph lock poisoned");
         graph.add_edge(from, to, edge);
     }
 
     /// Add edge by qualified names (returns false if either node doesn't exist)
     pub fn add_edge_by_name(&self, from_qn: &str, to_qn: &str, edge: CodeEdge) -> bool {
-        let index = self.node_index.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
 
         if let (Some(&from), Some(&to)) = (index.get(from_qn), index.get(to_qn)) {
             drop(index);
@@ -466,8 +466,8 @@ impl GraphStore {
 
     /// Add multiple edges at once (batch operation)
     pub fn add_edges_batch(&self, edges: Vec<(String, String, CodeEdge)>) -> usize {
-        let index = self.node_index.read().unwrap();
-        let mut graph = self.graph.write().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let mut graph = self.graph.write().expect("graph lock poisoned");
         let mut added = 0;
 
         for (from_qn, to_qn, edge) in edges {
@@ -482,7 +482,7 @@ impl GraphStore {
 
     /// Get all edges of a specific kind as (source_qn, target_qn) pairs
     pub fn get_edges_by_kind(&self, kind: EdgeKind) -> Vec<(String, String)> {
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         graph
             .edge_references()
@@ -512,8 +512,8 @@ impl GraphStore {
 
     /// Get callers of a function (who calls this?)
     pub fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph
@@ -528,8 +528,8 @@ impl GraphStore {
 
     /// Get callees of a function (what does this call?)
     pub fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph
@@ -544,8 +544,8 @@ impl GraphStore {
 
     /// Get importers of a module/class (who imports this?)
     pub fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph
@@ -560,8 +560,8 @@ impl GraphStore {
 
     /// Get parent classes (what does this inherit from?)
     pub fn get_parent_classes(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph
@@ -576,8 +576,8 @@ impl GraphStore {
 
     /// Get child classes (what inherits from this?)
     pub fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph
@@ -594,8 +594,8 @@ impl GraphStore {
 
     /// Get in-degree (fan-in) for a node
     pub fn fan_in(&self, qn: &str) -> usize {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph.edges_directed(idx, Direction::Incoming).count()
@@ -606,8 +606,8 @@ impl GraphStore {
 
     /// Get out-degree (fan-out) for a node
     pub fn fan_out(&self, qn: &str) -> usize {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph.edges_directed(idx, Direction::Outgoing).count()
@@ -618,8 +618,8 @@ impl GraphStore {
 
     /// Get call fan-in (how many functions call this?)
     pub fn call_fan_in(&self, qn: &str) -> usize {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph
@@ -633,8 +633,8 @@ impl GraphStore {
 
     /// Get call fan-out (how many functions does this call?)
     pub fn call_fan_out(&self, qn: &str) -> usize {
-        let index = self.node_index.read().unwrap();
-        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().expect("graph lock poisoned");
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         if let Some(&idx) = index.get(qn) {
             graph
@@ -648,17 +648,17 @@ impl GraphStore {
 
     /// Get node count
     pub fn node_count(&self) -> usize {
-        self.graph.read().unwrap().node_count()
+        self.graph.read().expect("graph lock poisoned").node_count()
     }
 
     /// Get edge count
     pub fn edge_count(&self) -> usize {
-        self.graph.read().unwrap().edge_count()
+        self.graph.read().expect("graph lock poisoned").edge_count()
     }
 
     /// Get statistics
     pub fn stats(&self) -> HashMap<String, i64> {
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
         let mut stats = HashMap::new();
 
         let mut file_count = 0i64;
@@ -710,7 +710,7 @@ impl GraphStore {
     /// Returns strongly connected components with >1 node, which represent cycles.
     /// Each SCC is returned as a list of qualified names.
     fn find_cycles_scc(&self, edge_kind: EdgeKind) -> Vec<Vec<String>> {
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         // Build a filtered subgraph with only edges of the specified kind
         // This is more efficient than filtering during SCC traversal
@@ -801,8 +801,8 @@ impl GraphStore {
     ///
     /// This is useful when you want to show the shortest cycle involving a particular file.
     pub fn find_minimal_cycle(&self, start_qn: &str, edge_kind: EdgeKind) -> Option<Vec<String>> {
-        let graph = self.graph.read().unwrap();
-        let index = self.node_index.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
+        let index = self.node_index.read().expect("graph lock poisoned");
 
         let start_idx = index.get(start_qn)?;
 
@@ -862,7 +862,7 @@ impl GraphStore {
             None => return Ok(()), // In-memory only, nothing to save
         };
 
-        let graph = self.graph.read().unwrap();
+        let graph = self.graph.read().expect("graph lock poisoned");
 
         // Clear old data
         db.clear()?;
@@ -902,8 +902,8 @@ impl GraphStore {
             None => return Ok(()),
         };
 
-        let mut graph = self.graph.write().unwrap();
-        let mut index = self.node_index.write().unwrap();
+        let mut graph = self.graph.write().expect("graph lock poisoned");
+        let mut index = self.node_index.write().expect("graph lock poisoned");
 
         // Load nodes
         for item in db.scan_prefix(b"node:") {
