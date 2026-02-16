@@ -79,98 +79,65 @@ fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
 /// Output results from fully cached data (fast path)
 fn output_cached_results(
     env: &EnvironmentSetup,
-    findings: Vec<Finding>,
+    mut findings: Vec<Finding>,
     cached_score: &crate::detectors::CachedScoreResult,
     format: &str,
     output_path: Option<&Path>,
     start_time: Instant,
     _explain_score: bool,
+    severity: &Option<String>,
+    top: Option<usize>,
+    page: usize,
+    per_page: usize,
+    skip_detector: &[String],
 ) -> Result<()> {
-    let findings_summary = FindingsSummary::from_findings(&findings);
     let no_emoji = env.config.no_emoji;
     
-    // Build minimal health report from cached data
+    // Apply skip-detector filter
+    if !skip_detector.is_empty() {
+        let skip_set: std::collections::HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
+        findings.retain(|f| !skip_set.contains(f.detector.as_str()));
+    }
+    
+    // Apply severity and top filters (same as normal path)
+    filter_findings(&mut findings, severity, top);
+    
+    // Paginate
+    let (paginated_findings, pagination_info) = paginate_findings(findings.clone(), page, per_page);
+    
+    let findings_summary = FindingsSummary::from_findings(&paginated_findings);
+    
+    // Build health report with filtered+paginated findings
     let health_report = HealthReport {
         overall_score: cached_score.score,
         grade: cached_score.grade.clone(),
-        structure_score: cached_score.score, // Approximation for cached
+        structure_score: cached_score.score,
         quality_score: cached_score.score,
         architecture_score: Some(cached_score.score),
-        findings: findings.clone(),
+        findings: paginated_findings.clone(),
         findings_summary: findings_summary.clone(),
         total_files: cached_score.total_files,
         total_functions: cached_score.total_functions,
         total_classes: cached_score.total_classes,
     };
     
-    // Output based on format
-    match format {
-        "json" => {
-            let output = serde_json::to_string_pretty(&health_report)?;
-            if let Some(path) = output_path {
-                std::fs::write(path, &output)?;
-                if !env.quiet_mode {
-                    println!("\n{} Report written to: {}", if no_emoji { "" } else { "📄" }, path.display());
-                }
-            } else {
-                println!("{}", output);
-            }
-        }
-        "sarif" => {
-            // SARIF requires full reporter infrastructure, skip cache fast path
-            // This will be caught by the normal flow
-            anyhow::bail!("SARIF format not supported in cache fast path");
-        }
-        _ => {
-            // Simple text output for cached results
-            println!("\n{}", style("Repotoire Analysis").bold());
-            println!("{}", style("──────────────────────────────────────").dim());
-            
-            let grade_colored = match cached_score.grade.as_str() {
-                "A+" | "A" => style(&cached_score.grade).green().bold(),
-                "B" => style(&cached_score.grade).cyan().bold(),
-                "C" => style(&cached_score.grade).yellow().bold(),
-                _ => style(&cached_score.grade).red().bold(),
-            };
-            
-            println!(
-                "Score: {}  Grade: {}  Files: {}  Functions: {}  Classes: {}",
-                style(format!("{:.1}/100", cached_score.score)).bold(),
-                grade_colored,
-                cached_score.total_files,
-                cached_score.total_functions,
-                cached_score.total_classes,
-            );
-            
-            // Show findings summary
-            let high = findings.iter().filter(|f| f.severity == Severity::High || f.severity == Severity::Critical).count();
-            let medium = findings.iter().filter(|f| f.severity == Severity::Medium).count();
-            let low = findings.iter().filter(|f| f.severity == Severity::Low).count();
-            
-            println!(
-                "{} ({} total)",
-                style("FINDINGS").bold(),
-                findings.len()
-            );
-            
-            let (high_bullet, med_bullet, low_bullet) = if no_emoji {
-                ("[!]", "[*]", "[-]")
-            } else {
-                ("🔴", "🟠", "🟢")
-            };
-            
-            if high > 0 {
-                println!("  {}  {}  HIGH+", style(high_bullet).red(), high);
-            }
-            if medium > 0 {
-                println!("  {}  {}  MEDIUM", style(med_bullet).yellow(), medium);
-            }
-            if low > 0 {
-                println!("  {}  {}  LOW", style(low_bullet).green(), low);
-            }
-            
-            let elapsed = start_time.elapsed();
-            let done_prefix = if no_emoji { "" } else { "✨ " };
+    // Use format_and_output for consistent behavior with normal path
+    format_and_output(
+        &health_report,
+        &findings, // all filtered findings (for JSON "all" output)
+        format,
+        output_path,
+        &env.repotoire_dir,
+        pagination_info,
+        paginated_findings.len(),
+        no_emoji,
+    )?;
+    
+    // Final summary (text only)
+    if format != "json" && format != "sarif" {
+        let elapsed = start_time.elapsed();
+        let done_prefix = if no_emoji { "" } else { "✨ " };
+        if !env.quiet_mode {
             println!(
                 "\n{}Analysis complete in {:.2}s (cached)",
                 style(done_prefix).bold(),
@@ -179,7 +146,7 @@ fn output_cached_results(
         }
     }
     
-    // CI/CD threshold check
+    // CI/CD threshold check (use unfiltered findings for fail-on)
     check_fail_threshold(&env.config.fail_on, &health_report)?;
     
     Ok(())
@@ -302,7 +269,7 @@ pub fn run(
                 );
             }
             
-            // Output cached results
+            // Output cached results (with same filters as normal path)
             output_cached_results(
                 &env,
                 findings,
@@ -311,6 +278,11 @@ pub fn run(
                 output_path,
                 start_time,
                 explain_score,
+                &severity,
+                top,
+                page,
+                per_page,
+                &skip_detector,
             )?;
             
             return Ok(());
@@ -352,6 +324,19 @@ pub fn run(
         &findings,
     );
     apply_detector_overrides(&mut findings, &env.project_config);
+    
+    // Filter findings to only include files in the analyzed set (respects --max-files)
+    if env.config.max_files > 0 {
+        let allowed_files: std::collections::HashSet<_> = file_result.all_files.iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        findings.retain(|f| {
+            f.affected_files.is_empty() || f.affected_files.iter().any(|p| {
+                let ps = p.to_string_lossy().to_string();
+                allowed_files.contains(&ps) || allowed_files.iter().any(|a| ps.ends_with(a.trim_start_matches("./")) || a.ends_with(ps.trim_start_matches("./")))
+            })
+        });
+    }
     
     // Phase 4.5: Escalate compound smells (multiple issues in same location)
     crate::scoring::escalate_compound_smells(&mut findings);
@@ -611,12 +596,16 @@ fn initialize_graph(
             );
         }
         file_result.all_files.truncate(max_files);
-        // Re-filter files_to_parse to only include files in the truncated list
+        // Re-filter files_to_parse and cached_findings to only include files in the truncated list
         let all_set: std::collections::HashSet<_> = file_result.all_files.iter().collect();
         file_result.files_to_parse.retain(|f| all_set.contains(f));
         if file_result.files_to_parse.len() > max_files {
             file_result.files_to_parse.truncate(max_files);
         }
+        // Filter cached findings to match truncated file set
+        file_result.cached_findings.retain(|f| {
+            f.affected_files.iter().any(|p| all_set.contains(p))
+        });
     }
 
     if file_result.all_files.is_empty() {
@@ -778,6 +767,7 @@ fn execute_detection_phase(
     // Start git enrichment in background
     let git_handle = start_git_enrichment(
         env.config.no_git,
+        env.quiet_mode,
         &env.repo_path,
         Arc::clone(graph),
         multi,
@@ -882,9 +872,8 @@ fn build_health_report(
     Option<(usize, usize, usize, usize)>,
     Vec<Finding>,
 ) {
-    let all_findings = findings.clone();
-
     filter_findings(findings, severity, top);
+    let all_findings = findings.clone();
     let display_summary = FindingsSummary::from_findings(findings);
 
     let (paginated_findings, pagination_info) = paginate_findings(findings.clone(), page, per_page);
@@ -2119,6 +2108,7 @@ fn save_graph_stats(graph: &GraphStore, repo_path: &Path) -> Result<()> {
 /// Start git enrichment in background thread
 fn start_git_enrichment(
     no_git: bool,
+    quiet_mode: bool,
     repo_path: &Path,
     graph: Arc<GraphStore>,
     multi: &MultiProgress,
@@ -2128,7 +2118,9 @@ fn start_git_enrichment(
     ProgressBar,
 )> {
     if no_git {
-        println!("{}Skipping git enrichment (--no-git)", style("⏭ ").dim());
+        if !quiet_mode {
+            eprintln!("{}Skipping git enrichment (--no-git)", style("⏭ ").dim());
+        }
         return None;
     }
 
@@ -2527,13 +2519,17 @@ fn format_and_output(
 
         std::fs::write(&out_path, &output)?;
         let file_icon = if no_emoji { "" } else { "📄 " };
-        println!(
+        // Use stderr for machine-readable formats to keep stdout clean
+        eprintln!(
             "\n{}Report written to: {}",
             style(file_icon).bold(),
             style(out_path.display()).cyan()
         );
     } else {
-        println!();
+        // For machine-readable formats, skip leading newline to keep stdout clean
+        if format != "json" && format != "sarif" {
+            println!();
+        }
         println!("{}", output);
     }
 
