@@ -30,8 +30,9 @@ fn var_read() -> &'static Regex {
 
 /// Skip patterns for common false positives
 const SKIP_VARS: &[&str] = &[
-    "_", "self", "this", "cls", "ctx", "err", "ok", "result", "i", "j", "k", "n", "x", "y",
-    "z", // loop/math vars
+    "_", "self", "Self", "this", "cls", "ctx", "err", "ok", "result", "i", "j", "k", "n", "x",
+    "y", "z", // loop/math vars
+    "std", "super", "crate", "mod", "pub", "fn", "let", "mut", "use", // Rust keywords/paths
 ];
 
 pub struct DeadStoreDetector {

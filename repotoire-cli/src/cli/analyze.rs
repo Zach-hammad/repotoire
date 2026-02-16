@@ -78,14 +78,16 @@ fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
 
 /// Output results from fully cached data (fast path)
 fn output_cached_results(
-    _env: &EnvironmentSetup,
+    env: &EnvironmentSetup,
     findings: Vec<Finding>,
     cached_score: &crate::detectors::CachedScoreResult,
     format: &str,
+    output_path: Option<&Path>,
     start_time: Instant,
     _explain_score: bool,
 ) -> Result<()> {
     let findings_summary = FindingsSummary::from_findings(&findings);
+    let no_emoji = env.config.no_emoji;
     
     // Build minimal health report from cached data
     let health_report = HealthReport {
@@ -95,7 +97,7 @@ fn output_cached_results(
         quality_score: cached_score.score,
         architecture_score: Some(cached_score.score),
         findings: findings.clone(),
-        findings_summary,
+        findings_summary: findings_summary.clone(),
         total_files: cached_score.total_files,
         total_functions: cached_score.total_functions,
         total_classes: cached_score.total_classes,
@@ -105,7 +107,14 @@ fn output_cached_results(
     match format {
         "json" => {
             let output = serde_json::to_string_pretty(&health_report)?;
-            println!("{}", output);
+            if let Some(path) = output_path {
+                std::fs::write(path, &output)?;
+                if !env.quiet_mode {
+                    println!("\n{} Report written to: {}", if no_emoji { "" } else { "📄" }, path.display());
+                }
+            } else {
+                println!("{}", output);
+            }
         }
         "sarif" => {
             // SARIF requires full reporter infrastructure, skip cache fast path
@@ -144,24 +153,34 @@ fn output_cached_results(
                 findings.len()
             );
             
+            let (high_bullet, med_bullet, low_bullet) = if no_emoji {
+                ("[!]", "[*]", "[-]")
+            } else {
+                ("🔴", "🟠", "🟢")
+            };
+            
             if high > 0 {
-                println!("  {}  {}  HIGH+", style("🔴").red(), high);
+                println!("  {}  {}  HIGH+", style(high_bullet).red(), high);
             }
             if medium > 0 {
-                println!("  {}  {}  MEDIUM", style("🟠").yellow(), medium);
+                println!("  {}  {}  MEDIUM", style(med_bullet).yellow(), medium);
             }
             if low > 0 {
-                println!("  {}  {}  LOW", style("🟢").green(), low);
+                println!("  {}  {}  LOW", style(low_bullet).green(), low);
             }
             
             let elapsed = start_time.elapsed();
+            let done_prefix = if no_emoji { "" } else { "✨ " };
             println!(
                 "\n{}Analysis complete in {:.2}s (cached)",
-                style("✨ ").bold(),
+                style(done_prefix).bold(),
                 elapsed.as_secs_f64()
             );
         }
     }
+    
+    // CI/CD threshold check
+    check_fail_threshold(&env.config.fail_on, &health_report)?;
     
     Ok(())
 }
@@ -276,9 +295,10 @@ pub fn run(
             let cached_score = cache.get_cached_score().unwrap();
             
             if !env.quiet_mode {
+                let icon = if env.config.no_emoji { "" } else { "⚡ " };
                 println!(
                     "\n{}Using fully cached results (no changes detected)\n",
-                    style("⚡ ").bold()
+                    style(icon).bold()
                 );
             }
             
@@ -288,6 +308,7 @@ pub fn run(
                 findings,
                 cached_score,
                 format,
+                output_path,
                 start_time,
                 explain_score,
             )?;
@@ -301,9 +322,10 @@ pub fn run(
 
     if file_result.all_files.is_empty() {
         if !env.quiet_mode {
+            let warn_icon = if env.config.no_emoji { "" } else { "⚠️  " };
             println!(
                 "\n{}No source files found to analyze.",
-                style("⚠️  ").yellow()
+                style(warn_icon).yellow()
             );
         }
         return Ok(());
@@ -580,9 +602,10 @@ fn initialize_graph(
     let max_files = env.config.max_files;
     if max_files > 0 && file_result.all_files.len() > max_files {
         if !env.quiet_mode {
+            let warn_icon = if env.config.no_emoji { "" } else { "⚠️  " };
             println!(
                 "{}Limiting analysis to {} files (out of {} total) to reduce memory usage",
-                style("⚠️  ").yellow(),
+                style(warn_icon).yellow(),
                 style(max_files).cyan(),
                 style(file_result.all_files.len()).dim()
             );
@@ -610,9 +633,10 @@ fn initialize_graph(
     }
 
     if file_result.files_to_parse.is_empty() && env.config.is_incremental_mode && !env.quiet_mode {
+        let check_icon = if env.config.no_emoji { "" } else { "✓ " };
         println!(
             "\n{}No files changed since last run. Using cached results.",
-            style("✓ ").green()
+            style(check_icon).green()
         );
     }
 
@@ -660,9 +684,10 @@ fn initialize_graph(
         // STREAMING MODE: Parse and build graph one file at a time
         // This prevents OOM on repos with 75k+ files
         if !env.quiet_mode {
+            let stream_icon = if env.config.no_emoji { "" } else { "🌊 " };
             println!(
                 "{}Using streaming mode for {} files (memory efficient)",
-                style("🌊 ").bold(),
+                style(stream_icon).bold(),
                 style(file_result.files_to_parse.len()).cyan()
             );
         }
@@ -773,6 +798,7 @@ fn execute_detection_phase(
             multi,
             spinner_style,
             env.quiet_mode,
+            env.config.no_emoji,
         )?
     } else {
         // Run detectors (with caching)
@@ -787,6 +813,7 @@ fn execute_detection_phase(
             multi,
             spinner_style,
             env.quiet_mode,
+            env.config.no_emoji,
             &mut detector_cache,
             &file_result.all_files,
         )?
@@ -2174,6 +2201,7 @@ fn run_detectors(
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
     quiet_mode: bool,
+    no_emoji: bool,
     cache: &mut IncrementalCache,
     all_files: &[std::path::PathBuf],
 ) -> Result<Vec<Finding>> {
@@ -2181,9 +2209,10 @@ fn run_detectors(
     if cache.can_use_cached_detectors(all_files) {
         let cached_findings = cache.get_all_cached_graph_findings();
         if !cached_findings.is_empty() && !quiet_mode {
+            let icon = if no_emoji { "" } else { "⚡ " };
             println!(
                 "\n{}Using cached detector results ({} findings)",
-                style("⚡ ").bold(),
+                style(icon).bold(),
                 cached_findings.len()
             );
             return Ok(cached_findings);
@@ -2191,7 +2220,8 @@ fn run_detectors(
     }
     
     if !quiet_mode {
-        println!("\n{}Running detectors...", style("🕵️  ").bold());
+        let det_icon = if no_emoji { "" } else { "🕵️  " };
+        println!("\n{}Running detectors...", style(det_icon).bold());
     }
 
     // Set up HMM cache in .repotoire directory
@@ -2259,13 +2289,15 @@ fn run_detectors_streaming(
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
     quiet_mode: bool,
+    no_emoji: bool,
 ) -> Result<Vec<Finding>> {
     use crate::detectors::streaming_engine::{run_streaming_detection, StreamingDetectorEngine};
     
     if !quiet_mode {
+        let stream_icon2 = if no_emoji { "" } else { "🌊 " };
         println!(
             "\n{}Running detectors (streaming mode for large repo)...",
-            style("🌊 ").bold()
+            style(stream_icon2).bold()
         );
     }
     
@@ -2461,7 +2493,7 @@ fn format_and_output(
     repotoire_dir: &Path,
     pagination_info: Option<(usize, usize, usize, usize)>,
     _displayed_findings: usize,
-    _no_emoji: bool,
+    no_emoji: bool,
 ) -> Result<()> {
     // For machine-readable formats, include ALL findings (not paginated)
     let report_for_output = if format == "json" || format == "sarif" {
@@ -2494,9 +2526,10 @@ fn format_and_output(
         };
 
         std::fs::write(&out_path, &output)?;
+        let file_icon = if no_emoji { "" } else { "📄 " };
         println!(
             "\n{}Report written to: {}",
-            style("📄 ").bold(),
+            style(file_icon).bold(),
             style(out_path.display()).cyan()
         );
     } else {
@@ -2511,9 +2544,10 @@ fn format_and_output(
     let quiet_mode = format == "json" || format == "sarif";
     if !quiet_mode {
         if let Some((current_page, total_pages, per_page, total)) = pagination_info {
+            let page_icon = if no_emoji { "" } else { "📑 " };
             println!(
                 "\n{}Showing page {} of {} ({} findings per page, {} total)",
-                style("📑 ").bold(),
+                style(page_icon).bold(),
                 style(current_page).cyan(),
                 style(total_pages).cyan(),
                 style(per_page).dim(),

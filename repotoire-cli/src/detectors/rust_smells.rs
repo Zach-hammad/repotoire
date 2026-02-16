@@ -362,6 +362,16 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
 
                 for (i, line) in lines.iter().enumerate() {
                     if unsafe_block().is_match(line) {
+                        // Skip if inside string literal (suggested fix examples, test fixtures)
+                        let trimmed = line.trim();
+                        if trimmed.starts_with('"') || trimmed.starts_with("r#\"") 
+                            || trimmed.starts_with("r\"") || trimmed.starts_with('\'') {
+                            continue;
+                        }
+                        // Skip if in test context
+                        if is_test_context(line, &content, i) {
+                            continue;
+                        }
                         // Look for SAFETY comment in the 3 lines before
                         let has_safety = (i.saturating_sub(3)..i)
                             .any(|j| lines.get(j).is_some_and(|l| safety_comment().is_match(l)));
