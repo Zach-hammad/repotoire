@@ -234,6 +234,7 @@ impl MmapBuilder {
         
         file.set_len(total_size as u64)?;
         
+        // SAFETY: File was just created with correct size, mmap is valid
         let mut mmap = unsafe { MmapOptions::new().map_mut(&file)? };
         
         // Write header
@@ -245,7 +246,8 @@ impl MmapBuilder {
         mmap[24..28].copy_from_slice(&(strings_offset as u32).to_le_bytes());
         
         // Write nodes
-        let nodes_bytes = unsafe {
+        // SAFETY: Transmuting to bytes from known-sized DiskNode structs we just wrote
+            let nodes_bytes = unsafe {
             std::slice::from_raw_parts(
                 self.nodes.as_ptr() as *const u8,
                 nodes_size,
@@ -254,7 +256,8 @@ impl MmapBuilder {
         mmap[HEADER_SIZE..HEADER_SIZE + nodes_size].copy_from_slice(nodes_bytes);
         
         // Write edges
-        let edges_bytes = unsafe {
+        // SAFETY: Transmuting to bytes from known-sized DiskEdge structs we just wrote
+            let edges_bytes = unsafe {
             std::slice::from_raw_parts(
                 self.edges.as_ptr() as *const u8,
                 edges_size,
@@ -303,6 +306,7 @@ impl MmapGraphStore {
         let file = File::open(path)
             .with_context(|| format!("Failed to open mmap file: {}", path.display()))?;
         
+        // SAFETY: File exists and was written by save(), mmap is read-only
         let mmap = unsafe { MmapOptions::new().map(&file)? };
         
         // Verify header
@@ -326,6 +330,7 @@ impl MmapGraphStore {
         
         for idx in 0..node_count {
             let node_offset = HEADER_SIZE + (idx as usize) * DISK_NODE_SIZE;
+            // SAFETY: Reading fixed-size DiskNode from mmap at known offset
             let disk_node: DiskNode = unsafe {
                 std::ptr::read_unaligned(mmap[node_offset..].as_ptr() as *const DiskNode)
             };
@@ -350,6 +355,7 @@ impl MmapGraphStore {
         // Drop the read-only mmap, reopen as mutable for potential updates
         drop(mmap);
         let file = OpenOptions::new().read(true).write(true).open(path)?;
+        // SAFETY: File exists, mmap is writable for appending new data
         let mmap = unsafe { MmapOptions::new().map_mut(&file)? };
         
         Ok(Self {
@@ -397,6 +403,7 @@ impl MmapGraphStore {
         }
         
         let node_offset = HEADER_SIZE + (idx as usize) * DISK_NODE_SIZE;
+        // SAFETY: Reading fixed-size DiskNode from mmap at validated offset
         let disk_node: DiskNode = unsafe {
             std::ptr::read_unaligned(mmap[node_offset..].as_ptr() as *const DiskNode)
         };
@@ -462,6 +469,7 @@ impl MmapGraphStore {
         }
         
         let edge_offset = self.edges_offset + (idx as usize) * DISK_EDGE_SIZE;
+        // SAFETY: Reading fixed-size DiskEdge from mmap at validated offset
         let disk_edge: DiskEdge = unsafe {
             std::ptr::read_unaligned(mmap[edge_offset..].as_ptr() as *const DiskEdge)
         };
