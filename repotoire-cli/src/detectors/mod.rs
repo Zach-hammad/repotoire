@@ -465,8 +465,8 @@ pub fn default_detectors_with_config(
             repository_path.to_path_buf(),
         )),
         // Misc detectors
-        Arc::new(GeneratorMisuseDetector::new()),
-        Arc::new(InfiniteLoopDetector::new()),
+        Arc::new(GeneratorMisuseDetector::with_path(repository_path)),
+        Arc::new(InfiniteLoopDetector::with_path(repository_path)),
         Arc::new(UnusedImportsDetector::new(repository_path)),
         // New security detectors
         Arc::new(SecretDetector::new(repository_path)),
