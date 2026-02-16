@@ -164,7 +164,7 @@ impl Detector for SyncInAsyncDetector {
 
             let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx" | "rs") {
+            if !matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx") {
                 continue;
             }
 

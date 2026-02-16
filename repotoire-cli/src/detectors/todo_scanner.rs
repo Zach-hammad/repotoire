@@ -150,6 +150,18 @@ impl Detector for TodoScanner {
                 let path_str = path.to_string_lossy().to_string();
 
                 for (line_num, line) in content.lines().enumerate() {
+                    // Only scan comment lines — skip string literals and code
+                    let trimmed = line.trim_start();
+                    let is_comment = trimmed.starts_with("//")
+                        || trimmed.starts_with('#')
+                        || trimmed.starts_with('*')
+                        || trimmed.starts_with("/*")
+                        || trimmed.starts_with("--")
+                        || trimmed.starts_with("<!--");
+                    if !is_comment {
+                        continue;
+                    }
+
                     if let Some(caps) = get_pattern().captures(line) {
                         let tag = caps.get(1).map(|m| m.as_str()).unwrap_or("TODO");
                         let msg = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");

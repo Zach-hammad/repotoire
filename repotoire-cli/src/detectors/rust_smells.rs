@@ -194,7 +194,7 @@ impl UnwrapWithoutContextDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self {
             repository_path: repository_path.into(),
-            max_findings: 100,
+            max_findings: 25,
         }
     }
 }
@@ -442,7 +442,7 @@ impl CloneInHotPathDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self {
             repository_path: repository_path.into(),
-            max_findings: 50,
+            max_findings: 25,
         }
     }
 
@@ -588,7 +588,7 @@ impl MissingMustUseDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self {
             repository_path: repository_path.into(),
-            max_findings: 50,
+            max_findings: 25,
         }
     }
 }

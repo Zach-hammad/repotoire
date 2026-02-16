@@ -25,7 +25,7 @@ impl LargeFilesDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 50,
-            threshold: 500,
+            threshold: 800,
         }
     }
 
