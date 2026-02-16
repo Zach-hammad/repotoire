@@ -299,6 +299,23 @@ impl Detector for InfiniteLoopDetector {
                             continue;
                         }
 
+                        // C/C++ for(;;) is an idiomatic infinite loop pattern
+                        // often used intentionally in codec/protocol/driver code
+                        if matches!(ext, "c" | "cpp" | "h" | "hpp") {
+                            let trimmed = line.trim();
+                            if trimmed.starts_with("for") && trimmed.contains(";;") {
+                                // Check if it has a bounded iteration pattern nearby
+                                // (pointer arithmetic with comparison)
+                                let body_lines = lines.get(i..std::cmp::min(i + 20, lines.len())).unwrap_or(&[]);
+                                let has_comparison = body_lines.iter().any(|l| {
+                                    l.contains("< ") || l.contains("> ") || l.contains("<= ") || l.contains(">= ") || l.contains("!= ")
+                                });
+                                if has_comparison {
+                                    continue; // Likely bounded, skip
+                                }
+                            }
+                        }
+
                         // Find called functions and check if they exit
                         let calls = Self::find_called_functions(&lines, i, indent);
                         let exit_funcs = Self::calls_exit_function(&calls, graph);
@@ -319,6 +336,76 @@ impl Detector for InfiniteLoopDetector {
 
                         let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
 
+                        // Generate language-appropriate suggested fix
+                        let suggested_fix = match ext {
+                            "rs" => "Options:\n\
+                                 1. Add a break condition\n\
+                                 2. Add a return statement\n\
+                                 3. If intentional, add a comment: // Intentional infinite loop\n\n\
+                                 Example:\n\
+                                 ```rust\n\
+                                 loop {\n\
+                                     let data = get_data();\n\
+                                     if data.is_none() {\n\
+                                         break; // Exit condition\n\
+                                     }\n\
+                                     process(data.unwrap());\n\
+                                 }\n\
+                                 ```".to_string(),
+                            "c" | "cpp" => "Options:\n\
+                                 1. Add a break condition\n\
+                                 2. Add a return statement\n\
+                                 3. If intentional, add a comment: /* Intentional infinite loop */\n\n\
+                                 Example:\n\
+                                 ```c\n\
+                                 while (1) {\n\
+                                     data = get_data();\n\
+                                     if (data == NULL) {\n\
+                                         break; /* Exit condition */\n\
+                                     }\n\
+                                     process(data);\n\
+                                 }\n\
+                                 ```".to_string(),
+                            "java" | "go" => "Options:\n\
+                                 1. Add a break condition\n\
+                                 2. Add a return statement\n\
+                                 3. If intentional, add a comment\n\n\
+                                 Example:\n\
+                                 ```\n\
+                                 while (true) {\n\
+                                     data = getData();\n\
+                                     if (data == null) {\n\
+                                         break; // Exit condition\n\
+                                     }\n\
+                                     process(data);\n\
+                                 }\n\
+                                 ```".to_string(),
+                            "js" | "ts" => "Options:\n\
+                                 1. Add a break condition\n\
+                                 2. Add a return statement\n\
+                                 3. If intentional, add a comment: // Intentional infinite loop\n\n\
+                                 Example:\n\
+                                 ```javascript\n\
+                                 while (true) {\n\
+                                     const data = getData();\n\
+                                     if (!data) break; // Exit condition\n\
+                                     process(data);\n\
+                                 }\n\
+                                 ```".to_string(),
+                            _ => "Options:\n\
+                                 1. Add a break condition\n\
+                                 2. Add a return statement\n\
+                                 3. If intentional, add a comment: # Intentional infinite loop\n\n\
+                                 Example:\n\
+                                 ```python\n\
+                                 while True:\n\
+                                     data = get_data()\n\
+                                     if data is None:\n\
+                                         break  # Exit condition\n\
+                                     process(data)\n\
+                                 ```".to_string(),
+                        };
+
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "InfiniteLoopDetector".to_string(),
@@ -331,21 +418,7 @@ impl Detector for InfiniteLoopDetector {
                             affected_files: vec![path.to_path_buf()],
                             line_start: Some((i + 1) as u32),
                             line_end: Some((i + 1) as u32),
-                            suggested_fix: Some(
-                                "Options:\n\
-                                 1. Add a break condition\n\
-                                 2. Add a return statement\n\
-                                 3. If intentional, add a comment: # Intentional infinite loop\n\n\
-                                 Example:\n\
-                                 ```python\n\
-                                 while True:\n\
-                                     data = get_data()\n\
-                                     if data is None:\n\
-                                         break  # Exit condition\n\
-                                     process(data)\n\
-                                 ```"
-                                .to_string(),
-                            ),
+                            suggested_fix: Some(suggested_fix),
                             estimated_effort: Some("10 minutes".to_string()),
                             category: Some("bug-risk".to_string()),
                             cwe_id: Some("CWE-835".to_string()),

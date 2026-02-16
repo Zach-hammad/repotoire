@@ -52,6 +52,14 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
 ];
 
 /// Quick file list collection (no git, no incremental checking) for cache validation
+// TODO(refactor): This module is 3000+ lines and should be split into:
+// - cli/analyze/setup.rs (environment, config, validation)
+// - cli/analyze/graph.rs (graph building, call edges, import edges)
+// - cli/analyze/detect.rs (detection phases, streaming, caching)
+// - cli/analyze/output.rs (formatting, reporting, pagination)
+// - cli/analyze/cache.rs (unified cache interface)
+// See: https://github.com/Zach-hammad/repotoire/issues/TBD
+
 fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     
