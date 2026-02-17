@@ -35,6 +35,9 @@ pub use lightweight_parser::parse_file_lightweight;
 use anyhow::Result;
 use std::path::Path;
 
+// Performance guardrail: skip very large source files in AST parsing (#48).
+const MAX_PARSE_FILE_BYTES: u64 = 2 * 1024 * 1024; // 2MB
+
 
 fn is_probably_cpp_header(path: &Path) -> bool {
     let content = match std::fs::read(path) {
@@ -65,6 +68,13 @@ fn is_probably_cpp_header(path: &Path) -> bool {
 
 /// Parse a file and extract all code entities and relationships
 pub fn parse_file(path: &Path) -> Result<ParseResult> {
+    // Guardrail for pathological files that can blow up parse time/memory.
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() > MAX_PARSE_FILE_BYTES {
+            return Ok(ParseResult::default());
+        }
+    }
+
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     match ext {
@@ -349,6 +359,19 @@ int add(int a, int b);
         assert!(result.classes.is_empty());
     }
 
+    #[test]
+    fn test_parse_file_skips_very_large_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.py");
+        // slightly over 2MB
+        let payload = "x = 1\n".repeat((2 * 1024 * 1024 / 6) + 1024);
+        std::fs::write(&big, payload).unwrap();
+
+        let result = parse_file(&big).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
     fn test_supported_extensions() {
         let exts = supported_extensions();
         assert!(exts.contains(&"py"));
