@@ -648,7 +648,7 @@ impl Detector for UnsafeTemplateDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         debug!("Starting unsafe template detection");
 
         let mut findings = Vec::new();
@@ -671,8 +671,24 @@ impl Detector for UnsafeTemplateDetector {
         // Truncate to max_findings
         findings.truncate(self.max_findings);
 
+        // Supplement with intra-function taint analysis
+        let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
+        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
+            &taint_analyzer, graph, crate::detectors::taint::TaintCategory::Xss, &self.repository_path,
+        );
+        let mut seen: std::collections::HashSet<(String, u32)> = findings
+            .iter()
+            .filter_map(|f| f.affected_files.first().map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))))
+            .collect();
+        for path in intra_paths.iter().filter(|p| !p.is_sanitized) {
+            let loc = (path.sink_file.clone(), path.sink_line);
+            if !seen.insert(loc) { continue; }
+            findings.push(crate::detectors::data_flow::taint_path_to_finding(path, "UnsafeTemplateDetector", "Unsafe Template Injection"));
+            if findings.len() >= self.max_findings { break; }
+        }
+
         info!(
-            "UnsafeTemplateDetector found {} potential vulnerabilities",
+            "UnsafeTemplateDetector found {} potential vulnerabilities (+ taint)",
             findings.len()
         );
 

@@ -79,6 +79,7 @@ impl NPlusOneDetector {
     }
 
     /// Check if a function transitively calls any query function
+    #[allow(clippy::only_used_in_recursion)]
     fn calls_query_transitively(
         &self,
         graph: &dyn crate::graph::GraphQuery,

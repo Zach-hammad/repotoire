@@ -73,7 +73,7 @@ fn filter_by_max_files(findings: &mut Vec<Finding>, all_files: &[PathBuf]) {
 }
 
 /// Downgrade security findings in non-production paths (scripts, tests, fixtures).
-fn downgrade_non_production_security(findings: &mut Vec<Finding>) {
+fn downgrade_non_production_security(findings: &mut [Finding]) {
     use crate::detectors::content_classifier::is_non_production_path;
 
     const SECURITY_DETECTORS: &[&str] = &[
@@ -94,12 +94,11 @@ fn downgrade_non_production_security(findings: &mut Vec<Finding>) {
             is_non_production_path(&p.to_string_lossy())
         });
 
-        if is_non_prod && SECURITY_DETECTORS.contains(&finding.detector.as_str()) {
-            if finding.severity == Severity::Critical || finding.severity == Severity::High {
+        if is_non_prod && SECURITY_DETECTORS.contains(&finding.detector.as_str())
+            && (finding.severity == Severity::Critical || finding.severity == Severity::High) {
                 finding.severity = Severity::Medium;
                 finding.description = format!("[Non-production path] {}", finding.description);
             }
-        }
     }
 }
 

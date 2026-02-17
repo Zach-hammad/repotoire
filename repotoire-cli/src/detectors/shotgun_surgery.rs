@@ -123,6 +123,7 @@ impl ShotgunSurgeryDetector {
     }
 
     /// Trace how far changes cascade through the call graph
+    #[allow(clippy::only_used_in_recursion)]
     fn trace_cascade_depth(
         &self,
         graph: &dyn crate::graph::GraphQuery,

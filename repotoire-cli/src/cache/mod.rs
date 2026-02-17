@@ -3,9 +3,11 @@
 //! Provides a shared cache to avoid re-reading files across multiple detectors.
 //!
 //! TODO(refactor): Three independent cache layers exist with no unified interface:
-//! - cache/mod.rs (file content caching)
-//! - cache/paths.rs (path utilities)
-//! - detectors/incremental_cache.rs (finding-level caching)
+//!
+//! - `cache/mod.rs` (file content caching)
+//! - `cache/paths.rs` (path utilities)
+//! - `detectors/incremental_cache.rs` (finding-level caching)
+//!
 //! These should share a common trait and coordinate invalidation.
 //! This is the architectural root cause of cache divergence bugs.
 

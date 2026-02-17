@@ -68,6 +68,7 @@ impl RegexInLoopDetector {
     }
 
     /// Check if function transitively compiles regex
+    #[allow(clippy::only_used_in_recursion)]
     fn calls_regex_transitively(
         &self,
         graph: &dyn crate::graph::GraphQuery,

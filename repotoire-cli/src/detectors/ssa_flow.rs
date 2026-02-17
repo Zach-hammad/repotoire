@@ -710,7 +710,7 @@ fn is_simple_identifier(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .next()
-            .map_or(false, |c| c.is_alphabetic() || c == '_')
+            .is_some_and(|c| c.is_alphabetic() || c == '_')
         && s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 

@@ -401,7 +401,7 @@ impl DataFlowProvider for HeuristicFlow {
 /// Check if a string is a simple variable name (no dots, brackets, etc.)
 fn is_simple_var(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().next().map_or(false, |c| c.is_alphabetic() || c == '_')
+        && s.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
         && s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
@@ -518,6 +518,42 @@ pub fn run_intra_function_taint(
     }
 
     all_paths
+}
+
+// ─── Finding helper ─────────────────────────────────────────────────────────
+
+use crate::models::Finding;
+
+/// Convert a TaintPath into a Finding. Shared by security detectors that wire in
+/// intra-function taint analysis.
+pub fn taint_path_to_finding(path: &TaintPath, detector_name: &str, vuln_name: &str) -> Finding {
+    Finding {
+        id: uuid::Uuid::new_v4().to_string(),
+        detector: detector_name.to_string(),
+        title: format!("{} via data flow", vuln_name),
+        description: format!(
+            "**{} ({})**\n\nAST-based data flow analysis traced taint from `{}` (line {}) \
+             to sink `{}` (line {}) without sanitization.\n\nConfidence: {:.0}%",
+            vuln_name,
+            path.category.cwe_id(),
+            path.source_function,
+            path.source_line,
+            path.sink_function,
+            path.sink_line,
+            path.confidence * 100.0,
+        ),
+        severity: crate::models::Severity::High,
+        affected_files: vec![std::path::PathBuf::from(&path.sink_file)],
+        line_start: Some(path.sink_line),
+        line_end: None,
+        suggested_fix: Some(format!(
+            "Sanitize or validate the input from `{}` before passing it to `{}`.",
+            path.source_function, path.sink_function,
+        )),
+        cwe_id: Some(path.category.cwe_id().to_string()),
+        confidence: Some(path.confidence),
+        ..Default::default()
+    }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

@@ -305,6 +305,7 @@ impl MessageChainDetector {
     }
 
     /// Trace how deep a delegation chain goes, collecting member names.
+    #[allow(clippy::only_used_in_recursion)]
     fn trace_chain_with_members(&self, graph: &dyn crate::graph::GraphQuery, qn: &str, depth: i32) -> (i32, Vec<String>) {
         if depth > 10 {
             return (depth, vec![qn.to_string()]);

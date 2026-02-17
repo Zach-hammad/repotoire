@@ -635,7 +635,7 @@ impl Detector for TaintDetector {
                         path.sink_line,
                         path.confidence * 100.0,
                     ),
-                    severity: get_severity(&category.name().to_lowercase().replace(' ', "_").replace('-', "_")),
+                    severity: get_severity(&category.name().to_lowercase().replace([' ', '-'], "_")),
                     affected_files: vec![std::path::PathBuf::from(&path.sink_file)],
                     line_start: Some(path.sink_line),
                     line_end: None,

@@ -328,8 +328,24 @@ impl Detector for PrototypePollutionDetector {
             }
         }
 
+        // Supplement with intra-function taint analysis
+        let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
+        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
+            &taint_analyzer, graph, crate::detectors::taint::TaintCategory::CodeInjection, &self.repository_path,
+        );
+        let mut seen: std::collections::HashSet<(String, u32)> = findings
+            .iter()
+            .filter_map(|f| f.affected_files.first().map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))))
+            .collect();
+        for path in intra_paths.iter().filter(|p| !p.is_sanitized) {
+            let loc = (path.sink_file.clone(), path.sink_line);
+            if !seen.insert(loc) { continue; }
+            findings.push(crate::detectors::data_flow::taint_path_to_finding(path, "PrototypePollutionDetector", "Prototype Pollution"));
+            if findings.len() >= self.max_findings { break; }
+        }
+
         info!(
-            "PrototypePollutionDetector found {} findings (graph-aware)",
+            "PrototypePollutionDetector found {} findings (graph-aware + taint)",
             findings.len()
         );
         Ok(findings)
