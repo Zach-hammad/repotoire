@@ -77,8 +77,16 @@ pub(super) fn format_and_output(
     _displayed_findings: usize,
     no_emoji: bool,
 ) -> Result<()> {
-    // Use the report as-is (already filtered + paginated by build_health_report)
-    let report_for_output = report.clone();
+    // For file-based export formats (SARIF, HTML, Markdown), use ALL findings
+    // to avoid truncating to page size. Pagination is for terminal display only.
+    let report_for_output = if matches!(format, "sarif" | "html" | "markdown" | "md") && !all_findings.is_empty() {
+        let mut full_report = report.clone();
+        full_report.findings = all_findings.to_vec();
+        full_report.findings_summary = FindingsSummary::from_findings(all_findings);
+        full_report
+    } else {
+        report.clone()
+    };
 
     let output = reporters::report(&report_for_output, format)?;
 
@@ -301,9 +309,9 @@ pub(super) fn output_cached_results(
     let health_report = HealthReport {
         overall_score: cached_score.score,
         grade: cached_score.grade.clone(),
-        structure_score: cached_score.score,
-        quality_score: cached_score.score,
-        architecture_score: Some(cached_score.score),
+        structure_score: cached_score.structure_score.unwrap_or(cached_score.score),
+        quality_score: cached_score.quality_score.unwrap_or(cached_score.score),
+        architecture_score: cached_score.architecture_score.or(Some(cached_score.score)),
         findings: paginated_findings.clone(),
         findings_summary: findings_summary.clone(),
         total_files: cached_score.total_files,

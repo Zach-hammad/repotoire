@@ -498,12 +498,15 @@ fn cache_scores(
     parse_result: &ParsePhaseResult,
 ) {
     let mut cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
-    cache.cache_score(
+    cache.cache_score_with_subscores(
         score_result.overall_score,
         &score_result.grade,
         file_result.all_files.len(),
         parse_result.total_functions,
         parse_result.total_classes,
+        Some(score_result.structure_score),
+        Some(score_result.quality_score),
+        Some(score_result.architecture_score),
     );
     let _ = cache.save_cache();
 }

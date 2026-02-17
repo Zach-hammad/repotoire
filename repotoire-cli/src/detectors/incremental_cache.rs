@@ -121,6 +121,12 @@ pub struct CachedScoreResult {
     pub total_files: usize,
     pub total_functions: usize,
     pub total_classes: usize,
+    #[serde(default)]
+    pub structure_score: Option<f64>,
+    #[serde(default)]
+    pub quality_score: Option<f64>,
+    #[serde(default)]
+    pub architecture_score: Option<f64>,
 }
 
 /// Graph-level cache data
@@ -483,12 +489,30 @@ impl IncrementalCache {
     
     /// Cache the score result
     pub fn cache_score(&mut self, score: f64, grade: &str, files: usize, functions: usize, classes: usize) {
+        self.cache_score_with_subscores(score, grade, files, functions, classes, None, None, None);
+    }
+
+    /// Cache the score result with sub-scores
+    pub fn cache_score_with_subscores(
+        &mut self,
+        score: f64,
+        grade: &str,
+        files: usize,
+        functions: usize,
+        classes: usize,
+        structure_score: Option<f64>,
+        quality_score: Option<f64>,
+        architecture_score: Option<f64>,
+    ) {
         self.cache.graph.score = Some(CachedScoreResult {
             score,
             grade: grade.to_string(),
             total_files: files,
             total_functions: functions,
             total_classes: classes,
+            structure_score,
+            quality_score,
+            architecture_score,
         });
         self.dirty = true;
     }
