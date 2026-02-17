@@ -728,12 +728,6 @@ export function formatErrorWithCode(code: ErrorCode, customMessage?: string): st
   return `${message} (${code})`;
 }
 
-/**
- * Create a support reference string from an error code.
- */
-export function getSupportReference(code: ErrorCode): string {
-  return `Reference code: ${code}`;
-}
 
 /**
  * Check if an error should be automatically reported to the error tracking service.

@@ -361,10 +361,4 @@ export async function getCommunityPlugin(slug: string): Promise<AssetSummary | n
   return STATIC_COMMUNITY_PLUGINS.find(p => p.slug === slug) || null;
 }
 
-/**
- * Clear the plugins cache (useful for forcing refresh).
- */
-export function clearCommunityPluginsCache(): void {
-  pluginsCache = null;
-  cacheTimestamp = 0;
-}
+

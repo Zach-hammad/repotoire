@@ -233,24 +233,6 @@ export function getCategoryColor(category: ChangelogCategory): string {
   }
 }
 
-export function getCategoryIcon(category: ChangelogCategory): string {
-  switch (category) {
-    case "feature":
-      return "sparkles";
-    case "improvement":
-      return "trending-up";
-    case "fix":
-      return "bug";
-    case "breaking":
-      return "alert-triangle";
-    case "security":
-      return "shield";
-    case "deprecation":
-      return "archive";
-    default:
-      return "info";
-  }
-}
 
 export function formatDate(dateString: string): string {
   const date = new Date(dateString);

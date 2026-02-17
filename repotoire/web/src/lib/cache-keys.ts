@@ -207,41 +207,6 @@ export async function invalidateFix(fixId: string): Promise<void> {
 }
 
 /**
- * Invalidate all findings-related caches.
- */
-export async function invalidateFindings(repositoryId?: string): Promise<void> {
-  await Promise.all([
-    mutate(
-      (key) => Array.isArray(key) && key[0] === 'findings',
-      undefined,
-      { revalidate: true }
-    ),
-    mutate(cacheKeys.findingsSummary(undefined, repositoryId)),
-    mutate(cacheKeys.findingsByDetector(undefined, repositoryId)),
-  ]);
-}
-
-/**
- * Invalidate all analytics-related caches.
- */
-export async function invalidateAnalytics(): Promise<void> {
-  await Promise.all([
-    mutate(cacheKeys.analyticsSummary()),
-    mutate(cacheKeys.analyticsHealthScore()),
-    mutate(
-      (key) => Array.isArray(key) && key[0] === 'analytics-trends',
-      undefined,
-      { revalidate: true }
-    ),
-    mutate(
-      (key) => Array.isArray(key) && key[0] === 'analytics-file-hotspots',
-      undefined,
-      { revalidate: true }
-    ),
-  ]);
-}
-
-/**
  * Invalidate a specific repository and its related data.
  */
 export async function invalidateRepository(repositoryId: string): Promise<void> {
@@ -255,16 +220,4 @@ export async function invalidateRepository(repositoryId: string): Promise<void> 
   ]);
 }
 
-/**
- * Invalidate API keys cache.
- */
-export async function invalidateApiKeys(): Promise<void> {
-  await mutate(cacheKeys.apiKeys());
-}
 
-/**
- * Invalidate marketplace installed items cache.
- */
-export async function invalidateMarketplace(): Promise<void> {
-  await mutate(cacheKeys.marketplaceInstalled());
-}
