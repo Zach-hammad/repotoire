@@ -128,6 +128,7 @@ mod taint_detector;
 mod unsafe_template;
 
 // Taint analysis module (graph-based data flow tracking)
+pub mod data_flow;
 pub mod taint;
 
 // Function context and role inference

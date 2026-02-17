@@ -72,9 +72,13 @@ impl Detector for PathTraversalDetector {
             .build();
 
         // Run taint analysis for path traversal
-        let taint_paths = self
+        let mut taint_paths = self
             .taint_analyzer
             .trace_taint(graph, TaintCategory::PathTraversal);
+        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
+            &self.taint_analyzer, graph, TaintCategory::PathTraversal, &self.repository_path,
+        );
+        taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
         for entry in walker.filter_map(|e| e.ok()) {

@@ -48,7 +48,11 @@ impl Detector for SsrfDetector {
             .build();
 
         // Run taint analysis for SSRF
-        let taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::Ssrf);
+        let mut taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::Ssrf);
+        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
+            &self.taint_analyzer, graph, TaintCategory::Ssrf, &self.repository_path,
+        );
+        taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
         for entry in walker.filter_map(|e| e.ok()) {

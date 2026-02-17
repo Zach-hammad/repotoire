@@ -102,9 +102,13 @@ impl Detector for LogInjectionDetector {
         }
 
         // Run taint analysis to adjust severity based on data flow
-        let taint_results = self
+        let mut taint_results = self
             .taint_analyzer
             .trace_taint(graph, TaintCategory::LogInjection);
+        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
+            &self.taint_analyzer, graph, TaintCategory::LogInjection, &self.repository_path,
+        );
+        taint_results.extend(intra_paths);
 
         // Adjust severity based on taint analysis
         for finding in &mut findings {

@@ -158,6 +158,8 @@ pub struct TaintAnalyzer {
     generic_sanitizers: HashSet<String>,
     /// Maximum depth for BFS traversal
     max_depth: usize,
+    /// Intra-function data flow provider (Approach A: heuristic, future B: SSA)
+    data_flow: Box<dyn super::data_flow::DataFlowProvider>,
 }
 
 impl Default for TaintAnalyzer {
@@ -175,6 +177,7 @@ impl TaintAnalyzer {
             sanitizers: HashMap::new(),
             generic_sanitizers: HashSet::new(),
             max_depth: 10,
+            data_flow: Box::new(super::data_flow::HeuristicFlow::new()),
         };
         analyzer.init_default_patterns();
         analyzer
@@ -813,6 +816,52 @@ impl TaintAnalyzer {
         }
 
         results
+    }
+
+    /// Run intra-function data flow analysis on a function's source code.
+    ///
+    /// This delegates to the `DataFlowProvider` (currently `HeuristicFlow`).
+    /// Returns taint paths found within the function body.
+    pub fn analyze_intra_function(
+        &self,
+        func_source: &str,
+        func_name: &str,
+        func_file: &str,
+        func_line: usize,
+        language: crate::parsers::lightweight::Language,
+        category: TaintCategory,
+    ) -> Vec<TaintPath> {
+        let sources = self.sources.get(&category).cloned().unwrap_or_default();
+        let sinks = self.sinks.get(&category).cloned().unwrap_or_default();
+        let mut sanitizers = self.sanitizers.get(&category).cloned().unwrap_or_default();
+        sanitizers.extend(self.generic_sanitizers.iter().cloned());
+
+        let result = self.data_flow.analyze_intra_function(
+            func_source,
+            language,
+            category,
+            &sources,
+            &sinks,
+            &sanitizers,
+        );
+
+        result
+            .sink_reaches
+            .into_iter()
+            .map(|reach| TaintPath {
+                source_function: func_name.to_string(),
+                source_file: func_file.to_string(),
+                source_line: (func_line + reach.taint_source.line) as u32,
+                sink_function: reach.sink_pattern.clone(),
+                sink_file: func_file.to_string(),
+                sink_line: (func_line + reach.sink_line) as u32,
+                category,
+                call_chain: vec![format!("{} → {}", reach.variable, reach.sink_pattern)],
+                is_sanitized: reach.is_sanitized,
+                sanitizer: None,
+                confidence: reach.confidence,
+            })
+            .collect()
     }
 
     /// Analyze a specific function for taint issues using both graph and local analysis

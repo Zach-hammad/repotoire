@@ -878,9 +878,20 @@ impl Detector for SQLInjectionDetector {
         let mut findings = self.scan_source_files();
 
         // Step 2: Run graph-based taint analysis to find data flow paths
-        let taint_paths = self
+        let mut taint_paths = self
             .taint_analyzer
             .trace_taint(graph, TaintCategory::SqlInjection);
+
+        // Step 2.5: Run intra-function data flow analysis for deeper precision
+        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
+            &self.taint_analyzer,
+            graph,
+            TaintCategory::SqlInjection,
+            &self.repository_path,
+        );
+        debug!("Intra-function analysis found {} additional taint paths", intra_paths.len());
+        taint_paths.extend(intra_paths);
+
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
         debug!(
