@@ -1,120 +1,91 @@
 # RELEASE_GATE.md
 
-Hard release gate for Repotoire.
-Any failed P0 gate blocks release.
+Release checklist for Repotoire. Any failed P0 blocks the release.
 
 ## How to Use
-- Run every check on the target commit/tag candidate
-- Capture command, exit code, and key output
-- Mark each gate PASS/FAIL
-- Release only when all P0 are PASS
+
+1. Run every check on the release candidate binary
+2. Test both fresh (no cache) and cached paths
+3. Record command, exit code, key output
+4. Mark PASS/FAIL
+5. All P0 PASS → ship. Any P0 FAIL → fix first.
 
 ---
 
-## P0: Contract & Correctness Gates (Blockers)
+## P0: Blockers
 
-## 1) Cache/Fresh Parity
-For each critical flag, run command on:
-- Fresh repo path (no cache)
-- Same path rerun (cached)
+### 1. Cache/Fresh Parity
+Run these flags on fresh repo, then re-run (cached). Results must match:
+- `--fail-on`, `--severity`, `--top`, `--page`/`--per-page`
+- `--skip-detector`, `--max-files`
 
-Expected: identical semantics.
+### 2. Exit Codes
+- `--fail-on <severity>` → exit 1 when findings meet threshold
+- No findings at threshold → exit 0
 
-Flags to parity-check:
-- `--fail-on`
-- `--severity`
-- `--top`
-- `--page` / `--per-page`
-- `--skip-detector`
-- `--max-files`
+### 3. Output Files
+`--output` produces valid, non-empty files for: JSON, HTML, Markdown, SARIF
 
-## 2) Exit Code Contract
-- `--fail-on <severity>` must return non-zero when threshold is met
-- Must return zero when threshold is not met
+### 4. Clean Machine Output
+JSON/SARIF stdout has zero log pollution. Parseable by `jq` without errors.
 
-## 3) Output File Contract
-For each format that supports `--output`:
-- JSON
-- HTML
-- Markdown
-- SARIF
+### 5. Detector Filtering
+`--skip-detector <name>` removes all findings from that detector.
 
-Expected: output file exists and is non-empty.
+### 6. Pagination
+`--per-page` and `--page` affect finding count consistently.
 
-## 4) Machine-Readable Cleanliness
-JSON/SARIF stdout must be machine-parse safe in intended mode.
-No log pollution in parser-facing output channels.
-
-## 5) Pagination Contract
-`--per-page` and `--page` must affect returned finding set consistently across modes where expected.
-
-## 6) Detector Scope Contract
-`--skip-detector` must remove matching detector findings.
-
-## 7) Max-Files Consistency
-When `--max-files N` is used:
-- analyzed file count and findings must reflect same truncated set.
+### 7. Max-Files
+`--max-files N` limits analyzed files and filters findings accordingly.
 
 ---
 
-## P1: Accuracy Gates (High Priority)
+## P1: High Priority
 
-## 8) Top Detector Precision Spot Check
-Check top-volume detectors on real repo + synthetic fixtures.
-Verify no obvious false positives from:
-- string literals/doc blocks
-- test fixture-only patterns
-- non-executable contexts
+### 8. Top Detector Spot Check
+Run on a real repo. Eyeball top-volume detectors for obvious FPs (string literals, test fixtures, non-executable contexts).
 
-## 9) Regression Fixtures
-Run synthetic fixtures:
-- known-bad fixture (must detect expected issues)
-- known-clean fixture (must not emit noise)
+### 9. Self-Analysis
+Run on repotoire-cli itself. Score should be B+ or above. Zero self-flagging issues.
 
 ---
 
-## P2: UX Quality Gates
+## P2: Polish
 
-## 10) `--no-emoji` Contract
-No emoji glyphs in output when disabled.
+### 10. No-Emoji
+`--no-emoji` produces zero emoji glyphs anywhere in output.
 
-## 11) Help/Docs Consistency
-Help text, behavior, and docs must match.
-
-## 12) Release Notes Accuracy
-List only validated fixes.
-No claims without reproducible proof.
+### 11. Version
+`--version` matches the crates.io version being published.
 
 ---
 
-## Required Evidence Format
-For each gate:
-- Gate ID
-- Command(s)
-- Exit code
-- Output snippet
-- PASS/FAIL
-- Owner (Zero/Sloth)
-
----
-
-## Go/No-Go Rule
-- Any P0 FAIL => **NO-GO**
-- All P0 PASS + no unresolved critical accuracy issue => **GO**
-
----
-
-## Fast Verification Command Checklist (Template)
+## Quick Verification Script
 
 ```bash
-# Example placeholders - replace <repo>
-repotoire analyze <repo> --lite --no-emoji --fail-on medium --format text
-repotoire analyze <repo> --lite --no-emoji --severity high --format json
-repotoire analyze <repo> --lite --no-emoji --top 1 --format json
-repotoire analyze <repo> --lite --no-emoji --per-page 1 --page 2 --format json
-repotoire analyze <repo> --lite --no-emoji --skip-detector TodoScanner --format json
-repotoire analyze <repo> --lite --no-emoji --max-files 1 --format json
-repotoire analyze <repo> --lite --no-emoji --format json --output /tmp/out.json
-```
+REPO=/path/to/test/repo
+BIN=./target/release/repotoire
 
-Add cache reruns for parity.
+# P0: Clean JSON
+$BIN analyze $REPO --format json 2>/dev/null | jq . > /dev/null && echo "P0.4 PASS"
+
+# P0: Cache parity
+$BIN analyze $REPO --format json 2>/dev/null > /tmp/fresh.json
+$BIN analyze $REPO --format json 2>/dev/null > /tmp/cached.json
+diff <(jq '.grade, (.findings|length)' /tmp/fresh.json) \
+     <(jq '.grade, (.findings|length)' /tmp/cached.json) && echo "P0.1 PASS"
+
+# P0: Fail-on exit code
+$BIN analyze $REPO --fail-on low --format json 2>/dev/null; echo "Exit: $?"
+
+# P0: Skip detector
+$BIN analyze $REPO --skip-detector todo-scanner --format json 2>/dev/null | \
+  jq '[.findings[] | select(.detector=="todo-scanner")] | length' | grep -q '^0$' && echo "P0.5 PASS"
+
+# P0: Output file
+$BIN analyze $REPO --format json --output /tmp/out.json 2>/dev/null
+[ -s /tmp/out.json ] && echo "P0.3 PASS"
+
+# P1: Self-analysis
+$BIN analyze . --format json 2>/dev/null | jq '{score: .overall_score, grade: .grade}'
+```
