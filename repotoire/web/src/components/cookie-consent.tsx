@@ -237,31 +237,3 @@ export function CookieConsent() {
     </div>
   );
 }
-
-/**
- * Hook to check if user has consented to analytics.
- */
-export function useHasAnalyticsConsent(): boolean {
-  const [hasConsent, setHasConsent] = useState(false);
-
-  useEffect(() => {
-    const stored = getStoredConsent();
-    setHasConsent(stored?.analytics ?? false);
-  }, []);
-
-  return hasConsent;
-}
-
-/**
- * Hook to check if user has consented to marketing.
- */
-export function useHasMarketingConsent(): boolean {
-  const [hasConsent, setHasConsent] = useState(false);
-
-  useEffect(() => {
-    const stored = getStoredConsent();
-    setHasConsent(stored?.marketing ?? false);
-  }, []);
-
-  return hasConsent;
-}
