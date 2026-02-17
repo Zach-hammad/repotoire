@@ -35,14 +35,17 @@ pub fn parse_file_lightweight(path: &Path) -> Result<LightweightFileInfo> {
     // Parse once. Avoid pre-read line counting to prevent double I/O on hot paths (#54).
     let result = parse_file(path)?;
 
-    // Approximate LOC from parsed entities; fallback to 1 for non-empty/unknown files.
-    let loc = result
-        .functions
-        .iter()
-        .map(|f| f.line_end)
-        .chain(result.classes.iter().map(|c| c.line_end))
-        .max()
-        .unwrap_or(1);
+    // Use actual file line count from cache for accurate LOC (#69)
+    let loc = crate::cache::global_cache()
+        .get_lines(path)
+        .map(|lines| lines.len() as u32)
+        .unwrap_or_else(|| {
+            // Fallback: max entity line_end (misses trailing module-level code)
+            result.functions.iter().map(|f| f.line_end)
+                .chain(result.classes.iter().map(|c| c.line_end))
+                .max()
+                .unwrap_or(1)
+        });
 
     // Convert to lightweight immediately - ParseResult is dropped after this
     let info = LightweightFileInfo::from_parse_result(&result, path.to_path_buf(), language, loc);

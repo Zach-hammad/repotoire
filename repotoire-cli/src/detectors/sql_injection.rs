@@ -549,7 +549,11 @@ impl SQLInjectionDetector {
             }
 
             let lines: Vec<&str> = content.lines().collect();
+            let mut skip_until = 0usize; // Skip joined continuation lines (#70)
             for (line_no, line) in lines.iter().enumerate() {
+                if line_no < skip_until {
+                    continue;
+                }
                 let line_num = (line_no + 1) as u32;
 
                 // Check for suppression comments
@@ -573,9 +577,11 @@ impl SQLInjectionDetector {
                         || trimmed.ends_with(',')
                     {
                         let mut joined = line.to_string();
+                        let mut joined_count = 0usize;
                         for next in lines.iter().skip(line_no + 1).take(3) {
                             joined.push(' ');
                             joined.push_str(next.trim());
+                            joined_count += 1;
                             let next_trimmed = next.trim_end();
                             if !next_trimmed.ends_with('+')
                                 && !next_trimmed.ends_with("||")
@@ -585,6 +591,7 @@ impl SQLInjectionDetector {
                                 break;
                             }
                         }
+                        skip_until = line_no + 1 + joined_count; // skip joined lines (#70)
                         joined
                     } else {
                         line.to_string()

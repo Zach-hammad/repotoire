@@ -4,10 +4,12 @@
 //! 1. Incremental cache update
 //! 2. Detector overrides from project config
 //! 3. Max-files filtering
-//! 4. Compound smell escalation
-//! 5. Security downgrading for non-production paths
-//! 6. FP classification filtering
-//! 7. LLM verification (optional, --verify)
+//! 4. De-duplicate overlapping dead-code findings
+//! 5. Compound smell escalation
+//! 6. Security downgrading for non-production paths
+//! 7. FP classification filtering
+//! 8. Confidence clamping
+//! 9. LLM verification (optional, --verify)
 
 use crate::config::ProjectConfig;
 use crate::detectors::IncrementalCache;
@@ -29,6 +31,15 @@ pub(super) fn postprocess_findings(
     max_files: usize,
     verify: bool,
 ) {
+    // Step 0: Replace random UUIDs with deterministic IDs for cache dedup (#73)
+    for finding in findings.iter_mut() {
+        let file = finding.affected_files.first()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let line = finding.line_start.unwrap_or(0);
+        finding.id = crate::detectors::base::finding_id(&finding.detector, &file, line);
+    }
+
     // Step 1: Update incremental cache
     update_incremental_cache(
         is_incremental_mode,
@@ -51,20 +62,20 @@ pub(super) fn postprocess_findings(
     // Step 5: Escalate compound smells (multiple issues in same location)
     crate::scoring::escalate_compound_smells(findings);
 
-    // Step 5: Downgrade security findings in non-production paths
+    // Step 6: Downgrade security findings in non-production paths
     downgrade_non_production_security(findings);
 
-    // Step 6: FP filtering with category-aware thresholds
+    // Step 7: FP filtering with category-aware thresholds
     filter_false_positives(findings);
 
-    // Step 6b: Clamp confidence to [0.0, 1.0] (#35)
+    // Step 8: Clamp confidence to [0.0, 1.0] (#35)
     for finding in findings.iter_mut() {
         if let Some(ref mut c) = finding.confidence {
             *c = c.clamp(0.0, 1.0);
         }
     }
 
-    // Step 7: LLM verification (if --verify flag)
+    // Step 9: LLM verification (if --verify flag)
     if verify {
         // Check for API key availability — don't silently do nothing (#46)
         let has_claude = std::env::var("ANTHROPIC_API_KEY").is_ok();

@@ -98,8 +98,10 @@ impl Detector for XssDetector {
                         let line_lower = line.to_lowercase();
                         let has_user_input = line_lower.contains("req.")
                             || line_lower.contains("props.")
-                            || line_lower.contains("params")
-                            || line_lower.contains("query")
+                            || line_lower.contains("req.params")
+                            || line_lower.contains("req.query")
+                            || line_lower.contains(".params[")
+                            || line_lower.contains(".query[")
                             || line_lower.contains("user_input")
                             || line_lower.contains("userinput")
                             || line_lower.contains("form_data")

@@ -10,6 +10,18 @@ use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+/// Generate a deterministic finding ID from detector name, file path, and line number (#73).
+/// This enables proper dedup in incremental cache — Uuid::new_v4() creates new IDs each run.
+pub fn finding_id(detector: &str, file: &str, line: u32) -> String {
+    let mut hasher = DefaultHasher::new();
+    detector.hash(&mut hasher);
+    file.hash(&mut hasher);
+    line.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
 use std::collections::HashMap;
 use std::sync::Arc;
 

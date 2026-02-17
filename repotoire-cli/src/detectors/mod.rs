@@ -13,7 +13,7 @@
 //! and returns findings. Security detectors also use SSA-based
 //! intra-function taint analysis via tree-sitter ASTs.
 
-mod base;
+pub mod base;
 pub mod content_classifier;
 mod engine;
 pub mod streaming_engine;

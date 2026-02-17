@@ -68,6 +68,12 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
     // Guardrail for pathological files that can blow up parse time/memory.
     if let Ok(meta) = std::fs::metadata(path) {
         if meta.len() > MAX_PARSE_FILE_BYTES {
+            tracing::warn!(
+                "Skipping {} ({:.1}MB exceeds {}MB guardrail)",
+                path.display(),
+                meta.len() as f64 / (1024.0 * 1024.0),
+                MAX_PARSE_FILE_BYTES / (1024 * 1024),
+            );
             return Ok(ParseResult::default());
         }
     }
