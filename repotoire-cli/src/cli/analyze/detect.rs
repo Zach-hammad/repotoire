@@ -146,19 +146,8 @@ pub(super) fn run_detectors(
         }
     }
 
-    // Add external tool detectors when enabled (default: on)
-    if run_external {
-        let external = crate::detectors::all_external_detectors(repo_path);
-        let external_count = external.len();
-        for detector in external {
-            engine.register(detector);
-        }
-        tracing::info!(
-            "Thorough mode: added {} external detectors ({} total)",
-            external_count,
-            engine.detector_count()
-        );
-    }
+    // All detectors are now built-in pure Rust — no external tools
+    let _ = run_external;
 
     let detector_bar = multi.add(ProgressBar::new_spinner());
     detector_bar.set_style(spinner_style.clone());

@@ -1,81 +1,17 @@
-//! Code smell detectors
+//! Pure Rust code analysis detectors — zero external dependencies.
 #![allow(unused_imports)]
 //!
-//! This module provides the detector framework and implementations for
-//! finding code smells in the code graph.
+//! All 112+ detectors are built-in Rust. No shelling out to Python, Node, or any external tool.
 //!
 //! # Architecture
 //!
 //! ```text
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                     DetectorEngine                          │
-//! │  - Registers detectors                                      │
-//! │  - Runs independent detectors in parallel (rayon)          │
-//! │  - Runs dependent detectors sequentially                    │
-//! │  - Collects and reports findings                           │
-//! └─────────────────────────────────────────────────────────────┘
-//!                              │
-//!                              ▼
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                      Detector Trait                         │
-//! │  - name(): Unique identifier                                │
-//! │  - description(): Human-readable description                │
-//! │  - detect(graph): Run detection, return findings            │
-//! │  - is_dependent(): Whether depends on other detectors       │
-//! └─────────────────────────────────────────────────────────────┘
-//!                              │
-//!              ┌───────────────┼───────────────┐
-//!              ▼               ▼               ▼
-//! ┌──────────────────┐ ┌──────────────┐ ┌──────────────────┐
-//! │ Graph-based      │ │ External     │ │ Hybrid           │
-//! │ (CircularDep,    │ │ Tool-based   │ │ (graph + tool)   │
-//! │  GodClass, etc.) │ │ (Bandit,     │ │                  │
-//! │                  │ │  Ruff, etc.) │ │                  │
-//! └──────────────────┘ └──────────────┘ └──────────────────┘
+//! DetectorEngine → Detector trait → detect(graph) → Vec<Finding>
 //! ```
 //!
-//! # Detector Categories
-//!
-//! ## Graph-based detectors (fast, query the code graph)
-//! - `CircularDependencyDetector` - Circular imports/dependencies
-//! - `GodClassDetector` - Classes with too many responsibilities
-//! - `LongParameterListDetector` - Functions with too many parameters
-//!
-//! ## External tool detectors (run external tools via subprocess)
-//! - `BanditDetector` - Python security vulnerabilities
-//! - `RuffLintDetector` - Python code quality (100x faster than Pylint)
-//! - `RuffImportDetector` - Unused Python imports
-//! - `MypyDetector` - Python type checking
-//! - `PylintDetector` - Python code quality (comprehensive)
-//! - `ESLintDetector` - JavaScript/TypeScript code quality
-//! - `TscDetector` - TypeScript type checking
-//! - `NpmAuditDetector` - npm dependency vulnerabilities
-//! - `SemgrepDetector` - Security pattern matching
-//! - `RadonDetector` - Python complexity metrics
-//! - `JscpdDetector` - Duplicate code detection
-//! - `VultureDetector` - Dead Python code detection
-//! - `GHActionsInjectionDetector` - GitHub Actions command injection
-//!
-//! # Usage
-//!
-//! ```ignore
-//! use repotoire_cli::detectors::{
-//!     DetectorEngine, DetectorEngineBuilder,
-//!     CircularDependencyDetector, GodClassDetector, BanditDetector,
-//! };
-//! use std::sync::Arc;
-//!
-//! // Build engine with detectors
-//! let engine = DetectorEngineBuilder::new()
-//!     .workers(4)
-//!     .detector(Arc::new(CircularDependencyDetector::new()))
-//!     .detector(Arc::new(GodClassDetector::new()))
-//!     .detector(Arc::new(BanditDetector::new("/path/to/repo")))
-//!     .build();
-//!
-//! // Run detection
-//! let findings = engine.run(&graph_client)?;
-//! ```
+//! Detectors run in parallel via rayon. Each receives the code graph
+//! and returns findings. Security detectors also use SSA-based
+//! intra-function taint analysis via tree-sitter ASTs.
 
 mod base;
 pub mod content_classifier;
@@ -154,17 +90,7 @@ mod risk_analyzer;
 mod root_cause_analyzer;
 mod voting_engine;
 
-// External tool utilities
-pub mod external_tool;
-
-// External tool-based detector implementations
-mod bandit;
-mod eslint;
 mod gh_actions;
-// mod jscpd;
-mod mypy;
-mod npm_audit;
-// mod pylint;
 mod boolean_trap;
 mod broad_exception;
 mod callback_hell;
@@ -200,23 +126,18 @@ mod n_plus_one;
 mod nosql_injection;
 mod path_traversal;
 mod prototype_pollution;
-mod radon;
 mod react_hooks;
 mod regex_dos;
 mod regex_in_loop;
-mod ruff;
 mod secrets;
-mod semgrep;
 mod single_char_names;
 mod ssrf;
 mod string_concat_loop;
 mod sync_in_async;
 mod test_in_production;
 mod todo_scanner;
-mod tsc;
 mod unhandled_promise;
 mod unreachable_code;
-mod vulture;
 mod wildcard_imports;
 mod xss;
 mod xxe;
@@ -298,19 +219,8 @@ pub use voting_engine::{
     VotingStats, VotingStrategy,
 };
 
-// Re-export external tool-based detector implementations
-pub use bandit::BanditDetector;
-pub use eslint::ESLintDetector;
+
 pub use gh_actions::GHActionsInjectionDetector;
-// pub use jscpd::JscpdDetector;
-pub use mypy::MypyDetector;
-pub use npm_audit::NpmAuditDetector;
-// pub use pylint::PylintDetector;
-pub use radon::RadonDetector;
-pub use ruff::{RuffImportDetector, RuffLintDetector};
-pub use semgrep::SemgrepDetector;
-pub use tsc::TscDetector;
-pub use vulture::VultureDetector;
 
 // New detectors
 pub use boolean_trap::BooleanTrapDetector;
@@ -369,11 +279,8 @@ pub use function_context::{
     FunctionContext, FunctionContextBuilder, FunctionContextMap, FunctionRole,
 };
 
-// Re-export external tool utilities
-pub use external_tool::{
-    batch_get_graph_context, get_graph_context, get_js_exec_command, get_js_runtime,
-    is_tool_installed, run_external_tool, run_js_tool, ExternalToolResult, GraphContext, JsRuntime,
-};
+// External tool wrappers removed — pure Rust detectors only
+// External tool wrappers removed — pure Rust detectors only
 
 use crate::config::ProjectConfig;
 use std::path::Path;
@@ -543,75 +450,7 @@ pub fn default_detectors_with_config(
         Arc::new(MissingMustUseDetector::new(repository_path)),
         Arc::new(BoxDynTraitDetector::new(repository_path)),
         Arc::new(MutexPoisoningRiskDetector::new(repository_path)),
-    ]
-}
-
-/// Create all Python detectors for a repository
-///
-/// Includes: Bandit, Ruff, Mypy, Pylint, Radon, Vulture
-#[allow(dead_code)] // Public API - may be used by external callers
-pub fn python_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
-    vec![
-        Arc::new(BanditDetector::new(repository_path)),
-        Arc::new(RuffLintDetector::new(repository_path)),
-        Arc::new(RuffImportDetector::new(repository_path)),
-        Arc::new(MypyDetector::new(repository_path)),
-        // Arc::new(PylintDetector::new(repository_path)),
-        Arc::new(RadonDetector::new(repository_path)),
-        Arc::new(VultureDetector::new(repository_path)),
-    ]
-}
-
-/// Create all JavaScript/TypeScript detectors for a repository
-///
-/// Includes: ESLint, tsc, npm audit
-#[allow(dead_code)] // Public API - may be used by external callers
-pub fn javascript_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
-    vec![
-        Arc::new(ESLintDetector::new(repository_path)),
-        Arc::new(TscDetector::new(repository_path)),
-        Arc::new(NpmAuditDetector::new(repository_path)),
-    ]
-}
-
-/// Create security-focused detectors for a repository
-///
-/// Includes: Bandit, Semgrep, npm audit, GitHub Actions injection, secrets, path traversal, etc.
-#[allow(dead_code)] // Public API - may be used by external callers
-pub fn security_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
-    vec![
-        Arc::new(BanditDetector::new(repository_path)),
-        Arc::new(SemgrepDetector::new(repository_path)),
-        Arc::new(NpmAuditDetector::new(repository_path)),
-        Arc::new(GHActionsInjectionDetector::new(repository_path)),
-        Arc::new(SecretDetector::new(repository_path)),
-        Arc::new(PathTraversalDetector::new(repository_path)),
-        Arc::new(CommandInjectionDetector::new(repository_path)),
-        Arc::new(SsrfDetector::new(repository_path)),
-        Arc::new(RegexDosDetector::new(repository_path)),
-    ]
-}
-
-/// Create all external tool detectors for a repository
-///
-/// Includes all language-specific and cross-language detectors.
-pub fn all_external_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
-    vec![
-        // Python
-        Arc::new(BanditDetector::new(repository_path)),
-        Arc::new(RuffLintDetector::new(repository_path)),
-        Arc::new(RuffImportDetector::new(repository_path)),
-        Arc::new(MypyDetector::new(repository_path)),
-        // Arc::new(PylintDetector::new(repository_path)),
-        Arc::new(RadonDetector::new(repository_path)),
-        Arc::new(VultureDetector::new(repository_path)),
-        // JavaScript/TypeScript
-        Arc::new(ESLintDetector::new(repository_path)),
-        Arc::new(TscDetector::new(repository_path)),
-        Arc::new(NpmAuditDetector::new(repository_path)),
-        // Cross-language
-        Arc::new(SemgrepDetector::new(repository_path)),
-        // Arc::new(JscpdDetector::new(repository_path)),
+        // CI/CD security
         Arc::new(GHActionsInjectionDetector::new(repository_path)),
     ]
 }
@@ -624,18 +463,6 @@ pub fn create_default_engine(workers: usize, repository_path: &Path) -> Detector
     DetectorEngineBuilder::new()
         .workers(workers)
         .detectors(default_detectors(repository_path))
-        .build()
-}
-
-/// Create a detector engine with all detectors for a repository
-#[allow(dead_code)] // Public API - may be used by external callers
-pub fn create_full_engine(workers: usize, repository_path: &Path) -> DetectorEngine {
-    let mut detectors = default_detectors(repository_path);
-    detectors.extend(all_external_detectors(repository_path));
-
-    DetectorEngineBuilder::new()
-        .workers(workers)
-        .detectors(detectors)
         .build()
 }
 

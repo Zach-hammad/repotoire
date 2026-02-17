@@ -121,21 +121,13 @@ impl StreamingDetectorEngine {
         
         // Collect detectors
         let skip_set: HashSet<&str> = skip_detectors.iter().map(|s| s.as_str()).collect();
-        let mut detectors: Vec<Arc<dyn Detector>> = default_detectors_with_config(repo_path, project_config)
+        let detectors: Vec<Arc<dyn Detector>> = default_detectors_with_config(repo_path, project_config)
             .into_iter()
             .filter(|d| !skip_set.contains(d.name()))
             .collect();
         
-        let _external_count = if run_external {
-            let external = crate::detectors::all_external_detectors(repo_path);
-            let count = external.len();
-            detectors.extend(external);
-            tracing::info!("External tools enabled: {} tool wrappers added (unavailable tools will be skipped gracefully)", count);
-            count
-        } else {
-            tracing::info!("External tools disabled (--external=off)");
-            0
-        };
+        // All detectors are now built-in pure Rust — no external tools
+        let _ = run_external;
         
         let total_detectors = detectors.len();
         
