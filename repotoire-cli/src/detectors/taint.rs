@@ -177,7 +177,7 @@ impl TaintAnalyzer {
             sanitizers: HashMap::new(),
             generic_sanitizers: HashSet::new(),
             max_depth: 10,
-            data_flow: Box::new(super::data_flow::HeuristicFlow::new()),
+            data_flow: Box::new(super::ssa_flow::SsaFlow::new()),
         };
         analyzer.init_default_patterns();
         analyzer
