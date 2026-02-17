@@ -60,7 +60,8 @@ pub(super) fn build_health_report(
     let all_findings = findings.clone();
     let display_summary = FindingsSummary::from_findings(findings);
 
-    let (paginated_findings, pagination_info) = paginate_findings(std::mem::take(findings), page, per_page);
+    let (paginated_findings, pagination_info) =
+        paginate_findings(std::mem::take(findings), page, per_page);
 
     let report = HealthReport {
         overall_score: score_result.overall_score,

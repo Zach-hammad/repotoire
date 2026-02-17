@@ -19,43 +19,43 @@ use tracing::{debug, info};
 /// These functions have callers not visible in the static call graph.
 static DISPATCH_PATHS: &[&str] = &[
     // FFI/language bindings
-    "/ffi/",       // FFI bindings
-    "/bindings/",  // Language bindings
-    "/extern/",    // External interfaces
-    "/jni/",       // Java Native Interface
-    "/napi/",      // Node.js Native API
-    "/wasm/",      // WebAssembly exports
-    "/capi/",      // C API exports
-    "/exports/",   // Exported functions
+    "/ffi/",      // FFI bindings
+    "/bindings/", // Language bindings
+    "/extern/",   // External interfaces
+    "/jni/",      // Java Native Interface
+    "/napi/",     // Node.js Native API
+    "/wasm/",     // WebAssembly exports
+    "/capi/",     // C API exports
+    "/exports/",  // Exported functions
     // Dispatch table patterns (functions called via pointers)
-    "/jets/",      // JIT/dispatch tables (common in interpreters)
-    "/opcodes/",   // Opcode handlers
-    "/handlers/",  // Event/message handlers
-    "/callbacks/", // Callback functions
-    "/hooks/",     // Hook functions
-    "/vtable/",    // Virtual table implementations
-    "/impls/",     // Trait/interface implementations
-    "/builtins/",  // Built-in function implementations
-    "/intrinsics/",// Compiler intrinsics
-    "/primitives/",// Primitive operations
-    "/ops/",       // Operation implementations
+    "/jets/",       // JIT/dispatch tables (common in interpreters)
+    "/opcodes/",    // Opcode handlers
+    "/handlers/",   // Event/message handlers
+    "/callbacks/",  // Callback functions
+    "/hooks/",      // Hook functions
+    "/vtable/",     // Virtual table implementations
+    "/impls/",      // Trait/interface implementations
+    "/builtins/",   // Built-in function implementations
+    "/intrinsics/", // Compiler intrinsics
+    "/primitives/", // Primitive operations
+    "/ops/",        // Operation implementations
     // Vendored/third-party code (shouldn't flag external code)
-    "/ext/",        // External dependencies
-    "/vendor/",     // Vendored code
-    "/third_party/",// Third-party libraries
-    "/thirdparty/", // Third-party libraries (alt)
-    "/external/",   // External dependencies
-    "/deps/",       // Dependencies
+    "/ext/",          // External dependencies
+    "/vendor/",       // Vendored code
+    "/third_party/",  // Third-party libraries
+    "/thirdparty/",   // Third-party libraries (alt)
+    "/external/",     // External dependencies
+    "/deps/",         // Dependencies
     "/node_modules/", // npm packages
     // Framework source code (exports are public API, not dead code)
-    "/packages/react",      // React monorepo packages
-    "/packages/shared",     // React shared utilities  
-    "/packages/scheduler",  // React scheduler
-    "/packages/use-",       // React hooks packages
-    "/reconciler/",         // React reconciler internals
-    "/scheduler/",          // Scheduler internals
-    "/forks/",              // React platform forks
-    "/fiber/",              // React Fiber internals
+    "/packages/react",     // React monorepo packages
+    "/packages/shared",    // React shared utilities
+    "/packages/scheduler", // React scheduler
+    "/packages/use-",      // React hooks packages
+    "/reconciler/",        // React reconciler internals
+    "/scheduler/",         // Scheduler internals
+    "/forks/",             // React platform forks
+    "/fiber/",             // React Fiber internals
 ];
 
 /// Entry points that should not be flagged as dead code
@@ -91,26 +91,26 @@ static ENTRY_POINTS: &[&str] = &[
     "with_config",
     "with_thresholds",
     // React/Framework patterns (exported API, called externally)
-    "use",              // React hooks: useState, useEffect, useMemo
-    "render",           // React render functions
-    "create",           // Factory functions: createElement, createContext
-    "mount",            // Component mounting
-    "unmount",          // Component unmounting
-    "update",           // Update functions
-    "commit",           // Commit phase functions
-    "complete",         // Completion functions
-    "begin",            // Begin work functions
-    "finish",           // Finish work functions
-    "schedule",         // Scheduler functions
-    "flush",            // Flush functions
-    "reconcile",        // Reconciler functions
-    "diff",             // Diffing functions
-    "hydrate",          // Hydration functions
-    "prepare",          // Preparation functions
-    "dispose",          // Cleanup functions
-    "reset",            // Reset functions
-    "get",              // Getter patterns (exported getters)
-    "set",              // Setter patterns (exported setters)
+    "use",       // React hooks: useState, useEffect, useMemo
+    "render",    // React render functions
+    "create",    // Factory functions: createElement, createContext
+    "mount",     // Component mounting
+    "unmount",   // Component unmounting
+    "update",    // Update functions
+    "commit",    // Commit phase functions
+    "complete",  // Completion functions
+    "begin",     // Begin work functions
+    "finish",    // Finish work functions
+    "schedule",  // Scheduler functions
+    "flush",     // Flush functions
+    "reconcile", // Reconciler functions
+    "diff",      // Diffing functions
+    "hydrate",   // Hydration functions
+    "prepare",   // Preparation functions
+    "dispose",   // Cleanup functions
+    "reset",     // Reset functions
+    "get",       // Getter patterns (exported getters)
+    "set",       // Setter patterns (exported setters)
 ];
 
 /// Framework-specific files where default exports are auto-loaded
@@ -126,7 +126,7 @@ static FRAMEWORK_AUTO_LOAD_PATTERNS: &[&str] = &[
     "/packages/scheduler/",
     "/packages/shared/",
     "/packages/use-",
-    "packages/react",           // Without leading slash
+    "packages/react", // Without leading slash
     // Next.js App Router
     "/page.tsx",
     "/page.ts",
@@ -520,8 +520,8 @@ impl DeadCodeDetector {
         // Tight list of patterns that are genuinely dynamic — trimmed from 48 (#15)
         let filter_patterns = [
             "callback",
-            "on_",        // event handlers
-            "handle_",    // specific handler prefix, not just "handle" substring
+            "on_",     // event handlers
+            "handle_", // specific handler prefix, not just "handle" substring
             "serialize",
             "deserialize",
             "to_dict",

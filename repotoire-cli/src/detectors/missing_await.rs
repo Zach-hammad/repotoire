@@ -80,7 +80,11 @@ impl MissingAwaitDetector {
     }
 
     /// Find containing function name
-    fn find_containing_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
+    fn find_containing_function(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+        line: u32,
+    ) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -122,7 +126,7 @@ impl Detector for MissingAwaitDetector {
             if !matches!(ext, "js" | "ts" | "jsx" | "tsx" | "py") {
                 continue;
             }
-            
+
             // Skip non-production paths
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;
@@ -187,9 +191,9 @@ impl Detector for MissingAwaitDetector {
                             || line.contains(".then(")
                             || line.contains("Promise.")
                             || line.contains("return ") && line.contains("(");
-                        
+
                         // Detect intentional fire-and-forget patterns
-                        let is_fire_and_forget = 
+                        let is_fire_and_forget =
                             // void operator is the explicit TS/JS fire-and-forget idiom
                             trimmed_line.starts_with("void ")
                             // .catch() means errors are handled, just not awaited
@@ -200,15 +204,20 @@ impl Detector for MissingAwaitDetector {
                             || line.contains("// best-effort")
                             || line.contains("// non-blocking")
                             || line.contains("// async, don't wait");
-                        
+
                         // Skip telemetry/tracking/analytics functions (inherently fire-and-forget)
                         let is_telemetry = {
                             let ll = line.to_lowercase();
-                            ll.contains("track(") || ll.contains("track_")
-                            || ll.contains("telemetry") || ll.contains("analytics")
-                            || ll.contains("log_event") || ll.contains("logevent")
-                            || ll.contains("send_event") || ll.contains("sendevent")
-                            || ll.contains("report_") || ll.contains("metric")
+                            ll.contains("track(")
+                                || ll.contains("track_")
+                                || ll.contains("telemetry")
+                                || ll.contains("analytics")
+                                || ll.contains("log_event")
+                                || ll.contains("logevent")
+                                || ll.contains("send_event")
+                                || ll.contains("sendevent")
+                                || ll.contains("report_")
+                                || ll.contains("metric")
                         };
 
                         if !is_awaited && !is_fire_and_forget && !is_telemetry {

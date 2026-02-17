@@ -291,7 +291,10 @@ pub fn handle_get_file(state: &HandlerState, args: &Value) -> Result<Value> {
     // Prevent path traversal (#3) — resolve and verify within repo
     let full_path = state.repo_path.join(file_path);
     let canonical = full_path.canonicalize().unwrap_or(full_path.clone());
-    let repo_canonical = state.repo_path.canonicalize().unwrap_or(state.repo_path.clone());
+    let repo_canonical = state
+        .repo_path
+        .canonicalize()
+        .unwrap_or(state.repo_path.clone());
     if !canonical.starts_with(&repo_canonical) {
         return Ok(json!({
             "error": "Access denied: path traversal detected"

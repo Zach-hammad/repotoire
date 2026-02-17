@@ -243,29 +243,22 @@ impl SecretDetector {
 
                     // Dev fallback pattern: process.env.X || 'fallback' or process.env.X ?? 'fallback'
                     // These are typically local dev defaults, not production credentials
-                    if line_lower.contains("process.env")
-                        && (line.contains("||") || line.contains("??"))
-                    {
-                        effective_severity = Severity::Low;
-                    }
-                    // Python fallback patterns: os.environ.get("KEY", "fallback") or os.getenv("KEY", "fallback")
-                    // The second argument is the default value, indicating a fallback
-                    else if (line_lower.contains("os.environ.get(")
-                        || line_lower.contains("os.getenv("))
-                        && Self::has_python_env_fallback(line)
-                    {
-                        effective_severity = Severity::Low;
-                    }
-                    // Go fallback patterns: os.Getenv with fallback handling
-                    // os.LookupEnv returns (value, found) - implies fallback handling
-                    // Also check for common inline fallback patterns
-                    else if line.contains("os.LookupEnv(")
+                    if (line_lower.contains("process.env")
+                        && (line.contains("||") || line.contains("??")))
+                        // Python fallback patterns: os.environ.get("KEY", "fallback") or os.getenv("KEY", "fallback")
+                        // The second argument is the default value, indicating a fallback
+                        || ((line_lower.contains("os.environ.get(")
+                            || line_lower.contains("os.getenv("))
+                            && Self::has_python_env_fallback(line))
+                        // Go fallback patterns: os.Getenv with fallback handling
+                        // os.LookupEnv returns (value, found) - implies fallback handling
+                        // Also check for common inline fallback patterns
+                        || line.contains("os.LookupEnv(")
                         || (line.contains("os.Getenv(") && Self::has_go_env_fallback(line))
+                        // Localhost URLs are lower risk - typically dev/test environments
+                        || matched.contains("localhost")
+                        || matched.contains("127.0.0.1")
                     {
-                        effective_severity = Severity::Low;
-                    }
-                    // Localhost URLs are lower risk - typically dev/test environments
-                    else if matched.contains("localhost") || matched.contains("127.0.0.1") {
                         effective_severity = Severity::Low;
                     }
                     // Check file path for seed/script/test/example patterns

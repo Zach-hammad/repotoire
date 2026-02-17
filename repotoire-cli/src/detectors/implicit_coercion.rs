@@ -151,11 +151,7 @@ impl Detector for ImplicitCoercionDetector {
                             severity = Severity::Low;
                         } else if let Some((_, callers, is_handler)) = &func_context {
                             // Boost for route handlers (user input)
-                            if *is_handler {
-                                severity = Severity::Medium;
-                            }
-                            // Boost for heavily-used functions
-                            else if *callers >= 10 {
+                            if *is_handler || *callers >= 10 {
                                 severity = Severity::Medium;
                             }
                         }

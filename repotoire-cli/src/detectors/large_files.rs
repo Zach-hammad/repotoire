@@ -30,7 +30,10 @@ impl LargeFilesDetector {
     }
 
     /// Analyze file structure using graph
-    fn analyze_file_structure(graph: &dyn crate::graph::GraphQuery, file_path: &str) -> FileAnalysis {
+    fn analyze_file_structure(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+    ) -> FileAnalysis {
         let functions: Vec<_> = graph
             .get_functions()
             .into_iter()

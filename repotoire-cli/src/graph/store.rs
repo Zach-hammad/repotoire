@@ -202,8 +202,7 @@ impl GraphStore {
 
         // redb uses a single file, not a directory
         let db_file = db_path.join("graph.redb");
-        let db = redb::Database::create(&db_file)
-            .context("Failed to open redb database")?;
+        let db = redb::Database::create(&db_file).context("Failed to open redb database")?;
 
         let store = Self {
             graph: RwLock::new(DiGraph::new()),
@@ -224,8 +223,7 @@ impl GraphStore {
         std::fs::create_dir_all(db_path)?;
 
         let db_file = db_path.join("graph.redb");
-        let db = redb::Database::create(&db_file)
-            .context("Failed to open redb database")?;
+        let db = redb::Database::create(&db_file).context("Failed to open redb database")?;
 
         Ok(Self {
             graph: RwLock::new(DiGraph::new()),
@@ -315,7 +313,11 @@ impl GraphStore {
 
     /// Get node index by qualified name
     pub fn get_node_index(&self, qn: &str) -> Option<NodeIndex> {
-        self.node_index.read().expect("graph lock poisoned").get(qn).copied()
+        self.node_index
+            .read()
+            .expect("graph lock poisoned")
+            .get(qn)
+            .copied()
     }
 
     /// Get node by qualified name
@@ -863,7 +865,7 @@ impl GraphStore {
         {
             // Clear and rebuild nodes table
             let mut table = write_txn.open_table(NODES_TABLE)?;
-            
+
             // Save nodes
             for node in graph.node_weights() {
                 let key = format!("node:{}", node.qualified_name);
@@ -886,7 +888,7 @@ impl GraphStore {
                 .collect();
 
             let edges_data = serde_json::to_vec(&edges)?;
-            
+
             let mut edges_table = write_txn.open_table(EDGES_TABLE)?;
             edges_table.insert("__edges__", edges_data.as_slice())?;
         }
@@ -903,7 +905,7 @@ impl GraphStore {
         };
 
         let read_txn = db.begin_read()?;
-        
+
         // Try to open tables — if they don't exist yet, this is a fresh db
         let nodes_table = match read_txn.open_table(NODES_TABLE) {
             Ok(t) => t,
@@ -932,9 +934,10 @@ impl GraphStore {
             Err(redb::TableError::TableDoesNotExist(_)) => return Ok(()),
             Err(e) => return Err(e.into()),
         };
-        
+
         if let Some(edges_entry) = edges_table.get("__edges__")? {
-            let edges: Vec<(String, String, CodeEdge)> = serde_json::from_slice(edges_entry.value())?;
+            let edges: Vec<(String, String, CodeEdge)> =
+                serde_json::from_slice(edges_entry.value())?;
             for (src_qn, dst_qn, edge) in edges {
                 if let (Some(&src), Some(&dst)) = (index.get(&src_qn), index.get(&dst_qn)) {
                     graph.add_edge(src, dst, edge);
@@ -953,75 +956,75 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
     fn get_functions(&self) -> Vec<CodeNode> {
         (**self).get_functions()
     }
-    
+
     fn get_classes(&self) -> Vec<CodeNode> {
         (**self).get_classes()
     }
-    
+
     fn get_files(&self) -> Vec<CodeNode> {
         (**self).get_files()
     }
-    
+
     fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
         (**self).get_functions_in_file(file_path)
     }
-    
+
     fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
         (**self).get_classes_in_file(file_path)
     }
-    
+
     fn get_node(&self, qn: &str) -> Option<CodeNode> {
         (**self).get_node(qn)
     }
-    
+
     fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
         (**self).get_callers(qn)
     }
-    
+
     fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
         (**self).get_callees(qn)
     }
-    
+
     fn call_fan_in(&self, qn: &str) -> usize {
         (**self).call_fan_in(qn)
     }
-    
+
     fn call_fan_out(&self, qn: &str) -> usize {
         (**self).call_fan_out(qn)
     }
-    
+
     fn get_calls(&self) -> Vec<(String, String)> {
         (**self).get_calls()
     }
-    
+
     fn get_imports(&self) -> Vec<(String, String)> {
         (**self).get_imports()
     }
-    
+
     fn get_inheritance(&self) -> Vec<(String, String)> {
         (**self).get_inheritance()
     }
-    
+
     fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
         (**self).get_child_classes(qn)
     }
-    
+
     fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
         (**self).get_importers(qn)
     }
-    
+
     fn find_import_cycles(&self) -> Vec<Vec<String>> {
         (**self).find_import_cycles()
     }
-    
+
     fn stats(&self) -> HashMap<String, i64> {
         (**self).stats()
     }
-    
+
     fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
         (**self).get_complex_functions(min_complexity)
     }
-    
+
     fn get_long_param_functions(&self, min_params: i64) -> Vec<CodeNode> {
         (**self).get_long_param_functions(min_params)
     }
@@ -1031,75 +1034,75 @@ impl super::traits::GraphQuery for GraphStore {
     fn get_functions(&self) -> Vec<CodeNode> {
         self.get_functions()
     }
-    
+
     fn get_classes(&self) -> Vec<CodeNode> {
         self.get_classes()
     }
-    
+
     fn get_files(&self) -> Vec<CodeNode> {
         self.get_files()
     }
-    
+
     fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
         self.get_functions_in_file(file_path)
     }
-    
+
     fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
         self.get_classes_in_file(file_path)
     }
-    
+
     fn get_node(&self, qn: &str) -> Option<CodeNode> {
         self.get_node(qn)
     }
-    
+
     fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
         self.get_callers(qn)
     }
-    
+
     fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
         self.get_callees(qn)
     }
-    
+
     fn call_fan_in(&self, qn: &str) -> usize {
         self.call_fan_in(qn)
     }
-    
+
     fn call_fan_out(&self, qn: &str) -> usize {
         self.call_fan_out(qn)
     }
-    
+
     fn get_calls(&self) -> Vec<(String, String)> {
         self.get_calls()
     }
-    
+
     fn get_imports(&self) -> Vec<(String, String)> {
         self.get_imports()
     }
-    
+
     fn get_inheritance(&self) -> Vec<(String, String)> {
         self.get_inheritance()
     }
-    
+
     fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
         self.get_child_classes(qn)
     }
-    
+
     fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
         self.get_importers(qn)
     }
-    
+
     fn find_import_cycles(&self) -> Vec<Vec<String>> {
         self.find_import_cycles()
     }
-    
+
     fn stats(&self) -> HashMap<String, i64> {
         self.stats()
     }
-    
+
     fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
         self.get_complex_functions(min_complexity)
     }
-    
+
     fn get_long_param_functions(&self, min_params: i64) -> Vec<CodeNode> {
         self.get_long_param_functions(min_params)
     }

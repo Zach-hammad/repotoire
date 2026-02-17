@@ -80,7 +80,10 @@ fn update_disk_cache(
     let mut dc = disk_cache.write().unwrap();
     dc.files.insert(
         file_path.to_string(),
-        CachedBlame { entries, mtime_secs },
+        CachedBlame {
+            entries,
+            mtime_secs,
+        },
     );
 }
 
@@ -198,12 +201,7 @@ impl GitBlame {
                     mem_cache.insert(file_path.clone(), entries.clone());
 
                     // Update disk cache
-                    update_disk_cache(
-                        &disk_cache,
-                        file_path,
-                        &repo_path,
-                        entries,
-                    );
+                    update_disk_cache(&disk_cache, file_path, &repo_path, entries);
                     computed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }

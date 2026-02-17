@@ -19,22 +19,20 @@ mod scoring;
 mod setup;
 
 use detect::{
-    start_git_enrichment, finish_git_enrichment, run_detectors, run_detectors_streaming,
-    apply_voting,
+    apply_voting, finish_git_enrichment, run_detectors, run_detectors_streaming,
+    start_git_enrichment,
 };
 use files::{collect_file_list, collect_files_for_analysis};
-use output::{
-    format_and_output, check_fail_threshold,
-    load_cached_findings, output_cached_results,
-};
-use parse::{parse_files, parse_files_lite, parse_files_chunked, ParsePhaseResult};
 use graph::{build_graph, build_graph_chunked, parse_and_build_streaming};
+use output::{
+    check_fail_threshold, format_and_output, load_cached_findings, output_cached_results,
+};
+use parse::{parse_files, parse_files_chunked, parse_files_lite, ParsePhaseResult};
 use postprocess::postprocess_findings;
-use scoring::{calculate_scores, build_health_report};
+use scoring::{build_health_report, calculate_scores};
 use setup::{
-    setup_environment, create_spinner_style, create_bar_style,
-    EnvironmentSetup, FileCollectionResult, ScoreResult,
-    SUPPORTED_EXTENSIONS,
+    create_bar_style, create_spinner_style, setup_environment, EnvironmentSetup,
+    FileCollectionResult, ScoreResult, SUPPORTED_EXTENSIONS,
 };
 
 use crate::detectors::IncrementalCache;
@@ -90,14 +88,32 @@ pub fn run(
 
     // Phase 1: Validate repository and setup environment
     let mut env = setup_environment(
-        path, format, no_emoji, run_external, no_git, workers,
-        per_page, fail_on, incremental, since.is_some(), skip_graph, max_files,
+        path,
+        format,
+        no_emoji,
+        run_external,
+        no_git,
+        workers,
+        per_page,
+        fail_on,
+        incremental,
+        since.is_some(),
+        skip_graph,
+        max_files,
     )?;
 
     // Fast path: fully cached results (no changes detected)
     if let Some(result) = try_cached_fast_path(
-        &env, format, output_path, &severity, top, page, per_page,
-        &skip_detector, start_time, explain_score,
+        &env,
+        format,
+        output_path,
+        &severity,
+        top,
+        page,
+        per_page,
+        &skip_detector,
+        start_time,
+        explain_score,
     )? {
         // Show --verify warning even on cached path (#60)
         if verify {
@@ -136,7 +152,12 @@ pub fn run(
     let spinner_style = create_spinner_style();
 
     let mut findings = execute_detection_phase(
-        &env, &graph, &file_result, &skip_detector, &multi, &spinner_style,
+        &env,
+        &graph,
+        &file_result,
+        &skip_detector,
+        &multi,
+        &spinner_style,
     )?;
 
     // Phase 4: Post-process findings
@@ -171,12 +192,22 @@ pub fn run(
 
     // Phase 6: Generate output
     generate_reports(
-        &report, &findings, format, output_path, &env.repotoire_dir,
-        report.1, env.config.no_emoji, explain_score, &score_result,
-        &graph, &env.project_config,
+        &report,
+        &findings,
+        format,
+        output_path,
+        &env.repotoire_dir,
+        report.1,
+        env.config.no_emoji,
+        explain_score,
+        &score_result,
+        &graph,
+        &env.project_config,
     )?;
 
-    // Cache findings for feedback command
+    // Cache postprocessed findings for both feedback and incremental fast path (#65)
+    env.incremental_cache.cache_graph_findings("__all__", &findings);
+    let _ = env.incremental_cache.save_cache();
     cache_findings(path, &findings);
 
     // Final summary
@@ -260,18 +291,31 @@ fn initialize_graph(
     // Collect files
     let mut cache_clone = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
     let mut file_result = collect_files_for_analysis(
-        &env.repo_path, since, env.config.is_incremental_mode,
-        &mut cache_clone, multi, &spinner_style,
+        &env.repo_path,
+        since,
+        env.config.is_incremental_mode,
+        &mut cache_clone,
+        multi,
+        &spinner_style,
     )?;
 
     // Apply max_files limit
-    apply_max_files_limit(&mut file_result, env.config.max_files, env.quiet_mode, env.config.no_emoji);
+    apply_max_files_limit(
+        &mut file_result,
+        env.config.max_files,
+        env.quiet_mode,
+        env.config.no_emoji,
+    );
 
     if file_result.all_files.is_empty() {
         return Ok((
             Arc::new(GraphStore::in_memory()),
             file_result,
-            ParsePhaseResult { parse_results: vec![], total_functions: 0, total_classes: 0 },
+            ParsePhaseResult {
+                parse_results: vec![],
+                total_functions: 0,
+                total_classes: 0,
+            },
         ));
     }
 
@@ -286,14 +330,17 @@ fn initialize_graph(
     // Skip graph mode
     if env.config.skip_graph {
         if !env.quiet_mode {
-            println!("{}Skipping graph building (--skip-graph or --lite mode)", style("⏭ ").dim());
+            println!(
+                "{}Skipping graph building (--skip-graph or --lite mode)",
+                style("⏭ ").dim()
+            );
         }
 
         let graph = Arc::new(GraphStore::in_memory());
-        let _cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
-        let parse_result = parse_files_lite(
-            &file_result.files_to_parse, multi, &bar_style,
-        )?;
+        let _cache_mutex = std::sync::Mutex::new(IncrementalCache::new(
+            &env.repotoire_dir.join("incremental"),
+        ));
+        let parse_result = parse_files_lite(&file_result.files_to_parse, multi, &bar_style)?;
 
         return Ok((graph, file_result, parse_result));
     }
@@ -324,32 +371,54 @@ fn execute_detection_phase(
     spinner_style: &ProgressStyle,
 ) -> Result<Vec<Finding>> {
     let git_handle = start_git_enrichment(
-        env.config.no_git, env.quiet_mode, &env.repo_path,
-        Arc::clone(graph), multi, spinner_style,
+        env.config.no_git,
+        env.quiet_mode,
+        &env.repo_path,
+        Arc::clone(graph),
+        multi,
+        spinner_style,
     );
 
     let use_streaming = file_result.all_files.len() > 5000;
 
     let mut findings = if use_streaming {
         run_detectors_streaming(
-            graph, &env.repo_path, &env.repotoire_dir, &env.project_config,
-            skip_detector, env.config.run_external, multi, spinner_style,
-            env.quiet_mode, env.config.no_emoji,
+            graph,
+            &env.repo_path,
+            &env.repotoire_dir,
+            &env.project_config,
+            skip_detector,
+            env.config.run_external,
+            multi,
+            spinner_style,
+            env.quiet_mode,
+            env.config.no_emoji,
         )?
     } else {
         let mut detector_cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
         run_detectors(
-            graph, &env.repo_path, &env.project_config,
-            skip_detector, env.config.run_external, env.config.workers,
-            multi, spinner_style, env.quiet_mode, env.config.no_emoji,
-            &mut detector_cache, &file_result.all_files,
+            graph,
+            &env.repo_path,
+            &env.project_config,
+            skip_detector,
+            env.config.run_external,
+            env.config.workers,
+            multi,
+            spinner_style,
+            env.quiet_mode,
+            env.config.no_emoji,
+            &mut detector_cache,
+            &file_result.all_files,
         )?
     };
 
     if !use_streaming {
         let (_voting_stats, _cached_count) = apply_voting(
-            &mut findings, file_result.cached_findings.clone(),
-            env.config.is_incremental_mode, multi, spinner_style,
+            &mut findings,
+            file_result.cached_findings.clone(),
+            env.config.is_incremental_mode,
+            multi,
+            spinner_style,
         );
     }
 
@@ -360,7 +429,11 @@ fn execute_detection_phase(
 
 /// Phase 6: Generate and output reports.
 fn generate_reports(
-    report_data: &(HealthReport, Option<(usize, usize, usize, usize)>, Vec<Finding>),
+    report_data: &(
+        HealthReport,
+        Option<(usize, usize, usize, usize)>,
+        Vec<Finding>,
+    ),
     findings: &[Finding],
     format: &str,
     output_path: Option<&Path>,
@@ -376,8 +449,14 @@ fn generate_reports(
     let displayed_findings = findings.len();
 
     format_and_output(
-        report, all_findings, format, output_path, repotoire_dir,
-        pagination_info, displayed_findings, no_emoji,
+        report,
+        all_findings,
+        format,
+        output_path,
+        repotoire_dir,
+        pagination_info,
+        displayed_findings,
+        no_emoji,
     )?;
 
     if explain_score && format == "text" {
@@ -421,9 +500,9 @@ fn apply_max_files_limit(
     if file_result.files_to_parse.len() > max_files {
         file_result.files_to_parse.truncate(max_files);
     }
-    file_result.cached_findings.retain(|f| {
-        f.affected_files.iter().any(|p| all_set.contains(p))
-    });
+    file_result
+        .cached_findings
+        .retain(|f| f.affected_files.iter().any(|p| all_set.contains(p)));
 }
 
 /// Initialize graph database (lazy mode for 20k+ files).
@@ -439,11 +518,18 @@ fn init_graph_db(
         let icon_graph = if env.config.no_emoji { "" } else { "🕸️  " };
         let mode_info = if use_lazy { " (lazy mode)" } else { "" };
         let _ = multi; // suppress unused warning
-        println!("{}Initializing graph database{}...", style(icon_graph).bold(), style(mode_info).dim());
+        println!(
+            "{}Initializing graph database{}...",
+            style(icon_graph).bold(),
+            style(mode_info).dim()
+        );
     }
 
     let graph = if use_lazy {
-        Arc::new(GraphStore::new_lazy(&db_path).with_context(|| "Failed to initialize graph database")?)
+        Arc::new(
+            GraphStore::new_lazy(&db_path)
+                .with_context(|| "Failed to initialize graph database")?,
+        )
     } else {
         Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?)
     };
@@ -472,22 +558,39 @@ fn parse_and_build(
         }
 
         let (total_functions, total_classes) = parse_and_build_streaming(
-            &file_result.files_to_parse, &env.repo_path, Arc::clone(graph), multi, bar_style,
+            &file_result.files_to_parse,
+            &env.repo_path,
+            Arc::clone(graph),
+            multi,
+            bar_style,
         )?;
 
-        Ok(ParsePhaseResult { parse_results: vec![], total_functions, total_classes })
+        Ok(ParsePhaseResult {
+            parse_results: vec![],
+            total_functions,
+            total_classes,
+        })
     } else {
-        let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(&env.repotoire_dir.join("incremental")));
+        let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(
+            &env.repotoire_dir.join("incremental"),
+        ));
 
         let result = if file_result.files_to_parse.len() > 10000 {
             parse_files_chunked(
-                &file_result.files_to_parse, multi, bar_style,
-                env.config.is_incremental_mode, &cache_mutex, 5000,
+                &file_result.files_to_parse,
+                multi,
+                bar_style,
+                env.config.is_incremental_mode,
+                &cache_mutex,
+                5000,
             )?
         } else {
             parse_files(
-                &file_result.files_to_parse, multi, bar_style,
-                env.config.is_incremental_mode, &cache_mutex,
+                &file_result.files_to_parse,
+                multi,
+                bar_style,
+                env.config.is_incremental_mode,
+                &cache_mutex,
             )?
         };
 
@@ -497,10 +600,21 @@ fn parse_and_build(
 
         if result.parse_results.len() > 10000 {
             build_graph_chunked(
-                graph, &env.repo_path, &result.parse_results, multi, bar_style, 5000,
+                graph,
+                &env.repo_path,
+                &result.parse_results,
+                multi,
+                bar_style,
+                5000,
             )?;
         } else {
-            build_graph(graph, &env.repo_path, &result.parse_results, multi, bar_style)?;
+            build_graph(
+                graph,
+                &env.repo_path,
+                &result.parse_results,
+                multi,
+                bar_style,
+            )?;
         }
 
         Ok(result)
@@ -532,12 +646,20 @@ fn cache_scores(
 fn cache_findings(path: &Path, findings: &[Finding]) {
     let cache_path = get_cache_path(path);
     if let Err(e) = std::fs::create_dir_all(&cache_path) {
-        tracing::warn!("Failed to create cache directory {}: {}", cache_path.display(), e);
+        tracing::warn!(
+            "Failed to create cache directory {}: {}",
+            cache_path.display(),
+            e
+        );
     }
     let findings_cache = cache_path.join("findings.json");
     if let Ok(json) = serde_json::to_string(findings) {
         if let Err(e) = std::fs::write(&findings_cache, &json) {
-            tracing::warn!("Failed to write findings cache {}: {}", findings_cache.display(), e);
+            tracing::warn!(
+                "Failed to write findings cache {}: {}",
+                findings_cache.display(),
+                e
+            );
         }
     }
 }
@@ -578,7 +700,10 @@ mod tests {
     fn test_normalize_pascal_case() {
         assert_eq!(normalize_to_kebab("TodoScanner"), "todo-scanner");
         assert_eq!(normalize_to_kebab("DeadCodeDetector"), "dead-code-detector");
-        assert_eq!(normalize_to_kebab("AIComplexitySpike"), "a-i-complexity-spike");
+        assert_eq!(
+            normalize_to_kebab("AIComplexitySpike"),
+            "a-i-complexity-spike"
+        );
     }
 
     #[test]

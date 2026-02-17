@@ -125,7 +125,11 @@ impl SyncInAsyncDetector {
     }
 
     /// Find containing async function
-    fn find_async_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
+    fn find_async_function(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+        line: u32,
+    ) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -172,7 +176,7 @@ impl Detector for SyncInAsyncDetector {
             if path_str.contains("/detectors/") {
                 continue;
             }
-            
+
             // Skip non-production paths (scripts, tests, examples)
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;
@@ -245,12 +249,11 @@ impl Detector for SyncInAsyncDetector {
                             format!("\n\n**Analysis:**\n{}", notes.join("\n"))
                         };
 
-                        let severity = if blocking_call.contains("sleep") {
-                            Severity::High // Sleep is especially bad
-                        } else if blocking_call.contains("Sync")
+                        let severity = if blocking_call.contains("sleep")
+                            || blocking_call.contains("Sync")
                             || blocking_call.contains("subprocess")
                         {
-                            Severity::High // Explicit sync or subprocess
+                            Severity::High // explicit blocking patterns in async context
                         } else {
                             Severity::Medium
                         };

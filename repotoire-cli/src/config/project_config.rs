@@ -64,16 +64,16 @@ impl ProjectType {
     /// Coupling threshold multiplier (higher = more lenient)
     pub fn coupling_multiplier(&self) -> f64 {
         match self {
-            ProjectType::Web => 1.0,          // Strict - CRUD should have clean separation
-            ProjectType::Interpreter => 2.5,  // Very lenient - eval loops touch everything
-            ProjectType::Compiler => 3.0,     // Very lenient - HIR/MIR/AST shared everywhere
-            ProjectType::Library => 1.5,      // Moderate - internal coupling OK
-            ProjectType::Framework => 3.0,    // Very lenient - React/Vue cores couple heavily
-            ProjectType::Cli => 1.3,          // Slight leniency - command dispatch
-            ProjectType::Kernel => 3.0,       // Most lenient - syscalls, interrupts
-            ProjectType::Game => 2.0,         // Lenient - ECS, frame loops
-            ProjectType::DataScience => 2.0,  // Lenient - notebooks, pipelines
-            ProjectType::Mobile => 1.5,       // Moderate - MVC/MVVM patterns
+            ProjectType::Web => 1.0, // Strict - CRUD should have clean separation
+            ProjectType::Interpreter => 2.5, // Very lenient - eval loops touch everything
+            ProjectType::Compiler => 3.0, // Very lenient - HIR/MIR/AST shared everywhere
+            ProjectType::Library => 1.5, // Moderate - internal coupling OK
+            ProjectType::Framework => 3.0, // Very lenient - React/Vue cores couple heavily
+            ProjectType::Cli => 1.3, // Slight leniency - command dispatch
+            ProjectType::Kernel => 3.0, // Most lenient - syscalls, interrupts
+            ProjectType::Game => 2.0, // Lenient - ECS, frame loops
+            ProjectType::DataScience => 2.0, // Lenient - notebooks, pipelines
+            ProjectType::Mobile => 1.5, // Moderate - MVC/MVVM patterns
         }
     }
 
@@ -81,15 +81,15 @@ impl ProjectType {
     pub fn complexity_multiplier(&self) -> f64 {
         match self {
             ProjectType::Web => 1.0,
-            ProjectType::Interpreter => 1.8,  // Opcodes switches are complex
-            ProjectType::Compiler => 1.5,     // Parser/codegen complexity
+            ProjectType::Interpreter => 1.8, // Opcodes switches are complex
+            ProjectType::Compiler => 1.5,    // Parser/codegen complexity
             ProjectType::Library => 1.2,
-            ProjectType::Framework => 1.5,    // Core reconciler, scheduler complexity
+            ProjectType::Framework => 1.5, // Core reconciler, scheduler complexity
             ProjectType::Cli => 1.1,
-            ProjectType::Kernel => 2.0,       // Interrupt handlers, state machines
-            ProjectType::Game => 1.5,         // Frame update loops
-            ProjectType::DataScience => 1.8,  // Data pipelines, complex transforms
-            ProjectType::Mobile => 1.3,       // UI state, lifecycle complexity
+            ProjectType::Kernel => 2.0, // Interrupt handlers, state machines
+            ProjectType::Game => 1.5,   // Frame update loops
+            ProjectType::DataScience => 1.8, // Data pipelines, complex transforms
+            ProjectType::Mobile => 1.3, // UI state, lifecycle complexity
         }
     }
 
@@ -97,7 +97,11 @@ impl ProjectType {
     pub fn lenient_dead_code(&self) -> bool {
         matches!(
             self,
-            ProjectType::Interpreter | ProjectType::Kernel | ProjectType::Game | ProjectType::Framework | ProjectType::DataScience
+            ProjectType::Interpreter
+                | ProjectType::Kernel
+                | ProjectType::Game
+                | ProjectType::Framework
+                | ProjectType::DataScience
         )
     }
 
@@ -105,26 +109,32 @@ impl ProjectType {
     pub fn detect(repo_path: &Path) -> ProjectType {
         // Score each project type and pick the highest
         let mut scores: Vec<(ProjectType, u32)> = vec![
-            (ProjectType::Interpreter, score_interpreter_markers(repo_path)),
+            (
+                ProjectType::Interpreter,
+                score_interpreter_markers(repo_path),
+            ),
             (ProjectType::Compiler, score_compiler_markers(repo_path)),
             (ProjectType::Framework, score_framework_markers(repo_path)),
             (ProjectType::Kernel, score_kernel_markers(repo_path)),
             (ProjectType::Game, score_game_markers(repo_path)),
-            (ProjectType::DataScience, score_datascience_markers(repo_path)),
+            (
+                ProjectType::DataScience,
+                score_datascience_markers(repo_path),
+            ),
             (ProjectType::Mobile, score_mobile_markers(repo_path)),
             (ProjectType::Cli, score_cli_markers(repo_path)),
             (ProjectType::Library, score_library_markers(repo_path)),
             (ProjectType::Web, score_web_markers(repo_path)),
         ];
-        
+
         // Sort by score descending
         scores.sort_by(|a, b| b.1.cmp(&a.1));
-        
+
         // If top score is 0 or very low, default to Library
         if scores[0].1 < 2 {
             return ProjectType::Library;
         }
-        
+
         scores[0].0
     }
 }
@@ -132,10 +142,16 @@ impl ProjectType {
 /// Score UI framework markers (React, Vue, Angular, Svelte, etc.)
 fn score_framework_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     const FRAMEWORK_DIRS: &[&str] = &[
-        "reconciler", "scheduler", "renderer", "dom", "fiber", 
-        "packages/react", "packages/vue", "packages/angular",
+        "reconciler",
+        "scheduler",
+        "renderer",
+        "dom",
+        "fiber",
+        "packages/react",
+        "packages/vue",
+        "packages/angular",
     ];
 
     // Check for framework-specific directories
@@ -144,13 +160,13 @@ fn score_framework_markers(repo_path: &Path) -> u32 {
             score += 3;
         }
     }
-    
+
     // Check package.json for framework name in "name" field
     let package_json = repo_path.join("package.json");
     if package_json.exists() {
         if let Ok(content) = std::fs::read_to_string(&package_json) {
             // Check if this IS a framework (not just uses one)
-            if content.contains("\"name\": \"react\"") 
+            if content.contains("\"name\": \"react\"")
                 || content.contains("\"name\": \"vue\"")
                 || content.contains("\"name\": \"angular\"")
                 || content.contains("\"name\": \"svelte\"")
@@ -161,13 +177,13 @@ fn score_framework_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     // Check for monorepo packages that indicate framework
     if let Ok(packages) = std::fs::read_dir(repo_path.join("packages")) {
         for entry in packages.filter_map(|e| e.ok()) {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
-            if name_str.contains("reconciler") 
+            if name_str.contains("reconciler")
                 || name_str.contains("scheduler")
                 || name_str.contains("dom")
                 || name_str.contains("core")
@@ -177,26 +193,43 @@ fn score_framework_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     score
 }
 
 /// Score interpreter/VM markers
 fn score_interpreter_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     const INTERPRETER_DIRS: &[&str] = &[
-        "vm", "interpreter", "bytecode", "runtime", "eval", "opcode",
-        "jit", "gc", "allocator",
+        "vm",
+        "interpreter",
+        "bytecode",
+        "runtime",
+        "eval",
+        "opcode",
+        "jit",
+        "gc",
+        "allocator",
     ];
     const INTERPRETER_FILES: &[&str] = &[
-        "vm.c", "vm.rs", "interpreter.c", "interpreter.rs", "eval.c", "eval.rs",
-        "bytecode.c", "bytecode.rs", "opcode.h", "opcodes.h",
+        "vm.c",
+        "vm.rs",
+        "interpreter.c",
+        "interpreter.rs",
+        "eval.c",
+        "eval.rs",
+        "bytecode.c",
+        "bytecode.rs",
+        "opcode.h",
+        "opcodes.h",
     ];
 
     for dir in INTERPRETER_DIRS {
-        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() 
-            || repo_path.join(format!("pkg/{}", dir)).is_dir() {
+        if repo_path.join(dir).is_dir()
+            || repo_path.join(format!("src/{}", dir)).is_dir()
+            || repo_path.join(format!("pkg/{}", dir)).is_dir()
+        {
             score += 3;
         }
     }
@@ -211,21 +244,33 @@ fn score_interpreter_markers(repo_path: &Path) -> u32 {
 /// Score compiler markers
 fn score_compiler_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     const COMPILER_DIRS: &[&str] = &[
-        "parser", "lexer", "codegen", "ast", "ir", "optimizer", "frontend", "backend",
-        "compiler", "HIR", "MIR", "LIR", "transform", "analysis",
+        "parser",
+        "lexer",
+        "codegen",
+        "ast",
+        "ir",
+        "optimizer",
+        "frontend",
+        "backend",
+        "compiler",
+        "HIR",
+        "MIR",
+        "LIR",
+        "transform",
+        "analysis",
     ];
 
     for dir in COMPILER_DIRS {
-        if repo_path.join(dir).is_dir() 
+        if repo_path.join(dir).is_dir()
             || repo_path.join(format!("src/{}", dir)).is_dir()
             || repo_path.join(format!("packages/{}", dir)).is_dir()
         {
             score += 2;
         }
     }
-    
+
     // Check for packages/*/compiler pattern (monorepo like React)
     if let Ok(packages) = std::fs::read_dir(repo_path.join("packages")) {
         for entry in packages.filter_map(|e| e.ok()) {
@@ -238,19 +283,29 @@ fn score_compiler_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     score
 }
 
 /// Score kernel/embedded markers
 fn score_kernel_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     const KERNEL_DIRS: &[&str] = &[
-        "kernel", "drivers", "arch", "syscall", "interrupt", "hal", "bsp",
+        "kernel",
+        "drivers",
+        "arch",
+        "syscall",
+        "interrupt",
+        "hal",
+        "bsp",
     ];
     const KERNEL_FILES: &[&str] = &[
-        "Kconfig", "Makefile.inc", "linker.ld", "boot.S", "startup.s",
+        "Kconfig",
+        "Makefile.inc",
+        "linker.ld",
+        "boot.S",
+        "startup.s",
     ];
 
     for dir in KERNEL_DIRS {
@@ -269,13 +324,11 @@ fn score_kernel_markers(repo_path: &Path) -> u32 {
 /// Score game engine markers
 fn score_game_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     const GAME_DIRS: &[&str] = &[
         "engine", "ecs", "physics", "renderer", "assets", "scenes", "shaders",
     ];
-    const GAME_FILES: &[&str] = &[
-        "game.rs", "game.cpp", "engine.rs", "engine.cpp",
-    ];
+    const GAME_FILES: &[&str] = &["game.rs", "game.cpp", "engine.rs", "engine.cpp"];
 
     for dir in GAME_DIRS {
         if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() {
@@ -287,7 +340,7 @@ fn score_game_markers(repo_path: &Path) -> u32 {
             score += 3;
         }
     }
-    
+
     // Check for game-specific dependencies
     let cargo_toml = repo_path.join("Cargo.toml");
     if cargo_toml.exists() {
@@ -300,14 +353,14 @@ fn score_game_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     score
 }
 
 /// Score CLI tool markers
 fn score_cli_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     const CLI_DIRS: &[&str] = &["cli", "cmd", "commands"];
 
     // Check for CLI framework deps
@@ -319,7 +372,7 @@ fn score_cli_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     // Check go.mod for cobra
     let go_mod = repo_path.join("go.mod");
     if go_mod.exists() {
@@ -329,14 +382,17 @@ fn score_cli_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     // Check for click/argparse in Python
     let requirements = repo_path.join("requirements.txt");
     let pyproject = repo_path.join("pyproject.toml");
     for file_path in [requirements, pyproject] {
         if file_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&file_path) {
-                if content.contains("click") || content.contains("typer") || content.contains("argparse") {
+                if content.contains("click")
+                    || content.contains("typer")
+                    || content.contains("argparse")
+                {
                     score += 3;
                 }
             }
@@ -348,23 +404,25 @@ fn score_cli_markers(repo_path: &Path) -> u32 {
             score += 2;
         }
     }
-    
+
     // cli.rs or cli.go is a strong signal
-    if repo_path.join("src/cli.rs").exists() || repo_path.join("cli.go").exists() 
-        || repo_path.join("cmd/main.go").exists() {
+    if repo_path.join("src/cli.rs").exists()
+        || repo_path.join("cli.go").exists()
+        || repo_path.join("cmd/main.go").exists()
+    {
         score += 3;
     }
-    
+
     score
 }
 
 /// Score library markers
 fn score_library_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     let lib_rs = repo_path.join("src/lib.rs");
     let main_rs = repo_path.join("src/main.rs");
-    
+
     // Pure library: has lib.rs but no main.rs
     if lib_rs.exists() && !main_rs.exists() {
         score += 5;
@@ -384,12 +442,13 @@ fn score_library_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     // Check for setup.py / pyproject.toml with library structure
     if (repo_path.join("setup.py").exists() || repo_path.join("pyproject.toml").exists())
-        && !repo_path.join("__main__.py").exists() {
-            score += 3;
-        }
+        && !repo_path.join("__main__.py").exists()
+    {
+        score += 3;
+    }
 
     score
 }
@@ -397,7 +456,7 @@ fn score_library_markers(repo_path: &Path) -> u32 {
 /// Score web framework markers
 fn score_web_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     // Check for common web framework dependencies
     let cargo_toml = repo_path.join("Cargo.toml");
     if cargo_toml.exists() {
@@ -436,7 +495,14 @@ fn score_web_markers(repo_path: &Path) -> u32 {
     for file_path in [requirements, pyproject] {
         if file_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let web_deps = ["flask", "django", "fastapi", "starlette", "tornado", "sanic"];
+                let web_deps = [
+                    "flask",
+                    "django",
+                    "fastapi",
+                    "starlette",
+                    "tornado",
+                    "sanic",
+                ];
                 for dep in web_deps {
                     if content.contains(dep) {
                         score += 4;
@@ -445,7 +511,7 @@ fn score_web_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     // Check go.mod for Go web frameworks
     let go_mod = repo_path.join("go.mod");
     if go_mod.exists() {
@@ -460,10 +526,19 @@ fn score_web_markers(repo_path: &Path) -> u32 {
     }
 
     // Check for routes/controllers/handlers directories
-    const WEB_DIRS: &[&str] = &["routes", "controllers", "handlers", "views", "api", "endpoints"];
+    const WEB_DIRS: &[&str] = &[
+        "routes",
+        "controllers",
+        "handlers",
+        "views",
+        "api",
+        "endpoints",
+    ];
     for dir in WEB_DIRS {
-        if repo_path.join(dir).is_dir() || repo_path.join(format!("src/{}", dir)).is_dir() 
-            || repo_path.join(format!("app/{}", dir)).is_dir() {
+        if repo_path.join(dir).is_dir()
+            || repo_path.join(format!("src/{}", dir)).is_dir()
+            || repo_path.join(format!("app/{}", dir)).is_dir()
+        {
             score += 2;
         }
     }
@@ -474,7 +549,7 @@ fn score_web_markers(repo_path: &Path) -> u32 {
 /// Score data science / ML markers
 fn score_datascience_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     // Check for Jupyter notebooks
     if let Ok(entries) = std::fs::read_dir(repo_path) {
         for entry in entries.filter_map(|e| e.ok()) {
@@ -487,7 +562,7 @@ fn score_datascience_markers(repo_path: &Path) -> u32 {
     if repo_path.join("notebooks").is_dir() {
         score += 4;
     }
-    
+
     // Check for ML/DS dependencies
     let requirements = repo_path.join("requirements.txt");
     let pyproject = repo_path.join("pyproject.toml");
@@ -495,9 +570,22 @@ fn score_datascience_markers(repo_path: &Path) -> u32 {
         if file_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&file_path) {
                 let ml_deps = [
-                    "numpy", "pandas", "scikit-learn", "sklearn", "tensorflow", 
-                    "torch", "pytorch", "keras", "xgboost", "lightgbm", "transformers",
-                    "matplotlib", "seaborn", "plotly", "jupyter", "scipy",
+                    "numpy",
+                    "pandas",
+                    "scikit-learn",
+                    "sklearn",
+                    "tensorflow",
+                    "torch",
+                    "pytorch",
+                    "keras",
+                    "xgboost",
+                    "lightgbm",
+                    "transformers",
+                    "matplotlib",
+                    "seaborn",
+                    "plotly",
+                    "jupyter",
+                    "scipy",
                 ];
                 for dep in ml_deps {
                     if content.contains(dep) {
@@ -507,22 +595,29 @@ fn score_datascience_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     // Check for data/models directories
-    const DS_DIRS: &[&str] = &["data", "models", "training", "inference", "experiments", "notebooks"];
+    const DS_DIRS: &[&str] = &[
+        "data",
+        "models",
+        "training",
+        "inference",
+        "experiments",
+        "notebooks",
+    ];
     for dir in DS_DIRS {
         if repo_path.join(dir).is_dir() {
             score += 1;
         }
     }
-    
+
     score
 }
 
 /// Score mobile app markers
 fn score_mobile_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
-    
+
     // iOS markers
     if repo_path.join("Info.plist").exists() || repo_path.join("AppDelegate.swift").exists() {
         score += 5;
@@ -531,15 +626,26 @@ fn score_mobile_markers(repo_path: &Path) -> u32 {
         score += 3;
     }
     let xcodeproj = repo_path.read_dir().ok().and_then(|mut d| {
-        d.find(|e| e.as_ref().ok().map(|e| e.path().extension().map(|x| x == "xcodeproj").unwrap_or(false)).unwrap_or(false))
+        d.find(|e| {
+            e.as_ref()
+                .ok()
+                .map(|e| {
+                    e.path()
+                        .extension()
+                        .map(|x| x == "xcodeproj")
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        })
     });
     if xcodeproj.is_some() {
         score += 5;
     }
-    
+
     // Android markers
-    if repo_path.join("AndroidManifest.xml").exists() 
-        || repo_path.join("app/src/main/AndroidManifest.xml").exists() {
+    if repo_path.join("AndroidManifest.xml").exists()
+        || repo_path.join("app/src/main/AndroidManifest.xml").exists()
+    {
         score += 5;
     }
     if repo_path.join("build.gradle").exists() || repo_path.join("build.gradle.kts").exists() {
@@ -549,7 +655,7 @@ fn score_mobile_markers(repo_path: &Path) -> u32 {
             }
         }
     }
-    
+
     // React Native / Flutter
     let package_json = repo_path.join("package.json");
     if package_json.exists() {
@@ -562,7 +668,7 @@ fn score_mobile_markers(repo_path: &Path) -> u32 {
     if repo_path.join("pubspec.yaml").exists() {
         score += 5; // Flutter
     }
-    
+
     score
 }
 
@@ -883,7 +989,11 @@ impl ProjectConfig {
         }
         // Auto-detect based on repo structure
         let detected = ProjectType::detect(repo_path);
-        debug!("Auto-detected project type: {:?} (coupling multiplier: {})", detected, detected.coupling_multiplier());
+        debug!(
+            "Auto-detected project type: {:?} (coupling multiplier: {})",
+            detected,
+            detected.coupling_multiplier()
+        );
         detected
     }
 

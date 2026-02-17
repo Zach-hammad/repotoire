@@ -73,7 +73,11 @@ impl HardcodedIpsDetector {
     }
 
     /// Find containing function for context
-    fn find_containing_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
+    fn find_containing_function(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+        line: u32,
+    ) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -130,7 +134,10 @@ impl Detector for HardcodedIpsDetector {
 
             // Skip config files where this is expected
             let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if fname.contains("config") || crate::detectors::base::is_test_path(fname) || fname.contains(".env") {
+            if fname.contains("config")
+                || crate::detectors::base::is_test_path(fname)
+                || fname.contains(".env")
+            {
                 continue;
             }
             if fname.contains("detector") || fname.contains("scanner") {

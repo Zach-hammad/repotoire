@@ -562,7 +562,10 @@ int classify(int x) {
         let result = parse_source(source, &path).unwrap();
         let c = result.functions[0].complexity.unwrap_or(0);
         // Base + switch branches should be counted (at least cases/default)
-        assert!(c >= 3, "expected switch branches to increase complexity, got {c}");
+        assert!(
+            c >= 3,
+            "expected switch branches to increase complexity, got {c}"
+        );
     }
 
     fn test_complexity() {

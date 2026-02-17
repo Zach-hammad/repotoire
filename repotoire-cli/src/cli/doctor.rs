@@ -47,10 +47,18 @@ pub fn run() -> Result<()> {
     }
 
     // Check 4: Config file
-    let config_names = ["repotoire.toml", ".repotoire.json", ".repotoire.yaml", ".repotoire.yml"];
+    let config_names = [
+        "repotoire.toml",
+        ".repotoire.json",
+        ".repotoire.yaml",
+        ".repotoire.yml",
+    ];
     let config_found = config_names.iter().any(|name| cwd.join(name).exists());
     if config_found {
-        let found = config_names.iter().find(|name| cwd.join(name).exists()).unwrap();
+        let found = config_names
+            .iter()
+            .find(|name| cwd.join(name).exists())
+            .unwrap();
         println!("✓ Config: {} found", found);
     } else {
         println!("○ Config: none (using defaults)");
@@ -68,11 +76,22 @@ pub fn run() -> Result<()> {
 
     if has_openai || has_anthropic || has_deepseek || has_ollama {
         let mut providers = Vec::new();
-        if has_openai { providers.push("OpenAI"); }
-        if has_anthropic { providers.push("Anthropic"); }
-        if has_deepseek { providers.push("DeepSeek"); }
-        if has_ollama { providers.push("Ollama"); }
-        println!("✓ AI providers: {} (AI fixes enabled)", providers.join(", "));
+        if has_openai {
+            providers.push("OpenAI");
+        }
+        if has_anthropic {
+            providers.push("Anthropic");
+        }
+        if has_deepseek {
+            providers.push("DeepSeek");
+        }
+        if has_ollama {
+            providers.push("Ollama");
+        }
+        println!(
+            "✓ AI providers: {} (AI fixes enabled)",
+            providers.join(", ")
+        );
     } else {
         println!("○ AI providers: none configured");
         println!("  Set OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, or install Ollama for AI fixes");

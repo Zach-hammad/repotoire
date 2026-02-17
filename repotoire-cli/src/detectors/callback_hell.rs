@@ -31,7 +31,11 @@ impl CallbackHellDetector {
     }
 
     /// Find async functions in the codebase that could be used instead
-    fn find_async_alternatives(&self, graph: &dyn crate::graph::GraphQuery, file_path: &str) -> Vec<String> {
+    fn find_async_alternatives(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+    ) -> Vec<String> {
         graph
             .get_functions()
             .into_iter()

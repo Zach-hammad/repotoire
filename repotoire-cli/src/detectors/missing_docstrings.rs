@@ -144,7 +144,9 @@ impl Detector for MissingDocstringsDetector {
                 continue;
             }
             // Skip test functions
-            if func.name.starts_with("test_") || crate::detectors::base::is_test_path(&func.file_path) {
+            if func.name.starts_with("test_")
+                || crate::detectors::base::is_test_path(&func.file_path)
+            {
                 continue;
             }
             // Skip generated/vendor code
@@ -184,12 +186,8 @@ impl Detector for MissingDocstringsDetector {
 
                 if !has_doc {
                     // Calculate severity based on importance
-                    let severity = if is_entry {
-                        Severity::Medium // Entry points/APIs should be documented
-                    } else if caller_count >= 5 {
-                        Severity::Medium // Highly used functions
-                    } else if caller_count >= 2 {
-                        Severity::Low
+                    let severity = if is_entry || caller_count >= 5 {
+                        Severity::Medium // Entry points/APIs and highly used functions
                     } else {
                         Severity::Low
                     };

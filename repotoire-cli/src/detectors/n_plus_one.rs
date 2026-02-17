@@ -179,7 +179,7 @@ impl NPlusOneDetector {
             if func.file_path.contains("/graph/") {
                 continue;
             }
-            
+
             // Skip framework source code (React, Vue, etc.)
             // Framework code iterates over component trees, not DB queries
             if func.file_path.contains("/packages/react")
@@ -191,7 +191,7 @@ impl NPlusOneDetector {
             {
                 continue;
             }
-            
+
             // Skip bundled/generated code
             if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
                 continue;
@@ -298,7 +298,7 @@ impl Detector for NPlusOneDetector {
             if crate::detectors::base::is_test_path(&path_str) {
                 continue;
             }
-            
+
             // Skip framework source code
             if path_str.contains("/packages/react")
                 || path_str.contains("/packages/shared")
@@ -309,12 +309,12 @@ impl Detector for NPlusOneDetector {
             {
                 continue;
             }
-            
+
             // Skip bundled/generated code
             if crate::detectors::content_classifier::is_likely_bundled_path(&path_str) {
                 continue;
             }
-            
+
             // Skip non-production paths
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;

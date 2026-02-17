@@ -222,10 +222,10 @@ impl SQLInjectionDetector {
     /// If interpolation is alongside proper placeholders, it's likely for SQL structure
     fn has_parameterized_placeholders(&self, line: &str) -> bool {
         let patterns = [
-            r"@\w+",         // @paramName (SQL Server, better-sqlite3)
-            r"\$\d+",        // $1, $2 (PostgreSQL)
-            r":\w+",         // :param (Oracle, SQLite named params)
-            r"(?:^|[^a-zA-Z0-9])\?(?:[^a-zA-Z0-9]|$)",  // ? (MySQL, SQLite positional - standalone)
+            r"@\w+",                                   // @paramName (SQL Server, better-sqlite3)
+            r"\$\d+",                                  // $1, $2 (PostgreSQL)
+            r":\w+",                                   // :param (Oracle, SQLite named params)
+            r"(?:^|[^a-zA-Z0-9])\?(?:[^a-zA-Z0-9]|$)", // ? (MySQL, SQLite positional - standalone)
         ];
 
         for pattern in &patterns {
@@ -238,7 +238,8 @@ impl SQLInjectionDetector {
 
         // Special case: check for standalone ? not in middle of words
         // Simpler approach: check if line contains " ?" or "?" at boundaries
-        if line.contains(" ?") || line.ends_with("?") || line.contains("?,") || line.contains("= ?") {
+        if line.contains(" ?") || line.ends_with("?") || line.contains("?,") || line.contains("= ?")
+        {
             return true;
         }
 
@@ -249,19 +250,26 @@ impl SQLInjectionDetector {
     /// e.g., ids.map(() => '?').join(',') produces only '?,?,?' strings
     fn is_placeholder_generation_pattern(&self, line: &str) -> bool {
         let line_lower = line.to_lowercase();
-        
+
         // Pattern 1: .map(() => '?').join(',')
         // Pattern 2: .map(() => "?").join(',')
         // Pattern 3: .map(_ => '?').join(',')
         // Pattern 4: .map(x => '?').join(',')
-        if (line_lower.contains(".map(") && line_lower.contains("'?'") && line_lower.contains(".join"))
-            || (line_lower.contains(".map(") && line_lower.contains("\"?\"") && line_lower.contains(".join"))
+        if (line_lower.contains(".map(")
+            && line_lower.contains("'?'")
+            && line_lower.contains(".join"))
+            || (line_lower.contains(".map(")
+                && line_lower.contains("\"?\"")
+                && line_lower.contains(".join"))
         {
             return true;
         }
 
         // Pattern: Array(count).fill('?').join(',')
-        if line_lower.contains("array(") && line_lower.contains(".fill('?')") && line_lower.contains(".join") {
+        if line_lower.contains("array(")
+            && line_lower.contains(".fill('?')")
+            && line_lower.contains(".join")
+        {
             return true;
         }
 
@@ -278,11 +286,11 @@ impl SQLInjectionDetector {
     fn is_sql_structure_variable(&self, line: &str) -> bool {
         // Extract variable names from ${...} interpolations
         let re = Regex::new(r"\$\{(\w+)").unwrap();
-        
+
         for cap in re.captures_iter(line) {
             if let Some(var_name) = cap.get(1) {
                 let var_lower = var_name.as_str().to_lowercase();
-                
+
                 // Common SQL structure variable names
                 let structure_names = [
                     "where",
@@ -312,13 +320,13 @@ impl SQLInjectionDetector {
                     "sorts",
                     "placeholders",
                 ];
-                
+
                 if structure_names.contains(&var_lower.as_str()) {
                     return true;
                 }
             }
         }
-        
+
         false
     }
 
@@ -401,7 +409,7 @@ impl SQLInjectionDetector {
             if is_placeholder_gen {
                 return None;
             }
-            
+
             // Mark as likely false positive if parameterized or structure variable
             let is_likely_fp = has_placeholders || is_structure_var;
             return Some(("js_template", is_likely_fp));
@@ -558,16 +566,21 @@ impl SQLInjectionDetector {
                 // If line ends with +, ||, .., \, or open string concat, peek next lines
                 let check_line = {
                     let trimmed = line.trim_end();
-                    if trimmed.ends_with('+') || trimmed.ends_with("||") || trimmed.ends_with('\\')
-                        || trimmed.ends_with("..") || trimmed.ends_with(',')
+                    if trimmed.ends_with('+')
+                        || trimmed.ends_with("||")
+                        || trimmed.ends_with('\\')
+                        || trimmed.ends_with("..")
+                        || trimmed.ends_with(',')
                     {
                         let mut joined = line.to_string();
                         for next in lines.iter().skip(line_no + 1).take(3) {
                             joined.push(' ');
                             joined.push_str(next.trim());
                             let next_trimmed = next.trim_end();
-                            if !next_trimmed.ends_with('+') && !next_trimmed.ends_with("||")
-                                && !next_trimmed.ends_with('\\') && !next_trimmed.ends_with(',')
+                            if !next_trimmed.ends_with('+')
+                                && !next_trimmed.ends_with("||")
+                                && !next_trimmed.ends_with('\\')
+                                && !next_trimmed.ends_with(',')
                             {
                                 break;
                             }
@@ -578,7 +591,9 @@ impl SQLInjectionDetector {
                     }
                 };
 
-                if let Some((pattern_type, is_likely_fp)) = self.check_line_for_patterns(&check_line) {
+                if let Some((pattern_type, is_likely_fp)) =
+                    self.check_line_for_patterns(&check_line)
+                {
                     // Skip if line contains a safe ORM pattern (e.g., Prisma, Drizzle parameterized queries)
                     // is_safe_orm_pattern checks for unsafe raw SQL patterns first, then safe patterns
                     if is_safe_orm_pattern(line, &detected_frameworks) {
@@ -806,7 +821,7 @@ impl SQLInjectionDetector {
                 "\n\n**Note**: This query appears to use parameterized placeholders or \
                  interpolate SQL structure (table/column names, WHERE clauses) rather than \
                  user values. If the interpolated values are from a whitelist or hardcoded \
-                 strings, this may be a false positive. Severity has been reduced accordingly."
+                 strings, this may be a false positive. Severity has been reduced accordingly.",
             );
         }
 
@@ -913,7 +928,10 @@ impl Detector for SQLInjectionDetector {
             TaintCategory::SqlInjection,
             &self.repository_path,
         );
-        debug!("Intra-function analysis found {} additional taint paths", intra_paths.len());
+        debug!(
+            "Intra-function analysis found {} additional taint paths",
+            intra_paths.len()
+        );
         taint_paths.extend(intra_paths);
 
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
@@ -1210,7 +1228,7 @@ mod tests {
         assert!(detector.has_parameterized_placeholders("SELECT * FROM users WHERE id = $1"));
         assert!(detector.has_parameterized_placeholders("SELECT * FROM users WHERE id = :id"));
         assert!(detector.has_parameterized_placeholders("SELECT * FROM users WHERE id = ?"));
-        
+
         // Should NOT detect ? in words
         assert!(!detector.has_parameterized_placeholders("What? No placeholders here"));
     }
@@ -1220,11 +1238,15 @@ mod tests {
         let detector = SQLInjectionDetector::new();
 
         // Template literal with ${where} but also has @make placeholder
-        let line = r#"db.query(`SELECT COUNT(*) as count FROM vehicles ${where} AND make = @make`)"#;
-        
+        let line =
+            r#"db.query(`SELECT COUNT(*) as count FROM vehicles ${where} AND make = @make`)"#;
+
         if let Some((pattern_type, is_likely_fp)) = detector.check_line_for_patterns(line) {
             assert_eq!(pattern_type, "js_template");
-            assert!(is_likely_fp, "Should be marked as likely false positive due to @make placeholder");
+            assert!(
+                is_likely_fp,
+                "Should be marked as likely false positive due to @make placeholder"
+            );
         } else {
             panic!("Should detect js_template pattern");
         }
@@ -1258,10 +1280,13 @@ mod tests {
         assert!(detector.is_sql_structure_variable(r#"`SELECT ${columns} FROM users`"#));
         assert!(detector.is_sql_structure_variable(r#"`SELECT * FROM ${tableName}`"#));
         assert!(detector.is_sql_structure_variable(r#"`SELECT * FROM users ${conditions}`"#));
-        
+
         // Should NOT detect regular variable names
-        assert!(!detector.is_sql_structure_variable(r#"`SELECT * FROM users WHERE name = ${userName}`"#));
-        assert!(!detector.is_sql_structure_variable(r#"`SELECT * FROM users WHERE id = ${userId}`"#));
+        assert!(!detector
+            .is_sql_structure_variable(r#"`SELECT * FROM users WHERE name = ${userName}`"#));
+        assert!(
+            !detector.is_sql_structure_variable(r#"`SELECT * FROM users WHERE id = ${userId}`"#)
+        );
     }
 
     #[test]
@@ -1270,20 +1295,26 @@ mod tests {
 
         // Template literal with ${where} should be marked as likely FP
         let line = r#"db.query(`SELECT COUNT(*) as count FROM vehicles ${where}`)"#;
-        
+
         if let Some((pattern_type, is_likely_fp)) = detector.check_line_for_patterns(line) {
             assert_eq!(pattern_type, "js_template");
-            assert!(is_likely_fp, "Should be marked as likely false positive due to where structure var");
+            assert!(
+                is_likely_fp,
+                "Should be marked as likely false positive due to where structure var"
+            );
         } else {
             panic!("Should detect js_template pattern");
         }
 
         // Regular user input should still be flagged as high severity
         let line2 = r#"db.query(`SELECT * FROM users WHERE name = '${userName}'`)"#;
-        
+
         if let Some((pattern_type, is_likely_fp)) = detector.check_line_for_patterns(line2) {
             assert_eq!(pattern_type, "js_template");
-            assert!(!is_likely_fp, "Should NOT be marked as likely false positive");
+            assert!(
+                !is_likely_fp,
+                "Should NOT be marked as likely false positive"
+            );
         } else {
             panic!("Should detect js_template pattern");
         }
@@ -1295,10 +1326,13 @@ mod tests {
 
         // Real-world case: WHERE clause interpolation with parameterized values
         let line = r#"db.query(`SELECT COUNT(*) as count FROM vehicles ${where}`, params)"#;
-        
+
         if let Some((pattern_type, is_likely_fp)) = detector.check_line_for_patterns(line) {
             assert_eq!(pattern_type, "js_template");
-            assert!(is_likely_fp, "WHERE clause interpolation should be marked as likely FP");
+            assert!(
+                is_likely_fp,
+                "WHERE clause interpolation should be marked as likely FP"
+            );
         } else {
             panic!("Should detect pattern");
         }
@@ -1311,10 +1345,12 @@ mod tests {
         // Real-world case: IN clause with placeholder generation
         let line = r#"const placeholders = ids.map(() => '?').join(','); 
                       db.query(`SELECT * FROM vehicles WHERE id IN (${placeholders})`, ...ids)"#;
-        
+
         // Should be skipped entirely due to placeholder generation
-        assert!(detector.check_line_for_patterns(line).is_none(), 
-               "Placeholder generation for IN clause should be skipped");
+        assert!(
+            detector.check_line_for_patterns(line).is_none(),
+            "Placeholder generation for IN clause should be skipped"
+        );
     }
 
     #[test]
@@ -1323,10 +1359,13 @@ mod tests {
 
         // This is a real SQL injection - should still be flagged
         let line = r#"db.query(`SELECT * FROM users WHERE name = '${userInput}'`)"#;
-        
+
         if let Some((pattern_type, is_likely_fp)) = detector.check_line_for_patterns(line) {
             assert_eq!(pattern_type, "js_template");
-            assert!(!is_likely_fp, "Real SQL injection should NOT be marked as likely FP");
+            assert!(
+                !is_likely_fp,
+                "Real SQL injection should NOT be marked as likely FP"
+            );
         } else {
             panic!("Should detect SQL injection");
         }
@@ -1339,9 +1378,10 @@ mod tests {
         // These should NOT be flagged as SQL injection (prepared statements are safe)
         // Note: is_safe_orm_pattern would handle these if better-sqlite3 is in detected frameworks
         // For now, we test that prepare() with placeholders is recognized
-        let line1 = r#"const stmt = db.prepare('SELECT * FROM users WHERE id = ?'); stmt.get(userId);"#;
+        let line1 =
+            r#"const stmt = db.prepare('SELECT * FROM users WHERE id = ?'); stmt.get(userId);"#;
         let line2 = r#"db.prepare('SELECT * FROM users WHERE id = @id').all({ id: userId });"#;
-        
+
         // These use static SQL with prepare(), no interpolation, so our pattern won't match
         assert!(detector.check_line_for_patterns(line1).is_none());
         assert!(detector.check_line_for_patterns(line2).is_none());

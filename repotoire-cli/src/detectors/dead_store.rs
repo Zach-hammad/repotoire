@@ -30,8 +30,8 @@ fn var_read() -> &'static Regex {
 
 /// Skip patterns for common false positives
 const SKIP_VARS: &[&str] = &[
-    "_", "self", "Self", "this", "cls", "ctx", "err", "ok", "result", "i", "j", "k", "n", "x",
-    "y", "z", // loop/math vars
+    "_", "self", "Self", "this", "cls", "ctx", "err", "ok", "result", "i", "j", "k", "n", "x", "y",
+    "z", // loop/math vars
     "std", "super", "crate", "mod", "pub", "fn", "let", "mut", "use", // Rust keywords/paths
 ];
 
@@ -245,7 +245,10 @@ impl DeadStoreDetector {
     }
 
     /// Find variables that are assigned, passed to a function, but function doesn't use them
-    fn find_cross_function_dead_stores(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
+    fn find_cross_function_dead_stores(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> Vec<Finding> {
         // This requires tracking parameter usage within functions
         // For now, identify functions that receive values but don't propagate them
         let findings = Vec::new();

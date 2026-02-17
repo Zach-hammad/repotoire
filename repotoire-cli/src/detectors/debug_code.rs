@@ -60,7 +60,11 @@ impl DebugCodeDetector {
     }
 
     /// Find containing function
-    fn find_containing_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
+    fn find_containing_function(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+        line: u32,
+    ) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -105,12 +109,12 @@ impl Detector for DebugCodeDetector {
             if Self::is_dev_only_path(&path_str) {
                 continue;
             }
-            
+
             // Skip non-production paths (examples, docs, scripts)
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;
             }
-            
+
             // Skip example files
             if path_str.contains("/examples/")
                 || path_str.contains("/example/")

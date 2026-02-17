@@ -66,7 +66,10 @@ impl EmptyCatchDetector {
     }
 
     /// Check if any of the called functions do I/O or external operations
-    fn assess_risk(calls: &HashSet<String>, graph: &dyn crate::graph::GraphQuery) -> (Severity, Vec<String>) {
+    fn assess_risk(
+        calls: &HashSet<String>,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> (Severity, Vec<String>) {
         let io_patterns = [
             "read", "write", "open", "close", "fetch", "request", "send", "recv", "connect",
             "query", "execute", "save", "load", "delete", "update",
@@ -107,7 +110,12 @@ impl EmptyCatchDetector {
         (severity, risk_notes)
     }
 
-    fn scan_file(&self, path: &Path, ext: &str, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
+    fn scan_file(
+        &self,
+        path: &Path,
+        ext: &str,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> Vec<Finding> {
         let mut findings = vec![];
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,

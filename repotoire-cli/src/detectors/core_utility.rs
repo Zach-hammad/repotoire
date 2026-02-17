@@ -310,16 +310,23 @@ impl Detector for CoreUtilityDetector {
             if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
                 continue;
             }
-            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+            if let Some(content) =
+                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+            {
                 if crate::detectors::content_classifier::is_bundled_code(&content)
                     || crate::detectors::content_classifier::is_minified_code(&content)
-                    || crate::detectors::content_classifier::is_fixture_code(&func.file_path, &content)
-                    || crate::detectors::content_classifier::is_ast_manipulation_code(&func.name, &content)
+                    || crate::detectors::content_classifier::is_fixture_code(
+                        &func.file_path,
+                        &content,
+                    )
+                    || crate::detectors::content_classifier::is_ast_manipulation_code(
+                        &func.name, &content,
+                    )
                 {
                     continue;
                 }
             }
-            
+
             let fan_in = graph.call_fan_in(&func.qualified_name);
             let fan_out = graph.call_fan_out(&func.qualified_name);
 

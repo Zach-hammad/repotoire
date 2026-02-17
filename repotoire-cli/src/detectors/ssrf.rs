@@ -50,7 +50,10 @@ impl Detector for SsrfDetector {
         // Run taint analysis for SSRF
         let mut taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::Ssrf);
         let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &self.taint_analyzer, graph, TaintCategory::Ssrf, &self.repository_path,
+            &self.taint_analyzer,
+            graph,
+            TaintCategory::Ssrf,
+            &self.repository_path,
         );
         taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
@@ -116,20 +119,20 @@ impl Detector for SsrfDetector {
                             let context_start = i.saturating_sub(20);
                             let context = &lines[context_start..=i];
                             let context_str = context.join("\n").to_lowercase();
-                            
+
                             // URL variable comes from environment
-                            context_str.contains("process.env") 
-                            || context_str.contains("env.get(")
-                            || context_str.contains("os.environ")
-                            || context_str.contains("std::env")
-                            || context_str.contains("config.")
-                            || context_str.contains("options.base")
-                            || context_str.contains("baseurl")
-                            || context_str.contains("base_url")
+                            context_str.contains("process.env")
+                                || context_str.contains("env.get(")
+                                || context_str.contains("os.environ")
+                                || context_str.contains("std::env")
+                                || context_str.contains("config.")
+                                || context_str.contains("options.base")
+                                || context_str.contains("baseurl")
+                                || context_str.contains("base_url")
                             // Function parameter named url/endpoint from config (not user input)
                             // Removed: "input" substring check caused false negatives (#23)
                         };
-                        
+
                         if is_env_sourced {
                             continue;
                         }

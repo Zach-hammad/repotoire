@@ -127,7 +127,11 @@ impl PrototypePollutionDetector {
     }
 
     /// Check if function receives external data
-    fn receives_external_data(graph: &dyn crate::graph::GraphQuery, func_name: &str, file_path: &str) -> bool {
+    fn receives_external_data(
+        graph: &dyn crate::graph::GraphQuery,
+        func_name: &str,
+        file_path: &str,
+    ) -> bool {
         // Check if function is called from route handlers
         if let Some(func) = graph
             .get_functions()
@@ -178,7 +182,8 @@ impl Detector for PrototypePollutionDetector {
             let path_str = path.to_string_lossy().to_string();
 
             // Skip test/vendor
-            if crate::detectors::base::is_test_path(&path_str) || path_str.contains("node_modules") {
+            if crate::detectors::base::is_test_path(&path_str) || path_str.contains("node_modules")
+            {
                 continue;
             }
 
@@ -331,17 +336,32 @@ impl Detector for PrototypePollutionDetector {
         // Supplement with intra-function taint analysis
         let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
         let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &taint_analyzer, graph, crate::detectors::taint::TaintCategory::CodeInjection, &self.repository_path,
+            &taint_analyzer,
+            graph,
+            crate::detectors::taint::TaintCategory::CodeInjection,
+            &self.repository_path,
         );
         let mut seen: std::collections::HashSet<(String, u32)> = findings
             .iter()
-            .filter_map(|f| f.affected_files.first().map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))))
+            .filter_map(|f| {
+                f.affected_files
+                    .first()
+                    .map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0)))
+            })
             .collect();
         for path in intra_paths.iter().filter(|p| !p.is_sanitized) {
             let loc = (path.sink_file.clone(), path.sink_line);
-            if !seen.insert(loc) { continue; }
-            findings.push(crate::detectors::data_flow::taint_path_to_finding(path, "PrototypePollutionDetector", "Prototype Pollution"));
-            if findings.len() >= self.max_findings { break; }
+            if !seen.insert(loc) {
+                continue;
+            }
+            findings.push(crate::detectors::data_flow::taint_path_to_finding(
+                path,
+                "PrototypePollutionDetector",
+                "Prototype Pollution",
+            ));
+            if findings.len() >= self.max_findings {
+                break;
+            }
         }
 
         info!(

@@ -987,20 +987,14 @@ requests>=2.28
             "const stmt = db.prepare('SELECT * FROM users WHERE id = ?')",
             &frameworks
         ));
-        
-        assert!(is_safe_orm_pattern(
-            "stmt.all(userId)",
-            &frameworks
-        ));
+
+        assert!(is_safe_orm_pattern("stmt.all(userId)", &frameworks));
 
         assert!(is_safe_orm_pattern(
             "db.prepare('SELECT * FROM users WHERE id = @id').get({ id: userId })",
             &frameworks
         ));
 
-        assert!(is_safe_orm_pattern(
-            "stmt.run(params)",
-            &frameworks
-        ));
+        assert!(is_safe_orm_pattern("stmt.run(params)", &frameworks));
     }
 }

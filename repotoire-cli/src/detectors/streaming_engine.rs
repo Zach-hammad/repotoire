@@ -16,12 +16,10 @@
 //! Final: stream from disk for scoring/display
 //! ```
 
-use crate::detectors::{
-    default_detectors_with_config, Detector, DetectorEngine, FunctionContext,
-};
+use crate::config::ProjectConfig;
+use crate::detectors::{default_detectors_with_config, Detector, DetectorEngine, FunctionContext};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
-use crate::config::ProjectConfig;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -52,7 +50,7 @@ impl StreamingDetectionStats {
             Severity::Info => self.low += 1, // Count info as low
         }
     }
-    
+
     /// Human-readable summary
     pub fn summary(&self) -> String {
         format!(
@@ -84,19 +82,19 @@ impl StreamingDetectorEngine {
             workers: num_cpus::get(),
         }
     }
-    
+
     /// Set batch size
     pub fn with_batch_size(mut self, size: usize) -> Self {
         self.batch_size = size;
         self
     }
-    
+
     /// Set max findings per detector (prevents single detector from exploding memory)
     pub fn with_max_per_detector(mut self, max: usize) -> Self {
         self.max_findings_per_detector = max;
         self
     }
-    
+
     /// Run detectors and stream findings to disk
     pub fn run(
         &self,
@@ -108,9 +106,9 @@ impl StreamingDetectorEngine {
         progress: Option<&dyn Fn(&str, usize, usize)>,
     ) -> Result<StreamingDetectionStats> {
         use std::collections::HashSet;
-        
+
         let mut stats = StreamingDetectionStats::default();
-        
+
         // Open output file
         let file = OpenOptions::new()
             .create(true)
@@ -118,38 +116,39 @@ impl StreamingDetectorEngine {
             .truncate(true)
             .open(&self.output_path)?;
         let mut writer = BufWriter::new(file);
-        
+
         // Collect detectors
         let skip_set: HashSet<&str> = skip_detectors.iter().map(|s| s.as_str()).collect();
-        let detectors: Vec<Arc<dyn Detector>> = default_detectors_with_config(repo_path, project_config)
-            .into_iter()
-            .filter(|d| !skip_set.contains(d.name()))
-            .collect();
-        
+        let detectors: Vec<Arc<dyn Detector>> =
+            default_detectors_with_config(repo_path, project_config)
+                .into_iter()
+                .filter(|d| !skip_set.contains(d.name()))
+                .collect();
+
         // All detectors are now built-in pure Rust — no external tools
         let _ = run_external;
-        
+
         let total_detectors = detectors.len();
-        
+
         // Build a minimal engine just for context building
         let mut context_engine = DetectorEngine::new(self.workers);
         let _contexts = context_engine.get_or_build_contexts(graph);
-        
+
         // Process detectors in batches
         for (batch_idx, batch) in detectors.chunks(self.batch_size).enumerate() {
             let batch_start = batch_idx * self.batch_size;
-            
+
             // Run batch in parallel using rayon
             let batch_findings: Vec<Vec<Finding>> = batch
                 .iter()
                 .enumerate()
                 .map(|(i, detector)| {
                     let detector_idx = batch_start + i;
-                    
+
                     if let Some(cb) = progress {
                         cb(detector.name(), detector_idx + 1, total_detectors);
                     }
-                    
+
                     // Run detector
                     match detector.detect(graph) {
                         Ok(mut findings) => {
@@ -172,87 +171,81 @@ impl StreamingDetectorEngine {
                     }
                 })
                 .collect();
-            
+
             // Write findings to disk immediately
             for findings in batch_findings {
                 for finding in findings {
                     stats.add_finding(&finding);
-                    
+
                     // Write as JSON line
                     let json = serde_json::to_string(&finding)?;
                     writeln!(writer, "{}", json)?;
                     stats.bytes_written += json.len() + 1;
                 }
             }
-            
+
             // Flush after each batch
             writer.flush()?;
             stats.detectors_run = batch_start + batch.len();
-            
+
             // Findings from this batch are dropped here - memory freed
         }
-        
+
         writer.flush()?;
         Ok(stats)
     }
-    
+
     /// Read findings from disk (streaming iterator)
     pub fn read_findings(&self) -> Result<impl Iterator<Item = Finding>> {
         let file = File::open(&self.output_path)?;
         let reader = BufReader::new(file);
-        
-        Ok(reader.lines().filter_map(|line| {
-            line.ok().and_then(|l| serde_json::from_str(&l).ok())
-        }))
+
+        Ok(reader
+            .lines()
+            .filter_map(|line| line.ok().and_then(|l| serde_json::from_str(&l).ok())))
     }
-    
+
     /// Read findings with limit (for display)
     pub fn read_findings_limited(&self, limit: usize) -> Result<Vec<Finding>> {
         let file = File::open(&self.output_path)?;
         let reader = BufReader::new(file);
-        
+
         let findings: Vec<Finding> = reader
             .lines()
-            .filter_map(|line| {
-                line.ok().and_then(|l| serde_json::from_str(&l).ok())
-            })
+            .filter_map(|line| line.ok().and_then(|l| serde_json::from_str(&l).ok()))
             .take(limit)
             .collect();
-        
+
         Ok(findings)
     }
-    
+
     /// Read high-severity findings only (for scoring)
     pub fn read_high_severity(&self) -> Result<Vec<Finding>> {
         let file = File::open(&self.output_path)?;
         let reader = BufReader::new(file);
-        
+
         let findings: Vec<Finding> = reader
             .lines()
-            .filter_map(|line| {
-                line.ok().and_then(|l| serde_json::from_str(&l).ok())
-            })
-            .filter(|f: &Finding| {
-                matches!(f.severity, Severity::Critical | Severity::High)
-            })
+            .filter_map(|line| line.ok().and_then(|l| serde_json::from_str(&l).ok()))
+            .filter(|f: &Finding| matches!(f.severity, Severity::Critical | Severity::High))
             .collect();
-        
+
         Ok(findings)
     }
-    
+
     /// Count findings by severity (without loading all)
     pub fn count_by_severity(&self) -> Result<HashMap<Severity, usize>> {
         let file = File::open(&self.output_path)?;
         let reader = BufReader::new(file);
-        
+
         let mut counts: HashMap<Severity, usize> = HashMap::new();
-        
+
         for l in reader.lines().map_while(Result::ok) {
             if let Ok(finding) = serde_json::from_str::<Finding>(&l) {
                 *counts.entry(finding.severity).or_insert(0) += 1;
             }
         }
-        
+
         Ok(counts)
     }
 }
@@ -270,11 +263,11 @@ pub fn run_streaming_detection(
     progress: Option<&dyn Fn(&str, usize, usize)>,
 ) -> Result<(StreamingDetectionStats, PathBuf)> {
     let findings_path = cache_dir.join("findings_stream.jsonl");
-    
+
     let engine = StreamingDetectorEngine::new(findings_path.clone())
         .with_batch_size(10)
         .with_max_per_detector(5000);
-    
+
     let stats = engine.run(
         graph,
         repo_path,
@@ -283,7 +276,7 @@ pub fn run_streaming_detection(
         run_external,
         progress,
     )?;
-    
+
     Ok((stats, findings_path))
 }
 
@@ -291,11 +284,11 @@ pub fn run_streaming_detection(
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    
+
     #[test]
     fn test_streaming_stats() {
         let mut stats = StreamingDetectionStats::default();
-        
+
         let finding = Finding {
             detector: "test".to_string(),
             severity: Severity::High,
@@ -308,9 +301,9 @@ mod tests {
             confidence: Some(1.0),
             ..Default::default()
         };
-        
+
         stats.add_finding(&finding);
-        
+
         assert_eq!(stats.total_findings, 1);
         assert_eq!(stats.high, 1);
     }

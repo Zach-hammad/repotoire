@@ -241,10 +241,8 @@ impl Detector for NosqlInjectionDetector {
                         .unwrap_or(false);
 
                     // Calculate severity
-                    let severity = if has_dangerous {
-                        Severity::Critical // $where, $regex, etc.
-                    } else if is_handler && has_input {
-                        Severity::Critical // Direct user input in route handler
+                    let severity = if has_dangerous || (is_handler && has_input) {
+                        Severity::Critical // dangerous operator or direct user input in route handler
                     } else if has_input {
                         Severity::High
                     } else {
@@ -343,17 +341,32 @@ impl Detector for NosqlInjectionDetector {
         // Supplement with intra-function taint analysis (SSA-based)
         let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
         let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &taint_analyzer, graph, crate::detectors::taint::TaintCategory::SqlInjection, &self.repository_path,
+            &taint_analyzer,
+            graph,
+            crate::detectors::taint::TaintCategory::SqlInjection,
+            &self.repository_path,
         );
         let mut seen: std::collections::HashSet<(String, u32)> = findings
             .iter()
-            .filter_map(|f| f.affected_files.first().map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))))
+            .filter_map(|f| {
+                f.affected_files
+                    .first()
+                    .map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0)))
+            })
             .collect();
         for path in intra_paths.iter().filter(|p| !p.is_sanitized) {
             let loc = (path.sink_file.clone(), path.sink_line);
-            if !seen.insert(loc) { continue; }
-            findings.push(crate::detectors::data_flow::taint_path_to_finding(path, "NosqlInjectionDetector", "NoSQL Injection"));
-            if findings.len() >= self.max_findings { break; }
+            if !seen.insert(loc) {
+                continue;
+            }
+            findings.push(crate::detectors::data_flow::taint_path_to_finding(
+                path,
+                "NosqlInjectionDetector",
+                "NoSQL Injection",
+            ));
+            if findings.len() >= self.max_findings {
+                break;
+            }
         }
 
         info!(

@@ -132,7 +132,7 @@ pub enum Commands {
         /// Explain the scoring formula with full breakdown
         #[arg(long)]
         explain_score: bool,
-        
+
         /// Verify HIGH findings with LLM to filter false positives (requires API key)
         #[arg(long)]
         verify: bool,
@@ -242,15 +242,15 @@ pub enum Commands {
     Feedback {
         /// Finding index to label
         index: usize,
-        
+
         /// Mark as true positive (real issue)
         #[arg(long, conflicts_with = "fp")]
         tp: bool,
-        
+
         /// Mark as false positive (not a real issue)
         #[arg(long, conflicts_with = "tp")]
         fp: bool,
-        
+
         /// Optional reason for the label
         #[arg(long)]
         reason: Option<String>,
@@ -261,11 +261,11 @@ pub enum Commands {
         /// Number of training epochs
         #[arg(long, default_value = "100")]
         epochs: usize,
-        
+
         /// Learning rate
         #[arg(long, default_value = "0.01")]
         learning_rate: f32,
-        
+
         /// Show training data statistics only
         #[arg(long)]
         stats: bool,
@@ -328,14 +328,14 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
-            
+
             // Lite mode: fast analysis for huge repos
             let (effective_no_git, effective_skip_graph, effective_max_files) = if lite {
                 (true, true, if max_files == 0 { 10000 } else { max_files })
             } else {
                 (no_git, skip_graph, max_files)
             };
-            
+
             analyze::run(
                 &cli.path,
                 &format,
@@ -375,11 +375,32 @@ pub fn run(cli: Cli) -> Result<()> {
             if interactive {
                 findings::run_interactive(&cli.path)
             } else {
-                findings::run(&cli.path, effective_index, json, top, severity, page, per_page)
+                findings::run(
+                    &cli.path,
+                    effective_index,
+                    json,
+                    top,
+                    severity,
+                    page,
+                    per_page,
+                )
             }
         }
 
-        Some(Commands::Fix { index, apply, no_ai, dry_run, auto }) => fix::run(&cli.path, Some(index).filter(|&i| i > 0), apply, no_ai, dry_run, auto),
+        Some(Commands::Fix {
+            index,
+            apply,
+            no_ai,
+            dry_run,
+            auto,
+        }) => fix::run(
+            &cli.path,
+            Some(index).filter(|&i| i > 0),
+            apply,
+            no_ai,
+            dry_run,
+            auto,
+        ),
 
         Some(Commands::Graph { query, format }) => graph::run(&cli.path, &query, &format),
 
@@ -486,64 +507,83 @@ pub fn run(cli: Cli) -> Result<()> {
             }
         }
 
-        Some(Commands::Feedback { index, tp, fp, reason }) => {
+        Some(Commands::Feedback {
+            index,
+            tp,
+            fp,
+            reason,
+        }) => {
             use crate::classifier::FeedbackCollector;
-            
+
             // Load findings from last analysis
             let cache_path = crate::cli::analyze::get_cache_path(&cli.path);
             let findings_path = cache_path.join("findings.json");
-            
+
             if !findings_path.exists() {
                 anyhow::bail!("No analysis results found. Run 'repotoire analyze' first.");
             }
-            
+
             let content = std::fs::read_to_string(&findings_path)?;
             let findings: Vec<crate::models::Finding> = serde_json::from_str(&content)?;
-            
+
             if index == 0 || index > findings.len() {
-                anyhow::bail!("Invalid finding index {}. Valid range: 1-{}", index, findings.len());
+                anyhow::bail!(
+                    "Invalid finding index {}. Valid range: 1-{}",
+                    index,
+                    findings.len()
+                );
             }
-            
+
             let finding = &findings[index - 1];
             let is_tp = tp || !fp; // Default to TP if neither specified
-            
+
             let collector = FeedbackCollector::default();
             collector.record(finding, is_tp, reason.clone())?;
-            
-            let label = if is_tp { "TRUE POSITIVE" } else { "FALSE POSITIVE" };
+
+            let label = if is_tp {
+                "TRUE POSITIVE"
+            } else {
+                "FALSE POSITIVE"
+            };
             println!("✅ Labeled finding #{} as {}", index, label);
             println!("   {}: {}", finding.detector, finding.title);
             if let Some(r) = &reason {
                 println!("   Reason: {}", r);
             }
             println!("\n   Data saved to: {}", collector.data_path().display());
-            
+
             let stats = collector.stats()?;
-            println!("\n   Total labeled: {} ({} TP, {} FP)", 
-                stats.total, stats.true_positives, stats.false_positives);
-            
+            println!(
+                "\n   Total labeled: {} ({} TP, {} FP)",
+                stats.total, stats.true_positives, stats.false_positives
+            );
+
             Ok(())
         }
 
-        Some(Commands::Train { epochs, learning_rate, stats }) => {
-            use crate::classifier::{train, TrainConfig, FeedbackCollector};
-            
+        Some(Commands::Train {
+            epochs,
+            learning_rate,
+            stats,
+        }) => {
+            use crate::classifier::{train, FeedbackCollector, TrainConfig};
+
             let collector = FeedbackCollector::default();
-            
+
             if stats {
                 let training_stats = collector.stats()?;
                 println!("{}", training_stats);
                 return Ok(());
             }
-            
+
             let config = TrainConfig {
                 epochs,
                 learning_rate,
                 ..Default::default()
             };
-            
+
             println!("🧠 Training classifier...\n");
-            
+
             match train(&config) {
                 Ok(result) => {
                     println!("\n✅ Training complete!");

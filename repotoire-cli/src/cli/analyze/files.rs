@@ -16,14 +16,14 @@ use std::path::{Path, PathBuf};
 /// Quick file list collection (no git, no incremental checking) for cache validation
 pub(super) fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    
+
     let walker = WalkBuilder::new(repo_path)
         .hidden(true)
         .git_ignore(true)
         .git_global(false)
         .git_exclude(true)
         .build();
-    
+
     for entry in walker.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_file() {
@@ -34,7 +34,7 @@ pub(super) fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
             }
         }
     }
-    
+
     Ok(files)
 }
 

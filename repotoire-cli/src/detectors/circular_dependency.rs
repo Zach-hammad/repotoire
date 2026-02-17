@@ -55,7 +55,11 @@ impl CircularDependencyDetector {
     }
 
     /// Analyze coupling strength between files in a cycle
-    fn analyze_coupling(&self, cycle: &[String], graph: &dyn crate::graph::GraphQuery) -> CouplingAnalysis {
+    fn analyze_coupling(
+        &self,
+        cycle: &[String],
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> CouplingAnalysis {
         let mut edge_strengths: HashMap<(String, String), usize> = HashMap::new();
         let mut weakest_link: Option<(String, String, usize)> = None;
         let mut strongest_link: Option<(String, String, usize)> = None;

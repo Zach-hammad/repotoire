@@ -84,7 +84,10 @@ impl SingleCharNamesDetector {
     }
 
     /// Build a map of file -> function LOC ranges from graph
-    fn build_function_map(&self, graph: &dyn crate::graph::GraphQuery) -> HashMap<String, Vec<(u32, u32, String)>> {
+    fn build_function_map(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> HashMap<String, Vec<(u32, u32, String)>> {
         let mut map: HashMap<String, Vec<(u32, u32, String)>> = HashMap::new();
 
         for func in graph.get_functions() {

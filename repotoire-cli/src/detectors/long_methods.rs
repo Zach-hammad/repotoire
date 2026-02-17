@@ -68,7 +68,11 @@ impl LongMethodsDetector {
     }
 
     /// Find distinct callee clusters (suggests natural split points)
-    fn find_callee_clusters(&self, graph: &dyn crate::graph::GraphQuery, qualified_name: &str) -> Vec<String> {
+    fn find_callee_clusters(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        qualified_name: &str,
+    ) -> Vec<String> {
         let callees = graph.get_callees(qualified_name);
 
         // Group callees by their module/file

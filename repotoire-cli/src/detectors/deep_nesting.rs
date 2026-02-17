@@ -68,7 +68,11 @@ impl DeepNestingDetector {
     }
 
     /// Find callees at deep nesting that could be extracted
-    fn find_extraction_candidates(&self, graph: &dyn crate::graph::GraphQuery, func_qn: &str) -> Vec<String> {
+    fn find_extraction_candidates(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        func_qn: &str,
+    ) -> Vec<String> {
         let callees = graph.get_callees(func_qn);
 
         // Find callees that are called only from this function (private helpers)
@@ -127,7 +131,7 @@ impl Detector for DeepNestingDetector {
             if path_str_check.contains("/parsers/") {
                 continue;
             }
-            
+
             // Skip non-production paths
             if crate::detectors::content_classifier::is_non_production_path(&path_str_check) {
                 continue;

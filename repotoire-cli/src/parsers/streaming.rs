@@ -47,28 +47,28 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub struct ParsedFileInfo {
     /// File path
     pub path: PathBuf,
-    
+
     /// Relative path string for graph building
     pub relative_path: String,
-    
+
     /// Detected language
     pub language: String,
-    
+
     /// Lines of code
     pub loc: usize,
-    
+
     /// Extracted function info (lightweight)
     pub functions: Vec<FunctionInfo>,
-    
+
     /// Extracted class info (lightweight)
     pub classes: Vec<ClassInfo>,
-    
+
     /// Import relationships
     pub imports: Vec<ImportEdge>,
-    
+
     /// Call relationships (caller_qn, callee_name)
     pub calls: Vec<(String, String)>,
-    
+
     /// Functions whose addresses are taken (for dead code detection)
     pub address_taken: HashSet<String>,
 }
@@ -129,7 +129,7 @@ impl ParsedFileInfo {
                 return_type: f.return_type,
             })
             .collect();
-        
+
         // Extract class info
         let classes: Vec<ClassInfo> = result
             .classes
@@ -144,7 +144,7 @@ impl ParsedFileInfo {
                 bases: c.bases,
             })
             .collect();
-        
+
         // Extract imports
         let imports: Vec<ImportEdge> = result
             .imports
@@ -154,7 +154,7 @@ impl ParsedFileInfo {
                 is_type_only: i.is_type_only,
             })
             .collect();
-        
+
         Self {
             path: file_path.to_path_buf(),
             relative_path: relative_path.to_string(),
@@ -167,36 +167,48 @@ impl ParsedFileInfo {
             address_taken: result.address_taken,
         }
     }
-    
+
     /// Create a ParseResult from this info (for compatibility with existing code)
     pub fn to_parse_result(&self) -> ParseResult {
         use crate::models::{Class, Function};
-        
+
         ParseResult {
-            functions: self.functions.iter().map(|f| Function {
-                name: f.name.clone(),
-                qualified_name: f.qualified_name.clone(),
-                file_path: self.path.clone(),
-                line_start: f.line_start,
-                line_end: f.line_end,
-                parameters: f.parameters.clone(),
-                return_type: f.return_type.clone(),
-                is_async: f.is_async,
-                complexity: Some(f.complexity),
-            }).collect(),
-            classes: self.classes.iter().map(|c| Class {
-                name: c.name.clone(),
-                qualified_name: c.qualified_name.clone(),
-                file_path: self.path.clone(),
-                line_start: c.line_start,
-                line_end: c.line_end,
-                methods: c.methods.clone(),
-                bases: c.bases.clone(),
-            }).collect(),
-            imports: self.imports.iter().map(|i| crate::parsers::ImportInfo {
-                path: i.path.clone(),
-                is_type_only: i.is_type_only,
-            }).collect(),
+            functions: self
+                .functions
+                .iter()
+                .map(|f| Function {
+                    name: f.name.clone(),
+                    qualified_name: f.qualified_name.clone(),
+                    file_path: self.path.clone(),
+                    line_start: f.line_start,
+                    line_end: f.line_end,
+                    parameters: f.parameters.clone(),
+                    return_type: f.return_type.clone(),
+                    is_async: f.is_async,
+                    complexity: Some(f.complexity),
+                })
+                .collect(),
+            classes: self
+                .classes
+                .iter()
+                .map(|c| Class {
+                    name: c.name.clone(),
+                    qualified_name: c.qualified_name.clone(),
+                    file_path: self.path.clone(),
+                    line_start: c.line_start,
+                    line_end: c.line_end,
+                    methods: c.methods.clone(),
+                    bases: c.bases.clone(),
+                })
+                .collect(),
+            imports: self
+                .imports
+                .iter()
+                .map(|i| crate::parsers::ImportInfo {
+                    path: i.path.clone(),
+                    is_type_only: i.is_type_only,
+                })
+                .collect(),
             calls: self.calls.clone(),
             address_taken: self.address_taken.clone(),
         }
@@ -210,7 +222,7 @@ impl ParsedFileInfo {
 pub struct FunctionIndex {
     /// function name → qualified name
     pub name_to_qualified: HashMap<String, String>,
-    
+
     /// qualified name → file path (as string)
     pub qualified_to_file: HashMap<String, String>,
 }
@@ -219,23 +231,27 @@ impl FunctionIndex {
     /// Build function index from ParseResult
     pub fn add_from_result(&mut self, result: &ParseResult, file_path: &Path) {
         let file_str = file_path.display().to_string();
-        
+
         for func in &result.functions {
-            self.name_to_qualified.insert(func.name.clone(), func.qualified_name.clone());
-            self.qualified_to_file.insert(func.qualified_name.clone(), file_str.clone());
+            self.name_to_qualified
+                .insert(func.name.clone(), func.qualified_name.clone());
+            self.qualified_to_file
+                .insert(func.qualified_name.clone(), file_str.clone());
         }
     }
-    
+
     /// Add from ParsedFileInfo
     pub fn add_from_info(&mut self, info: &ParsedFileInfo) {
         let file_str = info.path.display().to_string();
-        
+
         for func in &info.functions {
-            self.name_to_qualified.insert(func.name.clone(), func.qualified_name.clone());
-            self.qualified_to_file.insert(func.qualified_name.clone(), file_str.clone());
+            self.name_to_qualified
+                .insert(func.name.clone(), func.qualified_name.clone());
+            self.qualified_to_file
+                .insert(func.qualified_name.clone(), file_str.clone());
         }
     }
-    
+
     /// Merge another index into this one
     pub fn merge(&mut self, other: FunctionIndex) {
         self.name_to_qualified.extend(other.name_to_qualified);
@@ -248,7 +264,7 @@ impl FunctionIndex {
 pub struct ModuleIndex {
     /// file stem (e.g., "utils") → file paths with that stem
     pub by_stem: HashMap<String, Vec<String>>,
-    
+
     /// module patterns (e.g., "src/utils") → file paths
     pub by_pattern: HashMap<String, Vec<String>>,
 }
@@ -258,25 +274,31 @@ impl ModuleIndex {
     pub fn add_file(&mut self, file_path: &Path, relative_path: &str) {
         // Extract file stem
         if let Some(stem) = file_path.file_stem().and_then(|s| s.to_str()) {
-            self.by_stem.entry(stem.to_string()).or_default().push(relative_path.to_string());
+            self.by_stem
+                .entry(stem.to_string())
+                .or_default()
+                .push(relative_path.to_string());
         }
-        
+
         // Add various patterns
         let patterns = generate_module_patterns(relative_path);
         for pattern in patterns {
-            self.by_pattern.entry(pattern).or_default().push(relative_path.to_string());
+            self.by_pattern
+                .entry(pattern)
+                .or_default()
+                .push(relative_path.to_string());
         }
     }
-    
+
     /// Find matching files for an import path
     pub fn find_matches(&self, import_path: &str) -> Vec<String> {
         let clean = clean_import_path(import_path);
-        
+
         // Try pattern match first
         if let Some(matches) = self.by_pattern.get(&clean) {
             return matches.clone();
         }
-        
+
         // Try stem match
         let parts: Vec<&str> = clean.split("::").collect();
         if let Some(first) = parts.first() {
@@ -284,10 +306,10 @@ impl ModuleIndex {
                 return matches.clone();
             }
         }
-        
+
         Vec::new()
     }
-    
+
     /// Merge another index
     pub fn merge(&mut self, other: ModuleIndex) {
         for (k, v) in other.by_stem {
@@ -302,13 +324,13 @@ impl ModuleIndex {
 /// Generate module patterns for a file path
 fn generate_module_patterns(relative_path: &str) -> Vec<String> {
     let mut patterns = Vec::new();
-    
+
     // Rust module patterns
     if relative_path.ends_with(".rs") {
         let rust_path = relative_path.trim_end_matches(".rs").replace('/', "::");
         patterns.push(rust_path);
     }
-    
+
     // TypeScript/JavaScript patterns
     for ext in &[".ts", ".tsx", ".js", ".jsx", ".mjs"] {
         if relative_path.ends_with(ext) {
@@ -319,17 +341,19 @@ fn generate_module_patterns(relative_path: &str) -> Vec<String> {
             }
         }
     }
-    
+
     // Python patterns
     if relative_path.ends_with(".py") {
         let py_path = relative_path.trim_end_matches(".py").replace('/', ".");
         patterns.push(py_path);
         if relative_path.ends_with("/__init__.py") {
-            let pkg = relative_path.trim_end_matches("/__init__.py").replace('/', ".");
+            let pkg = relative_path
+                .trim_end_matches("/__init__.py")
+                .replace('/', ".");
             patterns.push(pkg);
         }
     }
-    
+
     patterns
 }
 
@@ -357,7 +381,7 @@ pub fn build_indexes_parallel(
 ) -> Result<(FunctionIndex, ModuleIndex)> {
     let counter = AtomicUsize::new(0);
     let total = files.len();
-    
+
     // Parallel index building
     let indexes: Vec<(FunctionIndex, ModuleIndex)> = files
         .par_iter()
@@ -368,34 +392,34 @@ pub fn build_indexes_parallel(
                     cb(count, total);
                 }
             }
-            
+
             // Parse file
             let result = parse_file(file_path).ok()?;
-            
+
             // Get relative path
             let relative = file_path.strip_prefix(repo_path).unwrap_or(file_path);
             let relative_str = relative.display().to_string();
-            
+
             // Build local indexes
             let mut func_idx = FunctionIndex::default();
             let mut mod_idx = ModuleIndex::default();
-            
+
             func_idx.add_from_result(&result, file_path);
             mod_idx.add_file(file_path, &relative_str);
-            
+
             Some((func_idx, mod_idx))
         })
         .collect();
-    
+
     // Merge all indexes
     let mut function_index = FunctionIndex::default();
     let mut module_index = ModuleIndex::default();
-    
+
     for (func_idx, mod_idx) in indexes {
         function_index.merge(func_idx);
         module_index.merge(mod_idx);
     }
-    
+
     Ok((function_index, module_index))
 }
 
@@ -406,7 +430,7 @@ pub fn build_indexes_parallel(
 pub trait StreamingGraphBuilder: Send {
     /// Called for each parsed file
     fn on_file(&mut self, info: ParsedFileInfo) -> Result<()>;
-    
+
     /// Called after all files are processed
     fn finalize(&mut self) -> Result<()>;
 }
@@ -426,7 +450,7 @@ pub struct StreamingStats {
 /// This is the core streaming function. For each file:
 /// 1. Parse the file
 /// 2. Extract lightweight info
-/// 3. Call builder.on_file() 
+/// 3. Call builder.on_file()
 /// 4. Drop ParseResult (memory freed)
 /// 5. Move to next file
 ///
@@ -441,14 +465,14 @@ pub fn stream_parse_files<B: StreamingGraphBuilder>(
         total_files: files.len(),
         ..Default::default()
     };
-    
+
     for (idx, file_path) in files.iter().enumerate() {
         if let Some(cb) = progress_callback {
             if idx % 100 == 0 {
                 cb(idx, files.len());
             }
         }
-        
+
         // Parse file
         let result = match parse_file(file_path) {
             Ok(r) => r,
@@ -458,35 +482,30 @@ pub fn stream_parse_files<B: StreamingGraphBuilder>(
                 continue;
             }
         };
-        
+
         // Track counts
         stats.total_functions += result.functions.len();
         stats.total_classes += result.classes.len();
         stats.parsed_files += 1;
-        
+
         // Get relative path
         let relative = file_path.strip_prefix(repo_path).unwrap_or(file_path);
         let relative_str = relative.display().to_string();
-        
+
         // Detect language and count lines
         let language = detect_language(file_path);
         let loc = count_lines(file_path).unwrap_or(0);
-        
+
         // Convert to lightweight info
-        let info = ParsedFileInfo::from_parse_result(
-            result,
-            file_path,
-            &relative_str,
-            &language,
-            loc,
-        );
-        
+        let info =
+            ParsedFileInfo::from_parse_result(result, file_path, &relative_str, &language, loc);
+
         // Callback to builder - ParseResult is dropped after this
         builder.on_file(info)?;
     }
-    
+
     builder.finalize()?;
-    
+
     Ok(stats)
 }
 
@@ -501,16 +520,14 @@ pub fn stream_parse_files_parallel<B: StreamingGraphBuilder>(
     batch_size: usize,
     progress_callback: Option<&(dyn Fn(usize, usize) + Sync)>,
 ) -> Result<StreamingStats> {
-
-    
     let mut stats = StreamingStats {
         total_files: files.len(),
         ..Default::default()
     };
-    
+
     let counter = AtomicUsize::new(0);
     let total = files.len();
-    
+
     // Process in batches to limit peak memory
     for chunk in files.chunks(batch_size) {
         // Parse batch in parallel
@@ -523,7 +540,7 @@ pub fn stream_parse_files_parallel<B: StreamingGraphBuilder>(
                         cb(count, total);
                     }
                 }
-                
+
                 // Parse file
                 let result = match parse_file(file_path) {
                     Ok(r) => r,
@@ -532,15 +549,15 @@ pub fn stream_parse_files_parallel<B: StreamingGraphBuilder>(
                         return None;
                     }
                 };
-                
+
                 // Get relative path
                 let relative = file_path.strip_prefix(repo_path).unwrap_or(file_path);
                 let relative_str = relative.display().to_string();
-                
+
                 // Detect language and count lines
                 let language = detect_language(file_path);
                 let loc = count_lines(file_path).unwrap_or(0);
-                
+
                 // Convert to lightweight info
                 let info = ParsedFileInfo::from_parse_result(
                     result,
@@ -549,11 +566,11 @@ pub fn stream_parse_files_parallel<B: StreamingGraphBuilder>(
                     &language,
                     loc,
                 );
-                
+
                 Some(info)
             })
             .collect();
-        
+
         // Process results sequentially through builder
         for info_opt in batch_results {
             if let Some(info) = info_opt {
@@ -565,12 +582,12 @@ pub fn stream_parse_files_parallel<B: StreamingGraphBuilder>(
                 stats.parse_errors += 1;
             }
         }
-        
+
         // Memory for this batch's ParseResults is freed here
     }
-    
+
     builder.finalize()?;
-    
+
     Ok(stats)
 }
 
@@ -605,20 +622,20 @@ fn count_lines(path: &Path) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_module_patterns() {
         let patterns = generate_module_patterns("src/utils/helpers.py");
         assert!(patterns.contains(&"src.utils.helpers".to_string()));
-        
+
         let patterns = generate_module_patterns("src/utils/mod.rs");
         assert!(patterns.contains(&"src::utils::mod".to_string()));
-        
+
         let patterns = generate_module_patterns("src/components/index.ts");
         assert!(patterns.contains(&"src/components/index".to_string()));
         assert!(patterns.contains(&"src/components".to_string()));
     }
-    
+
     #[test]
     fn test_clean_import_path() {
         assert_eq!(clean_import_path("./utils"), "utils");
@@ -626,24 +643,29 @@ mod tests {
         assert_eq!(clean_import_path("crate::utils"), "utils");
         assert_eq!(clean_import_path("super::parent"), "parent");
     }
-    
+
     #[test]
     fn test_function_index() {
         let mut index = FunctionIndex::default();
-        
-        index.name_to_qualified.insert("helper".to_string(), "src/utils.py::helper:10".to_string());
-        
+
+        index
+            .name_to_qualified
+            .insert("helper".to_string(), "src/utils.py::helper:10".to_string());
+
         assert!(index.name_to_qualified.contains_key("helper"));
-        assert_eq!(index.name_to_qualified.get("helper").unwrap(), "src/utils.py::helper:10");
+        assert_eq!(
+            index.name_to_qualified.get("helper").unwrap(),
+            "src/utils.py::helper:10"
+        );
     }
-    
+
     #[test]
     fn test_module_index() {
         let mut index = ModuleIndex::default();
-        
+
         let path = Path::new("src/utils/helpers.py");
         index.add_file(path, "src/utils/helpers.py");
-        
+
         assert!(index.by_stem.contains_key("helpers"));
         assert!(!index.find_matches("helpers").is_empty());
     }

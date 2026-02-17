@@ -364,8 +364,11 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
                     if unsafe_block().is_match(line) {
                         // Skip if inside string literal (suggested fix examples, test fixtures)
                         let trimmed = line.trim();
-                        if trimmed.starts_with('"') || trimmed.starts_with("r#\"") 
-                            || trimmed.starts_with("r\"") || trimmed.starts_with('\'') {
+                        if trimmed.starts_with('"')
+                            || trimmed.starts_with("r#\"")
+                            || trimmed.starts_with("r\"")
+                            || trimmed.starts_with('\'')
+                        {
                             continue;
                         }
                         // Skip if in test context
@@ -524,12 +527,11 @@ impl Detector for CloneInHotPathDetector {
                         continue;
                     }
 
-                    if clone_call().is_match(line)
-                        && Self::is_hot_path_context(&content, i, line) {
-                            let file_str = path.to_string_lossy();
-                            let line_num = (i + 1) as u32;
+                    if clone_call().is_match(line) && Self::is_hot_path_context(&content, i, line) {
+                        let file_str = path.to_string_lossy();
+                        let line_num = (i + 1) as u32;
 
-                            findings.push(Finding {
+                        findings.push(Finding {
                                 id: deterministic_finding_id(
                                     "CloneInHotPathDetector",
                                     &file_str,
@@ -574,7 +576,7 @@ impl Detector for CloneInHotPathDetector {
                                 ),
                                 ..Default::default()
                             });
-                        }
+                    }
                 }
             }
         }

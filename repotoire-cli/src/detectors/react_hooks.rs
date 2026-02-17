@@ -103,7 +103,11 @@ impl ReactHooksDetector {
     }
 
     /// Find containing component from graph
-    fn find_component(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
+    fn find_component(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+        line: u32,
+    ) -> Option<String> {
         graph
             .get_functions()
             .into_iter()
@@ -161,7 +165,7 @@ impl Detector for ReactHooksDetector {
             if crate::detectors::base::is_test_path(&path_str) {
                 continue;
             }
-            
+
             // Skip React framework source itself (packages/react*, packages/shared, etc.)
             // These files DEFINE hooks, they don't misuse them
             if path_str.contains("/packages/react")
@@ -171,7 +175,7 @@ impl Detector for ReactHooksDetector {
             {
                 continue;
             }
-            
+
             // Skip playground/examples/apps (demo code, not production)
             if path_str.contains("/playground/")
                 || path_str.contains("/apps/")
@@ -179,7 +183,7 @@ impl Detector for ReactHooksDetector {
             {
                 continue;
             }
-            
+
             // Skip non-production paths
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;

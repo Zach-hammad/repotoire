@@ -113,7 +113,10 @@ impl HeuristicFlow {
                 if let Some(eq_pos) = trimmed.find('=') {
                     if eq_pos > 0
                         && !trimmed[eq_pos..].starts_with("==")
-                        && !matches!(trimmed.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>' | b'='))
+                        && !matches!(
+                            trimmed.as_bytes().get(eq_pos - 1),
+                            Some(b'!' | b'<' | b'>' | b'=')
+                        )
                     {
                         let lhs = trimmed[..eq_pos].trim();
                         let rhs = trimmed[eq_pos + 1..].trim();
@@ -135,7 +138,10 @@ impl HeuristicFlow {
                     if eq_pos > 0
                         && !stripped[eq_pos..].starts_with("==")
                         && !stripped[eq_pos..].starts_with("=>")
-                        && !matches!(stripped.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>' | b'='))
+                        && !matches!(
+                            stripped.as_bytes().get(eq_pos - 1),
+                            Some(b'!' | b'<' | b'>' | b'=')
+                        )
                     {
                         let lhs = stripped[..eq_pos].trim();
                         // Handle type annotations: `x: string = ...`
@@ -159,7 +165,10 @@ impl HeuristicFlow {
                 } else if let Some(eq_pos) = trimmed.find('=') {
                     if eq_pos > 0
                         && !trimmed[eq_pos..].starts_with("==")
-                        && !matches!(trimmed.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>' | b'='))
+                        && !matches!(
+                            trimmed.as_bytes().get(eq_pos - 1),
+                            Some(b'!' | b'<' | b'>' | b'=')
+                        )
                     {
                         let lhs = trimmed[..eq_pos].trim();
                         let rhs = trimmed[eq_pos + 1..].trim();
@@ -171,9 +180,9 @@ impl HeuristicFlow {
             }
             Language::Rust => {
                 // let (mut) x = expr
-                let stripped = trimmed.strip_prefix("let ").map(|s| {
-                    s.strip_prefix("mut ").unwrap_or(s)
-                });
+                let stripped = trimmed
+                    .strip_prefix("let ")
+                    .map(|s| s.strip_prefix("mut ").unwrap_or(s));
                 if let Some(stripped) = stripped {
                     if let Some(eq_pos) = stripped.find('=') {
                         if !stripped[eq_pos..].starts_with("==") {
@@ -193,7 +202,10 @@ impl HeuristicFlow {
                         if eq_pos > 0
                             && !trimmed[eq_pos..].starts_with("==")
                             && !trimmed[eq_pos..].starts_with("=>")
-                            && !matches!(trimmed.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>' | b'='))
+                            && !matches!(
+                                trimmed.as_bytes().get(eq_pos - 1),
+                                Some(b'!' | b'<' | b'>' | b'=')
+                            )
                         {
                             let lhs = trimmed[..eq_pos].trim();
                             let rhs = trimmed[eq_pos + 1..].trim();
@@ -210,7 +222,10 @@ impl HeuristicFlow {
                 if let Some(eq_pos) = trimmed.find('=') {
                     if eq_pos > 0
                         && !trimmed[eq_pos..].starts_with("==")
-                        && !matches!(trimmed.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>' | b'='))
+                        && !matches!(
+                            trimmed.as_bytes().get(eq_pos - 1),
+                            Some(b'!' | b'<' | b'>' | b'=')
+                        )
                     {
                         let lhs_full = trimmed[..eq_pos].trim();
                         let rhs = trimmed[eq_pos + 1..].trim();
@@ -227,7 +242,10 @@ impl HeuristicFlow {
                 if let Some(eq_pos) = trimmed.find('=') {
                     if eq_pos > 0
                         && !trimmed[eq_pos..].starts_with("==")
-                        && !matches!(trimmed.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>' | b'='))
+                        && !matches!(
+                            trimmed.as_bytes().get(eq_pos - 1),
+                            Some(b'!' | b'<' | b'>' | b'=')
+                        )
                     {
                         let lhs = trimmed[..eq_pos].trim();
                         let rhs = trimmed[eq_pos + 1..].trim();
@@ -243,7 +261,11 @@ impl HeuristicFlow {
     }
 
     /// Check if a right-hand side expression references any tainted variable.
-    fn rhs_references_tainted(&self, rhs: &str, tainted: &HashMap<String, TaintSource>) -> Option<String> {
+    fn rhs_references_tainted(
+        &self,
+        rhs: &str,
+        tainted: &HashMap<String, TaintSource>,
+    ) -> Option<String> {
         for var in tainted.keys() {
             // Check various reference patterns:
             // - Direct use: `var`
@@ -261,7 +283,9 @@ impl HeuristicFlow {
     /// Check if a line calls a sanitizer on a tainted variable.
     fn is_sanitizer_call(&self, rhs: &str, sanitizers: &HashSet<String>) -> bool {
         let rhs_lower = rhs.to_lowercase();
-        sanitizers.iter().any(|s| rhs_lower.contains(&s.to_lowercase()))
+        sanitizers
+            .iter()
+            .any(|s| rhs_lower.contains(&s.to_lowercase()))
     }
 
     /// Check if a line calls a sink with a tainted argument.
@@ -339,7 +363,9 @@ impl DataFlowProvider for HeuristicFlow {
                 let rhs_lower = rhs.to_lowercase();
 
                 // Check if RHS contains a taint source
-                let is_source = sources.iter().any(|s| rhs_lower.contains(&s.to_lowercase()));
+                let is_source = sources
+                    .iter()
+                    .any(|s| rhs_lower.contains(&s.to_lowercase()));
 
                 if is_source {
                     let pattern = sources
@@ -401,7 +427,9 @@ impl DataFlowProvider for HeuristicFlow {
 /// Check if a string is a simple variable name (no dots, brackets, etc.)
 fn is_simple_var(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && s.chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_')
         && s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
@@ -470,15 +498,13 @@ pub fn run_intra_function_taint(
         // Read file (cached)
         let content = match file_cache.get(&func.file_path) {
             Some(c) => c.clone(),
-            None => {
-                match std::fs::read_to_string(&full_path) {
-                    Ok(c) => {
-                        file_cache.insert(func.file_path.clone(), c.clone());
-                        c
-                    }
-                    Err(_) => continue,
+            None => match std::fs::read_to_string(&full_path) {
+                Ok(c) => {
+                    file_cache.insert(func.file_path.clone(), c.clone());
+                    c
                 }
-            }
+                Err(_) => continue,
+            },
         };
 
         // Extract function body from source
@@ -494,14 +520,10 @@ pub fn run_intra_function_taint(
             continue;
         }
 
-        let func_body = lines[line_start.saturating_sub(1)..line_end]
-            .join("\n");
+        let func_body = lines[line_start.saturating_sub(1)..line_end].join("\n");
 
         // Detect language from file extension
-        let ext = full_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = full_path.extension().and_then(|e| e.to_str()).unwrap_or("");
         let language = Language::from_extension(ext);
 
         // Run intra-function analysis
@@ -563,10 +585,17 @@ mod tests {
     use super::*;
 
     fn sources() -> HashSet<String> {
-        ["request.args", "request.form", "req.body", "req.query", "req.params", "params["]
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+        [
+            "request.args",
+            "request.form",
+            "req.body",
+            "req.query",
+            "req.params",
+            "params[",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
     }
 
     fn sql_sinks() -> HashSet<String> {
@@ -577,10 +606,17 @@ mod tests {
     }
 
     fn sanitizers() -> HashSet<String> {
-        ["escape", "sanitize", "parameterize", "prepare", "bindparam", "html.escape"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+        [
+            "escape",
+            "sanitize",
+            "parameterize",
+            "prepare",
+            "bindparam",
+            "html.escape",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
     }
 
     #[test]
@@ -600,7 +636,10 @@ cursor.execute(query)
             &sanitizers(),
         );
 
-        assert!(!result.sink_reaches.is_empty(), "Should detect taint reaching execute()");
+        assert!(
+            !result.sink_reaches.is_empty(),
+            "Should detect taint reaching execute()"
+        );
         assert_eq!(result.sink_reaches[0].sink_pattern, "execute");
         assert!(!result.sink_reaches[0].is_sanitized);
     }
@@ -622,7 +661,10 @@ cursor.execute(query)
             &sanitizers(),
         );
 
-        assert!(!result.sink_reaches.is_empty(), "Should detect f-string taint propagation");
+        assert!(
+            !result.sink_reaches.is_empty(),
+            "Should detect f-string taint propagation"
+        );
     }
 
     #[test]
@@ -644,8 +686,15 @@ cursor.execute(query)
         );
 
         // clean_input should be sanitized, so no vulnerable sink reaches
-        let vulnerable: Vec<_> = result.sink_reaches.iter().filter(|r| !r.is_sanitized).collect();
-        assert!(vulnerable.is_empty(), "Sanitized flow should not be flagged");
+        let vulnerable: Vec<_> = result
+            .sink_reaches
+            .iter()
+            .filter(|r| !r.is_sanitized)
+            .collect();
+        assert!(
+            vulnerable.is_empty(),
+            "Sanitized flow should not be flagged"
+        );
         assert!(result.sanitized_vars.contains("clean_input"));
     }
 
@@ -666,7 +715,10 @@ db.run(query);
             &sanitizers(),
         );
 
-        assert!(!result.sink_reaches.is_empty(), "Should detect JS taint flow");
+        assert!(
+            !result.sink_reaches.is_empty(),
+            "Should detect JS taint flow"
+        );
     }
 
     #[test]
@@ -686,7 +738,10 @@ db.run(query)
             &sanitizers(),
         );
 
-        assert!(!result.sink_reaches.is_empty(), "Should detect Go taint flow");
+        assert!(
+            !result.sink_reaches.is_empty(),
+            "Should detect Go taint flow"
+        );
     }
 
     #[test]
@@ -711,7 +766,10 @@ db.run(&query);
             &sanitizers(),
         );
 
-        assert!(result.tainted_vars.contains_key("user_input"), "user_input should be tainted");
+        assert!(
+            result.tainted_vars.contains_key("user_input"),
+            "user_input should be tainted"
+        );
     }
 
     #[test]
@@ -731,7 +789,10 @@ print(y)
             &sanitizers(),
         );
 
-        assert!(result.sink_reaches.is_empty(), "No taint sources means no findings");
+        assert!(
+            result.sink_reaches.is_empty(),
+            "No taint sources means no findings"
+        );
         assert!(result.tainted_vars.is_empty());
     }
 
@@ -754,16 +815,28 @@ cursor.execute(step3)
             &sanitizers(),
         );
 
-        assert!(result.tainted_vars.contains_key("step3"), "Taint should propagate through chain");
-        assert!(!result.sink_reaches.is_empty(), "Should detect taint at end of chain");
+        assert!(
+            result.tainted_vars.contains_key("step3"),
+            "Taint should propagate through chain"
+        );
+        assert!(
+            !result.sink_reaches.is_empty(),
+            "Should detect taint at end of chain"
+        );
     }
 
     #[test]
     fn test_command_injection_flow() {
-        let cmd_sinks: HashSet<String> = ["system", "exec", "popen", "subprocess.run", "subprocess.call"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let cmd_sinks: HashSet<String> = [
+            "system",
+            "exec",
+            "popen",
+            "subprocess.run",
+            "subprocess.call",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
         let code = r#"
 filename = request.form.get("file")
@@ -780,7 +853,10 @@ os.system(cmd)
             &sanitizers(),
         );
 
-        assert!(!result.sink_reaches.is_empty(), "Should detect command injection flow");
+        assert!(
+            !result.sink_reaches.is_empty(),
+            "Should detect command injection flow"
+        );
     }
 
     #[test]

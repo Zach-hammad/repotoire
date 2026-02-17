@@ -6,7 +6,7 @@ use crate::models::Finding;
 
 use anyhow::{Context, Result};
 use console::style;
-use indicatif::{ProgressStyle};
+use indicatif::ProgressStyle;
 use std::path::{Path, PathBuf};
 
 /// Supported file extensions for analysis
@@ -111,14 +111,16 @@ pub(super) fn setup_environment(
     let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
         .with_context(|| "Failed to create cache directory")?;
     let incremental_cache = IncrementalCache::new(&repotoire_dir.join("incremental"));
-    
+
     // Auto-enable incremental mode if warm cache exists
     let has_warm_cache = incremental_cache.has_cache();
     let auto_incremental = has_warm_cache && !config.is_incremental_mode;
     let config = if auto_incremental {
         if !quiet_mode {
-            println!("{}Using cached analysis (auto-incremental)\n", 
-                if config.no_emoji { "" } else { "⚡ " });
+            println!(
+                "{}Using cached analysis (auto-incremental)\n",
+                if config.no_emoji { "" } else { "⚡ " }
+            );
         }
         AnalysisConfig {
             is_incremental_mode: true,
@@ -174,7 +176,12 @@ fn apply_config_defaults(
 }
 
 /// Print analysis header
-pub(super) fn print_header(repo_path: &Path, no_emoji: bool, format: &str, project_type: &crate::config::ProjectType) {
+pub(super) fn print_header(
+    repo_path: &Path,
+    no_emoji: bool,
+    format: &str,
+    project_type: &crate::config::ProjectType,
+) {
     // Suppress progress output for machine-readable formats
     if format == "json" || format == "sarif" {
         return;
@@ -190,11 +197,7 @@ pub(super) fn print_header(repo_path: &Path, no_emoji: bool, format: &str, proje
         style(icon_search).bold(),
         style(repo_path.display()).cyan()
     );
-    println!(
-        "{}Detected:  {:?}\n",
-        style(icon_type).dim(),
-        project_type
-    );
+    println!("{}Detected:  {:?}\n", style(icon_type).dim(), project_type);
 }
 
 /// Create spinner progress style

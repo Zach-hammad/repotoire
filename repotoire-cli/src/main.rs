@@ -18,6 +18,7 @@
 
 pub mod ai;
 pub mod cache;
+pub mod classifier;
 mod cli;
 pub mod config;
 mod detectors;
@@ -30,7 +31,6 @@ mod parsers;
 mod pipeline;
 mod reporters;
 pub mod scoring;
-pub mod classifier;
 
 use anyhow::Result;
 use clap::Parser;

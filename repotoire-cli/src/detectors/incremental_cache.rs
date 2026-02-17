@@ -149,6 +149,9 @@ struct CachedParseResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CacheData {
     version: u32,
+    /// Binary version that created this cache (#66)
+    #[serde(default)]
+    binary_version: String,
     files: HashMap<String, CachedFile>,
     graph: GraphCache,
     #[serde(default)]
@@ -159,6 +162,7 @@ impl Default for CacheData {
     fn default() -> Self {
         Self {
             version: CACHE_VERSION,
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
             files: HashMap::new(),
             graph: GraphCache::default(),
             parse_cache: HashMap::new(),
@@ -213,17 +217,17 @@ impl IncrementalCache {
 
         instance
     }
-    
+
     /// Check if a warm cache exists (for auto-incremental)
     pub fn has_cache(&self) -> bool {
         !self.cache.files.is_empty() || !self.cache.parse_cache.is_empty()
     }
-    
+
     /// Get cached parse result for a file if unchanged
     pub fn get_cached_parse(&self, path: &Path) -> Option<crate::parsers::ParseResult> {
         let key = path.to_string_lossy().to_string();
         let hash = self.get_file_hash(path);
-        
+
         self.cache.parse_cache.get(&key).and_then(|cached| {
             if cached.hash == hash {
                 Some(cached.result.clone())
@@ -232,16 +236,19 @@ impl IncrementalCache {
             }
         })
     }
-    
+
     /// Cache a parse result for a file
     pub fn cache_parse_result(&mut self, path: &Path, result: &crate::parsers::ParseResult) {
         let key = path.to_string_lossy().to_string();
         let hash = self.get_file_hash(path);
-        
-        self.cache.parse_cache.insert(key, CachedParseResult {
-            hash,
-            result: result.clone(),
-        });
+
+        self.cache.parse_cache.insert(
+            key,
+            CachedParseResult {
+                hash,
+                result: result.clone(),
+            },
+        );
         self.dirty = true;
     }
 
@@ -282,6 +289,17 @@ impl IncrementalCache {
             info!(
                 "Cache version mismatch (got {}, expected {}), rebuilding",
                 data.version, CACHE_VERSION
+            );
+            self.invalidate_all();
+            return Ok(());
+        }
+
+        // Binary version check — prevent stale detector results across upgrades (#66)
+        let current_version = env!("CARGO_PKG_VERSION");
+        if !data.binary_version.is_empty() && data.binary_version != current_version {
+            info!(
+                "Binary version changed ({} → {}), invalidating cache",
+                data.binary_version, current_version
             );
             self.invalidate_all();
             return Ok(());
@@ -419,7 +437,7 @@ impl IncrementalCache {
             Some(cached_hash) => cached_hash != current_hash,
         }
     }
-    
+
     /// Compute a combined hash of all files for graph-level cache validation
     pub fn compute_all_files_hash(&self, files: &[std::path::PathBuf]) -> String {
         let mut ctx = md5::Context::new();
@@ -436,7 +454,7 @@ impl IncrementalCache {
 
         format!("{:x}", ctx.compute())
     }
-    
+
     /// Check if we can use cached detector results
     pub fn can_use_cached_detectors(&self, files: &[std::path::PathBuf]) -> bool {
         let current_hash = self.compute_all_files_hash(files);
@@ -480,9 +498,16 @@ impl IncrementalCache {
         self.cache.graph.hash = Some(hash.to_string());
         self.dirty = true;
     }
-    
+
     /// Cache the score result
-    pub fn cache_score(&mut self, score: f64, grade: &str, files: usize, functions: usize, classes: usize) {
+    pub fn cache_score(
+        &mut self,
+        score: f64,
+        grade: &str,
+        files: usize,
+        functions: usize,
+        classes: usize,
+    ) {
         self.cache_score_with_subscores(score, grade, files, functions, classes, None, None, None);
     }
 
@@ -510,16 +535,16 @@ impl IncrementalCache {
         });
         self.dirty = true;
     }
-    
+
     /// Get cached score if available
     pub fn get_cached_score(&self) -> Option<&CachedScoreResult> {
         self.cache.graph.score.as_ref()
     }
-    
+
     /// Check if we have a complete cached result (findings + score)
     pub fn has_complete_cache(&self, files: &[std::path::PathBuf]) -> bool {
         let current_hash = self.compute_all_files_hash(files);
-        !self.is_graph_changed(&current_hash) 
+        !self.is_graph_changed(&current_hash)
             && !self.cache.graph.detectors.is_empty()
             && self.cache.graph.score.is_some()
     }
@@ -552,17 +577,17 @@ impl crate::cache::CacheLayer for IncrementalCache {
     fn name(&self) -> &str {
         "incremental-findings"
     }
-    
+
     fn is_populated(&self) -> bool {
         self.has_cache()
     }
-    
+
     fn invalidate_files(&mut self, changed_files: &[&std::path::Path]) {
         for path in changed_files {
             self.invalidate_file(path);
         }
     }
-    
+
     fn invalidate_all(&mut self) {
         // Clear all cached data
         self.cache = CacheData::default();

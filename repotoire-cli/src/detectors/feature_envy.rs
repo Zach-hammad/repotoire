@@ -99,13 +99,17 @@ impl FeatureEnvyDetector {
         let multiplier = config.coupling_multiplier;
         let thresholds = FeatureEnvyThresholds {
             threshold_ratio: config.get_option_or("threshold_ratio", 3.0) * multiplier,
-            min_external_uses: ((config.get_option_or("min_external_uses", 15) as f64) * multiplier) as usize,
+            min_external_uses: ((config.get_option_or("min_external_uses", 15) as f64) * multiplier)
+                as usize,
             critical_ratio: config.get_option_or("critical_ratio", 10.0) * multiplier,
-            critical_min_uses: ((config.get_option_or("critical_min_uses", 30) as f64) * multiplier) as usize,
+            critical_min_uses: ((config.get_option_or("critical_min_uses", 30) as f64) * multiplier)
+                as usize,
             high_ratio: config.get_option_or("high_ratio", 5.0) * multiplier,
-            high_min_uses: ((config.get_option_or("high_min_uses", 20) as f64) * multiplier) as usize,
+            high_min_uses: ((config.get_option_or("high_min_uses", 20) as f64) * multiplier)
+                as usize,
             medium_ratio: config.get_option_or("medium_ratio", 3.0) * multiplier,
-            medium_min_uses: ((config.get_option_or("medium_min_uses", 10) as f64) * multiplier) as usize,
+            medium_min_uses: ((config.get_option_or("medium_min_uses", 10) as f64) * multiplier)
+                as usize,
         };
 
         Self {
@@ -339,26 +343,61 @@ impl Detector for FeatureEnvyDetector {
         // Skip utility function prefixes (designed to work across modules)
         const UTILITY_PREFIXES: &[&str] = &[
             // Generic utility prefixes
-            "util_", "helper_", "common_", "core_", "base_", "lib_", "shared_",
+            "util_",
+            "helper_",
+            "common_",
+            "core_",
+            "base_",
+            "lib_",
+            "shared_",
             // Memory/string operations
-            "alloc_", "free_", "mem_", "str_", "buf_", "fmt_",
+            "alloc_",
+            "free_",
+            "mem_",
+            "str_",
+            "buf_",
+            "fmt_",
             // Common interpreter/runtime prefixes
-            "py_", "pyobject_", "_py",  // CPython
-            "lua_", "lual_", "luav_",   // Lua
-            "rb_", "ruby_",             // Ruby
-            "v8_", "js_",               // JavaScript engines
-            "g_", "gtk_", "gdk_",       // GLib/GTK
-            "uv_", "uv__",              // libuv
+            "py_",
+            "pyobject_",
+            "_py", // CPython
+            "lua_",
+            "lual_",
+            "luav_", // Lua
+            "rb_",
+            "ruby_", // Ruby
+            "v8_",
+            "js_", // JavaScript engines
+            "g_",
+            "gtk_",
+            "gdk_", // GLib/GTK
+            "uv_",
+            "uv__", // libuv
         ];
 
         // Skip utility function suffixes
-        const UTILITY_SUFFIXES: &[&str] = &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
+        const UTILITY_SUFFIXES: &[&str] =
+            &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
 
         // Skip files that are naturally orchestration points or utilities
         const SKIP_PATHS: &[&str] = &[
-            "/cli/", "/handlers/", "/main.rs", "/mod.rs", "/lib.rs", "/index.",
-            "/util/", "/utils/", "/common/", "/core/", "/lib/", "/helpers/", "/shared/",
-            "/internal/", "/runtime/", "/allocator/", "/memory/",
+            "/cli/",
+            "/handlers/",
+            "/main.rs",
+            "/mod.rs",
+            "/lib.rs",
+            "/index.",
+            "/util/",
+            "/utils/",
+            "/common/",
+            "/core/",
+            "/lib/",
+            "/helpers/",
+            "/shared/",
+            "/internal/",
+            "/runtime/",
+            "/allocator/",
+            "/memory/",
         ];
 
         for func in graph.get_functions() {

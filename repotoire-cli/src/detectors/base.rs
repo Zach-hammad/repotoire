@@ -19,11 +19,11 @@ pub enum DetectorScope {
     /// Analyzes a single file in isolation (complexity, naming, etc.)
     /// Can be cached per-file and only re-run when that file changes.
     FileLocal,
-    
+
     /// Analyzes relationships between files (coupling, circular deps)
     /// Must re-run if any related file changes.
     CrossFile,
-    
+
     /// Uses full graph analysis (centrality, architectural patterns)
     /// Must re-run if graph structure changes.
     GraphBased,
@@ -347,7 +347,7 @@ pub trait Detector: Send + Sync {
     fn config(&self) -> Option<&DetectorConfig> {
         None
     }
-    
+
     /// Scope of this detector - determines when it needs to re-run
     ///
     /// - `FileLocal`: Only analyzes individual files, can be cached per-file

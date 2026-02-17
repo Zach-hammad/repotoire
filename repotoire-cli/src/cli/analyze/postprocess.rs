@@ -16,7 +16,7 @@ use crate::models::{Finding, Severity};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use super::detect::{update_incremental_cache, apply_detector_overrides};
+use super::detect::{apply_detector_overrides, update_incremental_cache};
 
 /// Run the full post-processing pipeline on findings.
 pub(super) fn postprocess_findings(
@@ -30,7 +30,12 @@ pub(super) fn postprocess_findings(
     verify: bool,
 ) {
     // Step 1: Update incremental cache
-    update_incremental_cache(is_incremental_mode, incremental_cache, files_to_parse, findings);
+    update_incremental_cache(
+        is_incremental_mode,
+        incremental_cache,
+        files_to_parse,
+        findings,
+    );
 
     // Step 2: Apply detector overrides from project config
     apply_detector_overrides(findings, project_config);
@@ -82,7 +87,6 @@ pub(super) fn postprocess_findings(
     }
 }
 
-
 /// Remove duplicate overlaps between DeadCodeDetector and UnreachableCodeDetector.
 /// Keep UnreachableCode findings when both target the same symbol/location.
 fn dedupe_dead_code_overlap(findings: &mut Vec<Finding>) {
@@ -90,7 +94,10 @@ fn dedupe_dead_code_overlap(findings: &mut Vec<Finding>) {
 
     let mut unreachable_keys: HashSet<(String, u32, String)> = HashSet::new();
 
-    for f in findings.iter().filter(|f| f.detector == "UnreachableCodeDetector") {
+    for f in findings
+        .iter()
+        .filter(|f| f.detector == "UnreachableCodeDetector")
+    {
         let file = f
             .affected_files
             .first()
@@ -128,16 +135,20 @@ fn extract_symbol_from_title(title: &str) -> String {
 
 /// Filter findings to only include files in the analyzed file set.
 fn filter_by_max_files(findings: &mut Vec<Finding>, all_files: &[PathBuf]) {
-    let allowed_files: HashSet<_> = all_files.iter()
+    let allowed_files: HashSet<_> = all_files
+        .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect();
     findings.retain(|f| {
-        f.affected_files.is_empty() || f.affected_files.iter().any(|p| {
-            let ps = p.to_string_lossy().to_string();
-            allowed_files.contains(&ps) || allowed_files.iter().any(|a| {
-                ps.ends_with(a.trim_start_matches("./")) || a.ends_with(ps.trim_start_matches("./"))
+        f.affected_files.is_empty()
+            || f.affected_files.iter().any(|p| {
+                let ps = p.to_string_lossy().to_string();
+                allowed_files.contains(&ps)
+                    || allowed_files.iter().any(|a| {
+                        ps.ends_with(a.trim_start_matches("./"))
+                            || a.ends_with(ps.trim_start_matches("./"))
+                    })
             })
-        })
     });
 }
 
@@ -159,15 +170,18 @@ fn downgrade_non_production_security(findings: &mut [Finding]) {
     ];
 
     for finding in findings.iter_mut() {
-        let is_non_prod = finding.affected_files.iter().any(|p| {
-            is_non_production_path(&p.to_string_lossy())
-        });
+        let is_non_prod = finding
+            .affected_files
+            .iter()
+            .any(|p| is_non_production_path(&p.to_string_lossy()));
 
-        if is_non_prod && SECURITY_DETECTORS.contains(&finding.detector.as_str())
-            && (finding.severity == Severity::Critical || finding.severity == Severity::High) {
-                finding.severity = Severity::Medium;
-                finding.description = format!("[Non-production path] {}", finding.description);
-            }
+        if is_non_prod
+            && SECURITY_DETECTORS.contains(&finding.detector.as_str())
+            && (finding.severity == Severity::Critical || finding.severity == Severity::High)
+        {
+            finding.severity = Severity::Medium;
+            finding.description = format!("[Non-production path] {}", finding.description);
+        }
     }
 }
 
@@ -179,10 +193,7 @@ fn downgrade_non_production_security(findings: &mut [Finding]) {
 /// - ML/AI: moderate (0.45) — domain-specific accuracy
 fn filter_false_positives(findings: &mut Vec<Finding>) {
     use crate::classifier::{
-        FeatureExtractor,
-        model::HeuristicClassifier,
-        CategoryThresholds,
-        DetectorCategory,
+        model::HeuristicClassifier, CategoryThresholds, DetectorCategory, FeatureExtractor,
     };
 
     let extractor = FeatureExtractor::new();

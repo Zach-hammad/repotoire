@@ -27,9 +27,7 @@ pub mod parallel_pipeline;
 pub mod bounded_pipeline;
 
 // Re-export lightweight types for convenience
-pub use lightweight::{
-    Language, LightweightParseStats,
-};
+pub use lightweight::{Language, LightweightParseStats};
 pub use lightweight_parser::parse_file_lightweight;
 
 use anyhow::Result;
@@ -37,7 +35,6 @@ use std::path::Path;
 
 // Performance guardrail: skip very large source files in AST parsing (#48).
 const MAX_PARSE_FILE_BYTES: u64 = 2 * 1024 * 1024; // 2MB
-
 
 fn is_probably_cpp_header(path: &Path) -> bool {
     let content = match std::fs::read(path) {
@@ -234,7 +231,6 @@ impl ParseResult {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-
 
     #[test]
     fn test_parse_python_file() {

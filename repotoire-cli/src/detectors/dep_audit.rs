@@ -185,7 +185,7 @@ impl DepAuditDetector {
         // npm lockfile v2/v3: packages field
         if let Some(packages) = json.get("packages").and_then(|p| p.as_object()) {
             for (key, value) in packages {
-                if key.is_empty() || key == "" {
+                if key.is_empty() {
                     continue; // Skip root package
                 }
                 let name = key.strip_prefix("node_modules/").unwrap_or(key);
@@ -303,7 +303,11 @@ impl DepAuditDetector {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
                 let module = parts[0];
-                let version = parts[1].trim_start_matches('v').split('/').next().unwrap_or("");
+                let version = parts[1]
+                    .trim_start_matches('v')
+                    .split('/')
+                    .next()
+                    .unwrap_or("");
                 let key = format!("{}@{}", module, version);
                 if !seen.contains(&key) && !version.is_empty() {
                     seen.insert(key);
@@ -386,7 +390,11 @@ impl DepAuditDetector {
             }
         }
 
-        debug!("Parsed {} Pipfile.lock dependencies from {:?}", deps.len(), path);
+        debug!(
+            "Parsed {} Pipfile.lock dependencies from {:?}",
+            deps.len(),
+            path
+        );
         deps
     }
 
@@ -420,7 +428,11 @@ impl DepAuditDetector {
             }
         }
 
-        debug!("Parsed {} poetry.lock dependencies from {:?}", deps.len(), path);
+        debug!(
+            "Parsed {} poetry.lock dependencies from {:?}",
+            deps.len(),
+            path
+        );
         deps
     }
 
@@ -479,7 +491,8 @@ impl DepAuditDetector {
                 Ok(response) => {
                     let text = rt.block_on(async { response.text().await });
                     if let Ok(text) = text {
-                        if let Ok(batch_response) = serde_json::from_str::<OsvBatchResponse>(&text) {
+                        if let Ok(batch_response) = serde_json::from_str::<OsvBatchResponse>(&text)
+                        {
                             let offset = all_results.len();
                             for (i, result) in batch_response.results.into_iter().enumerate() {
                                 if !result.vulns.is_empty() {
@@ -545,7 +558,10 @@ impl Detector for DepAuditDetector {
             return Ok(vec![]);
         }
 
-        info!("Found {} dependencies across lockfiles, querying OSV.dev...", deps.len());
+        info!(
+            "Found {} dependencies across lockfiles, querying OSV.dev...",
+            deps.len()
+        );
 
         let vuln_results = self.query_osv(&deps);
 
@@ -715,10 +731,16 @@ version = "1.28.0"
 
     #[test]
     fn test_cvss_severity_mapping() {
-        assert_eq!(DepAuditDetector::cvss_to_severity("9.8"), Severity::Critical);
+        assert_eq!(
+            DepAuditDetector::cvss_to_severity("9.8"),
+            Severity::Critical
+        );
         assert_eq!(DepAuditDetector::cvss_to_severity("7.5"), Severity::High);
         assert_eq!(DepAuditDetector::cvss_to_severity("5.0"), Severity::Medium);
         assert_eq!(DepAuditDetector::cvss_to_severity("2.0"), Severity::Low);
-        assert_eq!(DepAuditDetector::cvss_to_severity("invalid"), Severity::Medium);
+        assert_eq!(
+            DepAuditDetector::cvss_to_severity("invalid"),
+            Severity::Medium
+        );
     }
 }

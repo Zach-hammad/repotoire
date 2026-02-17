@@ -351,9 +351,7 @@ impl RootCauseAnalyzer {
 
         if root_cause.severity == Severity::Critical || critical_count >= 1 {
             "CRITICAL".to_string()
-        } else if root_cause.severity == Severity::High || high_count >= 2 {
-            "HIGH".to_string()
-        } else if cascading.len() >= 3 {
+        } else if root_cause.severity == Severity::High || high_count >= 2 || cascading.len() >= 3 {
             "HIGH".to_string()
         } else if !cascading.is_empty() {
             "MEDIUM".to_string()

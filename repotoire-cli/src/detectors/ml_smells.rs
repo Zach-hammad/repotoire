@@ -70,7 +70,7 @@ fn manual_seed() -> &'static Regex {
 
 fn chain_index() -> &'static Regex {
     CHAIN_INDEX.get_or_init(|| {
-        // df['col1']['col2'] or df["col1"]["col2"] 
+        // df['col1']['col2'] or df["col1"]["col2"]
         Regex::new(r#"\w+\[['"][^'"]+['"]\]\s*\[['"][^'"]+['"]\]"#).unwrap()
     })
 }
@@ -83,7 +83,8 @@ fn pca_svm_call() -> &'static Regex {
 
 fn scaler_call() -> &'static Regex {
     SCALER_CALL.get_or_init(|| {
-        Regex::new(r"(?:StandardScaler|MinMaxScaler|RobustScaler|Normalizer|MaxAbsScaler)\s*\(").unwrap()
+        Regex::new(r"(?:StandardScaler|MinMaxScaler|RobustScaler|Normalizer|MaxAbsScaler)\s*\(")
+            .unwrap()
     })
 }
 
@@ -101,9 +102,8 @@ fn deprecated_torch() -> &'static Regex {
 }
 
 fn dataloader_shuffle() -> &'static Regex {
-    DATALOADER_SHUFFLE.get_or_init(|| {
-        Regex::new(r"DataLoader\s*\([^)]*shuffle\s*=\s*True").unwrap()
-    })
+    DATALOADER_SHUFFLE
+        .get_or_init(|| Regex::new(r"DataLoader\s*\([^)]*shuffle\s*=\s*True").unwrap())
 }
 
 fn eval_mode() -> &'static Regex {
@@ -473,11 +473,13 @@ impl Detector for ForwardMethodDetector {
                         // - self.forward() - calling own method within class
                         // - .remote().forward() - RPC pipeline parallelism
                         // - .rpc_async().forward() - async RPC
-                        if line.contains("super()") || line.contains("super(") 
+                        if line.contains("super()")
+                            || line.contains("super(")
                             || line.contains("self.forward")
                             || line.contains(".remote().forward")
                             || line.contains(".rpc_async().forward")
-                            || line.contains(".rpc_sync().forward") {
+                            || line.contains(".rpc_sync().forward")
+                        {
                             continue;
                         }
 
@@ -495,7 +497,8 @@ impl Detector for ForwardMethodDetector {
                             severity: Severity::Medium,
                             title: "Direct .forward() call instead of model()".to_string(),
                             description: "Calling model.forward() directly bypasses hooks \
-                                (forward_pre_hooks, forward_hooks). Use model() instead.".to_string(),
+                                (forward_pre_hooks, forward_hooks). Use model() instead."
+                                .to_string(),
                             affected_files: vec![path.to_path_buf()],
                             line_start: Some(line_num),
                             line_end: Some(line_num),
@@ -506,7 +509,8 @@ impl Detector for ForwardMethodDetector {
                                 output = model.forward(x)\n\n\
                                 # Use:\n\
                                 output = model(x)\n\
-                                ```".to_string()
+                                ```"
+                                .to_string(),
                             ),
                             estimated_effort: Some("5 minutes".to_string()),
                             category: Some("best-practice".to_string()),
@@ -515,7 +519,8 @@ impl Detector for ForwardMethodDetector {
                                 "PyTorch hooks (for debugging, profiling, gradient modification) \
                                 are only triggered when calling model() via __call__. Direct \
                                 forward() calls skip these hooks, breaking tools like SHAP, \
-                                GradCAM, and profilers.".to_string()
+                                GradCAM, and profilers."
+                                    .to_string(),
                             ),
                             ..Default::default()
                         });
@@ -546,19 +551,19 @@ impl MissingRandomSeedDetector {
     }
 
     fn is_ml_file(&self, content: &str) -> bool {
-        content.contains("torch") ||
-        content.contains("tensorflow") ||
-        content.contains("sklearn") ||
-        content.contains("keras") ||
-        content.contains("from transformers")
+        content.contains("torch")
+            || content.contains("tensorflow")
+            || content.contains("sklearn")
+            || content.contains("keras")
+            || content.contains("from transformers")
     }
 
     fn has_training_code(&self, content: &str) -> bool {
-        content.contains(".fit(") ||
-        content.contains(".train()") ||
-        content.contains(".backward(") ||
-        content.contains("train_loader") ||
-        content.contains("training_loop")
+        content.contains(".fit(")
+            || content.contains(".train()")
+            || content.contains(".backward(")
+            || content.contains("train_loader")
+            || content.contains("training_loop")
     }
 }
 
@@ -614,7 +619,8 @@ impl Detector for MissingRandomSeedDetector {
                         severity: Severity::Medium,
                         title: "ML training without random seed".to_string(),
                         description: "This file contains ML training code but doesn't set \
-                            random seeds. Results won't be reproducible.".to_string(),
+                            random seeds. Results won't be reproducible."
+                            .to_string(),
                         affected_files: vec![path.to_path_buf()],
                         line_start: Some(1),
                         line_end: Some(1),
@@ -632,7 +638,8 @@ impl Detector for MissingRandomSeedDetector {
                                 # For full determinism (slower):\n    \
                                 # torch.use_deterministic_algorithms(True)\n\n\
                             set_seed(42)\n\
-                            ```".to_string()
+                            ```"
+                            .to_string(),
                         ),
                         estimated_effort: Some("10 minutes".to_string()),
                         category: Some("reproducibility".to_string()),
@@ -640,7 +647,8 @@ impl Detector for MissingRandomSeedDetector {
                         why_it_matters: Some(
                             "Without fixed seeds, ML experiments aren't reproducible. Different \
                             runs produce different results, making debugging and comparison \
-                            impossible. This is a major issue for research and production ML.".to_string()
+                            impossible. This is a major issue for research and production ML."
+                                .to_string(),
                         ),
                         ..Default::default()
                     });
@@ -648,7 +656,10 @@ impl Detector for MissingRandomSeedDetector {
             }
         }
 
-        info!("MissingRandomSeedDetector found {} findings", findings.len());
+        info!(
+            "MissingRandomSeedDetector found {} findings",
+            findings.len()
+        );
         Ok(findings)
     }
 }
@@ -699,7 +710,10 @@ impl Detector for ChainIndexingDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 // Skip files that don't use pandas
-                if !content.contains("pandas") && !content.contains("import pd") && !content.contains("as pd") {
+                if !content.contains("pandas")
+                    && !content.contains("import pd")
+                    && !content.contains("as pd")
+                {
                     continue;
                 }
 
@@ -872,7 +886,10 @@ impl DeprecatedTorchApiDetector {
             "qr" => ("torch.linalg.qr()", "Deprecated, use linalg version"),
             "cholesky" => ("torch.linalg.cholesky()", "Deprecated, use linalg version"),
             "chain_matmul" => ("torch.linalg.multi_dot([a, b, c])", "Deprecated"),
-            "range" => ("torch.arange()", "Use arange (matches Python range semantics)"),
+            "range" => (
+                "torch.arange()",
+                "Use arange (matches Python range semantics)",
+            ),
             _ => ("See PyTorch docs", "Deprecated"),
         }
     }
@@ -953,7 +970,8 @@ impl Detector for DeprecatedTorchApiDetector {
                                 cwe_id: None,
                                 why_it_matters: Some(
                                     "Deprecated APIs may be removed in future PyTorch versions, \
-                                    breaking your code. Migrate now for forward compatibility.".to_string()
+                                    breaking your code. Migrate now for forward compatibility."
+                                        .to_string(),
                                 ),
                                 ..Default::default()
                             });
@@ -963,7 +981,10 @@ impl Detector for DeprecatedTorchApiDetector {
             }
         }
 
-        info!("DeprecatedTorchApiDetector found {} findings", findings.len());
+        info!(
+            "DeprecatedTorchApiDetector found {} findings",
+            findings.len()
+        );
         Ok(findings)
     }
 }
@@ -975,8 +996,8 @@ impl Detector for DeprecatedTorchApiDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn setup_test_file(content: &str) -> (TempDir, PathBuf) {
         let dir = TempDir::new().unwrap();

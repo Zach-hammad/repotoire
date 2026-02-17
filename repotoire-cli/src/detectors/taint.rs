@@ -670,7 +670,9 @@ impl TaintAnalyzer {
     pub fn is_sink(&self, func_name: &str, category: TaintCategory) -> bool {
         if let Some(sinks) = self.sinks.get(&category) {
             let name_lower = func_name.to_lowercase();
-            sinks.iter().any(|s| word_boundary_match(&name_lower, &s.to_lowercase()))
+            sinks
+                .iter()
+                .any(|s| word_boundary_match(&name_lower, &s.to_lowercase()))
         } else {
             false
         }
@@ -701,7 +703,11 @@ impl TaintAnalyzer {
     ///
     /// This uses BFS to find all paths from source functions to sink functions,
     /// tracking whether sanitizers are encountered along the way.
-    pub fn trace_taint(&self, graph: &dyn crate::graph::GraphQuery, category: TaintCategory) -> Vec<TaintPath> {
+    pub fn trace_taint(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        category: TaintCategory,
+    ) -> Vec<TaintPath> {
         let mut paths = Vec::new();
         let functions = graph.get_functions();
 

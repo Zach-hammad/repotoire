@@ -332,7 +332,12 @@ impl TaintDetector {
         }
 
         // Walk through all supported language files (#27 — was Python-only)
-        for path in walk_source_files(&self.repository_path, Some(&["py", "js", "jsx", "ts", "tsx", "go", "java", "kt", "rb", "rs", "c", "cpp", "cs"])) {
+        for path in walk_source_files(
+            &self.repository_path,
+            Some(&[
+                "py", "js", "jsx", "ts", "tsx", "go", "java", "kt", "rb", "rs", "c", "cpp", "cs",
+            ]),
+        ) {
             let rel_path = path
                 .strip_prefix(&self.repository_path)
                 .unwrap_or(&path)
@@ -596,9 +601,9 @@ impl Detector for TaintDetector {
         let mut seen: std::collections::HashSet<(String, u32)> = findings
             .iter()
             .filter_map(|f| {
-                f.affected_files.first().map(|p| {
-                    (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))
-                })
+                f.affected_files
+                    .first()
+                    .map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0)))
             })
             .collect();
 

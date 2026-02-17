@@ -41,9 +41,9 @@ impl DegreeCentralityDetector {
         Self {
             config: DetectorConfig::new(),
             high_complexity_threshold: 15,
-            min_total_degree: 50,      // Raised from 30 (too noisy for C code)
-            min_elevated_fanin: 15,    // Raised from 8
-            min_elevated_fanout: 15,   // Raised from 8
+            min_total_degree: 50,    // Raised from 30 (too noisy for C code)
+            min_elevated_fanin: 15,  // Raised from 8
+            min_elevated_fanout: 15, // Raised from 8
         }
     }
 
@@ -53,10 +53,15 @@ impl DegreeCentralityDetector {
         // Apply coupling multiplier to thresholds (higher multiplier = more lenient)
         let multiplier = config.coupling_multiplier;
         Self {
-            high_complexity_threshold: ((config.get_option_or("high_complexity_threshold", 15) as f64) * multiplier) as u32,
-            min_total_degree: ((config.get_option_or("min_total_degree", 30) as f64) * multiplier) as usize,
-            min_elevated_fanin: ((config.get_option_or("min_elevated_fanin", 8) as f64) * multiplier) as usize,
-            min_elevated_fanout: ((config.get_option_or("min_elevated_fanout", 8) as f64) * multiplier) as usize,
+            high_complexity_threshold: ((config.get_option_or("high_complexity_threshold", 15)
+                as f64)
+                * multiplier) as u32,
+            min_total_degree: ((config.get_option_or("min_total_degree", 30) as f64) * multiplier)
+                as usize,
+            min_elevated_fanin: ((config.get_option_or("min_elevated_fanin", 8) as f64)
+                * multiplier) as usize,
+            min_elevated_fanout: ((config.get_option_or("min_elevated_fanout", 8) as f64)
+                * multiplier) as usize,
             config,
         }
     }
@@ -110,36 +115,71 @@ impl DegreeCentralityDetector {
     /// Utility function patterns (designed to be highly connected)
     const UTILITY_PREFIXES: &[&str] = &[
         // Generic utility prefixes
-        "util_", "helper_", "common_", "core_", "base_", "lib_", "shared_",
+        "util_",
+        "helper_",
+        "common_",
+        "core_",
+        "base_",
+        "lib_",
+        "shared_",
         // Memory/allocation functions (core runtime, called everywhere)
-        "alloc_", "free_", "malloc_", "realloc_", "mem_",
+        "alloc_",
+        "free_",
+        "malloc_",
+        "realloc_",
+        "mem_",
         // Logging/debug (called from everywhere)
-        "log_", "debug_", "trace_", "info_", "warn_", "error_", "print_",
+        "log_",
+        "debug_",
+        "trace_",
+        "info_",
+        "warn_",
+        "error_",
+        "print_",
         // String/buffer operations
-        "str_", "buf_", "fmt_",
+        "str_",
+        "buf_",
+        "fmt_",
         // Common interpreter/runtime prefixes
-        "py_", "pyobject_", "_py",  // CPython
-        "lua_", "lual_", "luav_",   // Lua
-        "rb_", "ruby_",             // Ruby
-        "v8_", "js_",               // JavaScript engines
-        "g_", "gtk_", "gdk_",       // GLib/GTK
-        "uv_", "uv__",              // libuv
+        "py_",
+        "pyobject_",
+        "_py", // CPython
+        "lua_",
+        "lual_",
+        "luav_", // Lua
+        "rb_",
+        "ruby_", // Ruby
+        "v8_",
+        "js_", // JavaScript engines
+        "g_",
+        "gtk_",
+        "gdk_", // GLib/GTK
+        "uv_",
+        "uv__", // libuv
     ];
 
     /// Legacy name-based skip check (fallback when no context available)
     fn should_skip_by_name(&self, name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        
+
         // Skip utility function prefixes (designed to be called everywhere)
-        if Self::UTILITY_PREFIXES.iter().any(|p| name_lower.starts_with(p)) {
+        if Self::UTILITY_PREFIXES
+            .iter()
+            .any(|p| name_lower.starts_with(p))
+        {
             return true;
         }
 
         // Skip utility function suffixes
-        if name_lower.ends_with("_util") || name_lower.ends_with("_utils") 
-            || name_lower.ends_with("_helper") || name_lower.ends_with("_common")
-            || name_lower.ends_with("_cb") || name_lower.ends_with("_callback")
-            || name_lower.ends_with("_handler") || name_lower.ends_with("_hook") {
+        if name_lower.ends_with("_util")
+            || name_lower.ends_with("_utils")
+            || name_lower.ends_with("_helper")
+            || name_lower.ends_with("_common")
+            || name_lower.ends_with("_cb")
+            || name_lower.ends_with("_callback")
+            || name_lower.ends_with("_handler")
+            || name_lower.ends_with("_hook")
+        {
             return true;
         }
 
@@ -223,10 +263,10 @@ impl DegreeCentralityDetector {
                 if prefix.chars().all(|c| c.is_alphanumeric()) {
                     let prefix_lower = prefix.to_lowercase();
                     const COMMON_WORDS: &[&str] = &[
-                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del",
-                        "pop", "put", "run", "try", "end", "use", "for", "the", "and", "not",
-                        "dead", "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo",
-                        "bar", "baz", "qux", "call", "read", "load", "save", "send", "recv",
+                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del", "pop",
+                        "put", "run", "try", "end", "use", "for", "the", "and", "not", "dead",
+                        "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo", "bar", "baz",
+                        "qux", "call", "read", "load", "save", "send", "recv",
                     ];
                     if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
                         return true;
@@ -516,7 +556,7 @@ mod tests {
     fn test_new_detector() {
         let detector = DegreeCentralityDetector::new();
         assert_eq!(detector.high_complexity_threshold, 15);
-        assert_eq!(detector.min_elevated_fanin, 15);  // Raised from 8
+        assert_eq!(detector.min_elevated_fanin, 15); // Raised from 8
     }
 
     #[test]

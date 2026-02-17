@@ -30,7 +30,11 @@ fn normalize_path(path: &Path) -> String {
 }
 
 /// Filter findings by severity and limit
-pub(super) fn filter_findings(findings: &mut Vec<Finding>, severity: &Option<String>, top: Option<usize>) {
+pub(super) fn filter_findings(
+    findings: &mut Vec<Finding>,
+    severity: &Option<String>,
+    top: Option<usize>,
+) {
     if let Some(min_severity) = severity {
         let min = parse_severity(min_severity);
         findings.retain(|f| f.severity >= min);
@@ -54,8 +58,16 @@ pub(super) fn paginate_findings(
         (b.severity as u8)
             .cmp(&(a.severity as u8))
             .then_with(|| {
-                let a_file = a.affected_files.first().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-                let b_file = b.affected_files.first().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                let a_file = a
+                    .affected_files
+                    .first()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let b_file = b
+                    .affected_files
+                    .first()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 a_file.cmp(&b_file)
             })
             .then_with(|| a.line_start.cmp(&b.line_start))
@@ -201,7 +213,7 @@ pub(super) fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>>
     let data = std::fs::read_to_string(&findings_cache).ok()?;
     let json: serde_json::Value = serde_json::from_str(&data).ok()?;
     let findings_arr = json.get("findings")?.as_array()?;
-    
+
     let mut findings = Vec::new();
     for f in findings_arr {
         let severity = match f.get("severity")?.as_str()? {
@@ -211,31 +223,70 @@ pub(super) fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>>
             "low" => Severity::Low,
             _ => Severity::Info,
         };
-        
-        let affected_files: Vec<PathBuf> = f.get("affected_files")
+
+        let affected_files: Vec<PathBuf> = f
+            .get("affected_files")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(PathBuf::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(PathBuf::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        
+
         findings.push(Finding {
-            id: f.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            detector: f.get("detector").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            title: f.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            description: f.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            id: f
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            detector: f
+                .get("detector")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            title: f
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            description: f
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             severity,
             affected_files,
-            line_start: f.get("line_start").and_then(|v| v.as_u64()).map(|v| v as u32),
+            line_start: f
+                .get("line_start")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32),
             line_end: f.get("line_end").and_then(|v| v.as_u64()).map(|v| v as u32),
-            suggested_fix: f.get("suggested_fix").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            category: f.get("category").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            cwe_id: f.get("cwe_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            why_it_matters: f.get("why_it_matters").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            suggested_fix: f
+                .get("suggested_fix")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            category: f
+                .get("category")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            cwe_id: f
+                .get("cwe_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            why_it_matters: f
+                .get("why_it_matters")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
             confidence: f.get("confidence").and_then(|v| v.as_f64()),
             ..Default::default()
         });
     }
-    
-    tracing::debug!("Loaded {} post-processed findings from cache", findings.len());
+
+    tracing::debug!(
+        "Loaded {} post-processed findings from cache",
+        findings.len()
+    );
     Some(findings)
 }
 
@@ -309,18 +360,19 @@ pub(super) fn output_cached_results(
 ) -> Result<()> {
     // Apply skip-detector filter
     if !skip_detector.is_empty() {
-        let skip_set: std::collections::HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
+        let skip_set: std::collections::HashSet<&str> =
+            skip_detector.iter().map(|s| s.as_str()).collect();
         findings.retain(|f| !skip_set.contains(f.detector.as_str()));
     }
-    
+
     // Apply severity and top filters (same as normal path)
     filter_findings(&mut findings, severity, top);
-    
+
     // Paginate
     let (paginated_findings, pagination_info) = paginate_findings(findings.clone(), page, per_page);
-    
+
     let findings_summary = FindingsSummary::from_findings(&paginated_findings);
-    
+
     // Build health report with filtered+paginated findings
     let health_report = HealthReport {
         overall_score: cached_score.score,
@@ -334,7 +386,7 @@ pub(super) fn output_cached_results(
         total_functions: cached_score.total_functions,
         total_classes: cached_score.total_classes,
     };
-    
+
     // Use format_and_output for consistent behavior with normal path
     format_and_output(
         &health_report,
@@ -346,7 +398,7 @@ pub(super) fn output_cached_results(
         paginated_findings.len(),
         no_emoji,
     )?;
-    
+
     // Final summary (text only)
     if format != "json" && format != "sarif" {
         let elapsed = start_time.elapsed();
@@ -359,10 +411,10 @@ pub(super) fn output_cached_results(
             );
         }
     }
-    
+
     // CI/CD threshold check (use unfiltered findings for fail-on)
     check_fail_threshold(config_fail_on, &health_report)?;
-    
+
     Ok(())
 }
 

@@ -208,19 +208,19 @@ impl Detector for GlobalVariablesDetector {
             if !path.is_file() {
                 continue;
             }
-            
+
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py" | "js" | "ts") {
                 continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
-            
+
             // Skip bundled/generated code (path-based fallback first since we load content anyway)
             if crate::detectors::content_classifier::is_likely_bundled_path(&path_str) {
                 continue;
             }
-            
+
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 // Skip bundled/generated code (content-based detection)
                 if crate::detectors::content_classifier::is_bundled_code(&content)

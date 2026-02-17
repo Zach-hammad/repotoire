@@ -169,7 +169,11 @@ impl InsecureRandomDetector {
     }
 
     /// Find functions that use insecure random and are called by security-related code
-    fn find_security_callers(&self, graph: &dyn crate::graph::GraphQuery, func_name: &str) -> Vec<String> {
+    fn find_security_callers(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        func_name: &str,
+    ) -> Vec<String> {
         let mut security_callers = Vec::new();
 
         if let Some(func) = graph
@@ -197,7 +201,11 @@ impl InsecureRandomDetector {
     }
 
     /// Find containing function
-    fn find_containing_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
+    fn find_containing_function(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+        line: u32,
+    ) -> Option<String> {
         graph
             .get_functions()
             .into_iter()

@@ -50,7 +50,10 @@ impl Detector for XssDetector {
         // Run taint analysis for XSS
         let mut taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::Xss);
         let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &self.taint_analyzer, graph, TaintCategory::Xss, &self.repository_path,
+            &self.taint_analyzer,
+            graph,
+            TaintCategory::Xss,
+            &self.repository_path,
         );
         taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
@@ -73,7 +76,7 @@ impl Detector for XssDetector {
             if is_test_file(path) {
                 continue;
             }
-            
+
             // Skip framework internals (React/Vue/Angular core SSR code)
             let path_str_lower = path.to_string_lossy().to_lowercase();
             if path_str_lower.contains("fizzconfig")  // React SSR core

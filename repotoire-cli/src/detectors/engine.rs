@@ -27,9 +27,9 @@ use crate::detectors::context_hmm::{ContextClassifier, FunctionContext, Function
 use crate::detectors::function_context::{FunctionContextBuilder, FunctionContextMap};
 use crate::graph::GraphStore;
 use crate::models::Finding;
-use std::collections::HashMap;
 use anyhow::Result;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -123,7 +123,10 @@ impl DetectorEngine {
     }
 
     /// Get function contexts (builds them from graph if not already set)
-    pub fn get_or_build_contexts(&mut self, graph: &dyn crate::graph::GraphQuery) -> Arc<FunctionContextMap> {
+    pub fn get_or_build_contexts(
+        &mut self,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> Arc<FunctionContextMap> {
         if let Some(ref ctx) = self.function_contexts {
             return Arc::clone(ctx);
         }
@@ -142,7 +145,10 @@ impl DetectorEngine {
 
     /// Build HMM-based function contexts from the call graph
     /// This provides adaptive context classification per codebase
-    pub fn build_hmm_contexts(&mut self, graph: &dyn crate::graph::GraphQuery) -> Arc<HashMap<String, FunctionContext>> {
+    pub fn build_hmm_contexts(
+        &mut self,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> Arc<HashMap<String, FunctionContext>> {
         if let Some(ref ctx) = self.hmm_contexts {
             return Arc::clone(ctx);
         }
@@ -166,7 +172,7 @@ impl DetectorEngine {
 
         info!("Building HMM function contexts from graph...");
         let mut functions = graph.get_functions();
-        
+
         if functions.is_empty() {
             let empty = Arc::new(HashMap::new());
             self.hmm_contexts = Some(Arc::clone(&empty));
@@ -203,7 +209,7 @@ impl DetectorEngine {
             let fan_out = graph.get_callees(&func.qualified_name).len();
             max_fan_in = max_fan_in.max(fan_in);
             max_fan_out = max_fan_out.max(fan_out);
-            
+
             if let Some(c) = func.complexity() {
                 total_complexity += c;
                 complexity_count += 1;
@@ -228,12 +234,13 @@ impl DetectorEngine {
             let callers = graph.get_callers(&func.qualified_name);
             let fan_in = callers.len();
             let fan_out = graph.get_callees(&func.qualified_name).len();
-            let caller_files: std::collections::HashSet<_> = callers.iter()
-                .map(|c| &c.file_path)
-                .collect();
-            
+            let caller_files: std::collections::HashSet<_> =
+                callers.iter().map(|c| &c.file_path).collect();
+
             let loc = func.line_end.saturating_sub(func.line_start) + 1;
-            let address_taken = func.properties.get("address_taken")
+            let address_taken = func
+                .properties
+                .get("address_taken")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
@@ -282,7 +289,7 @@ impl DetectorEngine {
         }
 
         info!("Classified {} functions using HMM", contexts.len());
-        
+
         // Log distribution
         let mut counts = [0usize; 5];
         for ctx in contexts.values() {
@@ -305,7 +312,8 @@ impl DetectorEngine {
 
     /// Get context for a specific function
     pub fn get_function_context(&self, qualified_name: &str) -> Option<FunctionContext> {
-        self.hmm_contexts.as_ref()
+        self.hmm_contexts
+            .as_ref()
             .and_then(|ctx| ctx.get(qualified_name).copied())
     }
 
@@ -352,7 +360,7 @@ impl DetectorEngine {
 
         // Build function contexts (if not already set)
         let contexts = self.get_or_build_contexts(graph);
-        
+
         // Build HMM-based contexts for adaptive detection
         let hmm_contexts = self.build_hmm_contexts(graph);
 
@@ -443,7 +451,10 @@ impl DetectorEngine {
         all_findings = self.apply_hmm_context_filter(all_findings, &hmm_contexts, graph);
         let hmm_filtered = before_hmm - all_findings.len();
         if hmm_filtered > 0 {
-            info!("HMM context filter removed {} false positives", hmm_filtered);
+            info!(
+                "HMM context filter removed {} false positives",
+                hmm_filtered
+            );
         }
 
         // Sort by severity (highest first)
@@ -537,7 +548,7 @@ impl DetectorEngine {
     }
 
     /// Apply HMM-based context filtering to reduce false positives
-    /// 
+    ///
     /// - Skip coupling findings for UTILITY/HANDLER functions
     /// - Skip dead code findings for HANDLER functions
     /// - Downgrade severity for functions with lenient contexts
@@ -554,53 +565,60 @@ impl DetectorEngine {
             "FeatureEnvyDetector",
             "InappropriateIntimacyDetector",
         ];
-        
+
         // Detectors that should skip HANDLER functions
-        const DEAD_CODE_DETECTORS: &[&str] = &[
-            "UnreachableCodeDetector",
-            "DeadCodeDetector",
-        ];
+        const DEAD_CODE_DETECTORS: &[&str] = &["UnreachableCodeDetector", "DeadCodeDetector"];
 
         findings.retain(|finding| {
             // Try to get the function associated with this finding
             let func_name = self.extract_function_from_finding(finding, graph);
-            
+
             if let Some(name) = func_name {
                 if let Some(context) = hmm_contexts.get(&name) {
                     // Skip coupling findings for utility/handler/test functions
-                    if COUPLING_DETECTORS.iter().any(|d| finding.detector.contains(d))
-                        && context.skip_coupling() {
-                            debug!(
-                                "HMM filter: skipping coupling finding for {} (context: {:?})",
-                                name, context
-                            );
-                            return false;
-                        }
-                    
+                    if COUPLING_DETECTORS
+                        .iter()
+                        .any(|d| finding.detector.contains(d))
+                        && context.skip_coupling()
+                    {
+                        debug!(
+                            "HMM filter: skipping coupling finding for {} (context: {:?})",
+                            name, context
+                        );
+                        return false;
+                    }
+
                     // Skip dead code findings for handler functions
-                    if DEAD_CODE_DETECTORS.iter().any(|d| finding.detector.contains(d))
-                        && context.skip_dead_code() {
-                            debug!(
-                                "HMM filter: skipping dead code finding for {} (context: {:?})",
-                                name, context
-                            );
-                            return false;
-                        }
+                    if DEAD_CODE_DETECTORS
+                        .iter()
+                        .any(|d| finding.detector.contains(d))
+                        && context.skip_dead_code()
+                    {
+                        debug!(
+                            "HMM filter: skipping dead code finding for {} (context: {:?})",
+                            name, context
+                        );
+                        return false;
+                    }
                 }
             }
-            
+
             true
         });
-        
+
         findings
     }
 
     /// Try to extract the function qualified name from a finding
-    fn extract_function_from_finding(&self, finding: &Finding, graph: &dyn crate::graph::GraphQuery) -> Option<String> {
+    fn extract_function_from_finding(
+        &self,
+        finding: &Finding,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> Option<String> {
         // Try to find function by file path and line number
         if let (Some(file), Some(line)) = (finding.affected_files.first(), finding.line_start) {
             let file_str = file.to_string_lossy();
-            
+
             // Look up function in graph by location
             for func in graph.get_functions() {
                 if func.file_path == file_str && func.line_start <= line && func.line_end >= line {
@@ -608,7 +626,7 @@ impl DetectorEngine {
                 }
             }
         }
-        
+
         // Fallback: try to extract from title (e.g., "Dead function: func_name")
         if finding.title.contains(':') {
             let parts: Vec<&str> = finding.title.splitn(2, ':').collect();
@@ -622,7 +640,7 @@ impl DetectorEngine {
                 }
             }
         }
-        
+
         None
     }
 

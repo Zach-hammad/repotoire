@@ -190,7 +190,12 @@ impl RefusedBequestDetector {
     }
 
     /// Check if child class is used polymorphically (through parent type)
-    fn check_polymorphic_usage(&self, graph: &dyn crate::graph::GraphQuery, child_qn: &str, parent_qn: &str) -> bool {
+    fn check_polymorphic_usage(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        child_qn: &str,
+        parent_qn: &str,
+    ) -> bool {
         // Look for functions that reference the parent type and might receive child instances
         // This is heuristic - check if parent is used as parameter/return type in callers of child methods
 

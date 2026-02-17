@@ -183,8 +183,6 @@ impl Detector for UnhandledPromiseDetector {
                         // Calculate severity
                         let severity = if is_critical {
                             Severity::High // Critical path without error handling
-                        } else if calls_async {
-                            Severity::Medium // Calling known async without handling
                         } else {
                             Severity::Medium
                         };

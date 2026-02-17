@@ -90,7 +90,11 @@ impl InsecureCookieDetector {
     }
 
     /// Find containing function
-    fn find_containing_function(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> Option<String> {
+    fn find_containing_function(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+        line: u32,
+    ) -> Option<String> {
         graph
             .get_functions()
             .into_iter()

@@ -6,8 +6,8 @@
 use std::process::Command;
 
 fn repotoire_bin() -> String {
-    let path = std::env::var("REPOTOIRE_BIN")
-        .unwrap_or_else(|_| "target/release/repotoire".to_string());
+    let path =
+        std::env::var("REPOTOIRE_BIN").unwrap_or_else(|_| "target/release/repotoire".to_string());
     if !std::path::Path::new(&path).exists() {
         panic!(
             "Release binary not found at '{}'. Build with: cargo build --release",
@@ -130,12 +130,8 @@ fn run_analyze(dir: &std::path::Path, args: &[&str]) -> (std::process::ExitStatu
 }
 
 fn parse_json_findings(stdout: &str) -> Vec<serde_json::Value> {
-    let v: serde_json::Value = serde_json::from_str(stdout)
-        .expect("Should be valid JSON");
-    v["findings"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
+    let v: serde_json::Value = serde_json::from_str(stdout).expect("Should be valid JSON");
+    v["findings"].as_array().cloned().unwrap_or_default()
 }
 
 // ============================================================================
@@ -208,7 +204,12 @@ fn test_markdown_output_valid() {
     let out_file = dir.path().join("report.md");
     let (status, _, _) = run_analyze(
         dir.path(),
-        &["--format", "markdown", "--output", out_file.to_str().unwrap()],
+        &[
+            "--format",
+            "markdown",
+            "--output",
+            out_file.to_str().unwrap(),
+        ],
     );
     assert!(status.success(), "Markdown output should succeed");
     assert!(out_file.exists(), "Markdown file should be created");
@@ -331,8 +332,11 @@ fn test_score_is_present_and_valid() {
     assert!(grade.is_some(), "grade should be present");
     let g = grade.unwrap();
     assert!(
-        g.starts_with('A') || g.starts_with('B') || g.starts_with('C')
-            || g.starts_with('D') || g.starts_with('F'),
+        g.starts_with('A')
+            || g.starts_with('B')
+            || g.starts_with('C')
+            || g.starts_with('D')
+            || g.starts_with('F'),
         "Grade should start with A-F, got {:?}",
         g
     );
@@ -345,12 +349,18 @@ fn test_cached_score_is_present() {
     // Fresh run
     let (_, stdout1, _) = run_analyze(dir.path(), &["--format", "json"]);
     let v1: serde_json::Value = serde_json::from_str(&stdout1).expect("JSON valid");
-    assert!(v1["overall_score"].as_f64().is_some(), "Fresh score should exist");
+    assert!(
+        v1["overall_score"].as_f64().is_some(),
+        "Fresh score should exist"
+    );
 
     // Cached run
     let (_, stdout2, _) = run_analyze(dir.path(), &["--format", "json"]);
     let v2: serde_json::Value = serde_json::from_str(&stdout2).expect("JSON valid");
-    assert!(v2["overall_score"].as_f64().is_some(), "Cached score should exist");
+    assert!(
+        v2["overall_score"].as_f64().is_some(),
+        "Cached score should exist"
+    );
 
     // Scores should match
     assert_eq!(

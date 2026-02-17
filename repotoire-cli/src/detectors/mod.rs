@@ -90,7 +90,6 @@ mod risk_analyzer;
 mod root_cause_analyzer;
 mod voting_engine;
 
-mod gh_actions;
 mod boolean_trap;
 mod broad_exception;
 mod callback_hell;
@@ -101,21 +100,22 @@ mod cors_misconfig;
 mod dead_store;
 mod debug_code;
 mod deep_nesting;
+mod dep_audit;
 mod django_security;
 mod duplicate_code;
 mod empty_catch;
 mod express_security;
+mod gh_actions;
 mod global_variables;
 mod hardcoded_ips;
 mod hardcoded_timeout;
 mod implicit_coercion;
 mod inconsistent_returns;
-mod dep_audit;
 mod insecure_cookie;
-mod insecure_tls;
 mod insecure_crypto;
 mod insecure_deserialize;
 mod insecure_random;
+mod insecure_tls;
 mod jwt_weak;
 mod large_files;
 mod log_injection;
@@ -145,7 +145,9 @@ mod xss;
 mod xxe;
 
 // Re-export base types
-pub use base::{DetectionSummary, Detector, DetectorConfig, DetectorResult, DetectorScope, ProgressCallback};
+pub use base::{
+    DetectionSummary, Detector, DetectorConfig, DetectorResult, DetectorScope, ProgressCallback,
+};
 
 // Re-export engine
 pub use engine::{DetectorEngine, DetectorEngineBuilder};
@@ -182,9 +184,8 @@ pub use ml_smells::{
 
 // Re-export Rust-specific detectors
 pub use rust_smells::{
-    UnwrapWithoutContextDetector, UnsafeWithoutSafetyCommentDetector,
-    CloneInHotPathDetector, MissingMustUseDetector, BoxDynTraitDetector,
-    MutexPoisoningRiskDetector,
+    BoxDynTraitDetector, CloneInHotPathDetector, MissingMustUseDetector,
+    MutexPoisoningRiskDetector, UnsafeWithoutSafetyCommentDetector, UnwrapWithoutContextDetector,
 };
 
 // Re-export graph/architecture detectors
@@ -212,7 +213,7 @@ pub use health_delta::{
     estimate_batch_fix_impact, estimate_fix_impact, BatchHealthScoreDelta, HealthScoreDelta,
     HealthScoreDeltaCalculator, ImpactLevel, MetricsBreakdown,
 };
-pub use incremental_cache::{CachedScoreResult, CacheStats, IncrementalCache};
+pub use incremental_cache::{CacheStats, CachedScoreResult, IncrementalCache};
 pub use query_cache::{ClassData, FileData, FunctionData, QueryCache};
 pub use risk_analyzer::{analyze_compound_risks, RiskAnalyzer, RiskAssessment, RiskFactor};
 pub use root_cause_analyzer::{RootCauseAnalysis, RootCauseAnalyzer, RootCauseSummary};
@@ -220,7 +221,6 @@ pub use voting_engine::{
     ConfidenceMethod, ConsensusResult, DetectorWeight, SeverityResolution, VotingEngine,
     VotingStats, VotingStrategy,
 };
-
 
 pub use gh_actions::GHActionsInjectionDetector;
 
@@ -235,6 +235,7 @@ pub use cors_misconfig::CorsMisconfigDetector;
 pub use dead_store::DeadStoreDetector;
 pub use debug_code::DebugCodeDetector;
 pub use deep_nesting::DeepNestingDetector;
+pub use dep_audit::DepAuditDetector;
 pub use django_security::DjangoSecurityDetector;
 pub use duplicate_code::DuplicateCodeDetector;
 pub use empty_catch::EmptyCatchDetector;
@@ -244,12 +245,11 @@ pub use hardcoded_ips::HardcodedIpsDetector;
 pub use hardcoded_timeout::HardcodedTimeoutDetector;
 pub use implicit_coercion::ImplicitCoercionDetector;
 pub use inconsistent_returns::InconsistentReturnsDetector;
-pub use dep_audit::DepAuditDetector;
 pub use insecure_cookie::InsecureCookieDetector;
-pub use insecure_tls::InsecureTlsDetector;
 pub use insecure_crypto::InsecureCryptoDetector;
 pub use insecure_deserialize::InsecureDeserializeDetector;
 pub use insecure_random::InsecureRandomDetector;
+pub use insecure_tls::InsecureTlsDetector;
 pub use jwt_weak::JwtWeakDetector;
 pub use large_files::LargeFilesDetector;
 pub use log_injection::LogInjectionDetector;
@@ -318,16 +318,28 @@ pub fn default_detectors_with_config(
         // Core detectors (with project config support)
         Arc::new(CircularDependencyDetector::new()),
         Arc::new(GodClassDetector::with_config(
-            DetectorConfig::from_project_config_with_type("GodClassDetector", project_config, repository_path),
+            DetectorConfig::from_project_config_with_type(
+                "GodClassDetector",
+                project_config,
+                repository_path,
+            ),
         )),
         Arc::new(LongParameterListDetector::with_config(
-            DetectorConfig::from_project_config_with_type("LongParameterListDetector", project_config, repository_path),
+            DetectorConfig::from_project_config_with_type(
+                "LongParameterListDetector",
+                project_config,
+                repository_path,
+            ),
         )),
         // Code smell detectors
         Arc::new(DataClumpsDetector::new()),
         Arc::new(DeadCodeDetector::new()),
         Arc::new(FeatureEnvyDetector::with_config(
-            DetectorConfig::from_project_config_with_type("FeatureEnvyDetector", project_config, repository_path),
+            DetectorConfig::from_project_config_with_type(
+                "FeatureEnvyDetector",
+                project_config,
+                repository_path,
+            ),
         )),
         Arc::new(InappropriateIntimacyDetector::new()),
         Arc::new(LazyClassDetector::new()),
@@ -354,12 +366,20 @@ pub fn default_detectors_with_config(
         Arc::new(ArchitecturalBottleneckDetector::new()),
         Arc::new(CoreUtilityDetector::new()),
         Arc::new(DegreeCentralityDetector::with_config(
-            DetectorConfig::from_project_config_with_type("DegreeCentralityDetector", project_config, repository_path),
+            DetectorConfig::from_project_config_with_type(
+                "DegreeCentralityDetector",
+                project_config,
+                repository_path,
+            ),
         )),
         Arc::new(InfluentialCodeDetector::new()),
         Arc::new(ModuleCohesionDetector::new()),
         Arc::new(ShotgunSurgeryDetector::with_config(
-            DetectorConfig::from_project_config_with_type("ShotgunSurgeryDetector", project_config, repository_path),
+            DetectorConfig::from_project_config_with_type(
+                "ShotgunSurgeryDetector",
+                project_config,
+                repository_path,
+            ),
         )),
         // Security detectors (need repository path for file scanning)
         Arc::new(EvalDetector::with_repository_path(

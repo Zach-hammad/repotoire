@@ -127,7 +127,7 @@ pub(super) fn run_detectors(
             return Ok(cached_findings);
         }
     }
-    
+
     if !quiet_mode {
         let det_icon = if no_emoji { "" } else { "🕵️  " };
         println!("\n{}Running detectors...", style(det_icon).bold());
@@ -162,12 +162,10 @@ pub(super) fn run_detectors(
         style(engine.detector_count()).cyan(),
         style(findings.len()).cyan(),
     ));
-    
-    // Cache the findings for next run
+
+    // Update graph hash for cache validation (findings cached after postprocessing, #65)
     let graph_hash = cache.compute_all_files_hash(all_files);
     cache.update_graph_hash(&graph_hash);
-    // Store all findings under a combined key
-    cache.cache_graph_findings("__all__", &findings);
     let _ = cache.save_cache();
 
     Ok(findings)
@@ -190,7 +188,7 @@ pub(super) fn run_detectors_streaming(
     no_emoji: bool,
 ) -> Result<Vec<Finding>> {
     use crate::detectors::streaming_engine::{run_streaming_detection, StreamingDetectorEngine};
-    
+
     if !quiet_mode {
         let stream_icon2 = if no_emoji { "" } else { "🌊 " };
         println!(
@@ -198,12 +196,12 @@ pub(super) fn run_detectors_streaming(
             style(stream_icon2).bold()
         );
     }
-    
+
     let detector_bar = multi.add(ProgressBar::new_spinner());
     detector_bar.set_style(spinner_style.clone());
     detector_bar.set_message("Streaming detection...");
     detector_bar.enable_steady_tick(std::time::Duration::from_millis(100));
-    
+
     let (stats, findings_path) = run_streaming_detection(
         graph,
         repo_path,
@@ -215,18 +213,18 @@ pub(super) fn run_detectors_streaming(
             detector_bar.set_message(format!("[{}/{}] {}...", done, total, name));
         }),
     )?;
-    
+
     detector_bar.finish_with_message(format!(
         "{}Streaming detection: {} detectors, {}",
         style("✓ ").green(),
         style(stats.detectors_run).cyan(),
         style(stats.summary()).cyan(),
     ));
-    
+
     // For scoring, load high-severity findings only (keeps memory bounded)
     let engine = StreamingDetectorEngine::new(findings_path.clone());
     let high_findings = engine.read_high_severity()?;
-    
+
     if !quiet_mode {
         println!(
             "  {} Loaded {} high+ findings for scoring (full results in {})",
@@ -235,7 +233,7 @@ pub(super) fn run_detectors_streaming(
             findings_path.display()
         );
     }
-    
+
     Ok(high_findings)
 }
 
@@ -316,7 +314,10 @@ pub(super) fn update_incremental_cache(
 }
 
 /// Apply detector config overrides from project config
-pub(super) fn apply_detector_overrides(findings: &mut Vec<Finding>, project_config: &ProjectConfig) {
+pub(super) fn apply_detector_overrides(
+    findings: &mut Vec<Finding>,
+    project_config: &ProjectConfig,
+) {
     if project_config.detectors.is_empty() {
         return;
     }

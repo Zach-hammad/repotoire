@@ -73,7 +73,7 @@ pub(super) fn parse_files(
             }
         })
         .collect();
-    
+
     let hits = cache_hits.load(Ordering::Relaxed);
 
     let total_functions: usize = parse_results.iter().map(|(_, r)| r.functions.len()).sum();
@@ -84,7 +84,7 @@ pub(super) fn parse_files(
     } else {
         String::new()
     };
-    
+
     parse_bar.finish_with_message(format!(
         "{}Parsed {} files ({} functions, {} classes){}",
         style("✓ ").green(),
@@ -168,7 +168,7 @@ pub(super) fn parse_files_chunked(
     for (chunk_idx, chunk) in files.chunks(chunk_size).enumerate() {
         let counter = AtomicUsize::new(0);
         let chunk_start = chunk_idx * chunk_size;
-        
+
         let chunk_results: Vec<(PathBuf, ParseResult)> = chunk
             .par_iter()
             .filter_map(|file_path| {
@@ -207,7 +207,7 @@ pub(super) fn parse_files_chunked(
             total_classes += result.classes.len();
             all_results.push((path, result));
         }
-        
+
         // Hint to the allocator we're done with this chunk's temp memory
         // (This helps on some systems but may not make a huge difference)
     }

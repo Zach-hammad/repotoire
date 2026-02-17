@@ -83,7 +83,10 @@ impl GeneratorMisuseDetector {
     }
 
     /// Find all generators that are immediately converted to list
-    fn find_list_wrapped_generators(&self, _graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
+    fn find_list_wrapped_generators(
+        &self,
+        _graph: &dyn crate::graph::GraphQuery,
+    ) -> HashSet<String> {
         let mut wrapped = HashSet::new();
 
         let walker = ignore::WalkBuilder::new(&self.repository_path)

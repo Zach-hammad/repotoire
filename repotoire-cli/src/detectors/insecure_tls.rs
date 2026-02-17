@@ -16,43 +16,143 @@ use tracing::{debug, info};
 
 /// Patterns that indicate insecure TLS/certificate validation
 const PYTHON_PATTERNS: &[(&str, &str, Severity)] = &[
-    ("verify=False", "requests/urllib call with certificate verification disabled", Severity::High),
-    ("verify = False", "requests/urllib call with certificate verification disabled", Severity::High),
-    ("CERT_NONE", "SSL context with no certificate verification", Severity::Critical),
-    ("check_hostname = False", "SSL hostname verification disabled", Severity::High),
-    ("check_hostname=False", "SSL hostname verification disabled", Severity::High),
-    ("InsecureRequestWarning", "urllib3 insecure request warning suppressed", Severity::Medium),
-    ("create_default_context", "Custom SSL context (verify usage)", Severity::Low), // only if combined with CERT_NONE
+    (
+        "verify=False",
+        "requests/urllib call with certificate verification disabled",
+        Severity::High,
+    ),
+    (
+        "verify = False",
+        "requests/urllib call with certificate verification disabled",
+        Severity::High,
+    ),
+    (
+        "CERT_NONE",
+        "SSL context with no certificate verification",
+        Severity::Critical,
+    ),
+    (
+        "check_hostname = False",
+        "SSL hostname verification disabled",
+        Severity::High,
+    ),
+    (
+        "check_hostname=False",
+        "SSL hostname verification disabled",
+        Severity::High,
+    ),
+    (
+        "InsecureRequestWarning",
+        "urllib3 insecure request warning suppressed",
+        Severity::Medium,
+    ),
+    (
+        "create_default_context",
+        "Custom SSL context (verify usage)",
+        Severity::Low,
+    ), // only if combined with CERT_NONE
 ];
 
 const JS_PATTERNS: &[(&str, &str, Severity)] = &[
-    ("rejectUnauthorized: false", "TLS certificate verification disabled", Severity::High),
-    ("rejectUnauthorized:false", "TLS certificate verification disabled", Severity::High),
-    ("rejectUnauthorized : false", "TLS certificate verification disabled", Severity::High),
-    ("NODE_TLS_REJECT_UNAUTHORIZED", "Environment variable to disable TLS verification", Severity::Critical),
-    ("process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'", "TLS verification disabled via environment", Severity::Critical),
-    ("process.env.NODE_TLS_REJECT_UNAUTHORIZED = \"0\"", "TLS verification disabled via environment", Severity::Critical),
-    ("agent: new https.Agent", "Custom HTTPS agent (check rejectUnauthorized)", Severity::Low),
+    (
+        "rejectUnauthorized: false",
+        "TLS certificate verification disabled",
+        Severity::High,
+    ),
+    (
+        "rejectUnauthorized:false",
+        "TLS certificate verification disabled",
+        Severity::High,
+    ),
+    (
+        "rejectUnauthorized : false",
+        "TLS certificate verification disabled",
+        Severity::High,
+    ),
+    (
+        "NODE_TLS_REJECT_UNAUTHORIZED",
+        "Environment variable to disable TLS verification",
+        Severity::Critical,
+    ),
+    (
+        "process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'",
+        "TLS verification disabled via environment",
+        Severity::Critical,
+    ),
+    (
+        "process.env.NODE_TLS_REJECT_UNAUTHORIZED = \"0\"",
+        "TLS verification disabled via environment",
+        Severity::Critical,
+    ),
+    (
+        "agent: new https.Agent",
+        "Custom HTTPS agent (check rejectUnauthorized)",
+        Severity::Low,
+    ),
 ];
 
 const GO_PATTERNS: &[(&str, &str, Severity)] = &[
-    ("InsecureSkipVerify: true", "TLS certificate verification skipped", Severity::High),
-    ("InsecureSkipVerify:true", "TLS certificate verification skipped", Severity::High),
+    (
+        "InsecureSkipVerify: true",
+        "TLS certificate verification skipped",
+        Severity::High,
+    ),
+    (
+        "InsecureSkipVerify:true",
+        "TLS certificate verification skipped",
+        Severity::High,
+    ),
 ];
 
 const JAVA_PATTERNS: &[(&str, &str, Severity)] = &[
-    ("TrustAllCerts", "Trust-all certificate manager (no validation)", Severity::Critical),
-    ("X509TrustManager", "Custom trust manager (may bypass validation)", Severity::Medium),
-    ("ALLOW_ALL_HOSTNAME_VERIFIER", "Hostname verification disabled", Severity::High),
-    ("NoopHostnameVerifier", "Hostname verification disabled", Severity::High),
-    ("setHostnameVerifier(allHostsValid)", "Hostname verification disabled", Severity::High),
-    ("SSLContext.getInstance(\"SSL\")", "Outdated SSL protocol (use TLS)", Severity::Medium),
+    (
+        "TrustAllCerts",
+        "Trust-all certificate manager (no validation)",
+        Severity::Critical,
+    ),
+    (
+        "X509TrustManager",
+        "Custom trust manager (may bypass validation)",
+        Severity::Medium,
+    ),
+    (
+        "ALLOW_ALL_HOSTNAME_VERIFIER",
+        "Hostname verification disabled",
+        Severity::High,
+    ),
+    (
+        "NoopHostnameVerifier",
+        "Hostname verification disabled",
+        Severity::High,
+    ),
+    (
+        "setHostnameVerifier(allHostsValid)",
+        "Hostname verification disabled",
+        Severity::High,
+    ),
+    (
+        "SSLContext.getInstance(\"SSL\")",
+        "Outdated SSL protocol (use TLS)",
+        Severity::Medium,
+    ),
 ];
 
 const RUST_PATTERNS: &[(&str, &str, Severity)] = &[
-    ("danger_accept_invalid_certs(true)", "Certificate validation disabled (reqwest)", Severity::High),
-    ("danger_accept_invalid_hostnames(true)", "Hostname validation disabled (reqwest)", Severity::High),
-    ("set_verify(SslVerifyMode::NONE)", "OpenSSL verification disabled", Severity::High),
+    (
+        "danger_accept_invalid_certs(true)",
+        "Certificate validation disabled (reqwest)",
+        Severity::High,
+    ),
+    (
+        "danger_accept_invalid_hostnames(true)",
+        "Hostname validation disabled (reqwest)",
+        Severity::High,
+    ),
+    (
+        "set_verify(SslVerifyMode::NONE)",
+        "OpenSSL verification disabled",
+        Severity::High,
+    ),
 ];
 
 pub struct InsecureTlsDetector {
@@ -89,7 +189,9 @@ impl InsecureTlsDetector {
             return findings;
         }
 
-        let extensions = &["py", "pyi", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "kt", "kts", "rs"];
+        let extensions = &[
+            "py", "pyi", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "kt", "kts", "rs",
+        ];
 
         for path in walk_source_files(&self.repository_path, Some(extensions)) {
             if findings.len() >= self.max_findings {
@@ -126,12 +228,17 @@ impl InsecureTlsDetector {
                 let trimmed = line.trim();
 
                 // Skip comments
-                if trimmed.starts_with('#') || trimmed.starts_with("//") || trimmed.starts_with('*') {
+                if trimmed.starts_with('#') || trimmed.starts_with("//") || trimmed.starts_with('*')
+                {
                     continue;
                 }
 
                 // Check suppression
-                let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                let prev_line = if line_no > 0 {
+                    Some(lines[line_no - 1])
+                } else {
+                    None
+                };
                 if crate::detectors::is_line_suppressed(line, prev_line) {
                     continue;
                 }
@@ -147,12 +254,20 @@ impl InsecureTlsDetector {
                     }
 
                     // For "InsecureRequestWarning", only flag if it's being suppressed
-                    if *pattern == "InsecureRequestWarning" && !line.contains("disable") && !line.contains("filter") && !line.contains("suppress") {
+                    if *pattern == "InsecureRequestWarning"
+                        && !line.contains("disable")
+                        && !line.contains("filter")
+                        && !line.contains("suppress")
+                    {
                         continue;
                     }
 
                     // For X509TrustManager, only flag if it's implementing a custom one
-                    if *pattern == "X509TrustManager" && !line.contains("implements") && !line.contains("new") && !line.contains("class") {
+                    if *pattern == "X509TrustManager"
+                        && !line.contains("implements")
+                        && !line.contains("new")
+                        && !line.contains("class")
+                    {
                         continue;
                     }
 
@@ -190,7 +305,12 @@ impl InsecureTlsDetector {
                     };
 
                     findings.push(Finding {
-                        id: deterministic_finding_id("InsecureTlsDetector", &rel_path, line_num, description),
+                        id: deterministic_finding_id(
+                            "InsecureTlsDetector",
+                            &rel_path,
+                            line_num,
+                            description,
+                        ),
                         detector: "InsecureTlsDetector".to_string(),
                         title: format!("Insecure TLS/Certificate Validation ({})", language),
                         description: format!(
@@ -206,7 +326,11 @@ impl InsecureTlsDetector {
                             rel_path,
                             line_num,
                             trimmed.chars().take(120).collect::<String>(),
-                            if is_test { "\n\n*Note: Found in test file — severity reduced.*" } else { "" },
+                            if is_test {
+                                "\n\n*Note: Found in test file — severity reduced.*"
+                            } else {
+                                ""
+                            },
                         ),
                         severity: effective_severity,
                         affected_files: vec![PathBuf::from(&rel_path)],
@@ -240,7 +364,8 @@ impl InsecureTlsDetector {
                 } else if pattern.contains("check_hostname") {
                     "Set `check_hostname = True` (default in Python 3.4+).".to_string()
                 } else {
-                    "Enable certificate verification. Never disable TLS validation in production.".to_string()
+                    "Enable certificate verification. Never disable TLS validation in production."
+                        .to_string()
                 }
             }
             "javascript" | "typescript" => {
@@ -254,12 +379,20 @@ impl InsecureTlsDetector {
                 }
             }
             "go" => "Remove `InsecureSkipVerify: true` from tls.Config. For self-signed certs, \
-                     provide a custom CA pool via `RootCAs`.".to_string(),
-            "java" | "kotlin" => "Use the default TrustManager and HostnameVerifier. For self-signed certs, \
-                     add the CA to your trust store.".to_string(),
-            "rust" => "Remove `danger_accept_invalid_certs(true)`. For self-signed certs, add the CA \
-                     to the client builder via `add_root_certificate()`.".to_string(),
-            _ => "Enable certificate verification. Never disable TLS validation in production.".to_string(),
+                     provide a custom CA pool via `RootCAs`."
+                .to_string(),
+            "java" | "kotlin" => {
+                "Use the default TrustManager and HostnameVerifier. For self-signed certs, \
+                     add the CA to your trust store."
+                    .to_string()
+            }
+            "rust" => {
+                "Remove `danger_accept_invalid_certs(true)`. For self-signed certs, add the CA \
+                     to the client builder via `add_root_certificate()`."
+                    .to_string()
+            }
+            _ => "Enable certificate verification. Never disable TLS validation in production."
+                .to_string(),
         }
     }
 }
@@ -302,18 +435,29 @@ mod tests {
     fn test_js_reject_unauthorized() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("client.js");
-        std::fs::write(&file, "const agent = new https.Agent({ rejectUnauthorized: false });\n").unwrap();
+        std::fs::write(
+            &file,
+            "const agent = new https.Agent({ rejectUnauthorized: false });\n",
+        )
+        .unwrap();
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
-        assert!(!findings.is_empty(), "Should detect rejectUnauthorized: false");
+        assert!(
+            !findings.is_empty(),
+            "Should detect rejectUnauthorized: false"
+        );
     }
 
     #[test]
     fn test_go_insecure_skip_verify() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("client.go");
-        std::fs::write(&file, "tlsConfig := &tls.Config{InsecureSkipVerify: true}\n").unwrap();
+        std::fs::write(
+            &file,
+            "tlsConfig := &tls.Config{InsecureSkipVerify: true}\n",
+        )
+        .unwrap();
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -324,18 +468,29 @@ mod tests {
     fn test_rust_danger_accept() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("client.rs");
-        std::fs::write(&file, "let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build()?;\n").unwrap();
+        std::fs::write(
+            &file,
+            "let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build()?;\n",
+        )
+        .unwrap();
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
-        assert!(!findings.is_empty(), "Should detect danger_accept_invalid_certs");
+        assert!(
+            !findings.is_empty(),
+            "Should detect danger_accept_invalid_certs"
+        );
     }
 
     #[test]
     fn test_java_trust_all() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("Client.java");
-        std::fs::write(&file, "TrustManager[] trustAllCerts = new TrustAllCerts();\n").unwrap();
+        std::fs::write(
+            &file,
+            "TrustManager[] trustAllCerts = new TrustAllCerts();\n",
+        )
+        .unwrap();
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -353,14 +508,22 @@ mod tests {
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
         assert!(!findings.is_empty(), "Should still detect in test files");
-        assert_eq!(findings[0].severity, Severity::Low, "Should be downgraded in tests");
+        assert_eq!(
+            findings[0].severity,
+            Severity::Low,
+            "Should be downgraded in tests"
+        );
     }
 
     #[test]
     fn test_clean_code_no_findings() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("client.py");
-        std::fs::write(&file, "response = requests.get(url)\nprint(response.status_code)\n").unwrap();
+        std::fs::write(
+            &file,
+            "response = requests.get(url)\nprint(response.status_code)\n",
+        )
+        .unwrap();
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -375,6 +538,10 @@ mod tests {
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
-        assert!(findings.len() >= 2, "Should detect both check_hostname and CERT_NONE. Found: {}", findings.len());
+        assert!(
+            findings.len() >= 2,
+            "Should detect both check_hostname and CERT_NONE. Found: {}",
+            findings.len()
+        );
     }
 }

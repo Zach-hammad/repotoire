@@ -3,15 +3,14 @@
 //! Pure Rust implementation using petgraph + redb.
 //! No C++ dependencies - builds everywhere!
 
+pub mod compact_builder;
+pub mod compact_store;
+pub mod interner;
 pub mod store;
 pub mod streaming_builder;
-pub mod interner;
-pub mod compact_store;
-pub mod compact_builder;
 pub mod traits;
 
 pub use store::{CodeEdge, CodeNode, EdgeKind, GraphStore, NodeKind};
-
 
 pub use traits::GraphQuery;
 

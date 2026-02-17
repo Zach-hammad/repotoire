@@ -277,16 +277,10 @@ impl Detector for XxeDetector {
                     // Get function context
                     let func_context =
                         Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-                    let is_externally_callable = func_context
-                        .as_ref()
-                        .map(|(_, external)| *external)
-                        .unwrap_or(false);
 
                     // Calculate severity
                     let severity = if has_user_input {
                         Severity::Critical // User input directly to XML parser
-                    } else if is_externally_callable {
-                        Severity::High // Called from routes/handlers
                     } else {
                         Severity::High // XXE is always serious
                     };
@@ -340,17 +334,32 @@ impl Detector for XxeDetector {
         let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
         let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
             // XXE is closer to PathTraversal (file disclosure) than CodeInjection (#16)
-            &taint_analyzer, graph, crate::detectors::taint::TaintCategory::PathTraversal, &self.repository_path,
+            &taint_analyzer,
+            graph,
+            crate::detectors::taint::TaintCategory::PathTraversal,
+            &self.repository_path,
         );
         let mut seen: std::collections::HashSet<(String, u32)> = findings
             .iter()
-            .filter_map(|f| f.affected_files.first().map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))))
+            .filter_map(|f| {
+                f.affected_files
+                    .first()
+                    .map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0)))
+            })
             .collect();
         for path in intra_paths.iter().filter(|p| !p.is_sanitized) {
             let loc = (path.sink_file.clone(), path.sink_line);
-            if !seen.insert(loc) { continue; }
-            findings.push(crate::detectors::data_flow::taint_path_to_finding(path, "XxeDetector", "XML External Entity Injection"));
-            if findings.len() >= self.max_findings { break; }
+            if !seen.insert(loc) {
+                continue;
+            }
+            findings.push(crate::detectors::data_flow::taint_path_to_finding(
+                path,
+                "XxeDetector",
+                "XML External Entity Injection",
+            ));
+            if findings.len() >= self.max_findings {
+                break;
+            }
         }
 
         info!(

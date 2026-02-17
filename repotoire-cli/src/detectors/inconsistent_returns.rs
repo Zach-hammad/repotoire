@@ -27,7 +27,10 @@ impl InconsistentReturnsDetector {
     }
 
     /// Check if any caller uses the return value
-    fn return_value_is_used(graph: &dyn crate::graph::GraphQuery, func: &crate::graph::CodeNode) -> (bool, usize) {
+    fn return_value_is_used(
+        graph: &dyn crate::graph::GraphQuery,
+        func: &crate::graph::CodeNode,
+    ) -> (bool, usize) {
         let callers = graph.get_callers(&func.qualified_name);
         let mut callers_using_value = 0;
 
@@ -91,9 +94,7 @@ impl InconsistentReturnsDetector {
                     || trimmed == "return;"
                     || trimmed.starts_with("return;")
                     || trimmed.starts_with("return\n")
-                {
-                    has_return_none = true;
-                } else if trimmed.contains("return None")
+                    || trimmed.contains("return None")
                     || trimmed.contains("return null")
                     || trimmed.contains("return undefined")
                 {
@@ -167,8 +168,6 @@ impl Detector for InconsistentReturnsDetector {
                     // Calculate severity
                     let severity = if value_is_used {
                         Severity::High // Callers expect a value!
-                    } else if caller_count > 3 {
-                        Severity::Medium // Many callers, potential bug
                     } else {
                         Severity::Medium
                     };

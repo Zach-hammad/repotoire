@@ -176,9 +176,7 @@ impl AIComplexitySpikeDetector {
     /// Create a Finding from a ComplexitySpike
     fn create_finding(&self, spike: &ComplexitySpike, baseline: &CodebaseBaseline) -> Finding {
         // Severity based on z-score and delta
-        let severity = if spike.z_score >= 3.0 || spike.complexity_delta >= 20 {
-            Severity::High
-        } else if spike.z_score >= 2.5 || spike.complexity_delta >= 15 {
+        let severity = if spike.z_score >= 2.5 || spike.complexity_delta >= 15 {
             Severity::High
         } else {
             Severity::Medium
@@ -325,10 +323,10 @@ impl AIComplexitySpikeDetector {
                 if prefix.chars().all(|c| c.is_alphanumeric()) {
                     let prefix_lower = prefix.to_lowercase();
                     const COMMON_WORDS: &[&str] = &[
-                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del",
-                        "pop", "put", "run", "try", "end", "use", "for", "the", "and", "not",
-                        "dead", "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo",
-                        "bar", "baz", "qux", "call", "read", "load", "save", "send", "recv",
+                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del", "pop",
+                        "put", "run", "try", "end", "use", "for", "the", "and", "not", "dead",
+                        "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo", "bar", "baz",
+                        "qux", "call", "read", "load", "save", "send", "recv",
                     ];
                     if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
                         return true;
@@ -419,27 +417,35 @@ impl Detector for AIComplexitySpikeDetector {
             {
                 continue;
             }
-            
+
             // Skip bundled/generated code: path check (semantic) + content check (additional)
             if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
                 continue;
             }
-            
+
             // Compiler/AST code gets higher threshold by path
-            let is_compiler_path = crate::detectors::content_classifier::is_compiler_code_path(&func.file_path);
-            
+            let is_compiler_path =
+                crate::detectors::content_classifier::is_compiler_code_path(&func.file_path);
+
             let mut is_ast_code = is_compiler_path;
-            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+            if let Some(content) =
+                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+            {
                 if crate::detectors::content_classifier::is_bundled_code(&content)
                     || crate::detectors::content_classifier::is_minified_code(&content)
-                    || crate::detectors::content_classifier::is_fixture_code(&func.file_path, &content)
+                    || crate::detectors::content_classifier::is_fixture_code(
+                        &func.file_path,
+                        &content,
+                    )
                 {
                     continue;
                 }
-                
+
                 // Also check content for AST manipulation patterns
                 if !is_ast_code {
-                    is_ast_code = crate::detectors::content_classifier::is_ast_manipulation_code(&func.name, &content);
+                    is_ast_code = crate::detectors::content_classifier::is_ast_manipulation_code(
+                        &func.name, &content,
+                    );
                 }
             }
 
@@ -450,10 +456,14 @@ impl Detector for AIComplexitySpikeDetector {
 
             if let Some(complexity) = func.complexity() {
                 // Apply higher threshold for AST/compiler code (legitimately complex)
-            let effective_threshold = if is_ast_code { threshold * 1.5 } else { threshold };
-            let min_complexity = if is_ast_code { 35 } else { 20 };
-            
-            if complexity as f64 > effective_threshold && complexity > min_complexity {
+                let effective_threshold = if is_ast_code {
+                    threshold * 1.5
+                } else {
+                    threshold
+                };
+                let min_complexity = if is_ast_code { 35 } else { 20 };
+
+                if complexity as f64 > effective_threshold && complexity > min_complexity {
                     let z_score = (complexity as f64 - avg) / std_dev;
 
                     let severity = if z_score > 3.0 {

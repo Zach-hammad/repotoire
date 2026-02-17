@@ -418,7 +418,13 @@ fn extract_address_taken_recursive(
                 if child.kind() == "init_declarator" {
                     // Process the value/initializer, not the name
                     if let Some(value) = child.child_by_field_name("value") {
-                        extract_address_taken_recursive(&value, source, function_names, result, false);
+                        extract_address_taken_recursive(
+                            &value,
+                            source,
+                            function_names,
+                            result,
+                            false,
+                        );
                     }
                 }
             }
@@ -430,12 +436,13 @@ fn extract_address_taken_recursive(
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 // Check if this child is the "function" field by comparing byte ranges
-                let is_function_position = if let Some(func_node) = node.child_by_field_name("function") {
-                    child.start_byte() == func_node.start_byte() 
-                        && child.end_byte() == func_node.end_byte()
-                } else {
-                    false
-                };
+                let is_function_position =
+                    if let Some(func_node) = node.child_by_field_name("function") {
+                        child.start_byte() == func_node.start_byte()
+                            && child.end_byte() == func_node.end_byte()
+                    } else {
+                        false
+                    };
                 extract_address_taken_recursive(
                     &child,
                     source,
@@ -682,11 +689,20 @@ void setup() {
         let result = parse_source(source, &path).unwrap();
 
         // handler1 and handler2 should have their addresses taken
-        assert!(result.address_taken.contains("handler1"), "handler1 should be address_taken");
-        assert!(result.address_taken.contains("handler2"), "handler2 should be address_taken");
-        
+        assert!(
+            result.address_taken.contains("handler1"),
+            "handler1 should be address_taken"
+        );
+        assert!(
+            result.address_taken.contains("handler2"),
+            "handler2 should be address_taken"
+        );
+
         // direct_call is only called, not referenced by address
-        assert!(!result.address_taken.contains("direct_call"), "direct_call should NOT be address_taken");
+        assert!(
+            !result.address_taken.contains("direct_call"),
+            "direct_call should NOT be address_taken"
+        );
     }
 
     #[test]

@@ -35,43 +35,43 @@ impl StringInterner {
             inner: ThreadedRodeo::default(),
         }
     }
-    
+
     /// Create with estimated capacity
     pub fn with_capacity(strings: usize, _bytes: usize) -> Self {
         Self {
             inner: ThreadedRodeo::with_capacity(lasso::Capacity::for_strings(strings)),
         }
     }
-    
+
     /// Intern a string, returning a key
     /// If the string was already interned, returns the existing key
     #[inline]
     pub fn intern(&self, s: &str) -> StrKey {
         self.inner.get_or_intern(s)
     }
-    
+
     /// Get the string for a key
     #[inline]
     pub fn resolve(&self, key: StrKey) -> &str {
         self.inner.resolve(&key)
     }
-    
+
     /// Try to get a key for an already-interned string
     #[inline]
     pub fn get(&self, s: &str) -> Option<StrKey> {
         self.inner.get(s)
     }
-    
+
     /// Number of unique strings interned
     pub fn len(&self) -> usize {
         self.inner.len()
     }
-    
+
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
-    
+
     /// Estimated memory usage in bytes
     pub fn memory_usage(&self) -> usize {
         // Rough estimate: average string length × count + overhead
@@ -94,24 +94,24 @@ impl ReadOnlyInterner {
             inner: interner.inner.into_reader(),
         }
     }
-    
+
     /// Resolve a key to its string
     #[inline]
     pub fn resolve(&self, key: StrKey) -> &str {
         self.inner.resolve(&key)
     }
-    
+
     /// Try to get a key for a string
     #[inline]
     pub fn get(&self, s: &str) -> Option<StrKey> {
         self.inner.get(s)
     }
-    
+
     /// Number of strings
     pub fn len(&self) -> usize {
         self.inner.len()
     }
-    
+
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
@@ -119,7 +119,7 @@ impl ReadOnlyInterner {
 }
 
 /// Compact node representation using interned strings
-/// 
+///
 /// Size comparison:
 /// - CodeNode with Strings: ~200 bytes minimum
 /// - CompactNode with keys: ~40 bytes
@@ -157,7 +157,7 @@ impl CompactNode {
             flags: 0,
         }
     }
-    
+
     /// Create a function node
     pub fn function(
         interner: &StringInterner,
@@ -170,9 +170,11 @@ impl CompactNode {
         complexity: u16,
     ) -> Self {
         let mut flags = 0u32;
-        if is_async { flags |= 1; }
+        if is_async {
+            flags |= 1;
+        }
         flags |= ((complexity as u32) & 0x7FFF) << 1;
-        
+
         Self {
             kind: CompactNodeKind::Function,
             name: interner.intern(name),
@@ -183,7 +185,7 @@ impl CompactNode {
             flags,
         }
     }
-    
+
     /// Create a class node
     pub fn class(
         interner: &StringInterner,
@@ -195,7 +197,7 @@ impl CompactNode {
         method_count: u16,
     ) -> Self {
         let flags = (method_count as u32) << 16;
-        
+
         Self {
             kind: CompactNodeKind::Class,
             name: interner.intern(name),
@@ -206,22 +208,22 @@ impl CompactNode {
             flags,
         }
     }
-    
+
     /// Get complexity (for functions)
     pub fn complexity(&self) -> u16 {
         ((self.flags >> 1) & 0x7FFF) as u16
     }
-    
+
     /// Get is_async flag (for functions)
     pub fn is_async(&self) -> bool {
         self.flags & 1 == 1
     }
-    
+
     /// Get method count (for classes)
     pub fn method_count(&self) -> u16 {
         (self.flags >> 16) as u16
     }
-    
+
     /// Lines of code
     pub fn loc(&self) -> u32 {
         if self.line_end >= self.line_start {
@@ -236,9 +238,9 @@ impl CompactNode {
 #[derive(Debug, Clone, Copy)]
 pub struct CompactEdge {
     pub kind: CompactEdgeKind,
-    pub source: StrKey,  // qualified_name of source
-    pub target: StrKey,  // qualified_name of target
-    pub flags: u16,      // Additional flags (is_type_only, etc.)
+    pub source: StrKey, // qualified_name of source
+    pub target: StrKey, // qualified_name of target
+    pub flags: u16,     // Additional flags (is_type_only, etc.)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -259,7 +261,7 @@ impl CompactEdge {
             flags: 0,
         }
     }
-    
+
     pub fn calls(interner: &StringInterner, caller: &str, callee: &str) -> Self {
         Self {
             kind: CompactEdgeKind::Calls,
@@ -268,8 +270,13 @@ impl CompactEdge {
             flags: 0,
         }
     }
-    
-    pub fn imports(interner: &StringInterner, importer: &str, imported: &str, is_type_only: bool) -> Self {
+
+    pub fn imports(
+        interner: &StringInterner,
+        importer: &str,
+        imported: &str,
+        is_type_only: bool,
+    ) -> Self {
         Self {
             kind: CompactEdgeKind::Imports,
             source: interner.intern(importer),
@@ -277,7 +284,7 @@ impl CompactEdge {
             flags: if is_type_only { 1 } else { 0 },
         }
     }
-    
+
     pub fn is_type_only(&self) -> bool {
         self.flags & 1 == 1
     }
@@ -286,15 +293,15 @@ impl CompactEdge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_interner_deduplication() {
         let interner = StringInterner::new();
-        
+
         let k1 = interner.intern("src/main.rs");
         let k2 = interner.intern("src/main.rs");
         let k3 = interner.intern("src/lib.rs");
-        
+
         // Same string should give same key
         assert_eq!(k1, k2);
         // Different strings should give different keys
@@ -302,14 +309,14 @@ mod tests {
         // Should have 2 unique strings
         assert_eq!(interner.len(), 2);
     }
-    
+
     #[test]
     fn test_compact_node_size() {
         // Verify CompactNode is small
         assert!(std::mem::size_of::<CompactNode>() <= 32);
         assert!(std::mem::size_of::<CompactEdge>() <= 16);
     }
-    
+
     #[test]
     fn test_compact_function_flags() {
         let interner = StringInterner::new();
@@ -320,10 +327,10 @@ mod tests {
             "src/lib.rs",
             10,
             20,
-            true,  // is_async
-            42,    // complexity
+            true, // is_async
+            42,   // complexity
         );
-        
+
         assert!(node.is_async());
         assert_eq!(node.complexity(), 42);
         assert_eq!(node.loc(), 11);

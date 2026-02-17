@@ -24,7 +24,11 @@ pub struct RuleFix {
 
 impl RuleFix {
     /// Create a simple suggestion without auto-apply
-    pub fn suggestion(title: impl Into<String>, description: impl Into<String>, steps: Vec<String>) -> Self {
+    pub fn suggestion(
+        title: impl Into<String>,
+        description: impl Into<String>,
+        steps: Vec<String>,
+    ) -> Self {
         Self {
             title: title.into(),
             description: description.into(),
@@ -54,7 +58,7 @@ impl RuleFix {
 /// Generate a rule-based fix for a finding
 pub fn generate_rule_fix(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
     let detector = finding.detector.as_str();
-    
+
     match detector {
         "UnusedImportsDetector" => fix_unused_imports(finding, repo_path),
         "empty-catch-block" | "EmptyCatchDetector" => fix_empty_catch(finding, repo_path),
@@ -76,27 +80,28 @@ fn fix_unused_imports(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
     let full_path = repo_path.join(file_path);
     let content = fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     let line_start = finding.line_start? as usize;
     let line_end = finding.line_end.unwrap_or(finding.line_start?) as usize;
-    
+
     // Extract import names from title
-    let import_names: Vec<&str> = finding.title
+    let import_names: Vec<&str> = finding
+        .title
         .trim_start_matches("Unused import: ")
         .trim_start_matches("Unused imports: ")
         .split(", ")
         .map(|s| s.trim())
         .collect();
-    
+
     // Build the patch
     let mut patch_lines = Vec::new();
     patch_lines.push(format!("--- a/{}", file_path.display()));
     patch_lines.push(format!("+++ b/{}", file_path.display()));
-    
+
     // Context around the change
     let context_start = line_start.saturating_sub(4);
     let context_end = (line_end + 3).min(lines.len());
-    
+
     patch_lines.push(format!(
         "@@ -{},{} +{},{} @@",
         context_start + 1,
@@ -104,8 +109,13 @@ fn fix_unused_imports(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
         context_start + 1,
         context_end - context_start - (line_end - line_start + 1)
     ));
-    
-    for (i, line) in lines.iter().enumerate().skip(context_start).take(context_end - context_start) {
+
+    for (i, line) in lines
+        .iter()
+        .enumerate()
+        .skip(context_start)
+        .take(context_end - context_start)
+    {
         let line_num = i + 1;
         if line_num >= line_start && line_num <= line_end {
             patch_lines.push(format!("-{}", line));
@@ -113,20 +123,24 @@ fn fix_unused_imports(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
             patch_lines.push(format!(" {}", line));
         }
     }
-    
+
     let patch = patch_lines.join("\n");
-    
+
     Some(RuleFix::patch(
-        format!("Remove unused import{}", if import_names.len() > 1 { "s" } else { "" }),
+        format!(
+            "Remove unused import{}",
+            if import_names.len() > 1 { "s" } else { "" }
+        ),
         format!(
             "Remove the unused import{} `{}`",
             if import_names.len() > 1 { "s" } else { "" },
             import_names.join("`, `")
         ),
         vec![
-            format!("Delete line{} {}-{}", 
+            format!(
+                "Delete line{} {}-{}",
                 if line_start == line_end { "" } else { "s" },
-                line_start, 
+                line_start,
                 line_end
             ),
             "Run your linter to verify no other issues".to_string(),
@@ -141,19 +155,19 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
     let full_path = repo_path.join(file_path);
     let content = fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     let line_num = finding.line_start? as usize;
     if line_num == 0 || line_num > lines.len() {
         return None;
     }
-    
+
     let catch_line = lines[line_num - 1];
     let indent = catch_line.len() - catch_line.trim_start().len();
     let indent_str: String = " ".repeat(indent);
     let inner_indent: String = " ".repeat(indent + 4);
-    
+
     let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    
+
     let (new_catch, new_body) = match ext {
         "py" => {
             // Python: except Exception as e:\n    logger.error(...)
@@ -183,15 +197,15 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
         }
         _ => return None,
     };
-    
+
     // Build patch
     let mut patch_lines = Vec::new();
     patch_lines.push(format!("--- a/{}", file_path.display()));
     patch_lines.push(format!("+++ b/{}", file_path.display()));
-    
+
     let context_start = line_num.saturating_sub(3);
     let context_end = (line_num + 3).min(lines.len());
-    
+
     patch_lines.push(format!(
         "@@ -{},{} +{},{} @@",
         context_start + 1,
@@ -199,8 +213,13 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
         context_start + 1,
         context_end - context_start + 2 // Adding lines
     ));
-    
-    for (i, line) in lines.iter().enumerate().skip(context_start).take(context_end - context_start) {
+
+    for (i, line) in lines
+        .iter()
+        .enumerate()
+        .skip(context_start)
+        .take(context_end - context_start)
+    {
         if i + 1 == line_num {
             patch_lines.push(format!("-{}", line));
             patch_lines.push(format!("+{}", new_catch));
@@ -217,7 +236,7 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
             patch_lines.push(format!(" {}", line));
         }
     }
-    
+
     Some(RuleFix::patch(
         "Add error handling to catch block".to_string(),
         "Replace empty catch with proper error logging".to_string(),
@@ -236,23 +255,21 @@ fn fix_magic_numbers(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
     let full_path = repo_path.join(file_path);
     let content = fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     let line_num = finding.line_start? as usize;
     if line_num == 0 || line_num > lines.len() {
         return None;
     }
-    
+
     // Extract the magic number from the title
-    let number = finding.title
-        .trim_start_matches("Magic number: ")
-        .trim();
-    
+    let number = finding.title.trim_start_matches("Magic number: ").trim();
+
     let line = lines[line_num - 1];
     let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    
+
     // Suggest a constant name based on context
     let const_name = suggest_constant_name(number, line);
-    
+
     // Generate the constant declaration
     let const_decl = match ext {
         "py" => format!("{} = {}", const_name, number),
@@ -262,13 +279,19 @@ fn fix_magic_numbers(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
         "java" | "cs" => format!("private static final int {} = {};", const_name, number),
         _ => format!("const {} = {}", const_name, number),
     };
-    
+
     Some(RuleFix::suggestion(
         format!("Extract magic number {} to constant", number),
-        format!("Replace magic number {} with named constant `{}`", number, const_name),
+        format!(
+            "Replace magic number {} with named constant `{}`",
+            number, const_name
+        ),
         vec![
             format!("Add constant at module/class level: `{}`", const_decl),
-            format!("Replace `{}` with `{}` on line {}", number, const_name, line_num),
+            format!(
+                "Replace `{}` with `{}` on line {}",
+                number, const_name, line_num
+            ),
             "Search for other occurrences of this number in the file".to_string(),
         ],
     ))
@@ -278,7 +301,7 @@ fn fix_magic_numbers(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
 fn suggest_constant_name(number: &str, context: &str) -> String {
     let ctx_lower = context.to_lowercase();
     let num: i64 = number.parse().unwrap_or(0);
-    
+
     // Time constants
     if num == 3600 || ctx_lower.contains("hour") {
         return "SECONDS_PER_HOUR".to_string();
@@ -289,7 +312,7 @@ fn suggest_constant_name(number: &str, context: &str) -> String {
     if num == 604800 || ctx_lower.contains("week") {
         return "SECONDS_PER_WEEK".to_string();
     }
-    
+
     // Common patterns
     if ctx_lower.contains("timeout") || ctx_lower.contains("delay") {
         return "TIMEOUT_MS".to_string();
@@ -309,7 +332,7 @@ fn suggest_constant_name(number: &str, context: &str) -> String {
     if (200..600).contains(&num) && (ctx_lower.contains("status") || ctx_lower.contains("http")) {
         return format!("HTTP_STATUS_{}", num);
     }
-    
+
     // Default
     format!("CONSTANT_{}", num)
 }
@@ -318,13 +341,14 @@ fn suggest_constant_name(number: &str, context: &str) -> String {
 fn fix_dead_code(finding: &Finding, _repo_path: &Path) -> Option<RuleFix> {
     let _is_function = finding.title.contains("function");
     let is_class = finding.title.contains("class");
-    
+
     let item_type = if is_class { "class" } else { "function" };
-    let name = finding.title
+    let name = finding
+        .title
         .trim_start_matches("Unused function: ")
         .trim_start_matches("Unused class: ")
         .to_string();
-    
+
     Some(RuleFix::suggestion(
         format!("Remove unused {}: {}", item_type, name),
         format!(
@@ -332,7 +356,10 @@ fn fix_dead_code(finding: &Finding, _repo_path: &Path) -> Option<RuleFix> {
             item_type, name
         ),
         vec![
-            format!("Verify `{}` is not called dynamically (reflection, eval, etc.)", name),
+            format!(
+                "Verify `{}` is not called dynamically (reflection, eval, etc.)",
+                name
+            ),
             "Check if it's an API endpoint, callback, or event handler".to_string(),
             format!("If truly unused, delete the {} definition", item_type),
             "Run tests to verify nothing breaks".to_string(),
@@ -342,19 +369,20 @@ fn fix_dead_code(finding: &Finding, _repo_path: &Path) -> Option<RuleFix> {
 
 /// Fix deep nesting by suggesting extraction
 fn fix_deep_nesting(finding: &Finding) -> Option<RuleFix> {
-    let nesting_level: usize = finding.title
+    let nesting_level: usize = finding
+        .title
         .split(':')
         .nth(1)?
         .split_whitespace()
         .next()?
         .parse()
         .ok()?;
-    
+
     let mut steps = vec![
         "Use guard clauses (early returns) to reduce nesting:".to_string(),
         "  `if (!condition) return;` instead of `if (condition) { ... }`".to_string(),
     ];
-    
+
     if nesting_level > 5 {
         steps.extend(vec![
             "Extract deeply nested blocks into separate functions:".to_string(),
@@ -362,14 +390,14 @@ fn fix_deep_nesting(finding: &Finding) -> Option<RuleFix> {
             "  - Name functions descriptively for what they do".to_string(),
         ]);
     }
-    
+
     if nesting_level > 7 {
         steps.extend(vec![
             "Consider using strategy/command pattern for complex conditionals".to_string(),
             "Replace nested loops with functional patterns (map/filter/reduce)".to_string(),
         ]);
     }
-    
+
     Some(RuleFix::suggestion(
         "Reduce nesting depth".to_string(),
         format!(
@@ -386,18 +414,18 @@ fn fix_missing_await(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
     let full_path = repo_path.join(file_path);
     let content = fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     let line_num = finding.line_start? as usize;
     if line_num == 0 || line_num > lines.len() {
         return None;
     }
-    
+
     let line = lines[line_num - 1];
     let _ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    
+
     // Try to identify where to add await
     let trimmed = line.trim();
-    
+
     // Common patterns: result = fetch(...), data = asyncFunc()
     let new_line = if trimmed.contains(" = ") {
         let parts: Vec<&str> = trimmed.splitn(2, " = ").collect();
@@ -412,15 +440,15 @@ fn fix_missing_await(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
         let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
         Some(format!("{}await {}", indent, trimmed))
     };
-    
+
     if let Some(fixed_line) = new_line {
         let mut patch_lines = Vec::new();
         patch_lines.push(format!("--- a/{}", file_path.display()));
         patch_lines.push(format!("+++ b/{}", file_path.display()));
-        
+
         let context_start = line_num.saturating_sub(3);
         let context_end = (line_num + 3).min(lines.len());
-        
+
         patch_lines.push(format!(
             "@@ -{},{} +{},{} @@",
             context_start + 1,
@@ -428,8 +456,13 @@ fn fix_missing_await(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
             context_start + 1,
             context_end - context_start
         ));
-        
-        for (i, l) in lines.iter().enumerate().skip(context_start).take(context_end - context_start) {
+
+        for (i, l) in lines
+            .iter()
+            .enumerate()
+            .skip(context_start)
+            .take(context_end - context_start)
+        {
             if i + 1 == line_num {
                 patch_lines.push(format!("-{}", l));
                 patch_lines.push(format!("+{}", fixed_line));
@@ -437,7 +470,7 @@ fn fix_missing_await(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
                 patch_lines.push(format!(" {}", l));
             }
         }
-        
+
         return Some(RuleFix::patch(
             "Add await to async call".to_string(),
             "Add `await` keyword before the async function call".to_string(),
@@ -448,7 +481,7 @@ fn fix_missing_await(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
             patch_lines.join("\n"),
         ));
     }
-    
+
     // Fallback to suggestion
     Some(RuleFix::suggestion(
         "Add await to async call".to_string(),
@@ -464,10 +497,11 @@ fn fix_missing_await(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
 
 /// Fix global variables
 fn fix_global_variables(finding: &Finding) -> Option<RuleFix> {
-    let var_name = finding.title
+    let var_name = finding
+        .title
         .trim_start_matches("Global mutable variable: ")
         .to_string();
-    
+
     Some(RuleFix::suggestion(
         format!("Encapsulate global variable: {}", var_name),
         format!(
@@ -516,10 +550,11 @@ fn fix_long_methods(_finding: &Finding) -> Option<RuleFix> {
 fn fix_broad_exception(finding: &Finding, _repo_path: &Path) -> Option<RuleFix> {
     let file_path = finding.affected_files.first()?;
     let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    
+
     let examples = match ext {
         "py" => vec![
-            "Catch specific exceptions instead of bare `except:` or `except Exception:`".to_string(),
+            "Catch specific exceptions instead of bare `except:` or `except Exception:`"
+                .to_string(),
             "".to_string(),
             "Example:".to_string(),
             "```python".to_string(),
@@ -553,7 +588,7 @@ fn fix_broad_exception(finding: &Finding, _repo_path: &Path) -> Option<RuleFix> 
             "Log or re-throw exceptions you can't handle.".to_string(),
         ],
     };
-    
+
     Some(RuleFix::suggestion(
         "Use specific exception handling".to_string(),
         "Broad exception handling can hide bugs and make debugging difficult.".to_string(),
@@ -602,11 +637,17 @@ mod tests {
 
     #[test]
     fn test_suggest_constant_name() {
-        assert_eq!(suggest_constant_name("3600", "timeout = 3600"), "SECONDS_PER_HOUR");
+        assert_eq!(
+            suggest_constant_name("3600", "timeout = 3600"),
+            "SECONDS_PER_HOUR"
+        );
         assert_eq!(suggest_constant_name("86400", "days"), "SECONDS_PER_DAY");
         assert_eq!(suggest_constant_name("5", "retry_count = 5"), "MAX_RETRIES");
         assert_eq!(suggest_constant_name("8080", "port = 8080"), "PORT");
-        assert_eq!(suggest_constant_name("200", "status == 200"), "HTTP_STATUS_200");
+        assert_eq!(
+            suggest_constant_name("200", "status == 200"),
+            "HTTP_STATUS_200"
+        );
     }
 
     #[test]
@@ -617,7 +658,7 @@ mod tests {
             "src/utils.py",
             42,
         );
-        
+
         let fix = fix_dead_code(&finding, Path::new(".")).unwrap();
         assert!(fix.title.contains("Remove unused function"));
         assert!(!fix.auto_applicable);
@@ -631,7 +672,7 @@ mod tests {
             "src/handler.ts",
             100,
         );
-        
+
         let fix = fix_deep_nesting(&finding).unwrap();
         assert!(fix.title.contains("Reduce nesting"));
         assert!(fix.steps.iter().any(|s| s.contains("guard clauses")));

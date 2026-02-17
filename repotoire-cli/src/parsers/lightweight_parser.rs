@@ -45,13 +45,8 @@ pub fn parse_file_lightweight(path: &Path) -> Result<LightweightFileInfo> {
         .unwrap_or(1);
 
     // Convert to lightweight immediately - ParseResult is dropped after this
-    let info = LightweightFileInfo::from_parse_result(
-        &result,
-        path.to_path_buf(),
-        language,
-        loc,
-    );
-    
+    let info = LightweightFileInfo::from_parse_result(&result, path.to_path_buf(), language, loc);
+
     // result is dropped here - AST memory freed
     Ok(info)
 }
@@ -86,14 +81,14 @@ pub fn parse_files_sequential_collect(
         total_files: total,
         ..Default::default()
     };
-    
+
     for (idx, path) in files.iter().enumerate() {
         if let Some(cb) = progress {
             if idx % 100 == 0 || idx == total - 1 {
                 cb(idx, total);
             }
         }
-        
+
         match parse_file_lightweight(path) {
             Ok(info) => {
                 stats.add_file(&info);
@@ -104,11 +99,11 @@ pub fn parse_files_sequential_collect(
                 tracing::warn!("Failed to parse {}: {}", path.display(), e);
             }
         }
-        
+
         // Critical: AST for this file is now dropped
         // Memory is freed before we parse the next file
     }
-    
+
     (results, stats)
 }
 
@@ -127,17 +122,17 @@ pub fn parse_files_parallel_streaming(
 ) -> (Vec<LightweightFileInfo>, LightweightParseStats) {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    
+
     let total = files.len();
     let mut all_results = Vec::with_capacity(total);
     let mut stats = LightweightParseStats {
         total_files: total,
         ..Default::default()
     };
-    
+
     let counter = AtomicUsize::new(0);
     let errors = AtomicUsize::new(0);
-    
+
     // Process in batches to limit peak memory
     for chunk in files.chunks(batch_size) {
         // Parse batch in parallel
@@ -150,7 +145,7 @@ pub fn parse_files_parallel_streaming(
                         cb(count, total);
                     }
                 }
-                
+
                 match parse_file_lightweight(path) {
                     Ok(info) => Some(info),
                     Err(e) => {
@@ -162,19 +157,19 @@ pub fn parse_files_parallel_streaming(
                 // AST dropped here when parse_file_lightweight returns
             })
             .collect();
-        
+
         // Collect results from this batch
         for info in batch_results.into_iter().flatten() {
             stats.add_file(&info);
             all_results.push(info);
         }
-        
+
         // All ASTs from this batch are now dropped
         // Memory is freed before starting next batch
     }
-    
+
     stats.parse_errors = errors.load(Ordering::Relaxed);
-    
+
     (all_results, stats)
 }
 
@@ -188,7 +183,7 @@ pub fn stream_parse_with_callback<F>(
     files: &[PathBuf],
     mut on_file: F,
     progress: Option<&dyn Fn(usize, usize)>,
-) -> LightweightParseStats 
+) -> LightweightParseStats
 where
     F: FnMut(LightweightFileInfo) -> Result<()>,
 {
@@ -197,14 +192,14 @@ where
         total_files: total,
         ..Default::default()
     };
-    
+
     for (idx, path) in files.iter().enumerate() {
         if let Some(cb) = progress {
             if idx % 100 == 0 || idx == total - 1 {
                 cb(idx, total);
             }
         }
-        
+
         match parse_file_lightweight(path) {
             Ok(info) => {
                 stats.add_file(&info);
@@ -219,7 +214,7 @@ where
         }
         // AST dropped here
     }
-    
+
     stats
 }
 
@@ -234,41 +229,45 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
-    
+
     #[test]
     fn test_parse_file_lightweight() {
         // Create a temporary Python file
         let mut file = NamedTempFile::with_suffix(".py").unwrap();
-        writeln!(file, "def hello(name):\n    print(f'Hello {{name}}')\n\ndef world():\n    pass").unwrap();
-        
+        writeln!(
+            file,
+            "def hello(name):\n    print(f'Hello {{name}}')\n\ndef world():\n    pass"
+        )
+        .unwrap();
+
         let result = parse_file_lightweight(file.path());
         assert!(result.is_ok());
-        
+
         let info = result.unwrap();
         assert_eq!(info.language, Language::Python);
         assert!(!info.functions.is_empty());
     }
-    
+
     #[test]
     fn test_streaming_iterator() {
         let mut file = NamedTempFile::with_suffix(".py").unwrap();
         writeln!(file, "x = 1").unwrap();
-        
+
         let files = vec![file.path().to_path_buf()];
         let mut results: Vec<_> = parse_files_streaming(&files).collect();
-        
+
         assert_eq!(results.len(), 1);
         assert!(results.pop().unwrap().is_ok());
     }
-    
+
     #[test]
     fn test_callback_streaming() {
         let mut file = NamedTempFile::with_suffix(".py").unwrap();
         writeln!(file, "def test(): pass").unwrap();
-        
+
         let files = vec![file.path().to_path_buf()];
         let mut count = 0;
-        
+
         let stats = stream_parse_with_callback(
             &files,
             |_info| {
@@ -277,7 +276,7 @@ mod tests {
             },
             None,
         );
-        
+
         assert_eq!(count, 1);
         assert_eq!(stats.parsed_files, 1);
     }

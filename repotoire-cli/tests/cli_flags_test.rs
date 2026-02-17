@@ -1,6 +1,6 @@
 //! CLI flag contract tests
-//! 
-//! Verifies that CLI flags (--severity, --top, --page, --skip-detector, 
+//!
+//! Verifies that CLI flags (--severity, --top, --page, --skip-detector,
 //! --fail-on, --output, --no-emoji, --max-files) work correctly in both
 //! fresh and cached runs.
 
@@ -13,10 +13,12 @@ fn repotoire_bin() -> String {
     release.to_string()
 }
 
-fn setup_test_repo(name: &str) -> tempfile::TempDir {
+fn setup_test_repo(_name: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let bad_rs = dir.path().join("bad.rs");
-    std::fs::write(&bad_rs, r#"
+    std::fs::write(
+        &bad_rs,
+        r#"
 use std::process::Command;
 
 fn main() {
@@ -31,7 +33,9 @@ fn dangerous_func() -> Result<String, String> {
     Command::new("sh").arg("-c").arg(&cmd).output().unwrap();
     Ok("done".to_string())
 }
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     // Initialize git repo
     Command::new("git")
@@ -55,9 +59,7 @@ fn dangerous_func() -> Result<String, String> {
 
 fn run_analyze(dir: &Path, extra_args: &[&str]) -> (i32, String) {
     let mut cmd = Command::new(repotoire_bin());
-    cmd.arg("analyze")
-        .arg(dir)
-        .arg("--no-emoji");
+    cmd.arg("analyze").arg(dir).arg("--no-emoji");
     for arg in extra_args {
         cmd.arg(arg);
     }
@@ -80,7 +82,10 @@ fn parse_json_findings(json_str: &str) -> Vec<serde_json::Value> {
 fn test_fail_on_medium_exits_nonzero() {
     let dir = setup_test_repo("fail_on");
     let (code, _) = run_analyze(dir.path(), &["--fail-on", "medium", "--format", "text"]);
-    assert_eq!(code, 1, "--fail-on medium should exit 1 when medium findings exist");
+    assert_eq!(
+        code, 1,
+        "--fail-on medium should exit 1 when medium findings exist"
+    );
 }
 
 #[test]
@@ -104,7 +109,8 @@ fn test_severity_high_filters_medium_and_low() {
         let sev = f["severity"].as_str().unwrap();
         assert!(
             sev == "high" || sev == "critical",
-            "Found {} severity with --severity high filter", sev
+            "Found {} severity with --severity high filter",
+            sev
         );
     }
 }
@@ -118,7 +124,11 @@ fn test_top_limits_findings() {
     let dir = setup_test_repo("top");
     let (_, stdout) = run_analyze(dir.path(), &["--top", "2", "--format", "json"]);
     let findings = parse_json_findings(&stdout);
-    assert!(findings.len() <= 2, "Expected <=2 findings with --top 2, got {}", findings.len());
+    assert!(
+        findings.len() <= 2,
+        "Expected <=2 findings with --top 2, got {}",
+        findings.len()
+    );
 }
 
 // ============================================================================
@@ -128,9 +138,16 @@ fn test_top_limits_findings() {
 #[test]
 fn test_pagination_json() {
     let dir = setup_test_repo("page");
-    let (_, stdout) = run_analyze(dir.path(), &["--per-page", "1", "--page", "1", "--format", "json"]);
+    let (_, stdout) = run_analyze(
+        dir.path(),
+        &["--per-page", "1", "--page", "1", "--format", "json"],
+    );
     let findings = parse_json_findings(&stdout);
-    assert!(findings.len() <= 1, "Expected <=1 finding with --per-page 1, got {}", findings.len());
+    assert!(
+        findings.len() <= 1,
+        "Expected <=1 finding with --per-page 1, got {}",
+        findings.len()
+    );
 }
 
 // ============================================================================
@@ -140,11 +157,17 @@ fn test_pagination_json() {
 #[test]
 fn test_skip_detector_excludes() {
     let dir = setup_test_repo("skip");
-    let (_, stdout) = run_analyze(dir.path(), &["--skip-detector", "TodoScanner", "--format", "json"]);
+    let (_, stdout) = run_analyze(
+        dir.path(),
+        &["--skip-detector", "TodoScanner", "--format", "json"],
+    );
     let findings = parse_json_findings(&stdout);
     for f in &findings {
         let det = f["detector"].as_str().unwrap();
-        assert_ne!(det, "TodoScanner", "TodoScanner should be excluded by --skip-detector");
+        assert_ne!(
+            det, "TodoScanner",
+            "TodoScanner should be excluded by --skip-detector"
+        );
     }
 }
 
@@ -156,7 +179,10 @@ fn test_skip_detector_excludes() {
 fn test_output_writes_json_file() {
     let dir = setup_test_repo("output");
     let out_file = dir.path().join("report.json");
-    let (_, _) = run_analyze(dir.path(), &["--format", "json", "--output", out_file.to_str().unwrap()]);
+    let (_, _) = run_analyze(
+        dir.path(),
+        &["--format", "json", "--output", out_file.to_str().unwrap()],
+    );
     assert!(out_file.exists(), "JSON output file should be created");
     let content = std::fs::read_to_string(&out_file).unwrap();
     let _: serde_json::Value = serde_json::from_str(&content).expect("Output should be valid JSON");
@@ -175,8 +201,9 @@ fn test_no_emoji_clean_output() {
         let code = ch as u32;
         // Skip standard Unicode symbols, only flag actual emoji (U+1F300+)
         assert!(
-            code < 0x1F300 || code > 0x1F9FF,
-            "Found emoji U+{:X} in --no-emoji output", code
+            !(0x1F300..=0x1F9FF).contains(&code),
+            "Found emoji U+{:X} in --no-emoji output",
+            code
         );
     }
 }
@@ -204,19 +231,30 @@ fn test_json_stdout_clean() {
 #[test]
 fn test_cache_parity() {
     let dir = setup_test_repo("cache_parity");
-    
+
     // Fresh run
-    let (code1, stdout1) = run_analyze(dir.path(), &["--severity", "high", "--top", "3", "--format", "json"]);
+    let (code1, stdout1) = run_analyze(
+        dir.path(),
+        &["--severity", "high", "--top", "3", "--format", "json"],
+    );
     let findings1 = parse_json_findings(&stdout1);
-    
+
     // Cached run (same command)
-    let (code2, stdout2) = run_analyze(dir.path(), &["--severity", "high", "--top", "3", "--format", "json"]);
+    let (code2, stdout2) = run_analyze(
+        dir.path(),
+        &["--severity", "high", "--top", "3", "--format", "json"],
+    );
     let findings2 = parse_json_findings(&stdout2);
-    
-    assert_eq!(code1, code2, "Exit codes should match between fresh and cached runs");
+
     assert_eq!(
-        findings1.len(), findings2.len(),
+        code1, code2,
+        "Exit codes should match between fresh and cached runs"
+    );
+    assert_eq!(
+        findings1.len(),
+        findings2.len(),
         "Finding count should match: fresh={}, cached={}",
-        findings1.len(), findings2.len()
+        findings1.len(),
+        findings2.len()
     );
 }

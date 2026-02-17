@@ -93,108 +93,157 @@ impl MagicNumbersDetector {
             || path_lower.ends_with(".env")
             || path_lower.ends_with("values.yaml")
     }
-    
+
     /// Check if number is used in a context where it's acceptable
     fn is_acceptable_context(line: &str, num: i64) -> bool {
         let line_lower = line.to_lowercase();
-        
+
         // Array/tuple indices and sizes
         if line.contains('[') && line.contains(']') {
             return true;
         }
-        
+
         // Bit operations (masks, shifts)
-        if line.contains("<<") || line.contains(">>") || line.contains("0x") || line.contains("& ") || line.contains("| ") {
-            return true;
-        }
-        
-        // String formatting (precision, padding)
-        if line.contains('%') || line.contains("format") || line.contains("printf") || line.contains("pad") {
-            return true;
-        }
-        
-        // CSS/UI constants (colors, dimensions, weights)
-        if line_lower.contains("color") || line_lower.contains("rgb") || line_lower.contains("px") 
-            || line_lower.contains("width") || line_lower.contains("height") 
-            || line_lower.contains("margin") || line_lower.contains("padding")
-            || line_lower.contains("font") || line_lower.contains("weight")
-            || line_lower.contains("size") || line_lower.contains("opacity")
+        if line.contains("<<")
+            || line.contains(">>")
+            || line.contains("0x")
+            || line.contains("& ")
+            || line.contains("| ")
         {
             return true;
         }
-        
-        // Version numbers
-        if line_lower.contains("version") || line_lower.contains("major") || line_lower.contains("minor") {
+
+        // String formatting (precision, padding)
+        if line.contains('%')
+            || line.contains("format")
+            || line.contains("printf")
+            || line.contains("pad")
+        {
             return true;
         }
-        
+
+        // CSS/UI constants (colors, dimensions, weights)
+        if line_lower.contains("color")
+            || line_lower.contains("rgb")
+            || line_lower.contains("px")
+            || line_lower.contains("width")
+            || line_lower.contains("height")
+            || line_lower.contains("margin")
+            || line_lower.contains("padding")
+            || line_lower.contains("font")
+            || line_lower.contains("weight")
+            || line_lower.contains("size")
+            || line_lower.contains("opacity")
+        {
+            return true;
+        }
+
+        // Version numbers
+        if line_lower.contains("version")
+            || line_lower.contains("major")
+            || line_lower.contains("minor")
+        {
+            return true;
+        }
+
         // Mathematical constants (angles, percentages)
         if num == 360 || num == 180 || num == 90 || num == 45 {
             return true;
         }
-        
+
         // Common test data assertions
-        if line_lower.contains("expect") || line_lower.contains("assert") || line_lower.contains("should") {
+        if line_lower.contains("expect")
+            || line_lower.contains("assert")
+            || line_lower.contains("should")
+        {
             return true;
         }
-        
+
         // Enum-like values (ALL_CAPS_NAME = number)
-        if line.contains(" = ") && line.chars().take_while(|c| *c != '=').all(|c| c.is_uppercase() || c == '_' || c.is_whitespace()) {
+        if line.contains(" = ")
+            && line
+                .chars()
+                .take_while(|c| *c != '=')
+                .all(|c| c.is_uppercase() || c == '_' || c.is_whitespace())
+        {
             return true;
         }
-        
+
         // Object/map literals with numeric values (key: value pattern)
         if line.contains(": ") && (line.contains("{") || line.contains(",")) {
             return true;
         }
-        
+
         // Unicode codepoints and character codes
-        if line_lower.contains("codepoint") || line_lower.contains("charcode") || line_lower.contains("\\u") {
-            return true;
-        }
-        
-        // Error codes and status codes (named)
-        if line_lower.contains("code") || line_lower.contains("status") || line_lower.contains("errno") {
-            return true;
-        }
-        
-        // ASCII/character values (common: 32=space, 48=0, 65=A, 97=a)
-        if (32..=127).contains(&num) && (line_lower.contains("char") || line_lower.contains("ascii")) {
-            return true;
-        }
-        
-        // Lookup tables and mappings (common in compilers/parsers)
-        if line_lower.contains("table") || line_lower.contains("lookup") || line_lower.contains("map") {
-            return true;
-        }
-        
-        // Time constants (milliseconds, seconds)
-        if line_lower.contains("ms") || line_lower.contains("sec") || line_lower.contains("timeout") 
-            || line_lower.contains("delay") || line_lower.contains("interval")
+        if line_lower.contains("codepoint")
+            || line_lower.contains("charcode")
+            || line_lower.contains("\\u")
         {
             return true;
         }
-        
-        // Capacity/buffer sizes (named appropriately)
-        if line_lower.contains("capacity") || line_lower.contains("buffer") || line_lower.contains("chunk") {
+
+        // Error codes and status codes (named)
+        if line_lower.contains("code")
+            || line_lower.contains("status")
+            || line_lower.contains("errno")
+        {
             return true;
         }
-        
+
+        // ASCII/character values (common: 32=space, 48=0, 65=A, 97=a)
+        if (32..=127).contains(&num)
+            && (line_lower.contains("char") || line_lower.contains("ascii"))
+        {
+            return true;
+        }
+
+        // Lookup tables and mappings (common in compilers/parsers)
+        if line_lower.contains("table")
+            || line_lower.contains("lookup")
+            || line_lower.contains("map")
+        {
+            return true;
+        }
+
+        // Time constants (milliseconds, seconds)
+        if line_lower.contains("ms")
+            || line_lower.contains("sec")
+            || line_lower.contains("timeout")
+            || line_lower.contains("delay")
+            || line_lower.contains("interval")
+        {
+            return true;
+        }
+
+        // Capacity/buffer sizes (named appropriately)
+        if line_lower.contains("capacity")
+            || line_lower.contains("buffer")
+            || line_lower.contains("chunk")
+        {
+            return true;
+        }
+
         // Flags in switch/case or if/else chains
         if line.trim().starts_with("case ") || line.contains("case ") {
             return true;
         }
-        
+
         // Priority/weight/score constants
-        if line_lower.contains("priority") || line_lower.contains("weight") || line_lower.contains("score") {
+        if line_lower.contains("priority")
+            || line_lower.contains("weight")
+            || line_lower.contains("score")
+        {
             return true;
         }
-        
+
         // Dev constants (debug levels, limits)
-        if line_lower.contains("debug") || line_lower.contains("dev") || line_lower.contains("limit") {
+        if line_lower.contains("debug")
+            || line_lower.contains("dev")
+            || line_lower.contains("limit")
+        {
             return true;
         }
-        
+
         false
     }
 
@@ -305,9 +354,9 @@ impl Detector for MagicNumbersDetector {
 
             let path_str = path.to_string_lossy().to_string();
             let is_constants = Self::is_constants_file(&path_str);
-            
+
             // Skip scripts/benchmarks (developer tools with test data)
-            if path_str.contains("/scripts/") 
+            if path_str.contains("/scripts/")
                 || path_str.contains("/bench/")
                 || path_str.contains("/benchmark")
                 || path_str.contains("/tools/")
@@ -371,10 +420,8 @@ impl Detector for MagicNumbersDetector {
 
                                 let severity = if in_multiple_files {
                                     Severity::Medium // Used across files = definite refactor target
-                                } else if total_occurrences > 3 {
-                                    Severity::Low // Repeated in same file
                                 } else {
-                                    Severity::Low // Single use
+                                    Severity::Low
                                 };
 
                                 // Build description with context

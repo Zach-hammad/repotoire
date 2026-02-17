@@ -80,7 +80,10 @@ impl Detector for CommandInjectionDetector {
             .taint_analyzer
             .trace_taint(graph, TaintCategory::CommandInjection);
         let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &self.taint_analyzer, graph, TaintCategory::CommandInjection, &self.repository_path,
+            &self.taint_analyzer,
+            graph,
+            TaintCategory::CommandInjection,
+            &self.repository_path,
         );
         taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
@@ -105,7 +108,7 @@ impl Detector for CommandInjectionDetector {
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let file_str = path.to_string_lossy();
-                
+
                 // Check if this is a build/script file (developer-controlled, not user-facing)
                 let is_build_script = file_str.contains("/scripts/")
                     || file_str.contains("/build/")
@@ -233,11 +236,10 @@ impl Detector for CommandInjectionDetector {
                             || line.contains("${ROOT")
                             || line.contains("${DIR")
                             || line.contains("${PATH");
-                        
+
                         // Check if ONLY safe sources are interpolated (no user input)
-                        let only_safe_interpolation = has_template_interpolation 
-                            && has_safe_source 
-                            && !has_user_input;
+                        let only_safe_interpolation =
+                            has_template_interpolation && has_safe_source && !has_user_input;
 
                         // HIGH RISK conditions:
                         // 1. shell=True (Python) - always dangerous
@@ -261,11 +263,14 @@ impl Detector for CommandInjectionDetector {
                             };
 
                             let (mut severity, description) = check_taint(base_desc);
-                            
+
                             // Reduce severity for build scripts (developer-controlled)
                             if is_build_script && severity == Severity::Critical {
-                                severity = Severity::Low;  // Build scripts are not user-facing
-                            } else if has_safe_source && !has_user_input && severity == Severity::Critical {
+                                severity = Severity::Low; // Build scripts are not user-facing
+                            } else if has_safe_source
+                                && !has_user_input
+                                && severity == Severity::Critical
+                            {
                                 // Safe sources (env vars, path constants) without user input
                                 severity = Severity::Medium;
                             }

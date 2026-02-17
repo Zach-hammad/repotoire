@@ -62,7 +62,8 @@ impl ShotgunSurgeryDetector {
             min_callers: ((config.get_option_or("min_callers", 5) as f64) * multiplier) as usize,
             medium_files: ((config.get_option_or("medium_files", 3) as f64) * multiplier) as usize,
             high_files: ((config.get_option_or("high_files", 5) as f64) * multiplier) as usize,
-            critical_modules: ((config.get_option_or("critical_modules", 4) as f64) * multiplier) as usize,
+            critical_modules: ((config.get_option_or("critical_modules", 4) as f64) * multiplier)
+                as usize,
         };
         Self { config, thresholds }
     }
@@ -179,10 +180,10 @@ impl ShotgunSurgeryDetector {
                 if prefix.chars().all(|c| c.is_alphanumeric()) {
                     let prefix_lower = prefix.to_lowercase();
                     const COMMON_WORDS: &[&str] = &[
-                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del",
-                        "pop", "put", "run", "try", "end", "use", "for", "the", "and", "not",
-                        "dead", "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo",
-                        "bar", "baz", "qux", "call", "read", "load", "save", "send", "recv",
+                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del", "pop",
+                        "put", "run", "try", "end", "use", "for", "the", "and", "not", "dead",
+                        "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo", "bar", "baz",
+                        "qux", "call", "read", "load", "save", "send", "recv",
                     ];
                     if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
                         return true;
@@ -303,25 +304,63 @@ impl Detector for ShotgunSurgeryDetector {
         // Also skip utility function prefixes (these are DESIGNED to be called everywhere)
         const UTILITY_PREFIXES: &[&str] = &[
             // Generic utility prefixes
-            "util_", "helper_", "common_", "core_", "base_", "lib_", "shared_",
+            "util_",
+            "helper_",
+            "common_",
+            "core_",
+            "base_",
+            "lib_",
+            "shared_",
             // Memory/allocation functions (core runtime, called everywhere)
-            "alloc_", "free_", "malloc_", "realloc_", "mem_",
+            "alloc_",
+            "free_",
+            "malloc_",
+            "realloc_",
+            "mem_",
             // Logging/debug (called from everywhere)
-            "log_", "debug_", "trace_", "info_", "warn_", "error_", "print_",
+            "log_",
+            "debug_",
+            "trace_",
+            "info_",
+            "warn_",
+            "error_",
+            "print_",
             // String/buffer operations
-            "str_", "buf_", "fmt_",
+            "str_",
+            "buf_",
+            "fmt_",
             // Common interpreter/runtime prefixes
-            "py_", "pyobject_", "_py",  // CPython
-            "lua_", "lual_", "luav_",   // Lua
-            "rb_", "ruby_",             // Ruby
-            "v8_", "js_",               // JavaScript engines
-            "g_", "gtk_", "gdk_",       // GLib/GTK
-            "uv_", "uv__",              // libuv
+            "py_",
+            "pyobject_",
+            "_py", // CPython
+            "lua_",
+            "lual_",
+            "luav_", // Lua
+            "rb_",
+            "ruby_", // Ruby
+            "v8_",
+            "js_", // JavaScript engines
+            "g_",
+            "gtk_",
+            "gdk_", // GLib/GTK
+            "uv_",
+            "uv__", // libuv
         ];
-        const UTILITY_SUFFIXES: &[&str] = &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
+        const UTILITY_SUFFIXES: &[&str] =
+            &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
         const UTILITY_PATHS: &[&str] = &[
-            "/util/", "/utils/", "/common/", "/core/", "/lib/", "/helpers/", "/shared/",
-            "/allocator/", "/memory/", "/alloc/", "/runtime/", "/internal/",
+            "/util/",
+            "/utils/",
+            "/common/",
+            "/core/",
+            "/lib/",
+            "/helpers/",
+            "/shared/",
+            "/allocator/",
+            "/memory/",
+            "/alloc/",
+            "/runtime/",
+            "/internal/",
         ];
         const SKIP_METHODS: &[&str] = &[
             "new",
@@ -380,9 +419,12 @@ impl Detector for ShotgunSurgeryDetector {
             }
 
             // Skip utility functions by suffix
-            if UTILITY_SUFFIXES.iter().any(|s| name_lower.ends_with(s)) 
-                || name_lower.ends_with("_cb") || name_lower.ends_with("_callback")
-                || name_lower.ends_with("_handler") || name_lower.ends_with("_hook") {
+            if UTILITY_SUFFIXES.iter().any(|s| name_lower.ends_with(s))
+                || name_lower.ends_with("_cb")
+                || name_lower.ends_with("_callback")
+                || name_lower.ends_with("_handler")
+                || name_lower.ends_with("_hook")
+            {
                 continue;
             }
 

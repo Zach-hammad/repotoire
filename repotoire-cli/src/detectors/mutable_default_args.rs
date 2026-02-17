@@ -76,7 +76,11 @@ impl MutableDefaultArgsDetector {
     }
 
     /// Find function info from graph
-    fn get_function_info(graph: &dyn crate::graph::GraphQuery, file_path: &str, func_name: &str) -> (usize, bool) {
+    fn get_function_info(
+        graph: &dyn crate::graph::GraphQuery,
+        file_path: &str,
+        func_name: &str,
+    ) -> (usize, bool) {
         if let Some(func) = graph
             .get_functions()
             .into_iter()
@@ -173,10 +177,8 @@ impl Detector for MutableDefaultArgsDetector {
                         // Calculate severity
                         let severity = if modifies && caller_count > 5 {
                             Severity::High // Mutates + called often = high risk
-                        } else if modifies || caller_count > 3 {
+                        } else if modifies || caller_count > 3 || is_public {
                             Severity::Medium
-                        } else if is_public {
-                            Severity::Medium // Public functions could be called from anywhere
                         } else {
                             Severity::Low // Private, rarely called
                         };

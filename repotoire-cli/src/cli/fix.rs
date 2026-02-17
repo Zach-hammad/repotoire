@@ -343,7 +343,8 @@ fn apply_rule_fix(
 
     let line_start = finding
         .line_start
-        .ok_or_else(|| anyhow::anyhow!("Finding has no line number"))? as usize;
+        .ok_or_else(|| anyhow::anyhow!("Finding has no line number"))?
+        as usize;
     let line_end = finding.line_end.unwrap_or(finding.line_start.unwrap()) as usize;
 
     if line_start == 0 || line_start > lines.len() {
@@ -388,12 +389,7 @@ fn apply_rule_fix(
 }
 
 /// Run fix for a single finding
-fn run_single_fix(
-    path: &Path,
-    finding: &Finding,
-    index: usize,
-    options: FixOptions,
-) -> Result<()> {
+fn run_single_fix(path: &Path, finding: &Finding, index: usize, options: FixOptions) -> Result<()> {
     // If --no-ai flag is set, use rule-based fixes directly
     if options.no_ai {
         return run_rule_fix(path, finding, index, options);
@@ -536,7 +532,11 @@ fn run_ai_fix(
             term.write_line("Review the changes and apply manually if appropriate.\n")?;
         } else {
             // Confirm unless --auto is set
-            let confirmed = if options.auto { true } else { confirm("Apply this fix?")? };
+            let confirmed = if options.auto {
+                true
+            } else {
+                confirm("Apply this fix?")?
+            };
 
             if confirmed {
                 term.write_line(&format!("\n{} Applying fix...", style("⚡").cyan()))?;
@@ -690,7 +690,11 @@ fn display_rule_fix(
     if rule_fix.auto_applicable && rule_fix.patch.is_some() {
         if should_apply {
             // Confirm unless --auto is set
-            let confirmed = if options.auto { true } else { confirm("Apply this fix?")? };
+            let confirmed = if options.auto {
+                true
+            } else {
+                confirm("Apply this fix?")?
+            };
 
             if confirmed {
                 let file_path = finding
@@ -784,9 +788,7 @@ fn display_fallback_suggestion(term: &Term, finding: &Finding) -> Result<()> {
 
     // AI suggestion
     term.write_line(&format!("{}", style("💡 For AI-powered fixes:").bold()))?;
-    term.write_line(
-        "   Set ANTHROPIC_API_KEY or install Ollama for smarter context-aware fixes.",
-    )?;
+    term.write_line("   Set ANTHROPIC_API_KEY or install Ollama for smarter context-aware fixes.")?;
     term.write_line(&format!(
         "   • {} - Anthropic Claude",
         style("export ANTHROPIC_API_KEY=sk-ant-...").cyan()

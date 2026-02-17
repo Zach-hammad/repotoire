@@ -25,15 +25,15 @@
 //! but we only need a tiny fraction of that data. This module:
 //!
 //! 1. Parses file with tree-sitter
-//! 2. Extracts essential info immediately 
+//! 2. Extracts essential info immediately
 //! 3. DROPS the AST before returning
 //! 4. Returns compact struct suitable for collection
 //!
 //! This means even with 20k files, memory stays bounded.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 /// Ultra-compact function info - no PathBuf, minimal strings
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,7 +170,7 @@ impl Language {
             Language::C
         }
     }
-    
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Language::Python => "Python",
@@ -228,7 +228,7 @@ impl LightweightFileInfo {
             address_taken: HashSet::new(),
         }
     }
-    
+
     /// Get relative path string for graph building
     pub fn relative_path(&self, repo_root: &Path) -> String {
         self.path
@@ -237,17 +237,17 @@ impl LightweightFileInfo {
             .display()
             .to_string()
     }
-    
+
     /// Check if file is empty (no functions or classes)
     pub fn is_empty(&self) -> bool {
         self.functions.is_empty() && self.classes.is_empty()
     }
-    
+
     /// Total entities count
     pub fn entity_count(&self) -> usize {
         self.functions.len() + self.classes.len()
     }
-    
+
     /// Estimated memory usage in bytes
     pub fn estimated_memory(&self) -> usize {
         let base = std::mem::size_of::<Self>();
@@ -255,14 +255,18 @@ impl LightweightFileInfo {
         let funcs_size = self.functions.len() * std::mem::size_of::<LightweightFunctionInfo>();
         let classes_size = self.classes.len() * std::mem::size_of::<LightweightClassInfo>();
         let imports_size: usize = self.imports.iter().map(|i| i.path.len() + 2).sum();
-        let calls_size: usize = self.calls.iter().map(|c| c.caller.len() + c.callee.len()).sum();
-        
+        let calls_size: usize = self
+            .calls
+            .iter()
+            .map(|c| c.caller.len() + c.callee.len())
+            .sum();
+
         base + path_size + funcs_size + classes_size + imports_size + calls_size
     }
 }
 
 /// Convert from full ParseResult to LightweightFileInfo
-/// 
+///
 /// This is a COMPATIBILITY function for gradual migration.
 /// Prefer using `parse_file_lightweight()` directly for true streaming.
 impl LightweightFileInfo {
@@ -272,8 +276,10 @@ impl LightweightFileInfo {
         language: Language,
         loc: u32,
     ) -> Self {
-        let functions = result.functions.iter().map(|f| {
-            LightweightFunctionInfo {
+        let functions = result
+            .functions
+            .iter()
+            .map(|f| LightweightFunctionInfo {
                 name: f.name.clone(),
                 qualified_name: f.qualified_name.clone(),
                 line_start: f.line_start,
@@ -281,34 +287,40 @@ impl LightweightFileInfo {
                 param_count: f.parameters.len().min(255) as u8,
                 is_async: f.is_async,
                 complexity: f.complexity.unwrap_or(1).min(65535) as u16,
-            }
-        }).collect();
-        
-        let classes = result.classes.iter().map(|c| {
-            LightweightClassInfo {
+            })
+            .collect();
+
+        let classes = result
+            .classes
+            .iter()
+            .map(|c| LightweightClassInfo {
                 name: c.name.clone(),
                 qualified_name: c.qualified_name.clone(),
                 line_start: c.line_start,
                 line_end: c.line_end,
                 method_count: c.methods.len().min(65535) as u16,
                 base_count: c.bases.len().min(255) as u8,
-            }
-        }).collect();
-        
-        let imports = result.imports.iter().map(|i| {
-            LightweightImport {
+            })
+            .collect();
+
+        let imports = result
+            .imports
+            .iter()
+            .map(|i| LightweightImport {
                 path: i.path.clone(),
                 is_type_only: i.is_type_only,
-            }
-        }).collect();
-        
-        let calls = result.calls.iter().map(|(caller, callee)| {
-            LightweightCall {
+            })
+            .collect();
+
+        let calls = result
+            .calls
+            .iter()
+            .map(|(caller, callee)| LightweightCall {
                 caller: caller.clone(),
                 callee: callee.clone(),
-            }
-        }).collect();
-        
+            })
+            .collect();
+
         Self {
             path,
             language,
@@ -346,7 +358,7 @@ impl LightweightParseStats {
         self.total_calls += info.calls.len();
         self.estimated_memory_bytes += info.estimated_memory();
     }
-    
+
     /// Human-readable memory estimate
     pub fn memory_human(&self) -> String {
         let bytes = self.estimated_memory_bytes;
@@ -364,7 +376,7 @@ impl LightweightParseStats {
 mod tests {
     use super::*;
     use tempfile;
-    
+
     #[test]
     fn test_language_from_extension() {
         assert_eq!(Language::from_extension("py"), Language::Python);
@@ -373,7 +385,7 @@ mod tests {
         assert_eq!(Language::from_extension("go"), Language::Go);
         assert_eq!(Language::from_extension("xyz"), Language::Unknown);
     }
-    
+
     #[test]
     fn test_lightweight_function_loc() {
         let func = LightweightFunctionInfo {
@@ -387,7 +399,7 @@ mod tests {
         };
         assert_eq!(func.loc(), 11);
     }
-    
+
     #[test]
     fn test_language_from_path_header_heuristic() {
         let dir = tempfile::tempdir().unwrap();
@@ -400,10 +412,7 @@ mod tests {
     }
 
     fn test_estimated_memory() {
-        let info = LightweightFileInfo::empty(
-            PathBuf::from("test.py"),
-            Language::Python,
-        );
+        let info = LightweightFileInfo::empty(PathBuf::from("test.py"), Language::Python);
         let mem = info.estimated_memory();
         assert!(mem > 0);
         // Empty file should be very small

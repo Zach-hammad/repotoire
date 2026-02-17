@@ -306,9 +306,15 @@ impl Detector for InfiniteLoopDetector {
                             if trimmed.starts_with("for") && trimmed.contains(";;") {
                                 // Check if it has a bounded iteration pattern nearby
                                 // (pointer arithmetic with comparison)
-                                let body_lines = lines.get(i..std::cmp::min(i + 20, lines.len())).unwrap_or(&[]);
+                                let body_lines = lines
+                                    .get(i..std::cmp::min(i + 20, lines.len()))
+                                    .unwrap_or(&[]);
                                 let has_comparison = body_lines.iter().any(|l| {
-                                    l.contains("< ") || l.contains("> ") || l.contains("<= ") || l.contains(">= ") || l.contains("!= ")
+                                    l.contains("< ")
+                                        || l.contains("> ")
+                                        || l.contains("<= ")
+                                        || l.contains(">= ")
+                                        || l.contains("!= ")
                                 });
                                 if has_comparison {
                                     continue; // Likely bounded, skip

@@ -146,7 +146,9 @@ impl DataFlowProvider for SsaFlow {
             let rhs_lower = def.rhs_text.to_lowercase();
 
             // Check if RHS references a taint source
-            let is_source = sources.iter().any(|s| rhs_lower.contains(&s.to_lowercase()));
+            let is_source = sources
+                .iter()
+                .any(|s| rhs_lower.contains(&s.to_lowercase()));
             if is_source {
                 let pattern = sources
                     .iter()
@@ -205,7 +207,9 @@ impl DataFlowProvider for SsaFlow {
         for (callee, line, args) in &ast_info.calls {
             let callee_lower = callee.to_lowercase();
 
-            let is_sink = sinks.iter().any(|s| callee_lower.contains(&s.to_lowercase()));
+            let is_sink = sinks
+                .iter()
+                .any(|s| callee_lower.contains(&s.to_lowercase()));
             if !is_sink {
                 continue;
             }
@@ -257,7 +261,9 @@ fn collect_ast_info_recursive(node: Node, source: &str, lang: Language, info: &m
         Language::JavaScript | Language::TypeScript => collect_js_ts(node, source, info),
         Language::Go => collect_go(node, source, info),
         Language::Rust => collect_rust(node, source, info),
-        Language::Java | Language::CSharp | Language::Kotlin => collect_java_like(node, source, info),
+        Language::Java | Language::CSharp | Language::Kotlin => {
+            collect_java_like(node, source, info)
+        }
         Language::C | Language::Cpp => collect_c_like(node, source, info),
         _ => {
             // Fallback: recurse into children
@@ -279,7 +285,10 @@ fn collect_python(node: Node, source: &str, info: &mut AstInfo) {
     match kind {
         // Assignment: x = expr
         "assignment" | "augmented_assignment" => {
-            if let (Some(lhs), Some(rhs)) = (node.child_by_field_name("left"), node.child_by_field_name("right")) {
+            if let (Some(lhs), Some(rhs)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) {
                 let lhs_text = node_text(lhs, source);
                 let rhs_text = node_text(rhs, source);
                 if is_simple_identifier(&lhs_text) {
@@ -307,7 +316,8 @@ fn collect_python(node: Node, source: &str, info: &mut AstInfo) {
                         }
                     }
                 }
-                info.calls.push((callee, node.start_position().row + 1, args));
+                info.calls
+                    .push((callee, node.start_position().row + 1, args));
             }
         }
         _ => {}
@@ -330,9 +340,10 @@ fn collect_js_ts(node: Node, source: &str, info: &mut AstInfo) {
     match kind {
         // variable_declarator: const x = expr  OR  const { a, b } = expr  (#29)
         "variable_declarator" => {
-            if let (Some(name_node), Some(value_node)) =
-                (node.child_by_field_name("name"), node.child_by_field_name("value"))
-            {
+            if let (Some(name_node), Some(value_node)) = (
+                node.child_by_field_name("name"),
+                node.child_by_field_name("value"),
+            ) {
                 let name = node_text(name_node, source);
                 let value = node_text(value_node, source);
                 let name_kind = name_node.kind();
@@ -355,7 +366,10 @@ fn collect_js_ts(node: Node, source: &str, info: &mut AstInfo) {
         }
         // assignment_expression: x = expr
         "assignment_expression" | "augmented_assignment_expression" => {
-            if let (Some(lhs), Some(rhs)) = (node.child_by_field_name("left"), node.child_by_field_name("right")) {
+            if let (Some(lhs), Some(rhs)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) {
                 let lhs_text = node_text(lhs, source);
                 let rhs_text = node_text(rhs, source);
                 if is_simple_identifier(&lhs_text) {
@@ -384,7 +398,8 @@ fn collect_js_ts(node: Node, source: &str, info: &mut AstInfo) {
                         }
                     }
                 }
-                info.calls.push((callee, node.start_position().row + 1, args));
+                info.calls
+                    .push((callee, node.start_position().row + 1, args));
             }
         }
         _ => {}
@@ -406,11 +421,19 @@ fn collect_go(node: Node, source: &str, info: &mut AstInfo) {
     match kind {
         // short_var_declaration: x := expr
         "short_var_declaration" => {
-            if let (Some(lhs), Some(rhs)) = (node.child_by_field_name("left"), node.child_by_field_name("right")) {
+            if let (Some(lhs), Some(rhs)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) {
                 let lhs_text = node_text(lhs, source);
                 let rhs_text = node_text(rhs, source);
                 // Handle multiple assignment: take first identifier
-                let name = lhs_text.split(',').next().unwrap_or(&lhs_text).trim().to_string();
+                let name = lhs_text
+                    .split(',')
+                    .next()
+                    .unwrap_or(&lhs_text)
+                    .trim()
+                    .to_string();
                 if is_simple_identifier(&name) {
                     info.defs.push(VarDef {
                         name,
@@ -423,7 +446,10 @@ fn collect_go(node: Node, source: &str, info: &mut AstInfo) {
         }
         // assignment_statement: x = expr
         "assignment_statement" => {
-            if let (Some(lhs), Some(rhs)) = (node.child_by_field_name("left"), node.child_by_field_name("right")) {
+            if let (Some(lhs), Some(rhs)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) {
                 let lhs_text = node_text(lhs, source);
                 let rhs_text = node_text(rhs, source);
                 if is_simple_identifier(&lhs_text) {
@@ -452,7 +478,8 @@ fn collect_go(node: Node, source: &str, info: &mut AstInfo) {
                         }
                     }
                 }
-                info.calls.push((callee, node.start_position().row + 1, args));
+                info.calls
+                    .push((callee, node.start_position().row + 1, args));
             }
         }
         _ => {}
@@ -478,7 +505,11 @@ fn collect_rust(node: Node, source: &str, info: &mut AstInfo) {
                 if let Some(value) = node.child_by_field_name("value") {
                     let name = node_text(pattern, source);
                     // Strip `mut` prefix
-                    let name = name.strip_prefix("mut ").unwrap_or(&name).trim().to_string();
+                    let name = name
+                        .strip_prefix("mut ")
+                        .unwrap_or(&name)
+                        .trim()
+                        .to_string();
                     let rhs_text = node_text(value, source);
                     if is_simple_identifier(&name) {
                         info.defs.push(VarDef {
@@ -493,7 +524,10 @@ fn collect_rust(node: Node, source: &str, info: &mut AstInfo) {
         }
         // assignment_expression
         "assignment_expression" | "compound_assignment_expr" => {
-            if let (Some(lhs), Some(rhs)) = (node.child_by_field_name("left"), node.child_by_field_name("right")) {
+            if let (Some(lhs), Some(rhs)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) {
                 let lhs_text = node_text(lhs, source);
                 let rhs_text = node_text(rhs, source);
                 if is_simple_identifier(&lhs_text) {
@@ -522,7 +556,8 @@ fn collect_rust(node: Node, source: &str, info: &mut AstInfo) {
                         }
                     }
                 }
-                info.calls.push((callee, node.start_position().row + 1, args));
+                info.calls
+                    .push((callee, node.start_position().row + 1, args));
             }
         }
         // macro_invocation (format!, println!, etc.)
@@ -532,11 +567,8 @@ fn collect_rust(node: Node, source: &str, info: &mut AstInfo) {
                 // Treat macros like format!, write!, etc. as potential data flow
                 if let Some(token_tree) = node.child_by_field_name("body") {
                     let args_text = node_text(token_tree, source);
-                    info.calls.push((
-                        macro_name,
-                        node.start_position().row + 1,
-                        vec![args_text],
-                    ));
+                    info.calls
+                        .push((macro_name, node.start_position().row + 1, vec![args_text]));
                 }
             }
         }
@@ -563,9 +595,10 @@ fn collect_java_like(node: Node, source: &str, info: &mut AstInfo) {
             for i in 0..count {
                 if let Some(child) = node.child(i) {
                     if child.kind() == "variable_declarator" {
-                        if let (Some(name_node), Some(value_node)) =
-                            (child.child_by_field_name("name"), child.child_by_field_name("value"))
-                        {
+                        if let (Some(name_node), Some(value_node)) = (
+                            child.child_by_field_name("name"),
+                            child.child_by_field_name("value"),
+                        ) {
                             let name = node_text(name_node, source);
                             let value = node_text(value_node, source);
                             if is_simple_identifier(&name) {
@@ -583,7 +616,10 @@ fn collect_java_like(node: Node, source: &str, info: &mut AstInfo) {
         }
         // assignment_expression
         "assignment_expression" => {
-            if let (Some(lhs), Some(rhs)) = (node.child_by_field_name("left"), node.child_by_field_name("right")) {
+            if let (Some(lhs), Some(rhs)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) {
                 let lhs_text = node_text(lhs, source);
                 let rhs_text = node_text(rhs, source);
                 if is_simple_identifier(&lhs_text) {
@@ -619,7 +655,8 @@ fn collect_java_like(node: Node, source: &str, info: &mut AstInfo) {
                         }
                     }
                 }
-                info.calls.push((full_callee, node.start_position().row + 1, args));
+                info.calls
+                    .push((full_callee, node.start_position().row + 1, args));
             }
         }
         _ => {}
@@ -645,9 +682,10 @@ fn collect_c_like(node: Node, source: &str, info: &mut AstInfo) {
             for i in 0..count {
                 if let Some(child) = node.child(i) {
                     if child.kind() == "init_declarator" {
-                        if let (Some(decl), Some(value)) =
-                            (child.child_by_field_name("declarator"), child.child_by_field_name("value"))
-                        {
+                        if let (Some(decl), Some(value)) = (
+                            child.child_by_field_name("declarator"),
+                            child.child_by_field_name("value"),
+                        ) {
                             let name = node_text(decl, source);
                             let rhs = node_text(value, source);
                             if is_simple_identifier(&name) {
@@ -664,7 +702,10 @@ fn collect_c_like(node: Node, source: &str, info: &mut AstInfo) {
             }
         }
         "assignment_expression" => {
-            if let (Some(lhs), Some(rhs)) = (node.child_by_field_name("left"), node.child_by_field_name("right")) {
+            if let (Some(lhs), Some(rhs)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) {
                 let lhs_text = node_text(lhs, source);
                 let rhs_text = node_text(rhs, source);
                 if is_simple_identifier(&lhs_text) {
@@ -692,7 +733,8 @@ fn collect_c_like(node: Node, source: &str, info: &mut AstInfo) {
                         }
                     }
                 }
-                info.calls.push((callee, node.start_position().row + 1, args));
+                info.calls
+                    .push((callee, node.start_position().row + 1, args));
             }
         }
         _ => {}
@@ -885,7 +927,11 @@ cursor.execute(clean)
             &sql_sinks(),
             &sanitizers(),
         );
-        let vulnerable: Vec<_> = result.sink_reaches.iter().filter(|r| !r.is_sanitized).collect();
+        let vulnerable: Vec<_> = result
+            .sink_reaches
+            .iter()
+            .filter(|r| !r.is_sanitized)
+            .collect();
         assert!(
             vulnerable.is_empty(),
             "Sanitized flow should not be flagged as vulnerable"
@@ -954,8 +1000,14 @@ print(y)
             &sql_sinks(),
             &sanitizers(),
         );
-        assert!(result.sink_reaches.is_empty(), "Clean code should have no findings");
-        assert!(result.tainted_vars.is_empty(), "No taint sources means no tainted vars");
+        assert!(
+            result.sink_reaches.is_empty(),
+            "Clean code should have no findings"
+        );
+        assert!(
+            result.tainted_vars.is_empty(),
+            "No taint sources means no tainted vars"
+        );
     }
 
     #[test]

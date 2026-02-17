@@ -83,48 +83,64 @@ const ENTRY_POINT_PATTERNS: &[&str] = &[
     "calculate",
     "analyze",
     // Callback/handler patterns (called via function pointers)
-    "_cb",        // callback suffix
+    "_cb", // callback suffix
     "_callback",
     "_handler",
     "_hook",
     "_fn",
     // Common interpreter/runtime prefixes (called via dispatch tables)
     // CPython: Py_, PyObject_, PyList_, etc.
-    "py_", "pyobject_", "pylist_", "pydict_", "pytuple_", "pyset_",
-    "_py",  // internal CPython
+    "py_",
+    "pyobject_",
+    "pylist_",
+    "pydict_",
+    "pytuple_",
+    "pyset_",
+    "_py", // internal CPython
     // Lua: lua_, luaL_, luaV_, etc.
-    "lua_", "lual_", "luav_", "luac_", "luad_", "luag_", "luah_",
+    "lua_",
+    "lual_",
+    "luav_",
+    "luac_",
+    "luad_",
+    "luag_",
+    "luah_",
     // Ruby: rb_, RUBY_
-    "rb_", "ruby_",
+    "rb_",
+    "ruby_",
     // V8/JavaScript engines
-    "v8_", "js_",
+    "v8_",
+    "js_",
     // GLib/GTK
-    "g_", "gtk_", "gdk_",
+    "g_",
+    "gtk_",
+    "gdk_",
     // libuv
-    "uv_", "uv__",
+    "uv_",
+    "uv__",
     // React/UI framework patterns (exported for external use)
-    "use",          // React hooks: useEffect, useState, useCallback, useMemo
-    "render",       // React render functions
-    "component",    // React components
-    "create",       // Factory functions: createElement, createContext
-    "provide",      // Provider components
-    "consume",      // Consumer components
-    "forward",      // forwardRef
-    "memo",         // React.memo
-    "lazy",         // React.lazy
-    "suspense",     // Suspense-related
+    "use",       // React hooks: useEffect, useState, useCallback, useMemo
+    "render",    // React render functions
+    "component", // React components
+    "create",    // Factory functions: createElement, createContext
+    "provide",   // Provider components
+    "consume",   // Consumer components
+    "forward",   // forwardRef
+    "memo",      // React.memo
+    "lazy",      // React.lazy
+    "suspense",  // Suspense-related
     // Compiler visitor patterns (called via dispatch)
-    "visit",        // Visitor pattern: visitNode, visitExpression
-    "enter",        // AST traversal: enterBlock
-    "exit",         // AST traversal: exitBlock
-    "transform",    // AST transforms
-    "emit",         // Code emission
-    "infer",        // Type inference
-    "check",        // Type checking
-    "validate",     // Validation passes
-    "lower",        // IR lowering
-    "optimize",     // Optimization passes
-    "analyze",      // Analysis passes
+    "visit",     // Visitor pattern: visitNode, visitExpression
+    "enter",     // AST traversal: enterBlock
+    "exit",      // AST traversal: exitBlock
+    "transform", // AST transforms
+    "emit",      // Code emission
+    "infer",     // Type inference
+    "check",     // Type checking
+    "validate",  // Validation passes
+    "lower",     // IR lowering
+    "optimize",  // Optimization passes
+    "analyze",   // Analysis passes
 ];
 
 /// Paths that indicate entry points or dispatch-table code
@@ -156,22 +172,22 @@ const ENTRY_POINT_PATHS: &[&str] = &[
     "/bindings/",   // Language bindings
     "/wasm/",       // WebAssembly exports
     // Vendored/third-party code (shouldn't flag external code)
-    "/ext/",        // External dependencies
-    "/vendor/",     // Vendored code
-    "/third_party/",// Third-party libraries
-    "/thirdparty/", // Third-party libraries (alt)
-    "/external/",   // External dependencies
-    "/deps/",       // Dependencies
+    "/ext/",          // External dependencies
+    "/vendor/",       // Vendored code
+    "/third_party/",  // Third-party libraries
+    "/thirdparty/",   // Third-party libraries (alt)
+    "/external/",     // External dependencies
+    "/deps/",         // Dependencies
     "/node_modules/", // npm packages
     // Framework source code (exports are API surface, not dead code)
-    "/packages/react",      // React monorepo packages
-    "/packages/shared",     // React shared utilities
-    "/packages/scheduler",  // React scheduler
-    "/packages/use-",       // React hooks packages
-    "/reconciler/",         // React reconciler internals
-    "/scheduler/",          // Scheduler internals
-    "/forks/",              // React platform forks
-    "/fiber/",              // React Fiber internals
+    "/packages/react",     // React monorepo packages
+    "/packages/shared",    // React shared utilities
+    "/packages/scheduler", // React scheduler
+    "/packages/use-",      // React hooks packages
+    "/reconciler/",        // React reconciler internals
+    "/scheduler/",         // Scheduler internals
+    "/forks/",             // React platform forks
+    "/fiber/",             // React Fiber internals
 ];
 
 pub struct UnreachableCodeDetector {
@@ -237,10 +253,10 @@ impl UnreachableCodeDetector {
                     // Additional check: avoid false positives from common words
                     let prefix_lower = prefix.to_lowercase();
                     const COMMON_WORDS: &[&str] = &[
-                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del",
-                        "pop", "put", "run", "try", "end", "use", "for", "the", "and", "not",
-                        "dead", "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo",
-                        "bar", "baz", "qux", "call", "read", "load", "save", "send", "recv",
+                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del", "pop",
+                        "put", "run", "try", "end", "use", "for", "the", "and", "not", "dead",
+                        "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo", "bar", "baz",
+                        "qux", "call", "read", "load", "save", "send", "recv",
                     ];
                     if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
                         return true;
@@ -250,25 +266,29 @@ impl UnreachableCodeDetector {
         }
         false
     }
-    
+
     /// Check if function is exported (has export keyword or is in module.exports)
     fn is_exported_function(file_path: &str, func_name: &str, line_start: u32) -> bool {
         let path = std::path::Path::new(file_path);
         let func_pattern = func_name.split("::").last().unwrap_or(func_name);
-        
+
         if let Some(content) = crate::cache::global_cache().get_content(path) {
             let lines: Vec<&str> = content.lines().collect();
-            
+
             // Check the function declaration line and a few lines before
             let start = (line_start as usize).saturating_sub(3);
             let end = (line_start as usize + 2).min(lines.len());
-            
+
             for i in start..end {
                 if i < lines.len() {
                     let line = lines[i];
-                    
+
                     // JS/TS export patterns - must be on the actual function line
-                    if line.contains("export ") && (line.contains("function") || line.contains("const") || line.contains("=>")) {
+                    if line.contains("export ")
+                        && (line.contains("function")
+                            || line.contains("const")
+                            || line.contains("=>"))
+                    {
                         return true;
                     }
                     if line.contains("export default") {
@@ -276,7 +296,7 @@ impl UnreachableCodeDetector {
                     }
                 }
             }
-            
+
             // Check for export statements anywhere in file (re-exports)
             for line in &lines {
                 // module.exports = { funcName } or module.exports.funcName
@@ -289,15 +309,16 @@ impl UnreachableCodeDetector {
                 }
                 // export { funcName } or export { funcName as alias }
                 if (line.contains("export {") || line.contains("export{"))
-                    && line.contains(func_pattern) {
-                        return true;
-                    }
+                    && line.contains(func_pattern)
+                {
+                    return true;
+                }
                 // export default funcName
                 if line.contains("export default") && line.contains(func_pattern) {
                     return true;
                 }
             }
-            
+
             // Rust: Check for pub fn at the declaration
             if file_path.ends_with(".rs") {
                 let start_idx = (line_start as usize).saturating_sub(1);
@@ -308,7 +329,7 @@ impl UnreachableCodeDetector {
                     }
                 }
             }
-            
+
             // Go: Capitalized = exported (checked in is_entry_point already)
             if file_path.ends_with(".go") {
                 if let Some(c) = func_pattern.chars().next() {
@@ -317,7 +338,7 @@ impl UnreachableCodeDetector {
                     }
                 }
             }
-            
+
             // Python: Check for __all__ declaration containing the function name
             if file_path.ends_with(".py") {
                 for line in &lines {
@@ -356,7 +377,7 @@ impl UnreachableCodeDetector {
             if self.is_entry_point(&func.name, &func.file_path) {
                 continue;
             }
-            
+
             // Skip exported functions (called externally)
             if Self::is_exported_function(&func.file_path, &func.qualified_name, func.line_start) {
                 continue;
@@ -377,7 +398,7 @@ impl UnreachableCodeDetector {
             {
                 continue;
             }
-            
+
             // Skip scripts/build tools (developer utilities, not production code)
             if func.file_path.contains("/scripts/")
                 || func.file_path.contains("/tools/")
@@ -385,12 +406,12 @@ impl UnreachableCodeDetector {
             {
                 continue;
             }
-            
+
             // Skip non-production paths entirely
             if crate::detectors::content_classifier::is_non_production_path(&func.file_path) {
                 continue;
             }
-            
+
             // Skip framework internal paths (exports used externally)
             if func.file_path.contains("packages/react")
                 || func.file_path.contains("/react-dom/")
@@ -402,15 +423,20 @@ impl UnreachableCodeDetector {
             {
                 continue;
             }
-            
+
             // Skip bundled/generated code: path check (semantic) + content check (additional)
             if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
                 continue;
             }
-            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+            if let Some(content) =
+                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+            {
                 if crate::detectors::content_classifier::is_bundled_code(&content)
                     || crate::detectors::content_classifier::is_minified_code(&content)
-                    || crate::detectors::content_classifier::is_fixture_code(&func.file_path, &content)
+                    || crate::detectors::content_classifier::is_fixture_code(
+                        &func.file_path,
+                        &content,
+                    )
                 {
                     continue;
                 }
@@ -429,16 +455,18 @@ impl UnreachableCodeDetector {
             if func.name.starts_with('_') && !func.name.starts_with("__") {
                 continue;
             }
-            
+
             // Skip constructors (always called when class is instantiated)
             if func.name == "constructor" || func.name == "__init__" || func.name == "new" {
                 continue;
             }
-            
+
             // Skip dev-only functions (conditional compilation)
             let name_lower = func.name.to_lowercase();
-            if name_lower.ends_with("dev") || name_lower.contains("indev") 
-                || name_lower.starts_with("warn") || name_lower.starts_with("debug")
+            if name_lower.ends_with("dev")
+                || name_lower.contains("indev")
+                || name_lower.starts_with("warn")
+                || name_lower.starts_with("debug")
             {
                 continue;
             }

@@ -37,7 +37,6 @@ use crate::parsers::parse_file_lightweight;
 use crossbeam::channel::{bounded, Receiver};
 use std::path::PathBuf;
 
-
 use std::thread;
 
 /// Result from the parallel pipeline
@@ -57,7 +56,7 @@ impl ParallelPipelineResult {
     pub fn take_receiver(&mut self) -> Option<Receiver<LightweightFileInfo>> {
         self.receiver.take()
     }
-    
+
     /// Iterate over received items
     pub fn iter(&mut self) -> impl Iterator<Item = LightweightFileInfo> + '_ {
         self.receiver.take().into_iter().flatten()
@@ -88,20 +87,20 @@ impl ParallelPipelineResult {
         if let Some(h) = self.producer_handle.take() {
             let _ = h.join();
         }
-        
+
         // Wait for workers and collect stats
         let mut stats = PipelineStats {
             total_files: self.total_files,
             ..Default::default()
         };
-        
+
         for handle in self.worker_handles.drain(..) {
             if let Ok(worker_stats) = handle.join() {
                 stats.parsed_files += worker_stats.parsed;
                 stats.parse_errors += worker_stats.errors;
             }
         }
-        
+
         stats
     }
 }
@@ -134,13 +133,13 @@ pub fn parse_files_pipeline(
 ) -> ParallelPipelineResult {
     let total_files = files.len();
     let num_workers = num_workers.max(1);
-    
+
     // Channel for file paths (producer → workers)
     let (file_tx, file_rx) = bounded::<PathBuf>(buffer_size);
-    
+
     // Channel for parsed results (workers → consumer)
     let (result_tx, result_rx) = bounded::<LightweightFileInfo>(buffer_size);
-    
+
     // Producer thread: feeds files to workers
     let producer_handle = thread::spawn(move || {
         for file in files {
@@ -153,17 +152,17 @@ pub fn parse_files_pipeline(
         // Drop sender to signal we're done
         drop(file_tx);
     });
-    
+
     // Worker threads: parse files in parallel
     let mut worker_handles = Vec::with_capacity(num_workers);
-    
+
     for _ in 0..num_workers {
         let rx = file_rx.clone();
         let tx = result_tx.clone();
-        
+
         let handle = thread::spawn(move || {
             let mut stats = WorkerStats::default();
-            
+
             // Pull files from channel until it's closed
             for path in rx {
                 match parse_file_lightweight(&path) {
@@ -181,19 +180,19 @@ pub fn parse_files_pipeline(
                     }
                 }
             }
-            
+
             stats
         });
-        
+
         worker_handles.push(handle);
     }
-    
+
     // Drop our copy of file_rx so workers can detect when producer is done
     drop(file_rx);
-    
+
     // Drop our copy of result_tx so consumer can detect when workers are done
     drop(result_tx);
-    
+
     ParallelPipelineResult {
         receiver: Some(result_rx),
         total_files,
@@ -214,35 +213,35 @@ pub fn parse_files_parallel_pipeline(
 ) -> (Vec<LightweightFileInfo>, LightweightParseStats) {
     let total = files.len();
     let mut pipeline = parse_files_pipeline(files, num_workers, buffer_size);
-    
+
     let mut results = Vec::with_capacity(total);
     let mut stats = LightweightParseStats {
         total_files: total,
         ..Default::default()
     };
-    
+
     // Take receiver to iterate
     let receiver = pipeline.take_receiver().expect("receiver already taken");
-    
+
     let mut count = 0;
     for info in receiver {
         count += 1;
-        
+
         if let Some(cb) = progress {
             if count % 100 == 0 || count == total {
                 cb(count, total);
             }
         }
-        
+
         stats.add_file(&info);
         results.push(info);
     }
-    
+
     // Wait for workers and get error count
     let pipeline_stats = pipeline.join();
     stats.parse_errors = pipeline_stats.parse_errors;
     stats.parsed_files = pipeline_stats.parsed_files;
-    
+
     (results, stats)
 }
 
@@ -264,40 +263,40 @@ pub fn stream_parse_parallel<F>(
     buffer_size: usize,
     mut on_file: F,
     progress: Option<&(dyn Fn(usize, usize) + Sync)>,
-) -> LightweightParseStats 
+) -> LightweightParseStats
 where
     F: FnMut(LightweightFileInfo),
 {
     let total = files.len();
     let mut pipeline = parse_files_pipeline(files, num_workers, buffer_size);
-    
+
     let mut stats = LightweightParseStats {
         total_files: total,
         ..Default::default()
     };
-    
+
     // Take receiver to iterate
     let receiver = pipeline.take_receiver().expect("receiver already taken");
-    
+
     let mut count = 0;
     for info in receiver {
         count += 1;
-        
+
         if let Some(cb) = progress {
             if count % 100 == 0 || count == total {
                 cb(count, total);
             }
         }
-        
+
         stats.add_file(&info);
         on_file(info);
     }
-    
+
     // Wait for workers and get error count
     let pipeline_stats = pipeline.join();
     stats.parse_errors = pipeline_stats.parse_errors;
     stats.parsed_files = pipeline_stats.parsed_files;
-    
+
     stats
 }
 
@@ -306,58 +305,52 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
-    
+
     #[test]
     fn test_pipeline_single_file() {
         let mut file = NamedTempFile::with_suffix(".py").unwrap();
         writeln!(file, "def hello():\n    pass").unwrap();
-        
+
         let files = vec![file.path().to_path_buf()];
         let mut pipeline = parse_files_pipeline(files, 1, 10);
-        
+
         let receiver = pipeline.take_receiver().unwrap();
         let results: Vec<_> = receiver.iter().collect();
         assert_eq!(results.len(), 1);
         assert!(!results[0].functions.is_empty());
-        
+
         let _ = pipeline.join();
     }
-    
+
     #[test]
     fn test_pipeline_multiple_workers() {
         let mut files = Vec::new();
         let mut temp_files = Vec::new();
-        
+
         for i in 0..10 {
             let mut file = NamedTempFile::with_suffix(".py").unwrap();
             writeln!(file, "def func{}():\n    pass", i).unwrap();
             files.push(file.path().to_path_buf());
             temp_files.push(file);
         }
-        
+
         let (results, stats) = parse_files_parallel_pipeline(files, 4, 5, None);
-        
+
         assert_eq!(results.len(), 10);
         assert_eq!(stats.parsed_files, 10);
         assert_eq!(stats.total_functions, 10);
     }
-    
+
     #[test]
     fn test_stream_parse() {
         let mut file = NamedTempFile::with_suffix(".py").unwrap();
         writeln!(file, "def test(): pass").unwrap();
-        
+
         let files = vec![file.path().to_path_buf()];
         let mut count = 0;
-        
-        let stats = stream_parse_parallel(
-            files,
-            1,
-            10,
-            |_info| count += 1,
-            None,
-        );
-        
+
+        let stats = stream_parse_parallel(files, 1, 10, |_info| count += 1, None);
+
         assert_eq!(count, 1);
         assert_eq!(stats.parsed_files, 1);
     }

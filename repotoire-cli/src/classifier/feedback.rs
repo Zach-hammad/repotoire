@@ -67,36 +67,41 @@ impl FeedbackCollector {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("repotoire")
             .join("training_data.jsonl");
-        
+
         Self { data_path }
     }
-    
+
     /// Create with custom path
     pub fn with_path(path: impl Into<PathBuf>) -> Self {
         Self {
             data_path: path.into(),
         }
     }
-    
+
     /// Record a labeled finding
-    pub fn record(&self, finding: &Finding, is_tp: bool, reason: Option<String>) -> std::io::Result<()> {
+    pub fn record(
+        &self,
+        finding: &Finding,
+        is_tp: bool,
+        reason: Option<String>,
+    ) -> std::io::Result<()> {
         // Ensure directory exists
         if let Some(parent) = self.data_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        
+
         let labeled = LabeledFinding::from_finding(finding, is_tp, reason);
         let json = serde_json::to_string(&labeled)?;
-        
+
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.data_path)?;
-        
+
         writeln!(file, "{}", json)?;
         Ok(())
     }
-    
+
     /// Record multiple findings with same label
     pub fn record_batch(&self, findings: &[Finding], is_tp: bool) -> std::io::Result<usize> {
         let mut count = 0;
@@ -106,16 +111,16 @@ impl FeedbackCollector {
         }
         Ok(count)
     }
-    
+
     /// Load all labeled examples
     pub fn load_all(&self) -> std::io::Result<Vec<LabeledFinding>> {
         if !self.data_path.exists() {
             return Ok(Vec::new());
         }
-        
+
         let file = File::open(&self.data_path)?;
         let reader = BufReader::new(file);
-        
+
         let mut examples = Vec::new();
         for line in reader.lines() {
             let line = line?;
@@ -126,19 +131,20 @@ impl FeedbackCollector {
                 examples.push(labeled);
             }
         }
-        
+
         Ok(examples)
     }
-    
+
     /// Get training statistics
     pub fn stats(&self) -> std::io::Result<TrainingStats> {
         let examples = self.load_all()?;
-        
+
         let tp_count = examples.iter().filter(|e| e.is_true_positive).count();
         let fp_count = examples.iter().filter(|e| !e.is_true_positive).count();
-        
+
         // Count by detector
-        let mut by_detector: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+        let mut by_detector: std::collections::HashMap<String, (usize, usize)> =
+            std::collections::HashMap::new();
         for ex in &examples {
             let entry = by_detector.entry(ex.detector.clone()).or_insert((0, 0));
             if ex.is_true_positive {
@@ -147,7 +153,7 @@ impl FeedbackCollector {
                 entry.1 += 1;
             }
         }
-        
+
         Ok(TrainingStats {
             total: examples.len(),
             true_positives: tp_count,
@@ -155,7 +161,7 @@ impl FeedbackCollector {
             by_detector,
         })
     }
-    
+
     /// Path to the data file
     pub fn data_path(&self) -> &Path {
         &self.data_path
@@ -181,23 +187,35 @@ impl std::fmt::Display for TrainingStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Training Data Statistics:")?;
         writeln!(f, "  Total examples: {}", self.total)?;
-        writeln!(f, "  True positives: {} ({:.1}%)", 
-            self.true_positives, 
-            if self.total > 0 { self.true_positives as f64 / self.total as f64 * 100.0 } else { 0.0 }
+        writeln!(
+            f,
+            "  True positives: {} ({:.1}%)",
+            self.true_positives,
+            if self.total > 0 {
+                self.true_positives as f64 / self.total as f64 * 100.0
+            } else {
+                0.0
+            }
         )?;
-        writeln!(f, "  False positives: {} ({:.1}%)", 
+        writeln!(
+            f,
+            "  False positives: {} ({:.1}%)",
             self.false_positives,
-            if self.total > 0 { self.false_positives as f64 / self.total as f64 * 100.0 } else { 0.0 }
+            if self.total > 0 {
+                self.false_positives as f64 / self.total as f64 * 100.0
+            } else {
+                0.0
+            }
         )?;
         writeln!(f, "\n  By detector:")?;
-        
+
         let mut detectors: Vec<_> = self.by_detector.iter().collect();
-        detectors.sort_by(|a, b| (b.1.0 + b.1.1).cmp(&(a.1.0 + a.1.1)));
-        
+        detectors.sort_by(|a, b| (b.1 .0 + b.1 .1).cmp(&(a.1 .0 + a.1 .1)));
+
         for (detector, (tp, fp)) in detectors.iter().take(10) {
             writeln!(f, "    {}: {} TP, {} FP", detector, tp, fp)?;
         }
-        
+
         Ok(())
     }
 }
@@ -206,13 +224,13 @@ impl std::fmt::Display for TrainingStats {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    
+
     #[test]
     fn test_record_and_load() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test_feedback.jsonl");
         let collector = FeedbackCollector::with_path(&path);
-        
+
         let finding = Finding {
             id: "test-123".into(),
             detector: "TestDetector".into(),
@@ -221,10 +239,14 @@ mod tests {
             description: "A test finding for testing".into(),
             ..Default::default()
         };
-        
-        collector.record(&finding, true, Some("Real issue".into())).unwrap();
-        collector.record(&finding, false, Some("Not a problem".into())).unwrap();
-        
+
+        collector
+            .record(&finding, true, Some("Real issue".into()))
+            .unwrap();
+        collector
+            .record(&finding, false, Some("Not a problem".into()))
+            .unwrap();
+
         let loaded = collector.load_all().unwrap();
         assert_eq!(loaded.len(), 2);
         assert!(loaded[0].is_true_positive);

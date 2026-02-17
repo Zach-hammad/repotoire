@@ -128,7 +128,7 @@ impl MessageChainDetector {
             if path_str.contains("/test") || path_str.contains("_test.") {
                 continue;
             }
-            
+
             // Skip non-production paths
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;
@@ -213,10 +213,10 @@ impl MessageChainDetector {
     }
 
     /// Use call graph to find delegation chains across functions.
-    /// 
+    ///
     /// A delegation chain is a sequence of functions where each one just calls
     /// the next with minimal logic — pure pass-through indirection.
-    /// 
+    ///
     /// We only report the chain HEAD (the entry point) to avoid N findings
     /// for a single chain.
     fn find_delegation_chains(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
@@ -245,7 +245,8 @@ impl MessageChainDetector {
             }
 
             // Trace the chain forward
-            let (chain_depth, chain_members) = self.trace_chain_with_members(graph, &func.qualified_name, 0);
+            let (chain_depth, chain_members) =
+                self.trace_chain_with_members(graph, &func.qualified_name, 0);
 
             if chain_depth < self.thresholds.min_chain_depth as i32 {
                 continue;
@@ -257,7 +258,8 @@ impl MessageChainDetector {
             let files_in_chain: HashSet<String> = chain_members
                 .iter()
                 .filter_map(|qn| {
-                    all_funcs.iter()
+                    all_funcs
+                        .iter()
                         .find(|f| f.qualified_name == *qn)
                         .map(|f| f.file_path.clone())
                 })
@@ -306,7 +308,12 @@ impl MessageChainDetector {
 
     /// Trace how deep a delegation chain goes, collecting member names.
     #[allow(clippy::only_used_in_recursion)]
-    fn trace_chain_with_members(&self, graph: &dyn crate::graph::GraphQuery, qn: &str, depth: i32) -> (i32, Vec<String>) {
+    fn trace_chain_with_members(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        qn: &str,
+        depth: i32,
+    ) -> (i32, Vec<String>) {
         if depth > 10 {
             return (depth, vec![qn.to_string()]);
         }
@@ -320,10 +327,14 @@ impl MessageChainDetector {
         let callee = &callees[0];
         let complexity = callee.complexity().unwrap_or(1);
         if complexity > 3 {
-            return (depth + 1, vec![qn.to_string(), callee.qualified_name.clone()]);
+            return (
+                depth + 1,
+                vec![qn.to_string(), callee.qualified_name.clone()],
+            );
         }
 
-        let (sub_depth, mut members) = self.trace_chain_with_members(graph, &callee.qualified_name, depth + 1);
+        let (sub_depth, mut members) =
+            self.trace_chain_with_members(graph, &callee.qualified_name, depth + 1);
         members.insert(0, qn.to_string());
         (sub_depth, members)
     }

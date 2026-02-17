@@ -38,7 +38,7 @@ impl FindingVerifier {
                 repo_path: repo_path.to_path_buf(),
             });
         }
-        
+
         // Fall back to Anthropic if available
         let client = AiClient::from_env(LlmBackend::Anthropic)?;
         Ok(Self {
@@ -46,7 +46,7 @@ impl FindingVerifier {
             repo_path: repo_path.to_path_buf(),
         })
     }
-    
+
     /// Create with specific backend
     pub fn with_backend(repo_path: &Path, backend: LlmBackend) -> AiResult<Self> {
         let client = AiClient::from_env(backend)?;
@@ -61,7 +61,11 @@ impl FindingVerifier {
         // Read code context
         let code_context = match self.read_code_context(finding) {
             Ok(ctx) => ctx,
-            Err(e) => return VerifyResult::Error { message: e.to_string() },
+            Err(e) => {
+                return VerifyResult::Error {
+                    message: e.to_string(),
+                }
+            }
         };
 
         // Build verification prompt
@@ -88,11 +92,7 @@ Reply with exactly one line:
 TRUE_POSITIVE: <brief reason>
 or
 FALSE_POSITIVE: <brief reason>"#,
-            finding.detector,
-            finding.severity,
-            finding.title,
-            finding.description,
-            code_context
+            finding.detector, finding.severity, finding.title, finding.description, code_context
         );
 
         // Call LLM
@@ -100,10 +100,12 @@ FALSE_POSITIVE: <brief reason>"#,
             role: crate::ai::Role::User,
             content: prompt,
         }];
-        
+
         match self.client.generate(messages, None).await {
             Ok(response) => self.parse_response(&response),
-            Err(e) => VerifyResult::Error { message: e.to_string() },
+            Err(e) => VerifyResult::Error {
+                message: e.to_string(),
+            },
         }
     }
 
@@ -137,23 +139,36 @@ FALSE_POSITIVE: <brief reason>"#,
     /// Parse LLM response into VerifyResult
     fn parse_response(&self, response: &str) -> VerifyResult {
         let response = response.trim();
-        
+
         if response.starts_with("TRUE_POSITIVE:") {
             let reason = response.strip_prefix("TRUE_POSITIVE:").unwrap_or("").trim();
-            VerifyResult::TruePositive { reason: reason.to_string() }
+            VerifyResult::TruePositive {
+                reason: reason.to_string(),
+            }
         } else if response.starts_with("FALSE_POSITIVE:") {
-            let reason = response.strip_prefix("FALSE_POSITIVE:").unwrap_or("").trim();
-            VerifyResult::FalsePositive { reason: reason.to_string() }
+            let reason = response
+                .strip_prefix("FALSE_POSITIVE:")
+                .unwrap_or("")
+                .trim();
+            VerifyResult::FalsePositive {
+                reason: reason.to_string(),
+            }
         } else {
             // Try to infer from content
             let lower = response.to_lowercase();
             if lower.contains("false positive") || lower.contains("not a real") {
-                VerifyResult::FalsePositive { reason: response.to_string() }
+                VerifyResult::FalsePositive {
+                    reason: response.to_string(),
+                }
             } else if lower.contains("true positive") || lower.contains("real issue") {
-                VerifyResult::TruePositive { reason: response.to_string() }
+                VerifyResult::TruePositive {
+                    reason: response.to_string(),
+                }
             } else {
                 // Default to keeping the finding (conservative)
-                VerifyResult::TruePositive { reason: "Unable to parse response, keeping finding".to_string() }
+                VerifyResult::TruePositive {
+                    reason: "Unable to parse response, keeping finding".to_string(),
+                }
             }
         }
     }
@@ -172,7 +187,10 @@ pub fn verify_findings(findings: Vec<Finding>, repo_path: &Path) -> Vec<Finding>
         return other_findings;
     }
 
-    info!("Verifying {} HIGH findings with LLM...", high_findings.len());
+    info!(
+        "Verifying {} HIGH findings with LLM...",
+        high_findings.len()
+    );
 
     // Create verifier
     let verifier = match FindingVerifier::new(repo_path) {
@@ -204,7 +222,7 @@ pub fn verify_findings(findings: Vec<Finding>, repo_path: &Path) -> Vec<Finding>
 
     for finding in high_findings {
         let result = rt.block_on(verifier.verify_finding(&finding));
-        
+
         match result {
             VerifyResult::TruePositive { reason } => {
                 debug!("TRUE_POSITIVE: {} - {}", finding.title, reason);
@@ -244,29 +262,40 @@ mod tests {
     fn test_parse_true_positive() {
         // Test response parsing (doesn't need real client)
         let response = "TRUE_POSITIVE: This is a real SQL injection vulnerability";
-        
+
         // Parse manually since we can't create verifier without API key
         let result = if response.starts_with("TRUE_POSITIVE:") {
             let reason = response.strip_prefix("TRUE_POSITIVE:").unwrap_or("").trim();
-            VerifyResult::TruePositive { reason: reason.to_string() }
+            VerifyResult::TruePositive {
+                reason: reason.to_string(),
+            }
         } else {
-            VerifyResult::FalsePositive { reason: "".to_string() }
+            VerifyResult::FalsePositive {
+                reason: "".to_string(),
+            }
         };
-        
+
         assert!(matches!(result, VerifyResult::TruePositive { .. }));
     }
 
     #[test]
     fn test_parse_false_positive() {
         let response = "FALSE_POSITIVE: The input is sanitized before use";
-        
+
         let result = if response.starts_with("FALSE_POSITIVE:") {
-            let reason = response.strip_prefix("FALSE_POSITIVE:").unwrap_or("").trim();
-            VerifyResult::FalsePositive { reason: reason.to_string() }
+            let reason = response
+                .strip_prefix("FALSE_POSITIVE:")
+                .unwrap_or("")
+                .trim();
+            VerifyResult::FalsePositive {
+                reason: reason.to_string(),
+            }
         } else {
-            VerifyResult::TruePositive { reason: "".to_string() }
+            VerifyResult::TruePositive {
+                reason: "".to_string(),
+            }
         };
-        
+
         assert!(matches!(result, VerifyResult::FalsePositive { .. }));
     }
 }

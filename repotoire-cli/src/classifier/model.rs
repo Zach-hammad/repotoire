@@ -41,7 +41,7 @@ impl FpClassifier {
         // Xavier initialization
         let scale1 = (2.0 / input_size as f32).sqrt();
         let scale2 = (2.0 / hidden_size as f32).sqrt();
-        
+
         let w1 = (0..hidden_size)
             .map(|_| {
                 (0..input_size)
@@ -49,9 +49,9 @@ impl FpClassifier {
                     .collect()
             })
             .collect();
-        
+
         let b1 = vec![0.0; hidden_size];
-        
+
         let w2 = (0..2)
             .map(|_| {
                 (0..hidden_size)
@@ -59,9 +59,9 @@ impl FpClassifier {
                     .collect()
             })
             .collect();
-        
+
         let b2 = vec![0.0; 2];
-        
+
         Self {
             w1,
             b1,
@@ -71,17 +71,12 @@ impl FpClassifier {
             hidden_size,
         }
     }
-    
+
     /// Create with pre-trained weights
-    pub fn with_weights(
-        w1: Vec<Vec<f32>>,
-        b1: Vec<f32>,
-        w2: Vec<Vec<f32>>,
-        b2: Vec<f32>,
-    ) -> Self {
+    pub fn with_weights(w1: Vec<Vec<f32>>, b1: Vec<f32>, w2: Vec<Vec<f32>>, b2: Vec<f32>) -> Self {
         let input_size = w1.first().map(|r| r.len()).unwrap_or(0);
         let hidden_size = w1.len();
-        
+
         Self {
             w1,
             b1,
@@ -91,21 +86,21 @@ impl FpClassifier {
             hidden_size,
         }
     }
-    
+
     /// Load pre-trained model from JSON
     pub fn load(path: &std::path::Path) -> Result<Self, std::io::Error> {
         let content = std::fs::read_to_string(path)?;
         serde_json::from_str(&content)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
-    
+
     /// Save model to JSON
     pub fn save(&self, path: &std::path::Path) -> Result<(), std::io::Error> {
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(path, content)
     }
-    
+
     /// Run inference
     pub fn predict(&self, features: &Features) -> Prediction {
         // Layer 1: Linear + ReLU
@@ -119,7 +114,7 @@ impl FpClassifier {
             }
             *h = sum.max(0.0); // ReLU
         }
-        
+
         // Layer 2: Linear
         let mut logits = [0.0f32; 2];
         for (i, logit) in logits.iter_mut().enumerate() {
@@ -129,23 +124,23 @@ impl FpClassifier {
             }
             *logit = sum;
         }
-        
+
         // Softmax
         let max_logit = logits[0].max(logits[1]);
         let exp0 = (logits[0] - max_logit).exp();
         let exp1 = (logits[1] - max_logit).exp();
         let sum = exp0 + exp1;
-        
+
         let fp_probability = exp0 / sum;
         let tp_probability = exp1 / sum;
-        
+
         Prediction {
             tp_probability,
             fp_probability,
             is_true_positive: tp_probability >= 0.5,
         }
     }
-    
+
     /// Train on a batch of examples (simple SGD)
     pub fn train_step(
         &mut self,
@@ -154,7 +149,7 @@ impl FpClassifier {
         learning_rate: f32,
     ) -> f32 {
         let mut total_loss = 0.0;
-        
+
         for (feat, &is_tp) in features.iter().zip(labels.iter()) {
             // Forward pass
             let mut hidden = vec![0.0f32; self.hidden_size];
@@ -167,7 +162,7 @@ impl FpClassifier {
                 }
                 *h = sum.max(0.0);
             }
-            
+
             let mut logits = [0.0f32; 2];
             for (i, logit) in logits.iter_mut().enumerate() {
                 let mut sum = self.b2[i];
@@ -176,23 +171,23 @@ impl FpClassifier {
                 }
                 *logit = sum;
             }
-            
+
             // Softmax
             let max_logit = logits[0].max(logits[1]);
             let exp0 = (logits[0] - max_logit).exp();
             let exp1 = (logits[1] - max_logit).exp();
             let sum_exp = exp0 + exp1;
             let probs = [exp0 / sum_exp, exp1 / sum_exp];
-            
+
             // Cross-entropy loss
             let target = if is_tp { 1 } else { 0 };
             let loss = -probs[target].ln();
             total_loss += loss;
-            
+
             // Backward pass (gradient of softmax + cross-entropy)
             let mut d_logits = probs;
             d_logits[target] -= 1.0;
-            
+
             // Gradient for W2, b2
             for i in 0..2 {
                 self.b2[i] -= learning_rate * d_logits[i];
@@ -200,7 +195,7 @@ impl FpClassifier {
                     self.w2[i][j] -= learning_rate * d_logits[i] * hidden[j];
                 }
             }
-            
+
             // Gradient for hidden layer
             let mut d_hidden = vec![0.0f32; self.hidden_size];
             for j in 0..self.hidden_size {
@@ -212,7 +207,7 @@ impl FpClassifier {
                     d_hidden[j] = 0.0;
                 }
             }
-            
+
             // Gradient for W1, b1
             for i in 0..self.hidden_size {
                 self.b1[i] -= learning_rate * d_hidden[i];
@@ -221,7 +216,7 @@ impl FpClassifier {
                 }
             }
         }
-        
+
         total_loss / features.len() as f32
     }
 }
@@ -251,10 +246,10 @@ impl HeuristicClassifier {
     pub fn score(&self, features: &super::features::Features) -> f32 {
         let vals = &features.values;
         let mut tp_score: f32 = 0.5; // Start neutral
-        
+
         // Feature indices (must match FeatureExtractor order):
         // 0-14: detector one-hot (15 detectors)
-        //   0: SQLInjection, 1: CommandInjection, 2: PathTraversal, 
+        //   0: SQLInjection, 1: CommandInjection, 2: PathTraversal,
         //   3: XSS, 4: InsecureCrypto, 5: TorchLoadUnsafe
         //   6: DeadCode, 7: UnreachableCode, 8: LongMethods
         //   9: GodClass, 10: FeatureEnvy, 11: ComplexitySpike
@@ -267,36 +262,36 @@ impl HeuristicClassifier {
         // 48: description_length (normalized)
         // 49: has_suggested_fix
         // 50: has_cwe_id
-        
+
         // Path scores (needed early for security check)
         let fp_path = vals.get(45).copied().unwrap_or(0.0);
-        
+
         // Security detectors are more likely TP
         // SQL injection, command injection, path traversal, XSS, crypto, torch.load
         let is_security_detector = (0..6).any(|i| vals.get(i).copied().unwrap_or(0.0) > 0.5);
         let _is_command_injection = vals.get(1).copied().unwrap_or(0.0) > 0.5;
-        
+
         // Security in production code = high confidence TP
         // Security findings get full bonus regardless of path - security issues are
         // security issues whether in src/, scripts/, or utils/
         if is_security_detector {
             tp_score += 0.25;
         }
-        
+
         // Code quality detectors in utility paths are likely FP
         let is_quality_detector = (6..15).any(|i| vals.get(i).copied().unwrap_or(0.0) > 0.5);
-        
+
         // ComplexitySpike (index 11) - CLI orchestrators are expected to be complex
         let is_complexity_spike = vals.get(11).copied().unwrap_or(0.0) > 0.5;
-        
+
         // N+1 detector (index 13) - often FP in non-database code
         let is_n_plus_one = vals.get(13).copied().unwrap_or(0.0) > 0.5;
-        
+
         // Critical severity = likely TP
         if vals.get(15).copied().unwrap_or(0.0) > 0.5 {
             tp_score += 0.2;
         }
-        
+
         // Code pattern: test/mock/fixture = likely FP (but NOT for security detectors)
         // Security issues in test code are still security issues that could leak to prod
         // Indices 19-24 are test patterns
@@ -304,14 +299,14 @@ impl HeuristicClassifier {
             let test_patterns: f32 = (19..25).filter_map(|i| vals.get(i)).sum();
             tp_score -= test_patterns * 0.15;
         }
-        
+
         // Code pattern: security keywords = likely TP (only for security detectors)
         // Indices 31-37 are security patterns (user_input, exec, eval, password, etc.)
         if is_security_detector {
             let security_patterns: f32 = (31..38).filter_map(|i| vals.get(i)).sum();
             tp_score += security_patterns * 0.1;
         }
-        
+
         // FP path patterns (test dirs, scripts, vendor, etc.)
         // More aggressive penalty for quality detectors in utility paths
         // BUT: Cap penalty for security detectors to prevent FN on deeply nested paths
@@ -325,28 +320,28 @@ impl HeuristicClassifier {
         } else if fp_path > 0.0 {
             tp_score -= fp_path * 0.15;
         }
-        
+
         // Complexity Spike in scripts/tools/CLI = very likely FP
         // CLI modules are expected to be orchestrators with high complexity
         if is_complexity_spike && fp_path > 0.0 {
             tp_score -= 0.25;
         }
-        
+
         // N+1 in scripts/tools = very likely FP (not database code)
         // Script files don't have real database connections typically
         if is_n_plus_one && fp_path > 0.0 {
             tp_score -= 0.35; // Very strong penalty
         }
-        
+
         // TP path patterns (src, api, auth, etc.)
         let tp_path = vals.get(46).copied().unwrap_or(0.0);
         tp_score += tp_path * 0.08;
-        
+
         // Has CWE ID = security-focused = more likely TP
         if vals.get(50).copied().unwrap_or(0.0) > 0.5 {
             tp_score += 0.15;
         }
-        
+
         // Clamp to [0, 1]
         tp_score.clamp(0.0, 1.0)
     }
@@ -355,26 +350,26 @@ impl HeuristicClassifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_classifier_forward() {
         let classifier = FpClassifier::new(10, 8);
         let features = Features::new(vec![1.0, 0.0, 1.0, 0.0, 0.5, 0.5, 0.0, 1.0, 0.0, 0.5]);
-        
+
         let pred = classifier.predict(&features);
-        
+
         // Probabilities should sum to 1
         assert!((pred.tp_probability + pred.fp_probability - 1.0).abs() < 0.001);
-        
+
         // Both should be in [0, 1]
         assert!(pred.tp_probability >= 0.0 && pred.tp_probability <= 1.0);
         assert!(pred.fp_probability >= 0.0 && pred.fp_probability <= 1.0);
     }
-    
+
     #[test]
     fn test_classifier_train() {
         let mut classifier = FpClassifier::new(5, 4);
-        
+
         // Simple training data
         let features = vec![
             Features::new(vec![1.0, 0.0, 0.0, 0.0, 0.0]), // FP pattern
@@ -383,7 +378,7 @@ mod tests {
             Features::new(vec![0.0, 1.0, 0.0, 0.0, 0.0]), // TP pattern
         ];
         let labels = vec![false, true, false, true];
-        
+
         // Train for a few steps
         let mut prev_loss = f32::MAX;
         for _ in 0..100 {
@@ -392,18 +387,18 @@ mod tests {
             prev_loss = loss;
         }
     }
-    
+
     #[test]
     fn test_save_load() {
         let classifier = FpClassifier::new(10, 8);
         let path = std::path::Path::new("/tmp/test_classifier.json");
-        
+
         classifier.save(path).unwrap();
         let loaded = FpClassifier::load(path).unwrap();
-        
+
         assert_eq!(classifier.input_size, loaded.input_size);
         assert_eq!(classifier.hidden_size, loaded.hidden_size);
-        
+
         std::fs::remove_file(path).ok();
     }
 }

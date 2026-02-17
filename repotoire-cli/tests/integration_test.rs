@@ -19,11 +19,15 @@ fn fixtures_path() -> PathBuf {
 
 /// Get the path to the repotoire binary
 fn binary_path() -> PathBuf {
-    // When running `cargo test`, the binary is in target/debug/
+    // Prefer cargo-provided binary path when available (works for debug/release tests)
+    if let Ok(path) = std::env::var("CARGO_BIN_EXE_repotoire") {
+        return PathBuf::from(path);
+    }
+
+    // Fallback for environments without CARGO_BIN_EXE_*
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("target/debug/repotoire");
 
-    // On Windows, add .exe
     #[cfg(windows)]
     {
         path.set_extension("exe");

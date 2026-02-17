@@ -106,7 +106,10 @@ impl CommentedCodeDetector {
     }
 
     /// Check how many referenced functions exist in the graph
-    fn check_func_existence(graph: &dyn crate::graph::GraphQuery, refs: &HashSet<String>) -> (usize, usize) {
+    fn check_func_existence(
+        graph: &dyn crate::graph::GraphQuery,
+        refs: &HashSet<String>,
+    ) -> (usize, usize) {
         let all_func_names: HashSet<String> =
             graph.get_functions().into_iter().map(|f| f.name).collect();
 
@@ -232,10 +235,8 @@ impl Detector for CommentedCodeDetector {
                             };
 
                             // Calculate severity
-                            let severity = if missing > 0 && existing == 0 {
-                                Severity::Medium // References deleted functions - definitely stale
-                            } else if code_lines > 20 {
-                                Severity::Medium // Large block
+                            let severity = if (missing > 0 && existing == 0) || code_lines > 20 {
+                                Severity::Medium // stale references or large block
                             } else {
                                 Severity::Low
                             };
