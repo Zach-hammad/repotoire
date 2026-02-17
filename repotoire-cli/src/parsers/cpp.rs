@@ -453,29 +453,37 @@ fn extract_parameters(params_node: Option<Node>, source: &[u8]) -> Vec<String> {
 }
 
 /// Calculate cyclomatic complexity of a function
-fn calculate_complexity(node: &Node, source: &[u8]) -> u32 {
-    let mut complexity = 1u32; // Base complexity
+fn calculate_complexity(node: &Node, _source: &[u8]) -> u32 {
+    // Keep logic consistent with other language parsers (#32)
+    let mut complexity = 1u32;
 
-    let query_str = r#"
-        (if_statement) @if
-        (for_statement) @for
-        (while_statement) @while
-        (do_statement) @do
-        (switch_statement) @switch
-        (case_statement) @case
-        (conditional_expression) @ternary
-        (catch_clause) @catch
-        ("&&") @and
-        ("||") @or
-    "#;
+    fn count_branches(node: &Node, complexity: &mut u32) {
+        match node.kind() {
+            "if_statement" | "for_statement" | "while_statement" | "do_statement" => {
+                *complexity += 1;
+            }
+            "case_statement" | "default_statement" | "case_label" | "default_label" => {
+                *complexity += 1;
+            }
+            "conditional_expression" | "catch_clause" => {
+                *complexity += 1;
+            }
+            "binary_expression" => {
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "&&" || child.kind() == "||" {
+                        *complexity += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
 
-    let language = tree_sitter_cpp::LANGUAGE;
-    if let Ok(query) = Query::new(&language.into(), query_str) {
-        let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&query, *node, source);
-        complexity += matches.count() as u32;
+        for child in node.children(&mut node.walk()) {
+            count_branches(&child, complexity);
+        }
     }
 
+    count_branches(node, &mut complexity);
     complexity
 }
 
@@ -540,6 +548,23 @@ int main() {
     }
 
     #[test]
+    fn test_complexity_switch_counts_cases_not_switch() {
+        let source = r#"
+int classify(int x) {
+    switch (x) {
+        case 1: return 1;
+        case 2: return 2;
+        default: return 0;
+    }
+}
+"#;
+        let path = PathBuf::from("test.cpp");
+        let result = parse_source(source, &path).unwrap();
+        let c = result.functions[0].complexity.unwrap_or(0);
+        // Base + switch branches should be counted (at least cases/default)
+        assert!(c >= 3, "expected switch branches to increase complexity, got {c}");
+    }
+
     fn test_complexity() {
         let source = r#"
 int complex(int x) {

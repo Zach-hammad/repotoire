@@ -139,6 +139,37 @@ impl Language {
             _ => Language::Unknown,
         }
     }
+
+    pub fn from_path(path: &Path) -> Self {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        if ext != "h" {
+            return Self::from_extension(ext);
+        }
+
+        // Heuristic C/C++ header detection for .h files (#31)
+        let content = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(_) => return Language::C,
+        };
+        let sample = &content[..content.len().min(16 * 1024)];
+        let text = String::from_utf8_lossy(sample);
+        let cpp_markers = [
+            "class ",
+            "namespace ",
+            "template<",
+            "template <",
+            "typename ",
+            "constexpr",
+            "std::",
+        ];
+
+        if cpp_markers.iter().any(|m| text.contains(m)) {
+            Language::Cpp
+        } else {
+            Language::C
+        }
+    }
     
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -332,6 +363,7 @@ impl LightweightParseStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile;
     
     #[test]
     fn test_language_from_extension() {
@@ -357,6 +389,16 @@ mod tests {
     }
     
     #[test]
+    fn test_language_from_path_header_heuristic() {
+        let dir = tempfile::tempdir().unwrap();
+        let h = dir.path().join("x.h");
+        std::fs::write(&h, "namespace n { class A {}; }").unwrap();
+        assert_eq!(Language::from_path(&h), Language::Cpp);
+
+        std::fs::write(&h, "#ifndef X_H\nint sum(int a, int b);\n#endif").unwrap();
+        assert_eq!(Language::from_path(&h), Language::C);
+    }
+
     fn test_estimated_memory() {
         let info = LightweightFileInfo::empty(
             PathBuf::from("test.py"),

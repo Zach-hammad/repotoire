@@ -30,8 +30,7 @@ use std::path::{Path, PathBuf};
 ///
 /// The AST is dropped as soon as this function returns.
 pub fn parse_file_lightweight(path: &Path) -> Result<LightweightFileInfo> {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let language = Language::from_extension(ext);
+    let language = Language::from_path(path);
     
     // Count lines first (cheap operation)
     let loc = count_lines(path)?;

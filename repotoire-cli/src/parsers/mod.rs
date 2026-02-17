@@ -35,6 +35,34 @@ pub use lightweight_parser::parse_file_lightweight;
 use anyhow::Result;
 use std::path::Path;
 
+
+fn is_probably_cpp_header(path: &Path) -> bool {
+    let content = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+
+    // Sample only first chunk for speed on large headers.
+    let sample = &content[..content.len().min(16 * 1024)];
+    let text = String::from_utf8_lossy(sample);
+
+    let cpp_markers = [
+        "class ",
+        "namespace ",
+        "template<",
+        "template <",
+        "typename ",
+        "constexpr",
+        "std::",
+        "using namespace",
+        "#include <iostream>",
+        "#include <vector>",
+        "#include <string>",
+    ];
+
+    cpp_markers.iter().any(|m| text.contains(m))
+}
+
 /// Parse a file and extract all code entities and relationships
 pub fn parse_file(path: &Path) -> Result<ParseResult> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -62,7 +90,16 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
         "kt" | "kts" => Ok(ParseResult::default()), // kotlin disabled
 
         // C
-        "c" | "h" => c::parse(path),
+        "c" => c::parse(path),
+
+        // Header files: heuristic dispatch to C or C++ (#31)
+        "h" => {
+            if is_probably_cpp_header(path) {
+                cpp::parse(path)
+            } else {
+                c::parse(path)
+            }
+        }
 
         // C++
         "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => cpp::parse(path),
@@ -188,6 +225,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+
     #[test]
     fn test_parse_python_file() {
         let path = PathBuf::from("test.py");
@@ -274,6 +312,43 @@ mod tests {
     }
 
     #[test]
+    fn test_header_dispatch_cpp_heuristic() {
+        let dir = tempfile::tempdir().unwrap();
+        let hdr = dir.path().join("test.h");
+        std::fs::write(
+            &hdr,
+            r#"
+namespace demo {
+class Widget { public: int x; };
+}
+"#,
+        )
+        .unwrap();
+
+        let result = parse_file(&hdr).unwrap();
+        assert_eq!(result.classes.len(), 1);
+    }
+
+    #[test]
+    fn test_header_dispatch_c_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let hdr = dir.path().join("test.h");
+        std::fs::write(
+            &hdr,
+            r#"
+#ifndef TEST_H
+#define TEST_H
+int add(int a, int b);
+#endif
+"#,
+        )
+        .unwrap();
+
+        let result = parse_file(&hdr).unwrap();
+        assert!(result.functions.is_empty());
+        assert!(result.classes.is_empty());
+    }
+
     fn test_supported_extensions() {
         let exts = supported_extensions();
         assert!(exts.contains(&"py"));
