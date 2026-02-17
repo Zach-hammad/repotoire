@@ -4,8 +4,6 @@
 //! code entities, findings, and analysis results.
 
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 /// Generate a deterministic finding ID based on content hash.
@@ -21,12 +19,11 @@ use std::path::PathBuf;
 /// - line number (specific location)
 /// - title (what the issue is)
 pub fn deterministic_finding_id(detector: &str, file: &str, line: u32, title: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    detector.hash(&mut hasher);
-    file.hash(&mut hasher);
-    line.hash(&mut hasher);
-    title.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    // Use MD5 for stable cross-version hashing (#33).
+    // DefaultHasher is intentionally not stable across Rust/compiler versions.
+    let input = format!("{detector}\n{file}\n{line}\n{title}");
+    let digest = md5::compute(input.as_bytes());
+    format!("{:x}", digest)[..16].to_string()
 }
 
 /// Severity levels for findings

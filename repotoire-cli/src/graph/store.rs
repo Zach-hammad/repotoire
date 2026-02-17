@@ -335,10 +335,11 @@ impl GraphStore {
         key: &str,
         value: impl Into<serde_json::Value>,
     ) -> bool {
+        // Lock graph before index to match writer lock ordering across GraphStore (#41)
+        // and avoid TOCTOU/deadlock windows.
+        let mut graph = self.graph.write().expect("graph lock poisoned");
         let index = self.node_index.read().expect("graph lock poisoned");
         if let Some(&idx) = index.get(qn) {
-            drop(index);
-            let mut graph = self.graph.write().expect("graph lock poisoned");
             if let Some(node) = graph.node_weight_mut(idx) {
                 node.set_property(key, value);
                 return true;
@@ -349,10 +350,10 @@ impl GraphStore {
 
     /// Update multiple properties on a node
     pub fn update_node_properties(&self, qn: &str, props: &[(&str, serde_json::Value)]) -> bool {
+        // Keep lock acquisition order consistent with other graph writers (#41).
+        let mut graph = self.graph.write().expect("graph lock poisoned");
         let index = self.node_index.read().expect("graph lock poisoned");
         if let Some(&idx) = index.get(qn) {
-            drop(index);
-            let mut graph = self.graph.write().expect("graph lock poisoned");
             if let Some(node) = graph.node_weight_mut(idx) {
                 for (key, value) in props {
                     node.set_property(key, value.clone());

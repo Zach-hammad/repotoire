@@ -46,15 +46,12 @@ pub fn get_graph_stats_path(repo_path: &Path) -> PathBuf {
 /// Hash a path to create a unique but deterministic directory name.
 /// Uses the canonical path to ensure consistency.
 fn hash_path(path: &Path) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let path_str = canonical.to_string_lossy();
 
-    let mut hasher = DefaultHasher::new();
-    path_str.hash(&mut hasher);
-    let hash = hasher.finish();
+    // Stable cross-version hash (#33).
+    let digest = md5::compute(path_str.as_bytes());
+    let hash = format!("{:x}", digest);
 
     // Use canonical path's file_name for consistent naming (important when path is ".")
     let repo_name = canonical
@@ -66,7 +63,7 @@ fn hash_path(path: &Path) -> String {
         .take(20)
         .collect::<String>();
 
-    format!("{}-{:012x}", repo_name, hash)
+    format!("{}-{}", repo_name, &hash[..12])
 }
 
 /// Ensure the cache directory exists.

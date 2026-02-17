@@ -247,23 +247,20 @@ impl IncrementalCache {
 
     /// Compute fast content hash of a file
     pub fn get_file_hash(&self, path: &Path) -> String {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
         match fs::File::open(path) {
             Ok(mut file) => {
-                let mut hasher = DefaultHasher::new();
+                let mut ctx = md5::Context::new();
                 let mut buffer = [0u8; HASH_BUFFER_SIZE];
 
                 loop {
                     match file.read(&mut buffer) {
                         Ok(0) => break,
-                        Ok(n) => buffer[..n].hash(&mut hasher),
+                        Ok(n) => ctx.consume(&buffer[..n]),
                         Err(_) => break,
                     }
                 }
 
-                format!("{:016x}", hasher.finish())
+                format!("{:x}", ctx.compute())
             }
             Err(_) => format!("error:{}", path.display()),
         }
@@ -425,22 +422,19 @@ impl IncrementalCache {
     
     /// Compute a combined hash of all files for graph-level cache validation
     pub fn compute_all_files_hash(&self, files: &[std::path::PathBuf]) -> String {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        
-        let mut hasher = DefaultHasher::new();
-        
+        let mut ctx = md5::Context::new();
+
         // Sort files for deterministic hashing
         let mut sorted_files: Vec<_> = files.iter().collect();
         sorted_files.sort();
-        
+
         for path in sorted_files {
             // Hash file path and content hash
-            path.to_string_lossy().hash(&mut hasher);
-            self.get_file_hash(path).hash(&mut hasher);
+            ctx.consume(path.to_string_lossy().as_bytes());
+            ctx.consume(self.get_file_hash(path).as_bytes());
         }
-        
-        format!("{:016x}", hasher.finish())
+
+        format!("{:x}", ctx.compute())
     }
     
     /// Check if we can use cached detector results
