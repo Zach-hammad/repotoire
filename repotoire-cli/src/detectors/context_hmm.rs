@@ -982,8 +982,14 @@ impl ContextClassifier {
         // Train HMM with bootstrap (no EM to avoid drift)
         self.hmm.bootstrap_from_graph(function_data);
         
-        // Train CRF if ensemble is enabled
-        if self.hmm_weight < 1.0 {
+        // Avoid circular training: CRF trained on HMM pseudo-labels just
+        // learns to mimic HMM noise (#55). Keep CRF static unless explicitly
+        // enabled for experiments.
+        if self.hmm_weight < 1.0
+            && std::env::var("REPOTOIRE_ENABLE_CRF_SELF_TRAIN")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+        {
             let examples: Vec<_> = function_data
                 .iter()
                 .map(|(features, _, _, _)| {
@@ -991,8 +997,7 @@ impl ContextClassifier {
                     (features.clone(), ctx)
                 })
                 .collect();
-            
-            // Perceptron training (1 epoch, low learning rate)
+
             self.crf.train(&examples, 0.05);
         }
         

@@ -229,8 +229,9 @@ impl FpClassifier {
 /// Pre-trained weights based on heuristics
 impl Default for FpClassifier {
     fn default() -> Self {
-        // Use heuristic scoring instead of random weights
-        HeuristicClassifier.into()
+        // Default to an untrained model shape. Heuristic scoring is handled
+        // explicitly via HeuristicClassifier in postprocess (#51).
+        Self::new(51, 8)
     }
 }
 
@@ -348,16 +349,6 @@ impl HeuristicClassifier {
         
         // Clamp to [0, 1]
         tp_score.clamp(0.0, 1.0)
-    }
-}
-
-impl From<HeuristicClassifier> for FpClassifier {
-    fn from(_heuristic: HeuristicClassifier) -> Self {
-        // Create a passthrough classifier
-        // The actual scoring happens in the predict override
-        let input_size = 51;
-        let hidden_size = 8;
-        Self::new(input_size, hidden_size)
     }
 }
 

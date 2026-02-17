@@ -40,7 +40,10 @@ pub(super) fn postprocess_findings(
         filter_by_max_files(findings, all_files);
     }
 
-    // Step 4: Escalate compound smells (multiple issues in same location)
+    // Step 4: De-duplicate overlapping dead-code style findings (#50)
+    dedupe_dead_code_overlap(findings);
+
+    // Step 5: Escalate compound smells (multiple issues in same location)
     crate::scoring::escalate_compound_smells(findings);
 
     // Step 5: Downgrade security findings in non-production paths
@@ -77,6 +80,50 @@ pub(super) fn postprocess_findings(
             tracing::debug!("LLM verification: backend available, implementation pending");
         }
     }
+}
+
+
+/// Remove duplicate overlaps between DeadCodeDetector and UnreachableCodeDetector.
+/// Keep UnreachableCode findings when both target the same symbol/location.
+fn dedupe_dead_code_overlap(findings: &mut Vec<Finding>) {
+    use std::collections::HashSet;
+
+    let mut unreachable_keys: HashSet<(String, u32, String)> = HashSet::new();
+
+    for f in findings.iter().filter(|f| f.detector == "UnreachableCodeDetector") {
+        let file = f
+            .affected_files
+            .first()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let line = f.line_start.unwrap_or(0);
+        let symbol = extract_symbol_from_title(&f.title);
+        unreachable_keys.insert((file, line, symbol));
+    }
+
+    findings.retain(|f| {
+        if f.detector != "DeadCodeDetector" {
+            return true;
+        }
+
+        let file = f
+            .affected_files
+            .first()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let line = f.line_start.unwrap_or(0);
+        let symbol = extract_symbol_from_title(&f.title);
+
+        !unreachable_keys.contains(&(file, line, symbol))
+    });
+}
+
+fn extract_symbol_from_title(title: &str) -> String {
+    title
+        .split(':')
+        .nth(1)
+        .map(|s| s.trim().to_lowercase())
+        .unwrap_or_else(|| title.trim().to_lowercase())
 }
 
 /// Filter findings to only include files in the analyzed file set.

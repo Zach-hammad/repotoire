@@ -478,12 +478,35 @@ impl VotingEngine {
             ConfidenceMethod::Min => confidences.iter().cloned().fold(1.0, f64::min),
 
             ConfidenceMethod::Bayesian => {
-                // Bayesian: Start with prior (0.5), update with evidence
+                // Bayesian update with detector-family de-correlation (#52).
+                // Correlated detectors (same family/prefix) should not count as
+                // independent evidence.
+                let mut by_family: HashMap<String, Vec<f64>> = HashMap::new();
+                for f in findings {
+                    let family = f
+                        .detector
+                        .split(['[', '+', ':'])
+                        .next()
+                        .unwrap_or(f.detector.as_str())
+                        .to_string();
+                    by_family
+                        .entry(family)
+                        .or_default()
+                        .push(self.get_finding_confidence(f));
+                }
+
+                let family_confidences: Vec<f64> = by_family
+                    .values()
+                    .map(|vals| vals.iter().sum::<f64>() / vals.len() as f64)
+                    .collect();
+
                 let mut prior = 0.5;
-                for &conf in &confidences {
+                for conf in family_confidences {
                     let likelihood = conf;
-                    prior = (prior * likelihood)
-                        / (prior * likelihood + (1.0 - prior) * (1.0 - likelihood));
+                    let denom = prior * likelihood + (1.0 - prior) * (1.0 - likelihood);
+                    if denom > 0.0 {
+                        prior = (prior * likelihood) / denom;
+                    }
                 }
                 prior
             }

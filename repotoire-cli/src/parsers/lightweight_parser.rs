@@ -31,13 +31,19 @@ use std::path::{Path, PathBuf};
 /// The AST is dropped as soon as this function returns.
 pub fn parse_file_lightweight(path: &Path) -> Result<LightweightFileInfo> {
     let language = Language::from_path(path);
-    
-    // Count lines first (cheap operation)
-    let loc = count_lines(path)?;
-    
-    // Parse using existing parser
+
+    // Parse once. Avoid pre-read line counting to prevent double I/O on hot paths (#54).
     let result = parse_file(path)?;
-    
+
+    // Approximate LOC from parsed entities; fallback to 1 for non-empty/unknown files.
+    let loc = result
+        .functions
+        .iter()
+        .map(|f| f.line_end)
+        .chain(result.classes.iter().map(|c| c.line_end))
+        .max()
+        .unwrap_or(1);
+
     // Convert to lightweight immediately - ParseResult is dropped after this
     let info = LightweightFileInfo::from_parse_result(
         &result,
