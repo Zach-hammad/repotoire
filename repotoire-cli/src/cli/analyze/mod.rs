@@ -63,7 +63,7 @@ pub fn run(
     page: usize,
     per_page: usize,
     skip_detector: Vec<String>,
-    thorough: bool,
+    run_external: bool,
     no_git: bool,
     workers: usize,
     fail_on: Option<String>,
@@ -90,7 +90,7 @@ pub fn run(
 
     // Phase 1: Validate repository and setup environment
     let mut env = setup_environment(
-        path, format, no_emoji, thorough, no_git, workers,
+        path, format, no_emoji, run_external, no_git, workers,
         per_page, fail_on, incremental, since.is_some(), skip_graph, max_files,
     )?;
 
@@ -316,14 +316,14 @@ fn execute_detection_phase(
     let mut findings = if use_streaming {
         run_detectors_streaming(
             graph, &env.repo_path, &env.repotoire_dir, &env.project_config,
-            skip_detector, env.config.thorough, multi, spinner_style,
+            skip_detector, env.config.run_external, multi, spinner_style,
             env.quiet_mode, env.config.no_emoji,
         )?
     } else {
         let mut detector_cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
         run_detectors(
             graph, &env.repo_path, &env.project_config,
-            skip_detector, env.config.thorough, env.config.workers,
+            skip_detector, env.config.run_external, env.config.workers,
             multi, spinner_style, env.quiet_mode, env.config.no_emoji,
             &mut detector_cache, &file_result.all_files,
         )?

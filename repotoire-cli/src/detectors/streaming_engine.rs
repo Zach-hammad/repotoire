@@ -104,7 +104,7 @@ impl StreamingDetectorEngine {
         repo_path: &Path,
         project_config: &ProjectConfig,
         skip_detectors: &[String],
-        thorough: bool,
+        run_external: bool,
         progress: Option<&dyn Fn(&str, usize, usize)>,
     ) -> Result<StreamingDetectionStats> {
         use std::collections::HashSet;
@@ -126,10 +126,16 @@ impl StreamingDetectorEngine {
             .filter(|d| !skip_set.contains(d.name()))
             .collect();
         
-        if thorough {
+        let _external_count = if run_external {
             let external = crate::detectors::all_external_detectors(repo_path);
+            let count = external.len();
             detectors.extend(external);
-        }
+            tracing::info!("External tools enabled: {} tool wrappers added (unavailable tools will be skipped gracefully)", count);
+            count
+        } else {
+            tracing::info!("External tools disabled (--external=off)");
+            0
+        };
         
         let total_detectors = detectors.len();
         
@@ -268,7 +274,7 @@ pub fn run_streaming_detection(
     cache_dir: &Path,
     project_config: &ProjectConfig,
     skip_detectors: &[String],
-    thorough: bool,
+    run_external: bool,
     progress: Option<&dyn Fn(&str, usize, usize)>,
 ) -> Result<(StreamingDetectionStats, PathBuf)> {
     let findings_path = cache_dir.join("findings_stream.jsonl");
@@ -282,7 +288,7 @@ pub fn run_streaming_detection(
         repo_path,
         project_config,
         skip_detectors,
-        thorough,
+        run_external,
         progress,
     )?;
     

@@ -105,7 +105,7 @@ pub(super) fn run_detectors(
     repo_path: &Path,
     project_config: &ProjectConfig,
     skip_detector: &[String],
-    thorough: bool,
+    run_external: bool,
     workers: usize,
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
@@ -146,8 +146,8 @@ pub(super) fn run_detectors(
         }
     }
 
-    // In thorough mode, add external tool detectors
-    if thorough {
+    // Add external tool detectors when enabled (default: on)
+    if run_external {
         let external = crate::detectors::all_external_detectors(repo_path);
         let external_count = external.len();
         for detector in external {
@@ -194,7 +194,7 @@ pub(super) fn run_detectors_streaming(
     cache_dir: &Path,
     project_config: &ProjectConfig,
     skip_detector: &[String],
-    thorough: bool,
+    run_external: bool,
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
     quiet_mode: bool,
@@ -221,7 +221,7 @@ pub(super) fn run_detectors_streaming(
         cache_dir,
         project_config,
         skip_detector,
-        thorough,
+        run_external,
         Some(&|name, done, total| {
             detector_bar.set_message(format!("[{}/{}] {}...", done, total, name));
         }),

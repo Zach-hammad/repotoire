@@ -88,9 +88,13 @@ pub enum Commands {
         #[arg(long)]
         skip_detector: Vec<String>,
 
-        /// Run thorough analysis (slower)
-        #[arg(long)]
+        /// [DEPRECATED] External tools now run by default when available. This flag is a no-op and will be removed in a future release.
+        #[arg(long, hide = true)]
         thorough: bool,
+
+        /// Control external tool execution: on (default, auto-discover), off (built-in only)
+        #[arg(long, default_value = "on", value_parser = ["on", "off"])]
+        external: String,
 
         /// Relaxed mode: filter to high/critical findings only (display filter, does not affect grade)
         #[arg(long)]
@@ -293,6 +297,7 @@ pub fn run(cli: Cli) -> Result<()> {
             per_page,
             skip_detector,
             thorough,
+            external,
             relaxed,
             no_git,
             skip_graph,
@@ -304,6 +309,15 @@ pub fn run(cli: Cli) -> Result<()> {
             explain_score,
             verify,
         }) => {
+            // Deprecation warning for --thorough
+            if thorough {
+                eprintln!("⚠️  --thorough is deprecated. External tools now run by default when available.");
+                eprintln!("   Use --external=off to skip external tools. --thorough will be removed in a future release.");
+            }
+
+            // External tools: on by default, --external=off disables
+            let run_external = external != "off";
+
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
                 Some("high".to_string())
@@ -327,7 +341,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 page,
                 per_page,
                 skip_detector,
-                thorough,
+                run_external,
                 effective_no_git,
                 cli.workers,
                 fail_on,

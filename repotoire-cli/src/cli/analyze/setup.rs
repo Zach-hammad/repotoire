@@ -36,7 +36,7 @@ pub(super) struct FileCollectionResult {
 /// Configuration applied from CLI and project config
 pub(super) struct AnalysisConfig {
     pub no_emoji: bool,
-    pub thorough: bool,
+    pub run_external: bool,
     pub no_git: bool,
     pub workers: usize,
     #[allow(dead_code)] // Stored for potential future use
@@ -72,7 +72,7 @@ pub(super) fn setup_environment(
     path: &Path,
     format: &str,
     no_emoji: bool,
-    thorough: bool,
+    run_external: bool,
     no_git: bool,
     workers: usize,
     per_page: usize,
@@ -92,7 +92,7 @@ pub(super) fn setup_environment(
     let project_config = load_project_config(&repo_path);
     let config = apply_config_defaults(
         no_emoji,
-        thorough,
+        run_external,
         no_git,
         workers,
         per_page,
@@ -141,7 +141,7 @@ pub(super) fn setup_environment(
 /// Apply CLI defaults from project config
 fn apply_config_defaults(
     no_emoji: bool,
-    thorough: bool,
+    run_external: bool,
     no_git: bool,
     workers: usize,
     per_page: usize,
@@ -154,7 +154,7 @@ fn apply_config_defaults(
 ) -> AnalysisConfig {
     AnalysisConfig {
         no_emoji: no_emoji || project_config.defaults.no_emoji.unwrap_or(false),
-        thorough: thorough || project_config.defaults.thorough.unwrap_or(false),
+        run_external: run_external || project_config.defaults.thorough.unwrap_or(false),
         no_git: no_git || project_config.defaults.no_git.unwrap_or(false),
         workers: if workers == 8 {
             project_config.defaults.workers.unwrap_or(workers)
