@@ -428,26 +428,60 @@ impl CompactGraphStore {
     
     /// Find import cycles (simplified)
     pub fn find_import_cycles(&self) -> Vec<Vec<String>> {
-        // Use petgraph's SCC for cycle detection
+        // Use petgraph's SCC for cycle detection, but only on runtime import edges.
+        // (#43) Previously this ran SCC on the full graph (calls/contains/inherits too),
+        // which could report non-import cycles as import cycles.
         use petgraph::algo::tarjan_scc;
-        
-        let graph = self.graph.read().unwrap();
-        let sccs = tarjan_scc(&*graph);
-        
-        let pg_to_idx = self.petgraph_to_idx.read().unwrap();
-        
-        sccs.into_iter()
+
+        let mut filtered_graph: DiGraph<usize, ()> = DiGraph::new();
+        let mut idx_to_filtered: HashMap<usize, NodeIndex> = HashMap::new();
+
+        // Build a subgraph containing only non-type-only import edges.
+        for edge in self
+            .edges
+            .iter()
+            .filter(|e| e.kind == CompactEdgeKind::Imports && !e.is_type_only())
+        {
+            let (Some(&src_idx), Some(&dst_idx)) = (
+                self.qn_to_index.get(&edge.source),
+                self.qn_to_index.get(&edge.target),
+            ) else {
+                continue;
+            };
+
+            let src_pg = *idx_to_filtered
+                .entry(src_idx)
+                .or_insert_with(|| filtered_graph.add_node(src_idx));
+            let dst_pg = *idx_to_filtered
+                .entry(dst_idx)
+                .or_insert_with(|| filtered_graph.add_node(dst_idx));
+
+            filtered_graph.add_edge(src_pg, dst_pg, ());
+        }
+
+        let sccs = tarjan_scc(&filtered_graph);
+
+        let mut cycles: Vec<Vec<String>> = sccs
+            .into_iter()
             .filter(|scc| scc.len() > 1)
             .map(|scc| {
-                scc.into_iter()
+                let mut names: Vec<String> = scc
+                    .into_iter()
                     .filter_map(|pg_idx| {
-                        let idx = pg_to_idx.get(&pg_idx)?;
+                        let idx = filtered_graph.node_weight(pg_idx)?;
                         let node = &self.nodes[*idx];
                         Some(self.interner.resolve(node.qualified_name).to_string())
                     })
-                    .collect()
+                    .collect();
+                names.sort();
+                names
             })
-            .collect()
+            .collect();
+
+        cycles.sort();
+        cycles.dedup();
+        cycles.sort_by_key(|c| std::cmp::Reverse(c.len()));
+        cycles
     }
     
     /// Stats for compatibility
@@ -661,5 +695,31 @@ mod tests {
         
         // With 1100 nodes, should be well under 1MB
         assert!(stats.total < 1024 * 1024);
+    }
+
+    #[test]
+    fn test_find_import_cycles_ignores_non_import_edges() {
+        let mut store = CompactGraphStore::new();
+
+        // Import-cycle candidates
+        store.add_file("a.py", 10, Some("Python"));
+        store.add_file("b.py", 10, Some("Python"));
+
+        // Functions with call cycle (should NOT be reported by import-cycle API)
+        store.add_function("f", "a.py::f", "a.py", 1, 2, false, 1);
+        store.add_function("g", "b.py::g", "b.py", 1, 2, false, 1);
+        store.add_call("a.py::f", "b.py::g");
+        store.add_call("b.py::g", "a.py::f");
+
+        // Real import cycle
+        store.add_import("a.py", "b.py", false);
+        store.add_import("b.py", "a.py", false);
+
+        let cycles = store.find_import_cycles();
+        assert_eq!(cycles.len(), 1);
+        let cycle = &cycles[0];
+        assert!(cycle.contains(&"a.py".to_string()));
+        assert!(cycle.contains(&"b.py".to_string()));
+        assert!(!cycle.iter().any(|n| n.contains("::"))); // no function nodes
     }
 }

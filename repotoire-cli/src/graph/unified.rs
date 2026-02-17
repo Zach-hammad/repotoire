@@ -123,10 +123,27 @@ impl UnifiedGraph {
         match self {
             Self::Standard(g) => {
                 let stats = g.stats();
-                format!("{} nodes, {} edges", 
-                    stats.get("functions").unwrap_or(&0) + stats.get("files").unwrap_or(&0) + stats.get("classes").unwrap_or(&0),
-                    stats.get("calls").unwrap_or(&0) + stats.get("imports").unwrap_or(&0)
-                )
+                // GraphStore::stats uses total_* keys; keep legacy fallback keys for safety. (#44)
+                let nodes = stats
+                    .get("total_nodes")
+                    .copied()
+                    .or_else(|| {
+                        let files = stats.get("files")?;
+                        let functions = stats.get("functions")?;
+                        let classes = stats.get("classes")?;
+                        Some(files + functions + classes)
+                    })
+                    .unwrap_or(0);
+                let edges = stats
+                    .get("total_edges")
+                    .copied()
+                    .or_else(|| {
+                        let calls = stats.get("calls")?;
+                        let imports = stats.get("imports")?;
+                        Some(calls + imports)
+                    })
+                    .unwrap_or(0);
+                format!("{} nodes, {} edges", nodes, edges)
             }
             Self::Compact(g) => {
                 let mem = g.memory_usage();
@@ -273,3 +290,33 @@ impl GraphQuery for UnifiedGraph {
 // - Arc<GraphStore> is Send+Sync (Arc provides thread safety)
 // - CompactGraphStore contains only plain data types (Vec, HashMap, String)
 // No manual unsafe impl needed — the compiler derives these automatically.
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_info_standard_uses_total_stats_keys() {
+        let mut graph = UnifiedGraph::standard_in_memory();
+
+        graph.add_node(CodeNode::file("src/a.rs"));
+        graph.add_node(CodeNode::file("src/b.rs"));
+        graph.add_node(CodeNode::function("f", "src/a.rs::f", "src/a.rs", 1, 2));
+
+        graph.add_edges_batch(vec![
+            (
+                "src/a.rs".to_string(),
+                "src/b.rs".to_string(),
+                CodeEdge::imports(),
+            ),
+            (
+                "src/a.rs::f".to_string(),
+                "src/a.rs::f".to_string(),
+                CodeEdge::calls(),
+            ),
+        ]);
+
+        assert_eq!(graph.memory_info(), "3 nodes, 2 edges");
+    }
+}
