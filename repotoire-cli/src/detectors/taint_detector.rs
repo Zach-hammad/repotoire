@@ -576,10 +576,86 @@ impl Detector for TaintDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         debug!("Starting taint tracking detection");
 
-        let findings = self.scan_source_files();
+        let mut findings = self.scan_source_files();
+
+        // Supplement with AST-based intra-function taint analysis via SsaFlow
+        let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
+        let categories = [
+            crate::detectors::taint::TaintCategory::SqlInjection,
+            crate::detectors::taint::TaintCategory::CommandInjection,
+            crate::detectors::taint::TaintCategory::Xss,
+            crate::detectors::taint::TaintCategory::Ssrf,
+            crate::detectors::taint::TaintCategory::PathTraversal,
+            crate::detectors::taint::TaintCategory::CodeInjection,
+            crate::detectors::taint::TaintCategory::LogInjection,
+        ];
+
+        let mut seen: std::collections::HashSet<(String, u32)> = findings
+            .iter()
+            .filter_map(|f| {
+                f.affected_files.first().map(|p| {
+                    (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))
+                })
+            })
+            .collect();
+
+        for category in &categories {
+            let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
+                &taint_analyzer,
+                graph,
+                *category,
+                &self.repository_path,
+            );
+
+            for path in &intra_paths {
+                if path.is_sanitized {
+                    continue;
+                }
+                let loc = (path.sink_file.clone(), path.sink_line);
+                if seen.contains(&loc) {
+                    continue;
+                }
+                seen.insert(loc);
+
+                findings.push(Finding {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    detector: "TaintDetector".to_string(),
+                    title: format!("{} via data flow", category.name()),
+                    description: format!(
+                        "**{} ({})**\n\nAST-based data flow analysis traced taint from `{}` (line {}) \
+                         to sink `{}` (line {}) without sanitization.\n\nConfidence: {:.0}%",
+                        category.name(),
+                        category.cwe_id(),
+                        path.source_function,
+                        path.source_line,
+                        path.sink_function,
+                        path.sink_line,
+                        path.confidence * 100.0,
+                    ),
+                    severity: get_severity(&category.name().to_lowercase().replace(' ', "_").replace('-', "_")),
+                    affected_files: vec![std::path::PathBuf::from(&path.sink_file)],
+                    line_start: Some(path.sink_line),
+                    line_end: None,
+                    suggested_fix: Some(format!(
+                        "Sanitize or validate the input from `{}` before passing it to `{}`.",
+                        path.source_function, path.sink_function,
+                    )),
+                    cwe_id: Some(category.cwe_id().to_string()),
+                    confidence: Some(path.confidence),
+                    ..Default::default()
+                });
+
+                if findings.len() >= self.max_findings {
+                    break;
+                }
+            }
+            if findings.len() >= self.max_findings {
+                break;
+            }
+        }
 
         info!(
             "TaintDetector found {} potential vulnerabilities",
