@@ -1,6 +1,6 @@
 //! Graph database for code analysis
 //!
-//! Pure Rust implementation using petgraph + sled.
+//! Pure Rust implementation using petgraph + redb.
 //! No C++ dependencies - builds everywhere!
 
 pub mod store;
