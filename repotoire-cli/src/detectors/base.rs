@@ -216,6 +216,21 @@ pub fn is_test_file(path: &std::path::Path) -> bool {
     path_str.contains("/__mocks__/")
 }
 
+/// Check if a path string looks like a test/spec path using path-segment matching.
+/// Unlike `contains("test")`, this won't match 'attestation', 'contest', etc. (#30)
+pub fn is_test_path(path_str: &str) -> bool {
+    let lower = path_str.to_lowercase();
+    lower.contains("/test/")
+        || lower.contains("/tests/")
+        || lower.contains("/__tests__/")
+        || lower.contains("/spec/")
+        || lower.contains("/test_")
+        || lower.contains("_test.")
+        || lower.contains(".test.")
+        || lower.contains(".spec.")
+        || lower.contains("_spec.")
+}
+
 /// Trait for all code smell detectors
 ///
 /// Detectors analyze the code graph to find issues like:

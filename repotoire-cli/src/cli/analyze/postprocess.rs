@@ -49,6 +49,13 @@ pub(super) fn postprocess_findings(
     // Step 6: FP filtering with category-aware thresholds
     filter_false_positives(findings);
 
+    // Step 6b: Clamp confidence to [0.0, 1.0] (#35)
+    for finding in findings.iter_mut() {
+        if let Some(ref mut c) = finding.confidence {
+            *c = c.clamp(0.0, 1.0);
+        }
+    }
+
     // Step 7: LLM verification (if --verify flag)
     if verify {
         // Check for API key availability — don't silently do nothing (#46)

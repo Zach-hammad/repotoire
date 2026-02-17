@@ -189,7 +189,7 @@ impl Detector for HardcodedTimeoutDetector {
             let path_str = path.to_string_lossy().to_string();
 
             // Skip test files and config files
-            if path_str.contains("test") || path_str.contains("config") {
+            if crate::detectors::base::is_test_path(&path_str) || path_str.contains("config") {
                 continue;
             }
 

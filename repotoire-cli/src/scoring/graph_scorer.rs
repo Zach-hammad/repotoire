@@ -253,8 +253,15 @@ impl<'a> GraphScorer<'a> {
             ],
         );
 
-        // Weighted overall score
-        let weights = &self.config.scoring.pillar_weights;
+        // Weighted overall score — normalize weights if they don't sum to 1.0 (#36)
+        let mut weights = self.config.scoring.pillar_weights.clone();
+        if !weights.is_valid() {
+            tracing::warn!(
+                "Pillar weights sum to {:.3} (expected 1.0), normalizing",
+                weights.structure + weights.quality + weights.architecture
+            );
+            weights.normalize();
+        }
         let overall = structure.final_score * weights.structure
             + quality.final_score * weights.quality
             + architecture.final_score * weights.architecture;

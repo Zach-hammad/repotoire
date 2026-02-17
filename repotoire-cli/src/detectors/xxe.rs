@@ -237,7 +237,7 @@ impl Detector for XxeDetector {
             let path_str = path.to_string_lossy().to_string();
 
             // Skip test files
-            if path_str.contains("test") {
+            if crate::detectors::base::is_test_path(&path_str) {
                 continue;
             }
 

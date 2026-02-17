@@ -218,7 +218,7 @@ impl Detector for DjangoSecurityDetector {
                         && fname.contains("settings")
                         && !fname.contains("dev")
                         && !fname.contains("local")
-                        && !fname.contains("test")
+                        && !crate::detectors::base::is_test_path(fname)
                     {
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),

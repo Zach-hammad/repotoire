@@ -130,7 +130,7 @@ impl Detector for HardcodedIpsDetector {
 
             // Skip config files where this is expected
             let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if fname.contains("config") || fname.contains("test") || fname.contains(".env") {
+            if fname.contains("config") || crate::detectors::base::is_test_path(fname) || fname.contains(".env") {
                 continue;
             }
             if fname.contains("detector") || fname.contains("scanner") {

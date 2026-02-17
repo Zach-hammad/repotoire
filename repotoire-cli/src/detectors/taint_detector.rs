@@ -331,8 +331,8 @@ impl TaintDetector {
             return findings;
         }
 
-        // Walk through Python files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["py"])) {
+        // Walk through all supported language files (#27 — was Python-only)
+        for path in walk_source_files(&self.repository_path, Some(&["py", "js", "jsx", "ts", "tsx", "go", "java", "kt", "rb", "rs", "c", "cpp", "cs"])) {
             let rel_path = path
                 .strip_prefix(&self.repository_path)
                 .unwrap_or(&path)

@@ -52,7 +52,7 @@ fn is_hash_mention_not_usage(line: &str) -> bool {
     }
 
     // Skip test files and test functions
-    if lower.contains("test")
+    if crate::detectors::base::is_test_path(&lower)
         && (lower.contains("fn ") || lower.contains("def ") || lower.contains("function "))
     {
         return true;

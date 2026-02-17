@@ -51,6 +51,41 @@
 use crate::graph::{GraphStore, NodeKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// Word-boundary match for function/variable names (#28).
+/// Patterns containing '.' (like 'req.body') use contains() since dots are natural boundaries.
+/// For other patterns, matches at word boundaries where boundaries are transitions between
+/// alphanumeric chars (not underscores — `validate_input` should match `validate`).
+/// This prevents 'id' from matching inside 'valid' or 'provider'.
+fn word_boundary_match(text: &str, pattern: &str) -> bool {
+    // Dotted patterns (e.g., req.body, request.form) — use contains
+    if pattern.contains('.') {
+        return text.contains(pattern);
+    }
+
+    let bytes = text.as_bytes();
+    let mut search_from = 0;
+    while let Some(pos) = text[search_from..].find(pattern) {
+        let abs_pos = search_from + pos;
+        // Before: must be start of string, underscore, dot, or non-alphanumeric
+        let before_ok = abs_pos == 0 || {
+            let c = bytes[abs_pos - 1];
+            !c.is_ascii_alphanumeric() // underscores, dots, parens, spaces, etc. are OK
+        };
+        // After: must be end of string, underscore, dot, or non-alphanumeric
+        let after_pos = abs_pos + pattern.len();
+        let after_ok = after_pos >= text.len() || {
+            let c = bytes[after_pos];
+            !c.is_ascii_alphanumeric() // underscores, dots, parens, etc. are OK
+        };
+
+        if before_ok && after_ok {
+            return true;
+        }
+        search_from = abs_pos + 1;
+    }
+    false
+}
+
 /// Categories of taint analysis
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaintCategory {
@@ -617,29 +652,32 @@ impl TaintAnalyzer {
         }
     }
 
-    /// Check if a function name matches any source pattern for the category
+    /// Check if a function name matches any source pattern for the category.
+    /// Uses word-boundary matching to avoid false positives like 'id' matching 'valid' (#28).
     pub fn is_source(&self, func_name: &str, category: TaintCategory) -> bool {
         if let Some(sources) = self.sources.get(&category) {
             let name_lower = func_name.to_lowercase();
             sources
                 .iter()
-                .any(|s| name_lower.contains(&s.to_lowercase()))
+                .any(|s| word_boundary_match(&name_lower, &s.to_lowercase()))
         } else {
             false
         }
     }
 
-    /// Check if a function name matches any sink pattern for the category
+    /// Check if a function name matches any sink pattern for the category.
+    /// Uses word-boundary matching to avoid false positives (#28).
     pub fn is_sink(&self, func_name: &str, category: TaintCategory) -> bool {
         if let Some(sinks) = self.sinks.get(&category) {
             let name_lower = func_name.to_lowercase();
-            sinks.iter().any(|s| name_lower.contains(&s.to_lowercase()))
+            sinks.iter().any(|s| word_boundary_match(&name_lower, &s.to_lowercase()))
         } else {
             false
         }
     }
 
-    /// Check if a function name matches any sanitizer pattern for the category
+    /// Check if a function name matches any sanitizer pattern for the category.
+    /// Uses word-boundary matching to avoid false positives (#28).
     pub fn is_sanitizer(&self, func_name: &str, category: TaintCategory) -> bool {
         let name_lower = func_name.to_lowercase();
 
@@ -647,7 +685,7 @@ impl TaintAnalyzer {
         if let Some(sanitizers) = self.sanitizers.get(&category) {
             if sanitizers
                 .iter()
-                .any(|s| name_lower.contains(&s.to_lowercase()))
+                .any(|s| word_boundary_match(&name_lower, &s.to_lowercase()))
             {
                 return true;
             }
@@ -656,7 +694,7 @@ impl TaintAnalyzer {
         // Check generic sanitizers
         self.generic_sanitizers
             .iter()
-            .any(|s| name_lower.contains(&s.to_lowercase()))
+            .any(|s| word_boundary_match(&name_lower, &s.to_lowercase()))
     }
 
     /// Trace taint paths through the call graph for a specific category

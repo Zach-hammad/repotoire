@@ -591,7 +591,7 @@ impl Detector for MissingRandomSeedDetector {
 
             // Skip test files - they often don't need seeds
             let path_str = path.to_string_lossy().to_lowercase();
-            if path_str.contains("test") || path_str.contains("_test.py") {
+            if crate::detectors::base::is_test_path(&path_str) || path_str.contains("_test.py") {
                 continue;
             }
 

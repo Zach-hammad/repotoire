@@ -144,7 +144,7 @@ impl Detector for MissingDocstringsDetector {
                 continue;
             }
             // Skip test functions
-            if func.name.starts_with("test_") || func.file_path.contains("test") {
+            if func.name.starts_with("test_") || crate::detectors::base::is_test_path(&func.file_path) {
                 continue;
             }
             // Skip generated/vendor code
