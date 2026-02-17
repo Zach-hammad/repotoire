@@ -92,6 +92,12 @@ impl McpServer {
     }
 
     fn handle_message(&mut self, message: &str) -> Result<Option<Value>> {
+        // Input size limit to prevent DoS (#22)
+        const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024; // 10MB
+        if message.len() > MAX_MESSAGE_SIZE {
+            anyhow::bail!("Message exceeds maximum size of {} bytes", MAX_MESSAGE_SIZE);
+        }
+
         let request: JsonRpcRequest =
             serde_json::from_str(message).context("Invalid JSON-RPC request")?;
 
@@ -156,6 +162,12 @@ impl McpServer {
             .context("Missing tool name")?;
 
         let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+
+        // Limit argument size (#22)
+        let args_str = arguments.to_string();
+        if args_str.len() > 1_000_000 {
+            anyhow::bail!("Tool arguments exceed 1MB limit");
+        }
 
         debug!("Calling tool: {} with args: {}", name, arguments);
 

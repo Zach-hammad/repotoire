@@ -140,6 +140,12 @@ impl FileCache {
     pub fn stats(&self) -> (usize, usize) {
         (self.contents.len(), self.lines.len())
     }
+
+    /// Clear all cached data (#13 — prevent stale data in watch/server mode)
+    pub fn clear(&self) {
+        self.contents.clear();
+        self.lines.clear();
+    }
 }
 
 impl Default for FileCache {

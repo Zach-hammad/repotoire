@@ -187,8 +187,8 @@ pub(super) fn check_fail_threshold(fail_on: &Option<String>, report: &HealthRepo
             _ => false,
         };
         if should_fail {
-            eprintln!("Failing due to --fail-on={} threshold", threshold);
-            std::process::exit(1);
+            // Return error instead of process::exit to allow cleanup (#19)
+            anyhow::bail!("Failing due to --fail-on={} threshold", threshold);
         }
     }
     Ok(())

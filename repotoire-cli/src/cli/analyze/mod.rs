@@ -306,6 +306,8 @@ fn initialize_graph(
 
     // Pre-warm file cache (skip for huge repos)
     if file_result.all_files.len() < 20000 {
+        // Clear stale data before re-warming (#13)
+        crate::cache::global_cache().clear();
         crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
     }
 

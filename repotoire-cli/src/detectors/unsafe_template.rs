@@ -97,8 +97,9 @@ impl UnsafeTemplateDetector {
         let dangerous_inner_html_pattern =
             Regex::new(r"\bdangerouslySetInnerHTML\s*=\s*\{").unwrap();
         let vue_vhtml_pattern = Regex::new(r#"\bv-html\s*=\s*["'][^"']+["']"#).unwrap();
-        let innerhtml_assign_pattern = Regex::new(r"\.\s*innerHTML\s*=\s*[^;]+").unwrap();
-        let outerhtml_assign_pattern = Regex::new(r"\.\s*outerHTML\s*=\s*[^;]+").unwrap();
+        // Use =[^=] to exclude == comparisons (#25)
+        let innerhtml_assign_pattern = Regex::new(r"\.\s*innerHTML\s*=[^=;][^;]*").unwrap();
+        let outerhtml_assign_pattern = Regex::new(r"\.\s*outerHTML\s*=[^=;][^;]*").unwrap();
         let document_write_pattern = Regex::new(r"\bdocument\s*\.\s*write(?:ln)?\s*\(").unwrap();
 
         Self {

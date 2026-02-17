@@ -100,10 +100,10 @@ impl Detector for SsrfDetector {
                             // If it's just API_URL + "/path", that's safe
                             let has_dynamic_path = line.contains("params")
                                 || line.contains("query")
-                                || line.contains("${")
+                                || (line.contains("${")
                                     && !line.contains("${API_URL")
                                     && !line.contains("${BASE_URL")
-                                    && !line.contains("${SERVER_URL");
+                                    && !line.contains("${SERVER_URL"));
                             if !has_dynamic_path {
                                 continue;
                             }
@@ -126,13 +126,8 @@ impl Detector for SsrfDetector {
                             || context_str.contains("options.base")
                             || context_str.contains("baseurl")
                             || context_str.contains("base_url")
-                            // Function parameter named url/endpoint with no user input trace
-                            || (line.contains("input") 
-                                && context_str.contains("function") 
-                                && !context_str.contains("req.") 
-                                && !context_str.contains("request.body")
-                                && !context_str.contains("request.query")
-                                && !context_str.contains("request.params"))
+                            // Function parameter named url/endpoint from config (not user input)
+                            // Removed: "input" substring check caused false negatives (#23)
                         };
                         
                         if is_env_sourced {

@@ -91,11 +91,18 @@ impl Detector for XssDetector {
 
                 for (i, line) in content.lines().enumerate() {
                     if xss_pattern().is_match(line) {
-                        let has_user_input = line.contains("req.")
-                            || line.contains("props.")
-                            || line.contains("params")
-                            || line.contains("query")
-                            || line.contains("input");
+                        // Word-boundary checks to avoid FPs like inputStream, maxInput (#24)
+                        let line_lower = line.to_lowercase();
+                        let has_user_input = line_lower.contains("req.")
+                            || line_lower.contains("props.")
+                            || line_lower.contains("params")
+                            || line_lower.contains("query")
+                            || line_lower.contains("user_input")
+                            || line_lower.contains("userinput")
+                            || line_lower.contains("form_data")
+                            || line_lower.contains("formdata")
+                            || line_lower.contains("request.body")
+                            || line_lower.contains("request.query");
 
                         let line_num = (i + 1) as u32;
 

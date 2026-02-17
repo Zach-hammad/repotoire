@@ -507,64 +507,27 @@ impl DeadCodeDetector {
             return true;
         }
 
-        // Public methods (may be called externally)
-        if is_method && !name.starts_with('_') {
-            return true;
+        // Public methods in exported modules may be called externally — skip only
+        // if they're also exported (is_exported check is elsewhere). Keeping public
+        // methods as candidates improves detection coverage (#15).
+
+        // Decorated functions with known framework decorators (route, test, etc.)
+        // are likely called dynamically — but ALL decorated is too aggressive (#15)
+        if has_decorators && is_method {
+            return true; // Decorated methods are almost always framework-invoked
         }
 
-        // Decorated functions
-        if has_decorators {
-            return true;
-        }
-
-        // Common patterns that are often called dynamically
+        // Tight list of patterns that are genuinely dynamic — trimmed from 48 (#15)
         let filter_patterns = [
-            "handle",
-            "on_",
             "callback",
-            "load_data",
-            "loader",
-            "_loader",
-            "load_",
-            "create_",
-            "build_",
-            "make_",
-            "_parse_",
-            "_process_",
-            "load_config",
-            "generate_",
-            "validate_",
-            "setup_",
-            "initialize_",
+            "on_",        // event handlers
+            "handle_",    // specific handler prefix, not just "handle" substring
+            "serialize",
+            "deserialize",
             "to_dict",
             "to_json",
             "from_dict",
             "from_json",
-            "serialize",
-            "deserialize",
-            "_side_effect",
-            "_effect",
-            "_extract_",
-            "_find_",
-            "_calculate_",
-            "_get_",
-            "_set_",
-            "_check_",
-            // Rust trait implementation patterns
-            "with_", // builder pattern
-            "into_",
-            "as_",
-            "is_",
-            "has_",
-            "can_",
-            "should_",
-            "try_",
-            "parse_",
-            "render_",
-            "run_",
-            "execute_",
-            "process_",
-            "extract_",
         ];
 
         let name_lower = name.to_lowercase();
@@ -1035,16 +998,19 @@ mod tests {
         assert!(detector.should_filter("main", false, false));
         assert!(detector.should_filter("test_foo", false, false));
 
-        // Public methods
-        assert!(detector.should_filter("public_method", true, false));
+        // Public methods are no longer blanket-filtered (#15)
+        assert!(!detector.should_filter("public_method", true, false));
         assert!(!detector.should_filter("_private_method", true, false));
 
-        // Decorated
-        assert!(detector.should_filter("any_func", false, true));
+        // Decorated methods (not standalone functions) are filtered
+        assert!(detector.should_filter("any_func", true, true));
+        assert!(!detector.should_filter("any_func", false, true)); // standalone decorated: not filtered
 
-        // Patterns
-        assert!(detector.should_filter("load_config", false, false));
+        // Patterns — trimmed list (#15)
+        assert!(!detector.should_filter("load_config", false, false)); // removed from list
         assert!(detector.should_filter("to_dict", false, false));
+        assert!(detector.should_filter("callback_handler", false, false));
+        assert!(detector.should_filter("on_click", false, false));
     }
 
     #[test]

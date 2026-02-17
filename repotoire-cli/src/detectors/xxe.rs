@@ -250,16 +250,25 @@ impl Detector for XxeDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                // Skip if file has protection
-                if Self::has_protection(&content, ext) {
-                    continue;
-                }
+                // Don't skip entire file — check protection near each parse call (#16)
+                let file_has_any_protection = Self::has_protection(&content, ext);
 
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
                     if !xxe_pattern().is_match(line) {
                         continue;
+                    }
+
+                    // Check for protection near this parse call, not just file-wide (#16)
+                    // Look 15 lines before and after for protection patterns
+                    if file_has_any_protection {
+                        let local_start = i.saturating_sub(15);
+                        let local_end = (i + 15).min(lines.len());
+                        let local_context = lines[local_start..local_end].join("\n");
+                        if Self::has_protection(&local_context, ext) {
+                            continue; // This specific parser is protected
+                        }
                     }
 
                     // Check for user input flow
@@ -330,7 +339,8 @@ impl Detector for XxeDetector {
         // Supplement with intra-function taint analysis
         let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
         let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &taint_analyzer, graph, crate::detectors::taint::TaintCategory::CodeInjection, &self.repository_path,
+            // XXE is closer to PathTraversal (file disclosure) than CodeInjection (#16)
+            &taint_analyzer, graph, crate::detectors::taint::TaintCategory::PathTraversal, &self.repository_path,
         );
         let mut seen: std::collections::HashSet<(String, u32)> = findings
             .iter()

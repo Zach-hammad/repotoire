@@ -554,7 +554,31 @@ impl SQLInjectionDetector {
                     continue;
                 }
 
-                if let Some((pattern_type, is_likely_fp)) = self.check_line_for_patterns(line) {
+                // Join continuation lines for multiline query detection (#26)
+                // If line ends with +, ||, .., \, or open string concat, peek next lines
+                let check_line = {
+                    let trimmed = line.trim_end();
+                    if trimmed.ends_with('+') || trimmed.ends_with("||") || trimmed.ends_with('\\')
+                        || trimmed.ends_with("..") || trimmed.ends_with(',')
+                    {
+                        let mut joined = line.to_string();
+                        for next in lines.iter().skip(line_no + 1).take(3) {
+                            joined.push(' ');
+                            joined.push_str(next.trim());
+                            let next_trimmed = next.trim_end();
+                            if !next_trimmed.ends_with('+') && !next_trimmed.ends_with("||")
+                                && !next_trimmed.ends_with('\\') && !next_trimmed.ends_with(',')
+                            {
+                                break;
+                            }
+                        }
+                        joined
+                    } else {
+                        line.to_string()
+                    }
+                };
+
+                if let Some((pattern_type, is_likely_fp)) = self.check_line_for_patterns(&check_line) {
                     // Skip if line contains a safe ORM pattern (e.g., Prisma, Drizzle parameterized queries)
                     // is_safe_orm_pattern checks for unsafe raw SQL patterns first, then safe patterns
                     if is_safe_orm_pattern(line, &detected_frameworks) {
