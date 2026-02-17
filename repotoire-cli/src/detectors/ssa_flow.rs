@@ -328,13 +328,15 @@ fn collect_js_ts(node: Node, source: &str, info: &mut AstInfo) {
     let kind = node.kind();
 
     match kind {
-        // variable_declarator: const x = expr
+        // variable_declarator: const x = expr  OR  const { a, b } = expr  (#29)
         "variable_declarator" => {
             if let (Some(name_node), Some(value_node)) =
                 (node.child_by_field_name("name"), node.child_by_field_name("value"))
             {
                 let name = node_text(name_node, source);
                 let value = node_text(value_node, source);
+                let name_kind = name_node.kind();
+
                 if is_simple_identifier(&name) {
                     info.defs.push(VarDef {
                         name,
@@ -342,6 +344,12 @@ fn collect_js_ts(node: Node, source: &str, info: &mut AstInfo) {
                         rhs_text: value,
                         rhs_range: (value_node.start_byte(), value_node.end_byte()),
                     });
+                } else if name_kind == "object_pattern" || name_kind == "array_pattern" {
+                    // Destructuring: const { a, b } = expr  or  const [a, b] = expr
+                    // Each destructured variable inherits taint from the RHS
+                    let rhs_text = value.clone();
+                    let rhs_range = (value_node.start_byte(), value_node.end_byte());
+                    extract_destructured_names(name_node, source, &rhs_text, rhs_range, info);
                 }
             }
         }
@@ -706,6 +714,70 @@ fn node_text(node: Node, source: &str) -> String {
 }
 
 /// Check if a string is a simple identifier (no dots, brackets).
+/// Extract variable names from destructuring patterns (object_pattern / array_pattern).
+/// Each extracted name gets a VarDef pointing to the original RHS. (#29)
+fn extract_destructured_names(
+    pattern_node: Node,
+    source: &str,
+    rhs_text: &str,
+    rhs_range: (usize, usize),
+    info: &mut AstInfo,
+) {
+    let count = pattern_node.child_count();
+    for i in 0..count {
+        if let Some(child) = pattern_node.child(i) {
+            let kind = child.kind();
+            match kind {
+                // { name } or { name: alias }
+                "shorthand_property_identifier_pattern" | "identifier" => {
+                    let name = node_text(child, source);
+                    if is_simple_identifier(&name) {
+                        info.defs.push(VarDef {
+                            name,
+                            line: child.start_position().row + 1,
+                            rhs_text: rhs_text.to_string(),
+                            rhs_range,
+                        });
+                    }
+                }
+                // { name: alias } — the alias (value) is the variable
+                "pair_pattern" => {
+                    if let Some(value_node) = child.child_by_field_name("value") {
+                        let name = node_text(value_node, source);
+                        if is_simple_identifier(&name) {
+                            info.defs.push(VarDef {
+                                name,
+                                line: value_node.start_position().row + 1,
+                                rhs_text: rhs_text.to_string(),
+                                rhs_range,
+                            });
+                        }
+                    }
+                }
+                // Nested destructuring: { a: { b } } or [{ c }]
+                "object_pattern" | "array_pattern" => {
+                    extract_destructured_names(child, source, rhs_text, rhs_range, info);
+                }
+                // Rest element: ...rest
+                "rest_pattern" => {
+                    if let Some(name_node) = child.child(1) {
+                        let name = node_text(name_node, source);
+                        if is_simple_identifier(&name) {
+                            info.defs.push(VarDef {
+                                name,
+                                line: name_node.start_position().row + 1,
+                                rhs_text: rhs_text.to_string(),
+                                rhs_range,
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 fn is_simple_identifier(s: &str) -> bool {
     !s.is_empty()
         && s.chars()

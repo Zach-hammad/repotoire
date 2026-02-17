@@ -859,16 +859,19 @@ fn load_json_config(path: &Path) -> anyhow::Result<ProjectConfig> {
 /// Load configuration from a YAML file
 fn load_yaml_config(path: &Path) -> anyhow::Result<ProjectConfig> {
     let content = std::fs::read_to_string(path)?;
-    // Use serde_yaml if available, otherwise fall back to JSON-compatible subset
-    // For now, we'll try parsing as JSON (YAML is a superset of JSON)
-    // In a real implementation, add serde_yaml dependency
-    let config: ProjectConfig = serde_json::from_str(&content).map_err(|e| {
-        anyhow::anyhow!(
-            "YAML parsing not fully supported yet (tried JSON fallback): {}",
-            e
-        )
-    })?;
-    Ok(config)
+
+    // Try JSON first (YAML is a superset of JSON, so pure-JSON YAML files work)
+    if let Ok(config) = serde_json::from_str::<ProjectConfig>(&content) {
+        return Ok(config);
+    }
+
+    // For actual YAML syntax, give a clear error (#34)
+    anyhow::bail!(
+        "YAML config files with non-JSON syntax are not yet supported.\n\
+         Please convert {} to TOML format (repotoire.toml) or use JSON syntax.\n\
+         See: https://repotoire.com/docs/cli/config",
+        path.display()
+    )
 }
 
 impl ProjectConfig {

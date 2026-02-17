@@ -255,7 +255,8 @@ impl FixGenerator {
         fix_type: FixType,
     ) -> AiResult<FixProposal> {
         // Extract JSON from response (may be wrapped in markdown)
-        let json_regex = Regex::new(r"```json\s*(\{.*?\})\s*```").unwrap();
+        // (?s) enables dot-matches-newline for multiline JSON responses (#38)
+        let json_regex = Regex::new(r"(?s)```json\s*(\{.*?\})\s*```").unwrap();
         let json_str = json_regex
             .captures(response)
             .and_then(|c| c.get(1))

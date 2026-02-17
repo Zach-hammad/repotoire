@@ -140,9 +140,13 @@ pub enum Commands {
 
     /// View findings from last analysis
     Findings {
-        /// Finding index to show details (e.g., --index 5)
+        /// Finding index to show details (e.g., `findings 5` or `findings --index 5`)
         #[arg(long, short = 'n')]
         index: Option<usize>,
+
+        /// Finding index (positional shorthand: `findings 5`) (#45)
+        #[arg(value_name = "INDEX")]
+        positional_index: Option<usize>,
 
         /// Output as JSON
         #[arg(long)]
@@ -358,6 +362,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
         Some(Commands::Findings {
             index,
+            positional_index,
             json,
             top,
             severity,
@@ -365,10 +370,12 @@ pub fn run(cli: Cli) -> Result<()> {
             per_page,
             interactive,
         }) => {
+            // Merge positional and --index flag; positional takes precedence (#45)
+            let effective_index = positional_index.or(index);
             if interactive {
                 findings::run_interactive(&cli.path)
             } else {
-                findings::run(&cli.path, index, json, top, severity, page, per_page)
+                findings::run(&cli.path, effective_index, json, top, severity, page, per_page)
             }
         }
 
