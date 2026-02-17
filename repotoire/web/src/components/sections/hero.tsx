@@ -271,7 +271,7 @@ export function Hero() {
         >
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 text-sm text-muted-foreground">
             <a
-              href="https://github.com/repotoire/repotoire"
+              href="https://github.com/Zach-hammad/repotoire"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 hover:text-foreground transition-colors group"

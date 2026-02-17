@@ -72,7 +72,7 @@ export function FinalCTA() {
             className="h-14 px-8 text-lg font-display border-border hover:bg-muted bg-transparent"
           >
             <a 
-              href="https://github.com/repotoire/repotoire"
+              href="https://github.com/Zach-hammad/repotoire"
               target="_blank"
               rel="noopener noreferrer"
             >

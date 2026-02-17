@@ -145,7 +145,7 @@ ${errorInfo?.componentStack || 'No component stack available'}
     `.trim());
 
     window.open(
-      `https://github.com/repotoire/repotoire/issues/new?title=${subject}&body=${body}`,
+      `https://github.com/Zach-hammad/repotoire/issues/new?title=${subject}&body=${body}`,
       '_blank'
     );
   };

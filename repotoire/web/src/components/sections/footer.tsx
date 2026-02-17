@@ -73,7 +73,7 @@ export function Footer() {
           <p className="text-sm text-muted-foreground">© {new Date().getFullYear()} Repotoire. All rights reserved.</p>
           <div className="flex items-center gap-4">
             <a
-              href="https://github.com/repotoire"
+              href="https://github.com/Zach-hammad"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Follow Repotoire on GitHub"

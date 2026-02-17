@@ -71,7 +71,7 @@ export default function TeamsPage() {
                 </Button>
               </Link>
               <a
-                href="https://github.com/repotoire/repotoire"
+                href="https://github.com/Zach-hammad/repotoire"
                 target="_blank"
                 rel="noopener noreferrer"
               >

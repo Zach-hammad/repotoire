@@ -269,10 +269,10 @@ export default function ContactPage() {
                     Report issues or contribute
                   </p>
                   <a
-                    href="https://github.com/repotoire/repotoire"
+                    href="https://github.com/Zach-hammad/repotoire"
                     className="text-foreground hover:underline text-sm"
                   >
-                    github.com/repotoire/repotoire
+                    github.com/Zach-hammad/repotoire
                   </a>
                 </div>
               </div>
