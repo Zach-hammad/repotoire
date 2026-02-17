@@ -144,7 +144,15 @@ fn collect_source_files(repo_path: &Path) -> Result<Vec<PathBuf>> {
 /// Get files changed since a specific git commit
 fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>> {
     use std::process::Command;
-    
+
+    // Sanitize: reject values that look like flags to prevent git flag injection (#49)
+    if since.starts_with('-') {
+        anyhow::bail!(
+            "Invalid --since value '{}': must be a commit hash, branch name, or tag (cannot start with '-')",
+            since
+        );
+    }
+
     let output = Command::new("git")
         .args(["diff", "--name-only", since, "HEAD"])
         .current_dir(repo_path)

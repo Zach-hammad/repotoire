@@ -332,8 +332,8 @@ fn render_finding(finding: &Finding) -> String {
         sev_class,
         sev_label,
         html_escape(&finding.title),
-        location,
-        detector,
+        html_escape(&location),
+        html_escape(&detector),
         html_escape(&finding.description),
         files_html,
         fix_html

@@ -51,9 +51,24 @@ pub(super) fn postprocess_findings(
 
     // Step 7: LLM verification (if --verify flag)
     if verify {
-        // TODO: Wire up LLM verification for remaining HIGH+ findings
-        // This uses Ollama/Claude to double-check ambiguous cases
-        tracing::debug!("LLM verification requested but not yet wired up");
+        // Check for API key availability — don't silently do nothing (#46)
+        let has_claude = std::env::var("ANTHROPIC_API_KEY").is_ok();
+        let has_ollama = std::process::Command::new("ollama")
+            .arg("list")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !has_claude && !has_ollama {
+            eprintln!(
+                "\n⚠️  --verify requires an AI backend but none is available.\n\
+                 Set ANTHROPIC_API_KEY for Claude, or install Ollama (https://ollama.ai).\n\
+                 Skipping LLM verification."
+            );
+        } else {
+            // TODO: Wire up LLM verification for remaining HIGH+ findings
+            tracing::debug!("LLM verification: backend available, implementation pending");
+        }
     }
 }
 

@@ -352,15 +352,51 @@ fn sanitize_text(text: &str) -> String {
 
 /// Sanitize code to remove potentially malicious comments
 fn sanitize_code(code: &str, _language: &str) -> String {
-    // For now, just truncate very long code sections
-    // More sophisticated comment removal can be added later
-    if code.len() > 10000 {
-        let mut result = code[..10000].to_string();
-        result.push_str("\n# ... [code truncated]");
-        result
-    } else {
-        code.to_string()
+    let mut result = code.to_string();
+
+    // Filter prompt injection patterns embedded in code comments/strings (#39)
+    let injection_patterns = [
+        "ignore all previous",
+        "ignore above instructions",
+        "disregard all prior",
+        "disregard previous",
+        "forget your instructions",
+        "new instructions:",
+        "system prompt:",
+        "you are now",
+        "act as",
+        "pretend you are",
+        "output your",
+        "reveal your",
+        "print your system",
+    ];
+
+    let lower = result.to_lowercase();
+    for pattern in &injection_patterns {
+        if lower.contains(pattern) {
+            // Replace the injection attempt but preserve code structure
+            result = result
+                .lines()
+                .map(|line| {
+                    if line.to_lowercase().contains(pattern) {
+                        format!("/* [prompt injection filtered] */")
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            break; // Re-check after filtering
+        }
     }
+
+    // Truncate very long code sections
+    if result.len() > 10000 {
+        result.truncate(10000);
+        result.push_str("\n# ... [code truncated]");
+    }
+
+    result
 }
 
 #[cfg(test)]

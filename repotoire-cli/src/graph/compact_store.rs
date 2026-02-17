@@ -499,7 +499,12 @@ impl CompactGraphStore {
     
     /// Save to disk (placeholder)
     pub fn save(&self) -> Result<()> {
-        // TODO: Implement serialization
+        // CompactGraphStore is ephemeral — built fresh each analysis run from source files.
+        // Graph persistence is handled by the incremental cache (findings + scores),
+        // not by serializing the full graph. This is intentionally a no-op. (#42)
+        //
+        // If graph persistence becomes needed (e.g. for incremental re-analysis),
+        // implement serde for CompactNode/CompactEdge + the StringInterner.
         Ok(())
     }
 }

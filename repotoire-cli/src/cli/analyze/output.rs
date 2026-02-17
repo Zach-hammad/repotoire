@@ -45,10 +45,23 @@ pub(super) fn filter_findings(findings: &mut Vec<Finding>, severity: &Option<Str
 
 /// Paginate findings
 pub(super) fn paginate_findings(
-    findings: Vec<Finding>,
+    mut findings: Vec<Finding>,
     page: usize,
     per_page: usize,
 ) -> (Vec<Finding>, Option<(usize, usize, usize, usize)>) {
+    // Sort for deterministic output: severity (desc), then file, then line (#47)
+    findings.sort_by(|a, b| {
+        (b.severity as u8)
+            .cmp(&(a.severity as u8))
+            .then_with(|| {
+                let a_file = a.affected_files.first().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                let b_file = b.affected_files.first().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                a_file.cmp(&b_file)
+            })
+            .then_with(|| a.line_start.cmp(&b.line_start))
+            .then_with(|| a.detector.cmp(&b.detector))
+    });
+
     let displayed_findings = findings.len();
 
     if per_page > 0 {
