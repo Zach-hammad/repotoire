@@ -111,6 +111,7 @@ mod hardcoded_timeout;
 mod implicit_coercion;
 mod inconsistent_returns;
 mod insecure_cookie;
+mod insecure_tls;
 mod insecure_crypto;
 mod insecure_deserialize;
 mod insecure_random;
@@ -243,6 +244,7 @@ pub use hardcoded_timeout::HardcodedTimeoutDetector;
 pub use implicit_coercion::ImplicitCoercionDetector;
 pub use inconsistent_returns::InconsistentReturnsDetector;
 pub use insecure_cookie::InsecureCookieDetector;
+pub use insecure_tls::InsecureTlsDetector;
 pub use insecure_crypto::InsecureCryptoDetector;
 pub use insecure_deserialize::InsecureDeserializeDetector;
 pub use insecure_random::InsecureRandomDetector;
@@ -452,6 +454,8 @@ pub fn default_detectors_with_config(
         Arc::new(MutexPoisoningRiskDetector::new(repository_path)),
         // CI/CD security
         Arc::new(GHActionsInjectionDetector::new(repository_path)),
+        // TLS/Certificate validation
+        Arc::new(InsecureTlsDetector::new(repository_path)),
     ]
 }
 
