@@ -96,11 +96,12 @@ impl HandlerState {
 
 /// Run code analysis on the repository
 pub fn handle_analyze(state: &mut HandlerState, args: &Value) -> Result<Value> {
-    let repo_path = args
-        .get("repo_path")
-        .and_then(|v| v.as_str())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| state.repo_path.clone());
+    // Ignore client-supplied repo_path — always use server-configured path (#4)
+    // Allowing untrusted path override is a security risk (arbitrary directory analysis)
+    let repo_path = state.repo_path.clone();
+    if args.get("repo_path").is_some() {
+        tracing::warn!("Client supplied repo_path override — ignored for security");
+    }
 
     let _incremental = args
         .get("incremental")
@@ -287,14 +288,22 @@ pub fn handle_get_file(state: &HandlerState, args: &Value) -> Result<Value> {
     let start_line = args.get("start_line").and_then(|v| v.as_u64());
     let end_line = args.get("end_line").and_then(|v| v.as_u64());
 
+    // Prevent path traversal (#3) — resolve and verify within repo
     let full_path = state.repo_path.join(file_path);
-    if !full_path.exists() {
+    let canonical = full_path.canonicalize().unwrap_or(full_path.clone());
+    let repo_canonical = state.repo_path.canonicalize().unwrap_or(state.repo_path.clone());
+    if !canonical.starts_with(&repo_canonical) {
+        return Ok(json!({
+            "error": "Access denied: path traversal detected"
+        }));
+    }
+    if !canonical.exists() {
         return Ok(json!({
             "error": format!("File not found: {}", file_path)
         }));
     }
 
-    let content = std::fs::read_to_string(&full_path)?;
+    let content = std::fs::read_to_string(&canonical)?;
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
 

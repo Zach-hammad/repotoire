@@ -107,9 +107,10 @@ pub fn render(report: &HealthReport) -> Result<String> {
             let sev_c = severity_color(&finding.severity);
             let sev_tag = severity_tag(&finding.severity);
 
-            // Truncate title if too long
-            let title = if finding.title.len() > 38 {
-                format!("{}...", &finding.title[..35])
+            // Truncate title if too long — use chars() to avoid UTF-8 panic (#8)
+            let title = if finding.title.chars().count() > 38 {
+                let truncated: String = finding.title.chars().take(35).collect();
+                format!("{}...", truncated)
             } else {
                 finding.title.clone()
             };
@@ -117,8 +118,10 @@ pub fn render(report: &HealthReport) -> Result<String> {
             // Get file and line
             let file_info = if let Some(file) = finding.affected_files.first() {
                 let file_str = file.display().to_string();
-                let short_file = if file_str.len() > 25 {
-                    format!("...{}", &file_str[file_str.len() - 22..])
+                let short_file = if file_str.chars().count() > 25 {
+                    let skip = file_str.chars().count() - 22;
+                    let truncated: String = file_str.chars().skip(skip).collect();
+                    format!("...{}", truncated)
                 } else {
                     file_str
                 };

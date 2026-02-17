@@ -31,6 +31,9 @@ pub struct CompactGraphStore {
     
     /// Node index in petgraph -> our index
     petgraph_to_idx: RwLock<HashMap<NodeIndex, usize>>,
+
+    /// Our index -> petgraph node index (reverse mapping for O(1) edge insertion, #11)
+    idx_to_petgraph: RwLock<HashMap<usize, NodeIndex>>,
 }
 
 impl CompactGraphStore {
@@ -43,9 +46,10 @@ impl CompactGraphStore {
             edges: Vec::new(),
             graph: RwLock::new(DiGraph::new()),
             petgraph_to_idx: RwLock::new(HashMap::new()),
+            idx_to_petgraph: RwLock::new(HashMap::new()),
         }
     }
-    
+
     /// Create with estimated capacity
     pub fn with_capacity(files: usize, functions: usize, classes: usize) -> Self {
         let total_nodes = files + functions + classes;
@@ -59,6 +63,7 @@ impl CompactGraphStore {
             edges: Vec::with_capacity(total_nodes * 3), // ~3 edges per node
             graph: RwLock::new(DiGraph::with_capacity(total_nodes, total_nodes * 3)),
             petgraph_to_idx: RwLock::new(HashMap::with_capacity(total_nodes)),
+            idx_to_petgraph: RwLock::new(HashMap::with_capacity(total_nodes)),
         }
     }
     
@@ -123,6 +128,7 @@ impl CompactGraphStore {
         let mut graph = self.graph.write().unwrap();
         let pg_idx = graph.add_node(idx);
         self.petgraph_to_idx.write().unwrap().insert(pg_idx, idx);
+        self.idx_to_petgraph.write().unwrap().insert(idx, pg_idx);
         
         idx
     }
@@ -146,27 +152,22 @@ impl CompactGraphStore {
     }
     
     fn add_edge_internal(&mut self, edge: CompactEdge) {
-        // Add to petgraph for algorithms
+        // Add to petgraph for algorithms — O(1) lookup via reverse index (#11)
         if let (Some(&src_idx), Some(&dst_idx)) = (
             self.qn_to_index.get(&edge.source),
             self.qn_to_index.get(&edge.target),
         ) {
             let mut graph = self.graph.write().unwrap();
-            
-            // Find petgraph node indices
-            let pg_to_idx = self.petgraph_to_idx.read().unwrap();
-            let src_pg = graph.node_indices().find(|&n| {
-                pg_to_idx.get(&n) == Some(&src_idx)
-            });
-            let dst_pg = graph.node_indices().find(|&n| {
-                pg_to_idx.get(&n) == Some(&dst_idx)
-            });
-            
-            if let (Some(src), Some(dst)) = (src_pg, dst_pg) {
-                graph.add_edge(src, dst, edge.kind);
+            let idx_to_pg = self.idx_to_petgraph.read().unwrap();
+
+            if let (Some(&src_pg), Some(&dst_pg)) = (
+                idx_to_pg.get(&src_idx),
+                idx_to_pg.get(&dst_idx),
+            ) {
+                graph.add_edge(src_pg, dst_pg, edge.kind);
             }
         }
-        
+
         self.edges.push(edge);
     }
     

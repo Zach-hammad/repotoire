@@ -330,14 +330,24 @@ impl MmapGraphStore {
         
         for idx in 0..node_count {
             let node_offset = HEADER_SIZE + (idx as usize) * DISK_NODE_SIZE;
-            // SAFETY: Reading fixed-size DiskNode from mmap at known offset
+            // Bounds check before unsafe read (#12)
+            if node_offset + DISK_NODE_SIZE > mmap.len() {
+                anyhow::bail!(
+                    "Corrupt mmap store: node {} offset {} exceeds file size {}",
+                    idx, node_offset, mmap.len()
+                );
+            }
+            // SAFETY: Reading fixed-size DiskNode from mmap at verified offset
             let disk_node: DiskNode = unsafe {
                 std::ptr::read_unaligned(mmap[node_offset..].as_ptr() as *const DiskNode)
             };
             
-            // Read qualified name
+            // Read qualified name (with bounds check #12)
             let qn_start = strings_offset + disk_node.qn_offset as usize;
             let qn_end = qn_start + disk_node.qn_len as usize;
+            if qn_end > mmap.len() {
+                anyhow::bail!("Corrupt mmap store: string offset {} exceeds file size", qn_end);
+            }
             let qn = std::str::from_utf8(&mmap[qn_start..qn_end])?.to_string();
             
             qn_to_idx.insert(qn, idx);

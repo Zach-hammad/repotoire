@@ -70,17 +70,22 @@ pub fn FREE_TOOLS() -> Vec<Tool> {
         },
         Tool {
             name: "query_graph".to_string(),
-            description: "Execute a Cypher query on the code knowledge graph. Use this to explore code structure, find relationships, and analyze dependencies.".to_string(),
+            description: "Query the code knowledge graph. Use type parameter to select: functions, classes, files, imports, callers, callees.".to_string(),
             input_schema: ToolSchema::object()
-                .with_property("cypher", json!({
+                .with_property("type", json!({
                     "type": "string",
-                    "description": "Cypher query to execute. Examples: 'MATCH (f:Function) RETURN f.name LIMIT 10', 'MATCH (c:Class)-[:CONTAINS]->(f:Function) RETURN c.name, count(f)'"
+                    "description": "Query type: functions, classes, files, imports, callers, callees",
+                    "enum": ["functions", "classes", "files", "imports", "callers", "callees"]
+                }))
+                .with_property("name", json!({
+                    "type": "string",
+                    "description": "Function/class name for callers/callees queries"
                 }))
                 .with_property("params", json!({
                     "type": "object",
                     "description": "Optional query parameters"
                 }))
-                .with_required(vec!["cypher"]),
+                .with_required(vec!["type"]),
         },
         Tool {
             name: "get_findings".to_string(),

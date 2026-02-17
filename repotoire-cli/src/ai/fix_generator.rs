@@ -92,7 +92,8 @@ impl FixProposal {
             let file_path = repo_path.join(&change.file_path);
 
             let content = fs::read_to_string(&file_path)?;
-            let new_content = content.replace(&change.original_code, &change.fixed_code);
+            // Use replacen(1) to only replace first occurrence (#6)
+            let new_content = content.replacen(&change.original_code, &change.fixed_code, 1);
 
             if new_content == content {
                 return Err(AiError::ParseError(format!(

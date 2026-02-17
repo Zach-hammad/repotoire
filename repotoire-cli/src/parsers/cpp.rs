@@ -393,11 +393,11 @@ fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResu
         if let Some(node) = call_node {
             // Find the enclosing function
             let caller = find_enclosing_function(&node, source, path);
-            let callee_line = node.start_position().row as u32 + 1;
+            let _callee_line = node.start_position().row as u32 + 1;
 
             result.calls.push((
                 caller,
-                format!("{}::{}:{}", path.display(), callee_name, callee_line),
+                callee_name.clone(), // Use just the name, not path:name:line (#9)
             ));
         }
     }

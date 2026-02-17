@@ -723,7 +723,7 @@ impl GraphStore {
                 // Skip type-only imports
                 if edge_kind == EdgeKind::Imports {
                     if let Some(is_type_only) = e.weight().properties.get("is_type_only") {
-                        if is_type_only == "true" {
+                        if is_type_only.as_bool().unwrap_or(false) || is_type_only == "true" {
                             return false;
                         }
                     }
@@ -747,7 +747,7 @@ impl GraphStore {
             // Skip type-only imports
             if edge_kind == EdgeKind::Imports {
                 if let Some(is_type_only) = edge.weight().properties.get("is_type_only") {
-                    if is_type_only == "true" {
+                    if is_type_only.as_bool().unwrap_or(false) || is_type_only == "true" {
                         continue;
                     }
                 }
@@ -817,7 +817,7 @@ impl GraphStore {
                 // Skip type-only imports
                 if edge_kind == EdgeKind::Imports {
                     if let Some(is_type_only) = edge.weight().properties.get("is_type_only") {
-                        if is_type_only == "true" {
+                        if is_type_only.as_bool().unwrap_or(false) || is_type_only == "true" {
                             continue;
                         }
                     }
