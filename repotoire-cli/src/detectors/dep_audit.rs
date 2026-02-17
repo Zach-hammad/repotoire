@@ -433,6 +433,16 @@ impl DepAuditDetector {
         // OSV batch API limit is 1000 queries per request
         let mut all_results = Vec::new();
 
+        // Create runtime once, not per batch (#61)
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                warn!("Failed to create tokio runtime for OSV query: {}", e);
+                return vec![];
+            }
+        };
+        let client = reqwest::Client::new();
+
         for chunk in deps.chunks(1000) {
             let query = OsvBatchQuery {
                 queries: chunk
@@ -455,17 +465,8 @@ impl DepAuditDetector {
                 }
             };
 
-            // Use blocking reqwest (already a dependency)
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(e) => {
-                    warn!("Failed to create tokio runtime for OSV query: {}", e);
-                    continue;
-                }
-            };
-
+            // Use blocking reqwest with shared runtime + client (#61)
             let result = rt.block_on(async {
-                let client = reqwest::Client::new();
                 client
                     .post("https://api.osv.dev/v1/querybatch")
                     .header("Content-Type", "application/json")

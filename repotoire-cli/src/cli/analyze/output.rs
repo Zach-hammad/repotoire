@@ -92,7 +92,10 @@ pub(super) fn format_and_output(
 ) -> Result<()> {
     // For file-based export formats (SARIF, HTML, Markdown), use ALL findings
     // to avoid truncating to page size. Pagination is for terminal display only.
-    let report_for_output = if matches!(format, "sarif" | "html" | "markdown" | "md") && !all_findings.is_empty() {
+    // Use all findings for file-based exports; JSON only when writing to file (#58)
+    let use_all = matches!(format, "sarif" | "html" | "markdown" | "md")
+        || (format == "json" && output_path.is_some());
+    let report_for_output = if use_all && !all_findings.is_empty() {
         let mut full_report = report.clone();
         full_report.findings = all_findings.to_vec();
         full_report.findings_summary = FindingsSummary::from_findings(all_findings);
@@ -103,8 +106,8 @@ pub(super) fn format_and_output(
 
     let output = reporters::report(&report_for_output, format)?;
 
-    let write_to_file =
-        output_path.is_some() || matches!(format, "html" | "sarif" | "markdown" | "md");
+    // Only write to file if --output was explicitly provided (#59)
+    let write_to_file = output_path.is_some();
 
     if write_to_file {
         let out_path = if let Some(p) = output_path {

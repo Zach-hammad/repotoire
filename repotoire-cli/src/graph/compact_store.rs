@@ -492,6 +492,9 @@ impl CompactGraphStore {
         stats.insert("classes".to_string(), self.nodes.iter().filter(|n| n.kind == CompactNodeKind::Class).count() as i64);
         stats.insert("calls".to_string(), self.edges.iter().filter(|e| e.kind == CompactEdgeKind::Calls).count() as i64);
         stats.insert("imports".to_string(), self.edges.iter().filter(|e| e.kind == CompactEdgeKind::Imports).count() as i64);
+        // Required by UnifiedGraph::memory_info() (#63)
+        stats.insert("total_nodes".to_string(), self.nodes.len() as i64);
+        stats.insert("total_edges".to_string(), self.edges.len() as i64);
         stats
     }
     

@@ -91,7 +91,7 @@ impl TestInProductionDetector {
             for caller in graph.get_callers(&func.qualified_name) {
                 // Check if caller is not a test file
                 let caller_path = &caller.file_path;
-                if !crate::detectors::base::is_test_path(caller_path) && !crate::detectors::base::is_test_path(caller_path) {
+                if !crate::detectors::base::is_test_path(caller_path) {
                     return true;
                 }
             }
@@ -140,7 +140,6 @@ impl Detector for TestInProductionDetector {
 
             // Skip actual test files and devtools (devtools legitimately use debug patterns)
             if crate::detectors::base::is_test_path(&path_str)
-                || crate::detectors::base::is_test_path(&path_str)
                 || path_str.contains("__tests__")
                 || path_str.contains("fixtures")
                 || path_str.contains("conftest")

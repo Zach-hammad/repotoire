@@ -99,6 +99,21 @@ pub fn run(
         &env, format, output_path, &severity, top, page, per_page,
         &skip_detector, start_time, explain_score,
     )? {
+        // Show --verify warning even on cached path (#60)
+        if verify {
+            let has_claude = std::env::var("ANTHROPIC_API_KEY").is_ok();
+            let has_ollama = std::process::Command::new("ollama")
+                .arg("list")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if !has_claude && !has_ollama {
+                eprintln!(
+                    "\n⚠️  --verify requires an AI backend but none is available.\n\
+                     Set ANTHROPIC_API_KEY for Claude, or install Ollama (https://ollama.ai)."
+                );
+            }
+        }
         return Ok(result);
     }
 
