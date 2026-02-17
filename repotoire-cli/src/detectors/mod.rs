@@ -110,6 +110,7 @@ mod hardcoded_ips;
 mod hardcoded_timeout;
 mod implicit_coercion;
 mod inconsistent_returns;
+mod dep_audit;
 mod insecure_cookie;
 mod insecure_tls;
 mod insecure_crypto;
@@ -243,6 +244,7 @@ pub use hardcoded_ips::HardcodedIpsDetector;
 pub use hardcoded_timeout::HardcodedTimeoutDetector;
 pub use implicit_coercion::ImplicitCoercionDetector;
 pub use inconsistent_returns::InconsistentReturnsDetector;
+pub use dep_audit::DepAuditDetector;
 pub use insecure_cookie::InsecureCookieDetector;
 pub use insecure_tls::InsecureTlsDetector;
 pub use insecure_crypto::InsecureCryptoDetector;
@@ -456,6 +458,8 @@ pub fn default_detectors_with_config(
         Arc::new(GHActionsInjectionDetector::new(repository_path)),
         // TLS/Certificate validation
         Arc::new(InsecureTlsDetector::new(repository_path)),
+        // Dependency vulnerability auditing
+        Arc::new(DepAuditDetector::new(repository_path)),
     ]
 }
 
