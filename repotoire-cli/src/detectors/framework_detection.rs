@@ -27,6 +27,7 @@ pub enum Framework {
     Mongoose,
     Objection,
     MikroORM,
+    BetterSQLite3,
 
     // Python ORMs
     Django,
@@ -171,6 +172,22 @@ impl Framework {
                 ".del(",
                 ".delete(",
                 ".first(",
+            ],
+
+            // better-sqlite3 - uses prepared statements
+            Framework::BetterSQLite3 => &[
+                ".prepare(",
+                ".prepare().all(",
+                ".prepare().get(",
+                ".prepare().run(",
+                ".prepare().iterate(",
+                ".prepare().pluck(",
+                ".prepare().expand(",
+                "stmt.all(",
+                "stmt.get(",
+                "stmt.run(",
+                "stmt.iterate(",
+                "stmt.pluck(",
             ],
 
             // Django ORM
@@ -496,6 +513,9 @@ fn detect_node_frameworks(pkg: &PackageJson, frameworks: &mut HashSet<Framework>
             }
             "@mikro-orm/core" | "mikro-orm" => {
                 frameworks.insert(Framework::MikroORM);
+            }
+            "better-sqlite3" => {
+                frameworks.insert(Framework::BetterSQLite3);
             }
             _ => {}
         }
@@ -937,5 +957,50 @@ requests>=2.28
 
         assert!(frameworks.contains(&Framework::Django));
         assert!(frameworks.contains(&Framework::SQLAlchemy));
+    }
+
+    #[test]
+    fn test_better_sqlite3_detection() {
+        let content = r#"
+        {
+            "dependencies": {
+                "better-sqlite3": "^9.0.0",
+                "express": "^4.0.0"
+            }
+        }
+        "#;
+
+        let pkg: PackageJson = serde_json::from_str(content).unwrap();
+        let mut frameworks = HashSet::new();
+        detect_node_frameworks(&pkg, &mut frameworks);
+
+        assert!(frameworks.contains(&Framework::BetterSQLite3));
+    }
+
+    #[test]
+    fn test_better_sqlite3_safe_patterns() {
+        let mut frameworks = HashSet::new();
+        frameworks.insert(Framework::BetterSQLite3);
+
+        // Prepared statements are safe
+        assert!(is_safe_orm_pattern(
+            "const stmt = db.prepare('SELECT * FROM users WHERE id = ?')",
+            &frameworks
+        ));
+        
+        assert!(is_safe_orm_pattern(
+            "stmt.all(userId)",
+            &frameworks
+        ));
+
+        assert!(is_safe_orm_pattern(
+            "db.prepare('SELECT * FROM users WHERE id = @id').get({ id: userId })",
+            &frameworks
+        ));
+
+        assert!(is_safe_orm_pattern(
+            "stmt.run(params)",
+            &frameworks
+        ));
     }
 }

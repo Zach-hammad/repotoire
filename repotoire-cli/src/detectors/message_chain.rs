@@ -40,8 +40,8 @@ pub struct MessageChainThresholds {
 impl Default for MessageChainThresholds {
     fn default() -> Self {
         Self {
-            min_chain_depth: 4,
-            high_severity_depth: 6,
+            min_chain_depth: 5,     // 4 was too aggressive — A→B→C→D is normal abstraction
+            high_severity_depth: 8, // 6 was too aggressive for High severity
         }
     }
 }
@@ -212,68 +212,119 @@ impl MessageChainDetector {
         findings
     }
 
-    /// Use call graph to find delegation chains across functions
+    /// Use call graph to find delegation chains across functions.
+    /// 
+    /// A delegation chain is a sequence of functions where each one just calls
+    /// the next with minimal logic — pure pass-through indirection.
+    /// 
+    /// We only report the chain HEAD (the entry point) to avoid N findings
+    /// for a single chain.
     fn find_delegation_chains(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
         let mut findings = Vec::new();
+        let mut reported_in_chain: HashSet<String> = HashSet::new();
 
-        // Find functions that are part of long call chains
         for func in graph.get_functions() {
-            // Check if this function is mostly a pass-through
+            // Skip if already reported as part of another chain
+            if reported_in_chain.contains(&func.qualified_name) {
+                continue;
+            }
+
             let callees = graph.get_callees(&func.qualified_name);
             let callers = graph.get_callers(&func.qualified_name);
 
-            // Single callee with single caller = potential chain link
-            if callees.len() == 1 && callers.len() == 1 {
-                let complexity = func.complexity().unwrap_or(1);
-
-                // Low complexity suggests pass-through
-                if complexity <= 2 {
-                    // Trace the chain depth
-                    let chain_depth = self.trace_chain_depth(graph, &func.qualified_name, 0);
-
-                    if chain_depth >= self.thresholds.min_chain_depth as i32 {
-                        let severity = self.calculate_severity(chain_depth as usize);
-
-                        findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
-                            detector: "MessageChainDetector".to_string(),
-                            severity,
-                            title: format!("Delegation chain: {} is part of {}-level chain", func.name, chain_depth),
-                            description: format!(
-                                "Function '{}' is part of a {}-level delegation chain through the call graph.\n\n\
-                                 This indicates potential Law of Demeter violation at the architectural level.",
-                                func.name, chain_depth
-                            ),
-                            affected_files: vec![func.file_path.clone().into()],
-                            line_start: Some(func.line_start),
-                            line_end: Some(func.line_end),
-                            suggested_fix: Some("Consider collapsing the delegation chain or using direct access".to_string()),
-                            estimated_effort: Some("Medium (1-2 hours)".to_string()),
-                            category: Some("coupling".to_string()),
-                            cwe_id: None,
-                            why_it_matters: Some("Deep delegation chains add indirection and coupling".to_string()),
-                            ..Default::default()
-                        });
-                    }
-                }
+            // Chain HEAD: has callers > 1 OR callers == 0, but single callee with low complexity
+            // This means it's the entry point of a chain, not a middle link
+            let is_chain_head = callers.len() != 1 && callees.len() == 1;
+            if !is_chain_head {
+                continue;
             }
+
+            let complexity = func.complexity().unwrap_or(1);
+            if complexity > 3 {
+                continue; // Not a pass-through
+            }
+
+            // Trace the chain forward
+            let (chain_depth, chain_members) = self.trace_chain_with_members(graph, &func.qualified_name, 0);
+
+            if chain_depth < self.thresholds.min_chain_depth as i32 {
+                continue;
+            }
+
+            // Skip chains where all functions are in the same file
+            // (same-file decomposition is usually intentional)
+            let all_funcs = graph.get_functions();
+            let files_in_chain: HashSet<String> = chain_members
+                .iter()
+                .filter_map(|qn| {
+                    all_funcs.iter()
+                        .find(|f| f.qualified_name == *qn)
+                        .map(|f| f.file_path.clone())
+                })
+                .collect();
+            if files_in_chain.len() <= 1 {
+                continue; // All in same file — normal decomposition
+            }
+
+            // Mark all chain members as reported
+            for member in &chain_members {
+                reported_in_chain.insert(member.clone());
+            }
+
+            // Only flag with Low severity — delegation chains are a style observation
+            let severity = if chain_depth >= self.thresholds.high_severity_depth as i32 {
+                Severity::Medium
+            } else {
+                Severity::Low
+            };
+
+            findings.push(Finding {
+                id: Uuid::new_v4().to_string(),
+                detector: "MessageChainDetector".to_string(),
+                severity,
+                title: format!("Delegation chain: {} starts a {}-level chain", func.name, chain_depth),
+                description: format!(
+                    "Function '{}' is the entry point of a {}-level delegation chain across {} files.\n\n\
+                     Each function in the chain just delegates to the next with minimal logic. \
+                     Consider collapsing intermediate layers.",
+                    func.name, chain_depth, files_in_chain.len()
+                ),
+                affected_files: vec![func.file_path.clone().into()],
+                line_start: Some(func.line_start),
+                line_end: Some(func.line_end),
+                suggested_fix: Some("Consider collapsing the delegation chain or using direct access".to_string()),
+                estimated_effort: Some("Medium (1-2 hours)".to_string()),
+                category: Some("coupling".to_string()),
+                cwe_id: None,
+                why_it_matters: Some("Deep delegation chains add indirection without value".to_string()),
+                ..Default::default()
+            });
         }
 
         findings
     }
 
-    /// Trace how deep a delegation chain goes
-    fn trace_chain_depth(&self, graph: &dyn crate::graph::GraphQuery, qn: &str, depth: i32) -> i32 {
+    /// Trace how deep a delegation chain goes, collecting member names.
+    fn trace_chain_with_members(&self, graph: &dyn crate::graph::GraphQuery, qn: &str, depth: i32) -> (i32, Vec<String>) {
         if depth > 10 {
-            return depth; // Prevent infinite recursion
+            return (depth, vec![qn.to_string()]);
         }
 
         let callees = graph.get_callees(qn);
         if callees.len() != 1 {
-            return depth;
+            return (depth, vec![qn.to_string()]);
         }
 
-        self.trace_chain_depth(graph, &callees[0].qualified_name, depth + 1)
+        // Check callee is also a pass-through (low complexity, single callee)
+        let callee = &callees[0];
+        let complexity = callee.complexity().unwrap_or(1);
+        if complexity > 3 {
+            return (depth + 1, vec![qn.to_string(), callee.qualified_name.clone()]);
+        }
+
+        let (sub_depth, mut members) = self.trace_chain_with_members(graph, &callee.qualified_name, depth + 1);
+        members.insert(0, qn.to_string());
+        (sub_depth, members)
     }
 }
 
@@ -341,7 +392,8 @@ mod tests {
     fn test_severity() {
         let detector = MessageChainDetector::new(".");
 
-        assert_eq!(detector.calculate_severity(4), Severity::Medium);
-        assert_eq!(detector.calculate_severity(6), Severity::High);
+        assert_eq!(detector.calculate_severity(5), Severity::Medium);
+        assert_eq!(detector.calculate_severity(7), Severity::Medium);
+        assert_eq!(detector.calculate_severity(8), Severity::High);
     }
 }

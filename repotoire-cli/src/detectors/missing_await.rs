@@ -181,13 +181,37 @@ impl Detector for MissingAwaitDetector {
                         .any(|func| line.contains(&format!("{}(", func)));
 
                     if has_async_call || calls_known_async {
-                        // Check if properly awaited
+                        // Check if properly awaited or intentionally fire-and-forget
+                        let trimmed_line = line.trim();
                         let is_awaited = line.contains("await ")
                             || line.contains(".then(")
                             || line.contains("Promise.")
                             || line.contains("return ") && line.contains("(");
+                        
+                        // Detect intentional fire-and-forget patterns
+                        let is_fire_and_forget = 
+                            // void operator is the explicit TS/JS fire-and-forget idiom
+                            trimmed_line.starts_with("void ")
+                            // .catch() means errors are handled, just not awaited
+                            || line.contains(".catch(")
+                            // Common fire-and-forget variable assignment patterns
+                            || line.contains("// fire-and-forget")
+                            || line.contains("// fire and forget")
+                            || line.contains("// best-effort")
+                            || line.contains("// non-blocking")
+                            || line.contains("// async, don't wait");
+                        
+                        // Skip telemetry/tracking/analytics functions (inherently fire-and-forget)
+                        let is_telemetry = {
+                            let ll = line.to_lowercase();
+                            ll.contains("track(") || ll.contains("track_")
+                            || ll.contains("telemetry") || ll.contains("analytics")
+                            || ll.contains("log_event") || ll.contains("logevent")
+                            || ll.contains("send_event") || ll.contains("sendevent")
+                            || ll.contains("report_") || ll.contains("metric")
+                        };
 
-                        if !is_awaited {
+                        if !is_awaited && !is_fire_and_forget && !is_telemetry {
                             // Build context
                             let mut notes = Vec::new();
                             if !current_async_func.is_empty() {

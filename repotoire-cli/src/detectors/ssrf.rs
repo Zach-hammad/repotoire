@@ -70,8 +70,9 @@ impl Detector for SsrfDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let file_str = path.to_string_lossy();
+                let lines: Vec<&str> = content.lines().collect();
 
-                for (i, line) in content.lines().enumerate() {
+                for (i, line) in lines.iter().enumerate() {
                     if http_client().is_match(line) {
                         // Skip relative URLs - they always hit same-origin server
                         // Pattern: fetch('/api/...) or fetch(`/api/...)
@@ -104,11 +105,42 @@ impl Detector for SsrfDetector {
                             }
                         }
 
+                        // Check if the URL source is likely from env/config (safe)
+                        // or from user input (dangerous)
+                        let is_env_sourced = {
+                            // Look at surrounding context (20 lines before) for env var / config patterns
+                            let context_start = i.saturating_sub(20);
+                            let context = &lines[context_start..=i];
+                            let context_str = context.join("\n").to_lowercase();
+                            
+                            // URL variable comes from environment
+                            context_str.contains("process.env") 
+                            || context_str.contains("env.get(")
+                            || context_str.contains("os.environ")
+                            || context_str.contains("std::env")
+                            || context_str.contains("config.")
+                            || context_str.contains("options.base")
+                            || context_str.contains("baseurl")
+                            || context_str.contains("base_url")
+                            // Function parameter named url/endpoint with no user input trace
+                            || (line.contains("input") 
+                                && context_str.contains("function") 
+                                && !context_str.contains("req.") 
+                                && !context_str.contains("request.body")
+                                && !context_str.contains("request.query")
+                                && !context_str.contains("request.params"))
+                        };
+                        
+                        if is_env_sourced {
+                            continue;
+                        }
+
                         let has_user_input = line.contains("req.")
-                            || line.contains("request.")
-                            || line.contains("params")
-                            || line.contains("query")
-                            || line.contains("input");
+                            || line.contains("request.body")
+                            || line.contains("request.query")
+                            || line.contains("request.params")
+                            || line.contains("ctx.params")
+                            || line.contains("ctx.query");
                         if has_user_input {
                             let line_num = (i + 1) as u32;
 
