@@ -97,28 +97,28 @@ impl SQLInjectionDetector {
         // Pattern 1: f-string with SQL keywords (allow internal quotes)
         let fstring_sql_pattern = Regex::new(
             r#"(?i)f["'].*?\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*?\{[^}]+\}"#
-        ).unwrap();
+        ).expect("valid regex");
 
         // Pattern 2: String concatenation with SQL keywords (allow internal quotes)
         let concat_sql_pattern = Regex::new(
             r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*["']\s*\+"#
-        ).unwrap();
+        ).expect("valid regex");
 
         // Pattern 3: .format() with SQL keywords (allow internal quotes)
         let format_sql_pattern = Regex::new(
             r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*["']\.format\s*\("#
-        ).unwrap();
+        ).expect("valid regex");
 
         // Pattern 4: % formatting with SQL keywords (allow internal quotes)
         let percent_sql_pattern = Regex::new(
             r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[sdr].*["']\s*%"#
-        ).unwrap();
+        ).expect("valid regex");
 
         // Pattern 5: JavaScript template literals with SQL keywords
         // Matches: db.query(`SELECT * FROM users WHERE id = ${userId}`)
         let js_template_sql_pattern = Regex::new(
             r#"(?i)`[^`]*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b[^`]*\$\{[^}]+\}[^`]*`"#
-        ).unwrap();
+        ).expect("valid regex");
 
         // Pattern 6: Go fmt.Sprintf with SQL keywords
         // Matches: fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)
@@ -127,7 +127,7 @@ impl SQLInjectionDetector {
         // Also matches: fmt.Sprintf("SELECT * FROM users WHERE name = '%s'", name) with quoted placeholder
         let go_sprintf_sql_pattern = Regex::new(
             r#"(?i)fmt\.Sprintf\s*\(\s*["'`].*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[svdqxXfFeEgGtTpbcoU].*["'`]"#
-        ).unwrap();
+        ).expect("valid regex");
 
         Self {
             config,
@@ -285,7 +285,7 @@ impl SQLInjectionDetector {
     /// e.g., ${where}, ${orderBy}, ${columns} are likely SQL clause builders
     fn is_sql_structure_variable(&self, line: &str) -> bool {
         // Extract variable names from ${...} interpolations
-        let re = Regex::new(r"\$\{(\w+)").unwrap();
+        let re = Regex::new(r"\$\{(\w+)").expect("valid regex");
 
         for cap in re.captures_iter(line) {
             if let Some(var_name) = cap.get(1) {

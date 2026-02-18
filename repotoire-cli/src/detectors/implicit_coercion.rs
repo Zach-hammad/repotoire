@@ -18,7 +18,7 @@ use tracing::info;
 static LOOSE_EQUALITY: OnceLock<Regex> = OnceLock::new();
 
 fn loose_equality() -> &'static Regex {
-    LOOSE_EQUALITY.get_or_init(|| Regex::new(r"[^!=<>]==[^=]|[^!]==[^=]").unwrap())
+    LOOSE_EQUALITY.get_or_init(|| Regex::new(r"[^!=<>]==[^=]|[^!]==[^=]").expect("valid regex"))
 }
 
 pub struct ImplicitCoercionDetector {

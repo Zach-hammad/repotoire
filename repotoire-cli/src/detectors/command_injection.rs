@@ -21,19 +21,19 @@ fn shell_exec() -> &'static Regex {
     // - PHP: shell_exec, system, popen, exec (standalone function)
     // - Ruby: system, exec, backticks
     // Note: execAsync is a common promisified wrapper for child_process.exec
-    SHELL_EXEC.get_or_init(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).unwrap())
+    SHELL_EXEC.get_or_init(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).expect("valid regex"))
 }
 
 fn go_exec() -> &'static Regex {
     // Go exec patterns: exec.Command, exec.CommandContext
-    GO_EXEC.get_or_init(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).unwrap())
+    GO_EXEC.get_or_init(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).expect("valid regex"))
 }
 
 fn js_exec_direct() -> &'static Regex {
     // Direct exec() call pattern for JavaScript - matches exec( but not .exec( to avoid RegExp.exec
     // This catches: exec(something), execSync(something), execAsync(something)
     JS_EXEC_DIRECT
-        .get_or_init(|| Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).unwrap())
+        .get_or_init(|| Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).expect("valid regex"))
 }
 
 pub struct CommandInjectionDetector {

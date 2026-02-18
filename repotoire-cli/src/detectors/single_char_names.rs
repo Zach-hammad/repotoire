@@ -19,7 +19,7 @@ static SINGLE_CHAR: OnceLock<Regex> = OnceLock::new();
 
 fn single_char() -> &'static Regex {
     SINGLE_CHAR.get_or_init(|| {
-        Regex::new(r"\b(let|var|const|def|int|string|float|double)\s+([a-zA-Z])\s*[=:]").unwrap()
+        Regex::new(r"\b(let|var|const|def|int|string|float|double)\s+([a-zA-Z])\s*[=:]").expect("valid regex")
     })
 }
 
@@ -121,7 +121,7 @@ impl SingleCharNamesDetector {
 
     /// Count references to a variable in a function
     fn count_references(content: &str, var: &str, func_start: usize, func_end: usize) -> usize {
-        let word_re = Regex::new(&format!(r"\b{}\b", regex::escape(var))).unwrap();
+        let word_re = Regex::new(&format!(r"\b{}\b", regex::escape(var))).expect("valid regex");
         let lines: Vec<&str> = content.lines().collect();
         let mut count = 0;
 
@@ -164,6 +164,11 @@ impl Detector for SingleCharNamesDetector {
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py" | "js" | "ts" | "java" | "go" | "rs" | "cs") {
+                continue;
+            }
+
+            // Skip test files — short names are idiomatic in tests
+            if crate::detectors::base::is_test_file(path) {
                 continue;
             }
 

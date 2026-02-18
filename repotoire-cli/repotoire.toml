@@ -1,52 +1,15 @@
 # Repotoire self-analysis configuration
-# This project is a code analysis tool — some detectors trigger on their own patterns.
-
-[detectors.regex-in-loop]
-# All regex patterns use OnceLock<Regex> (compiled once, cached).
-# The detector sees Regex::new() in the call chain but can't trace the OnceLock.
-enabled = false
+# Fixes code issues properly, minimal suppression.
 
 [detectors.missing-docstrings]
-# Internal module — docs are in code comments and README, not docstrings on every fn.
+# Internal tool, not a library. Docs are in README + code comments.
 enabled = false
 
 [detectors.influential-code]
-# Overlaps with degree-centrality; compound escalation over-promotes to HIGH.
-enabled = false
+# Core analysis functions (scan_files, analyze_intra_function) are expected
+# to have high fan-in. Only flag truly extreme cases.
+thresholds = { min_fan_in = 500 }
 
 [detectors.degree-centrality]
-# Raise threshold — hub functions like find() and add_node() are by design.
+# Hub functions like find() and add_node() are by design.
 thresholds = { min_total_degree = 100, min_elevated_fanin = 30 }
-
-[detectors.deep-nesting]
-# Parser code has legitimate deep nesting for AST traversal.
-enabled = false
-
-[detectors.unwrap-without-context]
-# Internal tool — panics are acceptable for unrecoverable states.
-enabled = false
-
-[detectors.string-concat-loop]
-# Most are format!() in loops which Rust optimizes well.
-enabled = false
-
-[detectors.single-char-names]
-# Loop iterators (i, j, m, n) are idiomatic Rust.
-enabled = false
-
-[detectors.commented-code]
-# Commented examples in detector source are intentional.
-enabled = false
-
-[detectors.large-files]
-# Detector files are large by nature (many patterns).
-enabled = false
-
-[detectors.mutex-poisoning-risk]
-enabled = false
-
-[detectors.todo-scanner]
-enabled = false
-
-[detectors.log-injection]
-enabled = false

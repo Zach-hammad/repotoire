@@ -21,13 +21,13 @@ static BREAK_RETURN: OnceLock<Regex> = OnceLock::new();
 
 fn infinite_while() -> &'static Regex {
     INFINITE_WHILE.get_or_init(|| {
-        Regex::new(r"(?i)(while\s*\(\s*true\s*\)|while\s+True\s*:|while\s*\(\s*1\s*\)|for\s*\(\s*;\s*;\s*\)|loop\s*\{)").unwrap()
+        Regex::new(r"(?i)(while\s*\(\s*true\s*\)|while\s+True\s*:|while\s*\(\s*1\s*\)|for\s*\(\s*;\s*;\s*\)|loop\s*\{)").expect("valid regex")
     })
 }
 
 fn break_return() -> &'static Regex {
     BREAK_RETURN.get_or_init(|| {
-        Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b").unwrap()
+        Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b").expect("valid regex")
     })
 }
 
@@ -174,7 +174,7 @@ impl InfiniteLoopDetector {
 
     /// Find functions called in the loop body
     fn find_called_functions(lines: &[&str], loop_start: usize, indent: usize) -> Vec<String> {
-        let call_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
+        let call_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").expect("valid regex");
         let mut calls = Vec::new();
 
         for line in lines.iter().skip(loop_start + 1) {

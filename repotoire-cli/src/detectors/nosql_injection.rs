@@ -20,18 +20,18 @@ static USER_INPUT: OnceLock<Regex> = OnceLock::new();
 
 fn nosql_pattern() -> &'static Regex {
     NOSQL_PATTERN.get_or_init(|| {
-        Regex::new(r"(?i)(\.find\(|\.findOne\(|\.findById\(|\.updateOne\(|\.updateMany\(|\.deleteOne\(|\.deleteMany\(|\.aggregate\(|\.countDocuments\(|db\.\w+\.)").unwrap()
+        Regex::new(r"(?i)(\.find\(|\.findOne\(|\.findById\(|\.updateOne\(|\.updateMany\(|\.deleteOne\(|\.deleteMany\(|\.aggregate\(|\.countDocuments\(|db\.\w+\.)").expect("valid regex")
     })
 }
 
 fn dangerous_ops() -> &'static Regex {
     DANGEROUS_OPS
-        .get_or_init(|| Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").unwrap())
+        .get_or_init(|| Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").expect("valid regex"))
 }
 
 fn user_input() -> &'static Regex {
     USER_INPUT.get_or_init(|| {
-        Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").unwrap()
+        Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").expect("valid regex")
     })
 }
 

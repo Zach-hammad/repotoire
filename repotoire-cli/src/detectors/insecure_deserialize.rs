@@ -18,7 +18,7 @@ use tracing::info;
 static DESERIALIZE_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn deserialize_pattern() -> &'static Regex {
-    DESERIALIZE_PATTERN.get_or_init(|| Regex::new(r"(?i)(JSON\.parse|yaml\.load|yaml\.safe_load|unserialize|ObjectInputStream|Marshal\.load|eval\s*\()").unwrap())
+    DESERIALIZE_PATTERN.get_or_init(|| Regex::new(r"(?i)(JSON\.parse|yaml\.load|yaml\.safe_load|unserialize|ObjectInputStream|Marshal\.load|eval\s*\()").expect("valid regex"))
 }
 
 /// Categorize the deserialization method

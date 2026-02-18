@@ -21,7 +21,7 @@ fn cookie_pattern() -> &'static Regex {
         Regex::new(
             r"(?i)(set.cookie|cookie\s*=|res\.cookie|response\.set_cookie|setcookie|\.cookies\[)",
         )
-        .unwrap()
+        .expect("valid regex")
     })
 }
 

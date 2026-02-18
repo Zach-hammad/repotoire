@@ -22,13 +22,13 @@ fn cors_pattern() -> &'static Regex {
         Regex::new(
             r#"(?i)(Access-Control-Allow-Origin|cors.*origin|allowedOrigins?)\s*[:=]\s*["'*]?\*"#,
         )
-        .unwrap()
+        .expect("valid regex")
     })
 }
 
 fn credentials_pattern() -> &'static Regex {
     CREDENTIALS_PATTERN.get_or_init(|| {
-        Regex::new(r#"(?i)(credentials|allow.?credentials|with.?credentials)\s*[:=]\s*(true|["']include["'])"#).unwrap()
+        Regex::new(r#"(?i)(credentials|allow.?credentials|with.?credentials)\s*[:=]\s*(true|["']include["'])"#).expect("valid regex")
     })
 }
 

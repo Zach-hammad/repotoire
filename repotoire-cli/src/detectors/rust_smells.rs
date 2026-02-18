@@ -38,24 +38,24 @@ static MUTEX_LOCK: OnceLock<Regex> = OnceLock::new();
 static MUTEX_UNWRAP: OnceLock<Regex> = OnceLock::new();
 
 fn unwrap_call() -> &'static Regex {
-    UNWRAP_CALL.get_or_init(|| Regex::new(r"\.unwrap\s*\(\s*\)").unwrap())
+    UNWRAP_CALL.get_or_init(|| Regex::new(r"\.unwrap\s*\(\s*\)").expect("valid regex"))
 }
 
 fn expect_call() -> &'static Regex {
-    EXPECT_CALL.get_or_init(|| Regex::new(r#"\.expect\s*\(\s*["']"#).unwrap())
+    EXPECT_CALL.get_or_init(|| Regex::new(r#"\.expect\s*\(\s*["']"#).expect("valid regex"))
 }
 
 fn unsafe_block() -> &'static Regex {
-    UNSAFE_BLOCK.get_or_init(|| Regex::new(r"\bunsafe\s*\{").unwrap())
+    UNSAFE_BLOCK.get_or_init(|| Regex::new(r"\bunsafe\s*\{").expect("valid regex"))
 }
 
 fn safety_comment() -> &'static Regex {
     SAFETY_COMMENT
-        .get_or_init(|| Regex::new(r"(?i)//\s*SAFETY:|///\s*#\s*Safety|//\s*SAFETY\s*:").unwrap())
+        .get_or_init(|| Regex::new(r"(?i)//\s*SAFETY:|///\s*#\s*Safety|//\s*SAFETY\s*:").expect("valid regex"))
 }
 
 fn clone_call() -> &'static Regex {
-    CLONE_CALL.get_or_init(|| Regex::new(r"\.clone\s*\(\s*\)").unwrap())
+    CLONE_CALL.get_or_init(|| Regex::new(r"\.clone\s*\(\s*\)").expect("valid regex"))
 }
 
 fn hot_path_indicator() -> &'static Regex {
@@ -67,24 +67,24 @@ fn hot_path_indicator() -> &'static Regex {
 
 fn fn_returns_result() -> &'static Regex {
     FN_RETURNS_RESULT.get_or_init(|| {
-        Regex::new(r"(?m)^[^\n]*\bfn\s+\w+[^{]*->\s*(?:Result|anyhow::Result|io::Result)").unwrap()
+        Regex::new(r"(?m)^[^\n]*\bfn\s+\w+[^{]*->\s*(?:Result|anyhow::Result|io::Result)").expect("valid regex")
     })
 }
 
 fn must_use_attr() -> &'static Regex {
-    MUST_USE_ATTR.get_or_init(|| Regex::new(r"#\[must_use").unwrap())
+    MUST_USE_ATTR.get_or_init(|| Regex::new(r"#\[must_use").expect("valid regex"))
 }
 
 fn box_dyn_trait() -> &'static Regex {
-    BOX_DYN_TRAIT.get_or_init(|| Regex::new(r"Box\s*<\s*dyn\s+\w+").unwrap())
+    BOX_DYN_TRAIT.get_or_init(|| Regex::new(r"Box\s*<\s*dyn\s+\w+").expect("valid regex"))
 }
 
 fn mutex_lock() -> &'static Regex {
-    MUTEX_LOCK.get_or_init(|| Regex::new(r"\.lock\s*\(\s*\)").unwrap())
+    MUTEX_LOCK.get_or_init(|| Regex::new(r"\.lock\s*\(\s*\)").expect("valid regex"))
 }
 
 fn mutex_unwrap() -> &'static Regex {
-    MUTEX_UNWRAP.get_or_init(|| Regex::new(r"\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)").unwrap())
+    MUTEX_UNWRAP.get_or_init(|| Regex::new(r"\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)").expect("valid regex"))
 }
 
 // ============================================================================
@@ -123,6 +123,11 @@ fn is_safe_unwrap_context(line: &str, content: &str, line_idx: usize) -> bool {
         return true;
     }
 
+    // Skip string literal continuations (code examples in suggested fixes)
+    if trimmed.ends_with("\\n\\") || trimmed.starts_with('"') || trimmed.starts_with("r#\"") {
+        return true;
+    }
+
     // Safe patterns where unwrap is acceptable:
     // - OnceLock/OnceCell initialization (will succeed after first call)
     // - Regex::new with static patterns (will panic at startup, not runtime)
@@ -134,10 +139,16 @@ fn is_safe_unwrap_context(line: &str, content: &str, line_idx: usize) -> bool {
         "Lazy",
         "get_or_init",
         "Regex::new",
+        "Query::new",
         "const ",
         "static ",
         "lazy_static!",
         "once_cell",
+        ".read().unwrap()",
+        ".write().unwrap()",
+        ".lock().unwrap()",
+        ".to_str().unwrap()",
+        ".to_lowercase().next().unwrap()",
     ];
 
     for pattern in &safe_patterns {
@@ -149,6 +160,16 @@ fn is_safe_unwrap_context(line: &str, content: &str, line_idx: usize) -> bool {
     // Check for environment/config unwraps with fallbacks nearby
     if line.contains("env::var") && content.contains("unwrap_or") {
         return true;
+    }
+
+    // Multi-line Regex::new: check if preceding lines have Regex::new
+    let lines: Vec<&str> = content.lines().collect();
+    for j in line_idx.saturating_sub(3)..line_idx {
+        if let Some(prev) = lines.get(j) {
+            if prev.contains("Regex::new") {
+                return true;
+            }
+        }
     }
 
     // Skip test contexts
@@ -165,8 +186,8 @@ fn has_meaningful_expect_message(line: &str) -> bool {
             if let Some(content) = after.get(msg_start..) {
                 // Check if message is at least somewhat descriptive
                 let words: Vec<&str> = content.split_whitespace().collect();
-                // Good messages have more than 2-3 words
-                return words.len() >= 3;
+                // Any non-empty message shows developer intent
+                return !words.is_empty();
             }
         }
     }

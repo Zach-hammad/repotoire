@@ -19,7 +19,7 @@ use tracing::info;
 static NUMBER_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn get_pattern() -> &'static Regex {
-    NUMBER_PATTERN.get_or_init(|| Regex::new(r"\b(\d{2,})\b").unwrap())
+    NUMBER_PATTERN.get_or_init(|| Regex::new(r"\b(\d{2,})\b").expect("valid regex"))
 }
 
 /// Suggest a constant name based on the number and context

@@ -45,10 +45,11 @@ impl InfluentialCodeDetector {
     /// Create with custom config
     #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
+        let min_fan_in = config.get_option_or("min_fan_in", 8);
         Self {
             high_complexity_threshold: config.get_option_or("high_complexity_threshold", 15),
             high_loc_threshold: config.get_option_or("high_loc_threshold", 100),
-            min_fan_in: config.get_option_or("min_fan_in", 8),
+            min_fan_in,
             config,
         }
     }
@@ -62,7 +63,9 @@ impl InfluentialCodeDetector {
         role: FunctionRole,
     ) -> Severity {
         // Base severity from raw metrics
-        let base_severity = if fan_in >= 15 && complexity >= 20 {
+        // HIGH requires both significant fan-in AND high complexity
+        let high_fan_in = self.min_fan_in.max(15);
+        let base_severity = if fan_in >= high_fan_in && complexity >= 20 {
             Severity::High
         } else if fan_in >= self.min_fan_in
             && (complexity >= self.high_complexity_threshold as usize

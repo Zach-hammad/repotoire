@@ -37,77 +37,77 @@ static DATALOADER_SHUFFLE: OnceLock<Regex> = OnceLock::new();
 static EVAL_MODE: OnceLock<Regex> = OnceLock::new();
 
 fn torch_load() -> &'static Regex {
-    TORCH_LOAD.get_or_init(|| Regex::new(r"torch\.load\s*\(").unwrap())
+    TORCH_LOAD.get_or_init(|| Regex::new(r"torch\.load\s*\(").expect("valid regex"))
 }
 
 fn torch_load_weights_only() -> &'static Regex {
-    TORCH_LOAD_WEIGHTS_ONLY.get_or_init(|| Regex::new(r"weights_only\s*=\s*True").unwrap())
+    TORCH_LOAD_WEIGHTS_ONLY.get_or_init(|| Regex::new(r"weights_only\s*=\s*True").expect("valid regex"))
 }
 
 fn nan_equality() -> &'static Regex {
     NAN_EQUALITY.get_or_init(|| {
-        Regex::new(r#"(?:==|!=|is|is not)\s*(?:np\.nan|float\(['"]nan['"]\)|math\.nan|torch\.nan|numpy\.nan)"#).unwrap()
+        Regex::new(r#"(?:==|!=|is|is not)\s*(?:np\.nan|float\(['"]nan['"]\)|math\.nan|torch\.nan|numpy\.nan)"#).expect("valid regex")
     })
 }
 
 fn backward_call() -> &'static Regex {
-    BACKWARD_CALL.get_or_init(|| Regex::new(r"\.backward\s*\(").unwrap())
+    BACKWARD_CALL.get_or_init(|| Regex::new(r"\.backward\s*\(").expect("valid regex"))
 }
 
 fn zero_grad_call() -> &'static Regex {
-    ZERO_GRAD_CALL.get_or_init(|| Regex::new(r"\.zero_grad\s*\(|optimizer\.zero_grad").unwrap())
+    ZERO_GRAD_CALL.get_or_init(|| Regex::new(r"\.zero_grad\s*\(|optimizer\.zero_grad").expect("valid regex"))
 }
 
 fn forward_method() -> &'static Regex {
-    FORWARD_METHOD.get_or_init(|| Regex::new(r"\.\s*forward\s*\(").unwrap())
+    FORWARD_METHOD.get_or_init(|| Regex::new(r"\.\s*forward\s*\(").expect("valid regex"))
 }
 
 fn manual_seed() -> &'static Regex {
     MANUAL_SEED.get_or_init(|| {
-        Regex::new(r"(?:torch\.manual_seed|torch\.cuda\.manual_seed|np\.random\.seed|random\.seed|tf\.random\.set_seed|set_random_seed)").unwrap()
+        Regex::new(r"(?:torch\.manual_seed|torch\.cuda\.manual_seed|np\.random\.seed|random\.seed|tf\.random\.set_seed|set_random_seed)").expect("valid regex")
     })
 }
 
 fn chain_index() -> &'static Regex {
     CHAIN_INDEX.get_or_init(|| {
         // df['col1']['col2'] or df["col1"]["col2"]
-        Regex::new(r#"\w+\[['"][^'"]+['"]\]\s*\[['"][^'"]+['"]\]"#).unwrap()
+        Regex::new(r#"\w+\[['"][^'"]+['"]\]\s*\[['"][^'"]+['"]\]"#).expect("valid regex")
     })
 }
 
 fn pca_svm_call() -> &'static Regex {
     PCA_SVM_CALL.get_or_init(|| {
-        Regex::new(r"(?:PCA|SVC|SVR|SGDClassifier|SGDRegressor|MLPClassifier|MLPRegressor|KMeans|DBSCAN|Lasso|Ridge|ElasticNet)\s*\(").unwrap()
+        Regex::new(r"(?:PCA|SVC|SVR|SGDClassifier|SGDRegressor|MLPClassifier|MLPRegressor|KMeans|DBSCAN|Lasso|Ridge|ElasticNet)\s*\(").expect("valid regex")
     })
 }
 
 fn scaler_call() -> &'static Regex {
     SCALER_CALL.get_or_init(|| {
         Regex::new(r"(?:StandardScaler|MinMaxScaler|RobustScaler|Normalizer|MaxAbsScaler)\s*\(")
-            .unwrap()
+            .expect("valid regex")
     })
 }
 
 fn require_grad_typo() -> &'static Regex {
     REQUIRE_GRAD_TYPO.get_or_init(|| {
         // require_grad (typo) instead of requires_grad
-        Regex::new(r"\.require_grad\s*=|require_grad\s*=\s*True").unwrap()
+        Regex::new(r"\.require_grad\s*=|require_grad\s*=\s*True").expect("valid regex")
     })
 }
 
 fn deprecated_torch() -> &'static Regex {
     DEPRECATED_TORCH.get_or_init(|| {
-        Regex::new(r"torch\.(?:solve|symeig|qr|cholesky|chain_matmul|range)\s*\(").unwrap()
+        Regex::new(r"torch\.(?:solve|symeig|qr|cholesky|chain_matmul|range)\s*\(").expect("valid regex")
     })
 }
 
 fn dataloader_shuffle() -> &'static Regex {
     DATALOADER_SHUFFLE
-        .get_or_init(|| Regex::new(r"DataLoader\s*\([^)]*shuffle\s*=\s*True").unwrap())
+        .get_or_init(|| Regex::new(r"DataLoader\s*\([^)]*shuffle\s*=\s*True").expect("valid regex"))
 }
 
 fn eval_mode() -> &'static Regex {
-    EVAL_MODE.get_or_init(|| Regex::new(r"\.eval\s*\(").unwrap())
+    EVAL_MODE.get_or_init(|| Regex::new(r"\.eval\s*\(").expect("valid regex"))
 }
 
 // ============================================================================

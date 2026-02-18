@@ -20,15 +20,15 @@ static YIELD_STMT: OnceLock<Regex> = OnceLock::new();
 static LIST_CALL: OnceLock<Regex> = OnceLock::new();
 
 fn generator_def() -> &'static Regex {
-    GENERATOR_DEF.get_or_init(|| Regex::new(r"def\s+(\w+)\s*\(").unwrap())
+    GENERATOR_DEF.get_or_init(|| Regex::new(r"def\s+(\w+)\s*\(").expect("valid regex"))
 }
 
 fn yield_stmt() -> &'static Regex {
-    YIELD_STMT.get_or_init(|| Regex::new(r"\byield\b").unwrap())
+    YIELD_STMT.get_or_init(|| Regex::new(r"\byield\b").expect("valid regex"))
 }
 
 fn list_call() -> &'static Regex {
-    LIST_CALL.get_or_init(|| Regex::new(r"list\s*\(\s*(\w+)\s*\(").unwrap())
+    LIST_CALL.get_or_init(|| Regex::new(r"list\s*\(\s*(\w+)\s*\(").expect("valid regex"))
 }
 
 /// Detects generator functions with only one yield statement

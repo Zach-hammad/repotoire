@@ -20,11 +20,11 @@ static ASYNC_FUNC: OnceLock<Regex> = OnceLock::new();
 
 fn promise_pattern() -> &'static Regex {
     PROMISE_PATTERN
-        .get_or_init(|| Regex::new(r"(new Promise|\.then\(|fetch\(|axios\.|\.json\(\))").unwrap())
+        .get_or_init(|| Regex::new(r"(new Promise|\.then\(|fetch\(|axios\.|\.json\(\))").expect("valid regex"))
 }
 
 fn async_func() -> &'static Regex {
-    ASYNC_FUNC.get_or_init(|| Regex::new(r"async\s+(function\s+)?(\w+)").unwrap())
+    ASYNC_FUNC.get_or_init(|| Regex::new(r"async\s+(function\s+)?(\w+)").expect("valid regex"))
 }
 
 pub struct UnhandledPromiseDetector {

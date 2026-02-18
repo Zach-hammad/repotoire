@@ -20,19 +20,19 @@ static SANITIZATION: OnceLock<Regex> = OnceLock::new();
 
 fn pollution_pattern() -> &'static Regex {
     POLLUTION_PATTERN.get_or_init(|| {
-        Regex::new(r"(__proto__|prototype\s*\[|Object\.assign\(|\.extend\(|lodash\.merge|_\.merge|deepmerge|Object\.setPrototypeOf|Reflect\.set)").unwrap()
+        Regex::new(r"(__proto__|prototype\s*\[|Object\.assign\(|\.extend\(|lodash\.merge|_\.merge|deepmerge|Object\.setPrototypeOf|Reflect\.set)").expect("valid regex")
     })
 }
 
 fn user_input() -> &'static Regex {
     USER_INPUT.get_or_init(|| {
-        Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").unwrap()
+        Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").expect("valid regex")
     })
 }
 
 fn sanitization() -> &'static Regex {
     SANITIZATION.get_or_init(|| {
-        Regex::new(r"(hasOwnProperty|Object\.keys|Object\.create\(null\)|delete.*__proto__|filter|sanitize|validate|clean)").unwrap()
+        Regex::new(r"(hasOwnProperty|Object\.keys|Object\.create\(null\)|delete.*__proto__|filter|sanitize|validate|clean)").expect("valid regex")
     })
 }
 

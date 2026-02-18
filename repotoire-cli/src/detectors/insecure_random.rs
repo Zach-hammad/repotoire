@@ -19,7 +19,7 @@ static INSECURE_RANDOM: OnceLock<Regex> = OnceLock::new();
 
 fn insecure_random() -> &'static Regex {
     INSECURE_RANDOM.get_or_init(|| {
-        Regex::new(r"(?i)(Math\.random\(\)|random\.random\(\)|random\.randint|rand\(\)|srand\(|mt_rand|lcg_value|uniqid)").unwrap()
+        Regex::new(r"(?i)(Math\.random\(\)|random\.random\(\)|random\.randint|rand\(\)|srand\(|mt_rand|lcg_value|uniqid)").expect("valid regex")
     })
 }
 

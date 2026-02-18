@@ -21,13 +21,13 @@ static MODULE_NAME: OnceLock<Regex> = OnceLock::new();
 fn wildcard_pattern() -> &'static Regex {
     WILDCARD_PATTERN.get_or_init(|| {
         Regex::new(r"(?i)(from\s+\S+\s+import\s+\*|import\s+\*\s+from|import\s+\*\s*;|\.\*;)")
-            .unwrap()
+            .expect("valid regex")
     })
 }
 
 fn module_name() -> &'static Regex {
     MODULE_NAME.get_or_init(|| {
-        Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#).unwrap()
+        Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#).expect("valid regex")
     })
 }
 

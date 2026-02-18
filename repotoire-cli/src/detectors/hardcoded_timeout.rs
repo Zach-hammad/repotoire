@@ -19,7 +19,7 @@ static TIMEOUT_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn timeout_pattern() -> &'static Regex {
     TIMEOUT_PATTERN.get_or_init(|| {
-        Regex::new(r"(?i)(timeout|sleep|delay|wait|setTimeout|setInterval|read_timeout|write_timeout|connect_timeout)\s*[\(=:]\s*(\d{4,})").unwrap()
+        Regex::new(r"(?i)(timeout|sleep|delay|wait|setTimeout|setInterval|read_timeout|write_timeout|connect_timeout)\s*[\(=:]\s*(\d{4,})").expect("valid regex")
     })
 }
 

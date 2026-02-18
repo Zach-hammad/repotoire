@@ -20,7 +20,7 @@ static TODO_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn get_pattern() -> &'static Regex {
     TODO_PATTERN
-        .get_or_init(|| Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX|BUG)[\s:]+(.{0,80})").unwrap())
+        .get_or_init(|| Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX|BUG)[\s:]+(.{0,80})").expect("valid regex"))
 }
 
 pub struct TodoScanner {

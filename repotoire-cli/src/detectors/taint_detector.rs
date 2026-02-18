@@ -245,7 +245,7 @@ impl TaintDetector {
         let mut tainted_vars: HashMap<String, (u32, String)> = HashMap::new();
 
         // Variable assignment pattern
-        let assign_pattern = Regex::new(r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=").unwrap();
+        let assign_pattern = Regex::new(r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=").expect("valid regex");
 
         for (line_no, line) in lines.iter().enumerate() {
             let line_num = (line_no + 1) as u32;

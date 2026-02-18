@@ -19,13 +19,44 @@ static LOOP: OnceLock<Regex> = OnceLock::new();
 static REGEX_NEW: OnceLock<Regex> = OnceLock::new();
 
 fn loop_pattern() -> &'static Regex {
-    LOOP.get_or_init(|| Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|for\s*\(|while\s*\()").unwrap())
+    LOOP.get_or_init(|| Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|for\s*\(|while\s*\()").expect("valid regex"))
 }
 
 fn regex_new() -> &'static Regex {
     REGEX_NEW.get_or_init(|| {
-        Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile)").unwrap()
+        Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile)").expect("valid regex")
     })
+}
+
+/// Check if a regex compilation is cached (OnceLock, lazy_static, etc.)
+fn is_cached_regex(line: &str) -> bool {
+    let l = line.trim();
+    l.contains("get_or_init")
+        || l.contains("lazy_static")
+        || l.contains("LazyLock")
+        || l.contains("Lazy::new")
+        || l.contains("OnceLock")
+        || l.contains("OnceCell")
+        // Skip lines that are just string constants containing regex pattern names
+        || l.starts_with('"')
+        || l.starts_with("r#\"")
+        || l.starts_with("r\"")
+}
+
+/// Check if a Regex::new call is inside a cached context by looking at surrounding lines
+fn is_cached_regex_context(content: &str, line_idx: usize) -> bool {
+    let lines: Vec<&str> = content.lines().collect();
+    // Check ±5 lines for caching patterns
+    let start = line_idx.saturating_sub(5);
+    let end = (line_idx + 3).min(lines.len());
+    for j in start..end {
+        if let Some(l) = lines.get(j) {
+            if is_cached_regex(l) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub struct RegexInLoopDetector {
@@ -54,10 +85,20 @@ impl RegexInLoopDetector {
                 let start = func.line_start.saturating_sub(1) as usize;
                 let end = (func.line_end as usize).min(lines.len());
 
-                for line in lines.get(start..end).unwrap_or(&[]) {
-                    if regex_new().is_match(line) {
-                        regex_funcs.insert(func.qualified_name.clone());
-                        break;
+                // Check if the function itself uses caching patterns
+                let func_body = lines.get(start..end).unwrap_or(&[]).join("\n");
+                let func_is_cached = func_body.contains("get_or_init")
+                    || func_body.contains("OnceLock")
+                    || func_body.contains("OnceCell")
+                    || func_body.contains("lazy_static")
+                    || func_body.contains("LazyLock");
+
+                if !func_is_cached {
+                    for line in lines.get(start..end).unwrap_or(&[]) {
+                        if regex_new().is_match(line) && !is_cached_regex(line) {
+                            regex_funcs.insert(func.qualified_name.clone());
+                            break;
+                        }
                     }
                 }
             }
@@ -153,7 +194,8 @@ impl Detector for RegexInLoopDetector {
                         }
 
                         // Direct regex compilation in loop
-                        if regex_new().is_match(line) {
+                        // Skip cached patterns: OnceLock, lazy_static, static, get_or_init
+                        if regex_new().is_match(line) && !is_cached_regex(line) && !is_cached_regex_context(&content, i) {
                             findings.push(Finding {
                                 id: String::new(),
                                 detector: "RegexInLoopDetector".to_string(),
@@ -194,10 +236,16 @@ impl Detector for RegexInLoopDetector {
         }
 
         // Graph-based: find loops that call regex-compiling functions
+        // Skip Rust files — OnceLock/lazy_static caching is pervasive and
+        // the call graph can't distinguish cached from uncached compilation
         if !regex_funcs.is_empty() {
             for func in graph.get_functions() {
                 if findings.len() >= self.max_findings {
                     break;
+                }
+
+                if func.file_path.ends_with(".rs") {
+                    continue;
                 }
 
                 // Check if function contains a loop

@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 static XSS_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn xss_pattern() -> &'static Regex {
-    XSS_PATTERN.get_or_init(|| Regex::new(r"(?i)(innerHTML|outerHTML|document\.write|dangerouslySetInnerHTML|v-html|ng-bind-html|\[innerHTML\])").unwrap())
+    XSS_PATTERN.get_or_init(|| Regex::new(r"(?i)(innerHTML|outerHTML|document\.write|dangerouslySetInnerHTML|v-html|ng-bind-html|\[innerHTML\])").expect("valid regex"))
 }
 
 pub struct XssDetector {

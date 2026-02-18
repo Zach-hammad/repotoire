@@ -23,7 +23,7 @@ fn chain_pattern() -> &'static Regex {
     CHAIN_PATTERN.get_or_init(|| {
         // Match method chains: .method().method().method()
         // At least 4 chained calls
-        Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)){4,}").unwrap()
+        Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)){4,}").expect("valid regex")
     })
 }
 

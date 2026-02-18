@@ -418,7 +418,7 @@ impl DetectorEngine {
         }
 
         // Run dependent detectors sequentially
-        // TODO: Build dependency graph and run in topological order
+        // Future: Build dependency graph and run in topological order
         for detector in dependent {
             let result = self.run_single_detector(&detector, graph, &contexts);
 

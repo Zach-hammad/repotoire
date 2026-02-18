@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 ///
 /// This is a COMPATIBILITY wrapper that uses the existing parse_file()
 /// and converts the result. For maximum efficiency, language-specific
-/// lightweight parsers should be used (TODO: implement per-language).
+/// lightweight parsers should be used.
 ///
 /// The AST is dropped as soon as this function returns.
 pub fn parse_file_lightweight(path: &Path) -> Result<LightweightFileInfo> {

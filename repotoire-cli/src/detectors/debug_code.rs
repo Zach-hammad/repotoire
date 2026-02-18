@@ -19,7 +19,7 @@ use tracing::info;
 static DEBUG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn debug_pattern() -> &'static Regex {
-    DEBUG_PATTERN.get_or_init(|| Regex::new(r"(?i)(console\.(log|debug|info|warn)|print\(|debugger;?|debug\s*=\s*True|DEBUG\s*=\s*true|binding\.pry|byebug|import\s+pdb|pdb\.set_trace)").unwrap())
+    DEBUG_PATTERN.get_or_init(|| Regex::new(r"(?i)(console\.(log|debug|info|warn)|print\(|debugger;?|debug\s*=\s*True|DEBUG\s*=\s*true|binding\.pry|byebug|import\s+pdb|pdb\.set_trace)").expect("valid regex"))
 }
 
 pub struct DebugCodeDetector {

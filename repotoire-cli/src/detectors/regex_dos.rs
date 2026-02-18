@@ -21,7 +21,7 @@ static VULNERABLE: OnceLock<Regex> = OnceLock::new();
 fn regex_create() -> &'static Regex {
     REGEX_CREATE.get_or_init(|| {
         Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile|regex!|/[^/]+/)")
-            .unwrap()
+            .expect("valid regex")
     })
 }
 
@@ -34,7 +34,7 @@ fn vulnerable() -> &'static Regex {
         Regex::new(
             r"\([^)]*[+*][^)]*\)[+*]|\.\*\.\*|\(\?:[^)]*\)[+*]{2}|\[[^\]]*\][+*]\[[^\]]*\][+*]",
         )
-        .unwrap()
+        .expect("valid regex")
     })
 }
 

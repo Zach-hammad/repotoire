@@ -15,21 +15,21 @@ static COMMONJS_WRAPPER: OnceLock<Regex> = OnceLock::new();
 
 fn generated_comment_regex() -> &'static Regex {
     GENERATED_COMMENT.get_or_init(|| {
-        Regex::new(r"(?i)(?:generated\s+(?:by|from|using)|auto[- ]?generated|do\s+not\s+edit|machine\s+generated|this\s+file\s+is\s+generated)").unwrap()
+        Regex::new(r"(?i)(?:generated\s+(?:by|from|using)|auto[- ]?generated|do\s+not\s+edit|machine\s+generated|this\s+file\s+is\s+generated)").expect("valid regex")
     })
 }
 
 fn umd_wrapper_regex() -> &'static Regex {
     UMD_WRAPPER.get_or_init(|| {
         // UMD pattern: (function(global, factory) { ... })(this, function() {})
-        Regex::new(r"^\s*\(function\s*\(\s*\w+\s*,\s*\w+\s*\)\s*\{").unwrap()
+        Regex::new(r"^\s*\(function\s*\(\s*\w+\s*,\s*\w+\s*\)\s*\{").expect("valid regex")
     })
 }
 
 fn commonjs_wrapper_regex() -> &'static Regex {
     COMMONJS_WRAPPER.get_or_init(|| {
         // CommonJS exports at very start, or 'use strict' + immediate exports
-        Regex::new(r#"^(?:'use strict';\s*)?(?:Object\.defineProperty\(exports|exports\.\w+\s*=|module\.exports\s*=)"#).unwrap()
+        Regex::new(r#"^(?:'use strict';\s*)?(?:Object\.defineProperty\(exports|exports\.\w+\s*=|module\.exports\s*=)"#).expect("valid regex")
     })
 }
 

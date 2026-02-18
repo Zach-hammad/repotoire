@@ -81,25 +81,25 @@ impl PickleDeserializationDetector {
             Regex::new(r"(?i)\b(?:pickle|cPickle|_pickle|dill|cloudpickle)\.(?:load|loads)\s*\(")
                 .unwrap();
 
-        let torch_load_pattern = Regex::new(r"(?i)\btorch\.load\s*\([^)]*\)").unwrap();
+        let torch_load_pattern = Regex::new(r"(?i)\btorch\.load\s*\([^)]*\)").expect("valid regex");
 
-        let torch_safe_pattern = Regex::new(r"(?i)weights_only\s*=\s*True").unwrap();
+        let torch_safe_pattern = Regex::new(r"(?i)weights_only\s*=\s*True").expect("valid regex");
 
-        let joblib_load_pattern = Regex::new(r"(?i)\bjoblib\.load\s*\(").unwrap();
+        let joblib_load_pattern = Regex::new(r"(?i)\bjoblib\.load\s*\(").expect("valid regex");
 
-        let numpy_load_pattern = Regex::new(r"(?i)\b(?:numpy|np)\.load\s*\([^)]*\)").unwrap();
+        let numpy_load_pattern = Regex::new(r"(?i)\b(?:numpy|np)\.load\s*\([^)]*\)").expect("valid regex");
 
-        let numpy_pickle_pattern = Regex::new(r"(?i)allow_pickle\s*=\s*True").unwrap();
+        let numpy_pickle_pattern = Regex::new(r"(?i)allow_pickle\s*=\s*True").expect("valid regex");
 
         let yaml_load_pattern =
-            Regex::new(r"(?i)\byaml\.(?:load|unsafe_load|full_load)\s*\([^)]*\)").unwrap();
+            Regex::new(r"(?i)\byaml\.(?:load|unsafe_load|full_load)\s*\([^)]*\)").expect("valid regex");
 
         let yaml_safe_loaders =
-            Regex::new(r"(?i)Loader\s*=\s*(?:yaml\.)?(?:Safe|CSafe|Base)Loader").unwrap();
+            Regex::new(r"(?i)Loader\s*=\s*(?:yaml\.)?(?:Safe|CSafe|Base)Loader").expect("valid regex");
 
-        let marshal_load_pattern = Regex::new(r"(?i)\bmarshal\.(?:load|loads)\s*\(").unwrap();
+        let marshal_load_pattern = Regex::new(r"(?i)\bmarshal\.(?:load|loads)\s*\(").expect("valid regex");
 
-        let shelve_pattern = Regex::new(r"(?i)\bshelve\.open\s*\(").unwrap();
+        let shelve_pattern = Regex::new(r"(?i)\bshelve\.open\s*\(").expect("valid regex");
 
         Self {
             config,

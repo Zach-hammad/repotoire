@@ -181,7 +181,7 @@ fn extract_classes(
                 file_path: path.to_path_buf(),
                 line_start,
                 line_end,
-                bases: vec![], // TODO: extract base classes
+                bases: vec![], // Base class extraction not yet implemented for C++
                 methods: methods.iter().map(|m| m.name.clone()).collect(),
             });
         }

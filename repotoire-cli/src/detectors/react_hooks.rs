@@ -26,29 +26,29 @@ static USE_EFFECT: OnceLock<Regex> = OnceLock::new();
 
 fn hook_call() -> &'static Regex {
     HOOK_CALL.get_or_init(|| {
-        Regex::new(r"\b(useState|useEffect|useContext|useReducer|useCallback|useMemo|useRef|useImperativeHandle|useLayoutEffect|useDebugValue|useTransition|useDeferredValue|useId|useSyncExternalStore|useInsertionEffect|use[A-Z]\w*)\s*\(").unwrap()
+        Regex::new(r"\b(useState|useEffect|useContext|useReducer|useCallback|useMemo|useRef|useImperativeHandle|useLayoutEffect|useDebugValue|useTransition|useDeferredValue|useId|useSyncExternalStore|useInsertionEffect|use[A-Z]\w*)\s*\(").expect("valid regex")
     })
 }
 
 fn conditional() -> &'static Regex {
     CONDITIONAL.get_or_init(|| {
-        Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$)").unwrap()
+        Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$)").expect("valid regex")
     })
 }
 
 fn loop_pattern() -> &'static Regex {
     LOOP.get_or_init(|| {
-        Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\()").unwrap()
+        Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\()").expect("valid regex")
     })
 }
 
 fn nested_func() -> &'static Regex {
-    NESTED_FUNC.get_or_init(|| Regex::new(r"^\s*(function\s+\w+|const\s+\w+\s*=\s*(async\s+)?\(|const\s+\w+\s*=\s*(async\s+)?function)").unwrap())
+    NESTED_FUNC.get_or_init(|| Regex::new(r"^\s*(function\s+\w+|const\s+\w+\s*=\s*(async\s+)?\(|const\s+\w+\s*=\s*(async\s+)?function)").expect("valid regex"))
 }
 
 fn component() -> &'static Regex {
     COMPONENT.get_or_init(|| {
-        Regex::new(r"(?:function|const)\s+([A-Z][a-zA-Z0-9]*)\s*[=(]|export\s+(?:default\s+)?(?:function|const)\s+([A-Z][a-zA-Z0-9]*)").unwrap()
+        Regex::new(r"(?:function|const)\s+([A-Z][a-zA-Z0-9]*)\s*[=(]|export\s+(?:default\s+)?(?:function|const)\s+([A-Z][a-zA-Z0-9]*)").expect("valid regex")
     })
 }
 
@@ -56,7 +56,7 @@ fn component() -> &'static Regex {
 fn use_effect() -> &'static Regex {
     USE_EFFECT.get_or_init(|| {
         Regex::new(r"(useEffect|useMemo|useCallback)\s*\(\s*(?:\([^)]*\)|[^,]+)\s*,\s*\[([^\]]*)\]")
-            .unwrap()
+            .expect("valid regex")
     })
 }
 

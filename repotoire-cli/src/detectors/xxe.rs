@@ -19,13 +19,13 @@ static USER_INPUT: OnceLock<Regex> = OnceLock::new();
 
 fn xxe_pattern() -> &'static Regex {
     XXE_PATTERN.get_or_init(|| {
-        Regex::new(r"(?i)(xml\.parse|parseXML|XMLParser|DocumentBuilder|SAXParser|etree\.parse|lxml\.etree|xml\.etree|DOMParser|XMLReader|xml\.dom|minidom|pulldom|xml2js|fast-xml-parser|libxml)").unwrap()
+        Regex::new(r"(?i)(xml\.parse|parseXML|XMLParser|DocumentBuilder|SAXParser|etree\.parse|lxml\.etree|xml\.etree|DOMParser|XMLReader|xml\.dom|minidom|pulldom|xml2js|fast-xml-parser|libxml)").expect("valid regex")
     })
 }
 
 fn user_input() -> &'static Regex {
     USER_INPUT.get_or_init(|| {
-        Regex::new(r"(req\.(body|file|files)|request\.(data|files)|uploaded|file_content|input|read\(|getInputStream)").unwrap()
+        Regex::new(r"(req\.(body|file|files)|request\.(data|files)|uploaded|file_content|input|read\(|getInputStream)").expect("valid regex")
     })
 }
 

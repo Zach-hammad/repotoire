@@ -22,17 +22,17 @@ static FOR_VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn loop_pattern() -> &'static Regex {
     LOOP_PATTERN.get_or_init(|| {
-        Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each|for\s*\(|while\s*\()").unwrap()
+        Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each|for\s*\(|while\s*\()").expect("valid regex")
     })
 }
 
 fn for_var_pattern() -> &'static Regex {
-    FOR_VAR_PATTERN.get_or_init(|| Regex::new(r"for\s+(\w+)\s+in").unwrap())
+    FOR_VAR_PATTERN.get_or_init(|| Regex::new(r"for\s+(\w+)\s+in").expect("valid regex"))
 }
 
 fn string_concat() -> &'static Regex {
     STRING_CONCAT.get_or_init(|| {
-        Regex::new(r#"\w+\s*\+=\s*["'`]|\w+\s*=\s*\w+\s*\+\s*["'`]|\w+\s*\+=\s*\w+"#).unwrap()
+        Regex::new(r#"\w+\s*\+=\s*["'`]|\w+\s*=\s*\w+\s*\+\s*["'`]|\w+\s*\+=\s*\w+"#).expect("valid regex")
     })
 }
 
@@ -215,10 +215,16 @@ impl Detector for StringConcatLoopDetector {
         }
 
         // Graph-based: find loops that call concat functions
+        // Skip Rust files — push_str mutates in place (not O(n²)),
+        // and Path::join is not string concatenation
         if !concat_funcs.is_empty() {
             for func in graph.get_functions() {
                 if findings.len() >= self.max_findings {
                     break;
+                }
+
+                if func.file_path.ends_with(".rs") {
+                    continue;
                 }
 
                 let has_loop = if let Some(content) =

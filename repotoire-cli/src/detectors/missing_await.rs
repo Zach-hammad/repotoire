@@ -20,13 +20,13 @@ static ASYNC_DEF: OnceLock<Regex> = OnceLock::new();
 
 fn async_call() -> &'static Regex {
     ASYNC_CALL.get_or_init(|| {
-        Regex::new(r"(?i)(fetch\(|axios\.|\.json\(\)|\.text\(\)|async_\w+\(|aio\w+\.|\.read\(\)|\.write\(\)|\.send\(\)|\.get\(|\.post\(|\.put\(|\.delete\()").unwrap()
+        Regex::new(r"(?i)(fetch\(|axios\.|\.json\(\)|\.text\(\)|async_\w+\(|aio\w+\.|\.read\(\)|\.write\(\)|\.send\(\)|\.get\(|\.post\(|\.put\(|\.delete\()").expect("valid regex")
     })
 }
 
 fn async_def() -> &'static Regex {
     ASYNC_DEF.get_or_init(|| {
-        Regex::new(r"(?:async\s+(?:def|function)|async\s+\w+\s*\(|async\s+\w+\s*=)").unwrap()
+        Regex::new(r"(?:async\s+(?:def|function)|async\s+\w+\s*\(|async\s+\w+\s*=)").expect("valid regex")
     })
 }
 

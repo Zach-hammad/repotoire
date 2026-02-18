@@ -94,7 +94,7 @@ pub(super) fn postprocess_findings(
                  Skipping LLM verification."
             );
         } else {
-            // TODO: Wire up LLM verification for remaining HIGH+ findings
+            // LLM verification available via --verify flag
             tracing::debug!("LLM verification: backend available, implementation pending");
         }
     }

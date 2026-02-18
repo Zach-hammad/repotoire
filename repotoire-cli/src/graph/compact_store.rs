@@ -227,9 +227,9 @@ impl CompactGraphStore {
                         .unwrap_or(false);
                     self.add_import(&src, &dst, is_type);
                 }
-                EdgeKind::Inherits => {}   // TODO
-                EdgeKind::Uses => {}       // TODO
-                EdgeKind::ModifiedIn => {} // TODO
+                EdgeKind::Inherits => {}   // Not tracked in compact store
+                EdgeKind::Uses => {}       // Not tracked in compact store
+                EdgeKind::ModifiedIn => {} // Not tracked in compact store
             }
         }
     }

@@ -19,7 +19,7 @@ use tracing::info;
 static IP_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn ip_pattern() -> &'static Regex {
-    IP_PATTERN.get_or_init(|| Regex::new(r#"["']?(127\.0\.0\.1|0\.0\.0\.0|localhost|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)["']?"#).unwrap())
+    IP_PATTERN.get_or_init(|| Regex::new(r#"["']?(127\.0\.0\.1|0\.0\.0\.0|localhost|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)["']?"#).expect("valid regex"))
 }
 
 pub struct HardcodedIpsDetector {

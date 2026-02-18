@@ -19,12 +19,12 @@ static ASYNC_FUNC: OnceLock<Regex> = OnceLock::new();
 static BLOCKING: OnceLock<Regex> = OnceLock::new();
 
 fn async_func() -> &'static Regex {
-    ASYNC_FUNC.get_or_init(|| Regex::new(r"(?i)(async\s+def|async\s+function|async\s+fn)").unwrap())
+    ASYNC_FUNC.get_or_init(|| Regex::new(r"(?i)(async\s+def|async\s+function|async\s+fn)").expect("valid regex"))
 }
 
 fn blocking() -> &'static Regex {
     BLOCKING.get_or_init(|| {
-        Regex::new(r"(?i)(time\.sleep|Thread\.sleep|readFileSync|writeFileSync|execSync|spawnSync|requests\.(get|post|put|delete|head|patch)|urllib\.request|urlopen|subprocess\.(run|call|check_output)|os\.system|std::thread::sleep|std::fs::(read|write)|open\([^)]+\)\.read)").unwrap()
+        Regex::new(r"(?i)(time\.sleep|Thread\.sleep|readFileSync|writeFileSync|execSync|spawnSync|requests\.(get|post|put|delete|head|patch)|urllib\.request|urlopen|subprocess\.(run|call|check_output)|os\.system|std::thread::sleep|std::fs::(read|write)|open\([^)]+\)\.read)").expect("valid regex")
     })
 }
 

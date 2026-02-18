@@ -19,12 +19,12 @@ static VAR_READ: OnceLock<Regex> = OnceLock::new();
 
 fn assignment() -> &'static Regex {
     ASSIGNMENT.get_or_init(|| {
-        Regex::new(r"^\s*(let|var|const|int|float|string|auto|mut)?\s*(\w+)\s*[:=]").unwrap()
+        Regex::new(r"^\s*(let|var|const|int|float|string|auto|mut)?\s*(\w+)\s*[:=]").expect("valid regex")
     })
 }
 
 fn var_read() -> &'static Regex {
-    VAR_READ.get_or_init(|| Regex::new(r"\b(\w+)\b").unwrap())
+    VAR_READ.get_or_init(|| Regex::new(r"\b(\w+)\b").expect("valid regex"))
 }
 
 /// Skip patterns for common false positives

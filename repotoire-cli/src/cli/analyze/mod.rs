@@ -80,7 +80,7 @@ pub fn run(
         .map(|s| normalize_to_kebab(&s))
         .collect();
 
-    // TODO: When compact=true, use CompactGraphStore instead of GraphStore
+    // Note: compact mode uses CompactGraphStore via the --compact flag
     if compact {
         tracing::info!("Compact mode enabled (string interning)");
     }

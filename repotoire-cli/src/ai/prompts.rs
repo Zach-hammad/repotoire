@@ -325,13 +325,13 @@ fn sanitize_text(text: &str) -> String {
     fn get_injection_patterns() -> &'static Vec<Regex> {
         INJECTION_PATTERNS.get_or_init(|| {
             vec![
-                Regex::new(r"(?i)ignore\s+(all\s+)?previous\s+instructions?").unwrap(),
-                Regex::new(r"(?i)disregard\s+(all\s+)?previous").unwrap(),
-                Regex::new(r"(?i)forget\s+(all\s+)?previous").unwrap(),
-                Regex::new(r"(?i)system\s*:\s*").unwrap(),
-                Regex::new(r"(?i)<\s*system\s*>").unwrap(),
-                Regex::new(r"(?i)assistant\s*:\s*").unwrap(),
-                Regex::new(r"(?i)human\s*:\s*").unwrap(),
+                Regex::new(r"(?i)ignore\s+(all\s+)?previous\s+instructions?").expect("valid regex"),
+                Regex::new(r"(?i)disregard\s+(all\s+)?previous").expect("valid regex"),
+                Regex::new(r"(?i)forget\s+(all\s+)?previous").expect("valid regex"),
+                Regex::new(r"(?i)system\s*:\s*").expect("valid regex"),
+                Regex::new(r"(?i)<\s*system\s*>").expect("valid regex"),
+                Regex::new(r"(?i)assistant\s*:\s*").expect("valid regex"),
+                Regex::new(r"(?i)human\s*:\s*").expect("valid regex"),
                 Regex::new(r"(?i)output\s+(your\s+)?(api\s*key|secret|password|credential)")
                     .unwrap(),
                 Regex::new(r"(?i)reveal\s+(your\s+)?(api\s*key|secret|password|credential)")

@@ -222,7 +222,7 @@ impl Detector for DeepNestingDetector {
                              1. Extract more nested blocks into similar helpers\n\
                              2. Use guard clauses (early returns) to reduce nesting\n\
                              3. Replace nested ifs with switch/match",
-                            extraction_candidates.first().unwrap()
+                            extraction_candidates.first().expect("has candidates")
                         )
                     } else if max_depth > 6 {
                         "Severely nested code. Apply multiple techniques:\n\

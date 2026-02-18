@@ -21,7 +21,7 @@ static DEBUG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn test_import() -> &'static Regex {
     TEST_IMPORT.get_or_init(|| {
-        Regex::new(r#"(?i)(import.*pytest|import.*unittest|import.*mock|from.*mock|require\(['"]jest|require\(['"]sinon|import.*@testing-library)"#).unwrap()
+        Regex::new(r#"(?i)(import.*pytest|import.*unittest|import.*mock|from.*mock|require\(['"]jest|require\(['"]sinon|import.*@testing-library)"#).expect("valid regex")
     })
 }
 
@@ -29,7 +29,7 @@ fn test_usage() -> &'static Regex {
     // Note: Removed expect( as it's used in production assertion/error libraries
     // Removed describe( and it( as they conflict with normal code patterns
     TEST_USAGE.get_or_init(|| {
-        Regex::new(r"(?i)(mock\.|Mock\(|MagicMock|patch\(|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|\.toBe\(|\.toEqual\(|\.toHaveBeenCalled|\.toThrow\(|fixture|@Before|@After|@BeforeEach)").unwrap()
+        Regex::new(r"(?i)(mock\.|Mock\(|MagicMock|patch\(|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|\.toBe\(|\.toEqual\(|\.toHaveBeenCalled|\.toThrow\(|fixture|@Before|@After|@BeforeEach)").expect("valid regex")
     })
 }
 

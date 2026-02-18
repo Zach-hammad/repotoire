@@ -22,25 +22,25 @@ static ALG_PARAM: OnceLock<Regex> = OnceLock::new();
 
 fn none_alg() -> &'static Regex {
     NONE_ALG.get_or_init(|| {
-        Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?none["']?|alg["']?\s*:\s*["']?none)"#).unwrap()
+        Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?none["']?|alg["']?\s*:\s*["']?none)"#).expect("valid regex")
     })
 }
 
 fn hs256_alg() -> &'static Regex {
     HS256_ALG.get_or_init(|| {
-        Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?HS256["']?|alg["']?\s*:\s*["']?HS256)"#).unwrap()
+        Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?HS256["']?|alg["']?\s*:\s*["']?HS256)"#).expect("valid regex")
     })
 }
 
 fn jwt_verify() -> &'static Regex {
     JWT_VERIFY.get_or_init(|| {
-        Regex::new(r"(?i)(jwt\.(decode|verify)|verify_jwt|verifyToken|JWTVerifier)").unwrap()
+        Regex::new(r"(?i)(jwt\.(decode|verify)|verify_jwt|verifyToken|JWTVerifier)").expect("valid regex")
     })
 }
 
 fn alg_param() -> &'static Regex {
     ALG_PARAM.get_or_init(|| {
-        Regex::new(r"(?i)(algorithms?\s*[=:]\s*\[|verify\s*=\s*False|options.*verify)").unwrap()
+        Regex::new(r"(?i)(algorithms?\s*[=:]\s*\[|verify\s*=\s*False|options.*verify)").expect("valid regex")
     })
 }
 

@@ -15,7 +15,7 @@ static SEND_FILE: OnceLock<Regex> = OnceLock::new();
 static PATH_RESOLVE: OnceLock<Regex> = OnceLock::new();
 
 fn file_op() -> &'static Regex {
-    FILE_OP.get_or_init(|| Regex::new(r"(?i)(open|read|write|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|unlink|unlinkSync|remove|rmdir|mkdir|stat|statSync|access|accessSync|copyFile|rename)\s*\(").unwrap())
+    FILE_OP.get_or_init(|| Regex::new(r"(?i)(open|read|write|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|unlink|unlinkSync|remove|rmdir|mkdir|stat|statSync|access|accessSync|copyFile|rename)\s*\(").expect("valid regex"))
 }
 
 fn path_join() -> &'static Regex {
@@ -23,20 +23,20 @@ fn path_join() -> &'static Regex {
     // Python: os.path.join, pathlib.Path
     // Node.js: path.join, path.resolve
     // Go: filepath.Join, path.Join
-    PATH_JOIN.get_or_init(|| Regex::new(r"(?i)(os\.path\.join|path\.join|path\.resolve|filepath\.Join|filepath\.Clean|Path\s*\()").unwrap())
+    PATH_JOIN.get_or_init(|| Regex::new(r"(?i)(os\.path\.join|path\.join|path\.resolve|filepath\.Join|filepath\.Clean|Path\s*\()").expect("valid regex"))
 }
 
 fn send_file() -> &'static Regex {
     // Express/Koa sendFile, download patterns
     SEND_FILE.get_or_init(|| {
-        Regex::new(r"(?i)(sendFile|download|serveStatic|send_file|serve_file)\s*\(").unwrap()
+        Regex::new(r"(?i)(sendFile|download|serveStatic|send_file|serve_file)\s*\(").expect("valid regex")
     })
 }
 
 fn path_resolve() -> &'static Regex {
     // Path resolution/normalization that might be unsafe if done after concatenation
     PATH_RESOLVE
-        .get_or_init(|| Regex::new(r"(?i)(realpath|abspath|normpath|resolve|Clean)\s*\(").unwrap())
+        .get_or_init(|| Regex::new(r"(?i)(realpath|abspath|normpath|resolve|Clean)\s*\(").expect("valid regex"))
 }
 
 pub struct PathTraversalDetector {

@@ -19,7 +19,7 @@ use tracing::info;
 static BROAD_EXCEPT: OnceLock<Regex> = OnceLock::new();
 
 fn broad_except() -> &'static Regex {
-    BROAD_EXCEPT.get_or_init(|| Regex::new(r"(?i)(except\s*:|catch\s*\(\s*(Exception|Error|Throwable|BaseException|\w)\s*\)|catch\s*\{)").unwrap())
+    BROAD_EXCEPT.get_or_init(|| Regex::new(r"(?i)(except\s*:|catch\s*\(\s*(Exception|Error|Throwable|BaseException|\w)\s*\)|catch\s*\{)").expect("valid regex"))
 }
 
 pub struct BroadExceptionDetector {
@@ -37,7 +37,7 @@ impl BroadExceptionDetector {
 
     /// Find try block and extract function calls
     fn analyze_try_block(lines: &[&str], catch_line: usize) -> HashSet<String> {
-        let call_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
+        let call_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").expect("valid regex");
         let mut calls = HashSet::new();
 
         // Find try start

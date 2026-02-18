@@ -21,7 +21,7 @@ fn return_pattern() -> &'static Regex {
         Regex::new(
             r"^\s*(return\b|throw\b|raise\b|exit\(|sys\.exit|process\.exit|break;|continue;)",
         )
-        .unwrap()
+        .expect("valid regex")
     })
 }
 

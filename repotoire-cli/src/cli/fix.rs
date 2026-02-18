@@ -345,7 +345,7 @@ fn apply_rule_fix(
         .line_start
         .ok_or_else(|| anyhow::anyhow!("Finding has no line number"))?
         as usize;
-    let line_end = finding.line_end.unwrap_or(finding.line_start.unwrap()) as usize;
+    let line_end = finding.line_end.unwrap_or(finding.line_start.unwrap_or(0)) as usize;
 
     if line_start == 0 || line_start > lines.len() {
         anyhow::bail!("Invalid line range: {}-{}", line_start, line_end);

@@ -82,24 +82,24 @@ impl UnsafeTemplateDetector {
             });
 
         // Compile Python patterns
-        let jinja2_env_pattern = Regex::new(r"\bEnvironment\s*\([^)]*\)").unwrap();
+        let jinja2_env_pattern = Regex::new(r"\bEnvironment\s*\([^)]*\)").expect("valid regex");
         let autoescape_true_pattern =
-            Regex::new(r"(?i)autoescape\s*=\s*(?:True|select_autoescape\s*\()").unwrap();
+            Regex::new(r"(?i)autoescape\s*=\s*(?:True|select_autoescape\s*\()").expect("valid regex");
         // Simplified: detect render_template_string calls with any content
         // (filtering for variable usage happens in scan logic)
         let render_template_string_pattern =
-            Regex::new(r#"\brender_template_string\s*\([^)]+\)"#).unwrap();
+            Regex::new(r#"\brender_template_string\s*\([^)]+\)"#).expect("valid regex");
         // Simplified: detect Markup calls with any content
-        let markup_pattern = Regex::new(r#"\bMarkup\s*\([^)]+\)"#).unwrap();
+        let markup_pattern = Regex::new(r#"\bMarkup\s*\([^)]+\)"#).expect("valid regex");
 
         // Compile JavaScript patterns
         let dangerous_inner_html_pattern =
-            Regex::new(r"\bdangerouslySetInnerHTML\s*=\s*\{").unwrap();
-        let vue_vhtml_pattern = Regex::new(r#"\bv-html\s*=\s*["'][^"']+["']"#).unwrap();
+            Regex::new(r"\bdangerouslySetInnerHTML\s*=\s*\{").expect("valid regex");
+        let vue_vhtml_pattern = Regex::new(r#"\bv-html\s*=\s*["'][^"']+["']"#).expect("valid regex");
         // Use =[^=] to exclude == comparisons (#25)
-        let innerhtml_assign_pattern = Regex::new(r"\.\s*innerHTML\s*=[^=;][^;]*").unwrap();
-        let outerhtml_assign_pattern = Regex::new(r"\.\s*outerHTML\s*=[^=;][^;]*").unwrap();
-        let document_write_pattern = Regex::new(r"\bdocument\s*\.\s*write(?:ln)?\s*\(").unwrap();
+        let innerhtml_assign_pattern = Regex::new(r"\.\s*innerHTML\s*=[^=;][^;]*").expect("valid regex");
+        let outerhtml_assign_pattern = Regex::new(r"\.\s*outerHTML\s*=[^=;][^;]*").expect("valid regex");
+        let document_write_pattern = Regex::new(r"\bdocument\s*\.\s*write(?:ln)?\s*\(").expect("valid regex");
 
         Self {
             config,
@@ -122,7 +122,7 @@ impl UnsafeTemplateDetector {
     fn is_string_literal_only(&self, call_match: &str) -> bool {
         // Pattern: function_name("string") or function_name('string')
         // If it matches this pattern, it's safe (static string)
-        let safe_pattern = Regex::new(r#"^\w+\s*\(\s*["'][^"']*["']\s*\)$"#).unwrap();
+        let safe_pattern = Regex::new(r#"^\w+\s*\(\s*["'][^"']*["']\s*\)$"#).expect("valid regex");
         safe_pattern.is_match(call_match.trim())
     }
 

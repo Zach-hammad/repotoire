@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 static HTTP_CLIENT: OnceLock<Regex> = OnceLock::new();
 
 fn http_client() -> &'static Regex {
-    HTTP_CLIENT.get_or_init(|| Regex::new(r"(?i)(requests\.(get|post|put|delete)|fetch\(|axios\.|http\.get|urllib|urlopen|HttpClient|curl)").unwrap())
+    HTTP_CLIENT.get_or_init(|| Regex::new(r"(?i)(requests\.(get|post|put|delete)|fetch\(|axios\.|http\.get|urllib|urlopen|HttpClient|curl)").expect("valid regex"))
 }
 
 pub struct SsrfDetector {

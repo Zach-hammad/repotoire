@@ -27,7 +27,7 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             // AWS
             SecretPattern {
                 name: "AWS Access Key ID",
-                pattern: Regex::new(r"AKIA[0-9A-Z]{16}").unwrap(),
+                pattern: Regex::new(r"AKIA[0-9A-Z]{16}").expect("valid regex"),
                 severity: Severity::Critical,
             },
             SecretPattern {
@@ -39,13 +39,13 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             // GitHub
             SecretPattern {
                 name: "GitHub Token",
-                pattern: Regex::new(r"ghp_[a-zA-Z0-9]{36}").unwrap(),
+                pattern: Regex::new(r"ghp_[a-zA-Z0-9]{36}").expect("valid regex"),
                 severity: Severity::Critical,
             },
             // Generic API keys
             SecretPattern {
                 name: "Generic API Key",
-                pattern: Regex::new(r"(?i)api[_-]?key\s*[=:]\s*[a-zA-Z0-9_\-]{20,}").unwrap(),
+                pattern: Regex::new(r"(?i)api[_-]?key\s*[=:]\s*[a-zA-Z0-9_\-]{20,}").expect("valid regex"),
                 severity: Severity::High,
             },
             SecretPattern {
@@ -64,25 +64,25 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             // Slack
             SecretPattern {
                 name: "Slack Token",
-                pattern: Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*").unwrap(),
+                pattern: Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*").expect("valid regex"),
                 severity: Severity::Critical,
             },
             // Stripe
             SecretPattern {
                 name: "Stripe API Key",
-                pattern: Regex::new(r"sk_live_[a-zA-Z0-9]{24,}").unwrap(),
+                pattern: Regex::new(r"sk_live_[a-zA-Z0-9]{24,}").expect("valid regex"),
                 severity: Severity::Critical,
             },
             // Database URLs
             SecretPattern {
                 name: "Database URL with Password",
-                pattern: Regex::new(r"(?i)(postgres|mysql|mongodb|redis)://[^:]+:[^@]+@").unwrap(),
+                pattern: Regex::new(r"(?i)(postgres|mysql|mongodb|redis)://[^:]+:[^@]+@").expect("valid regex"),
                 severity: Severity::Critical,
             },
             // SendGrid
             SecretPattern {
                 name: "SendGrid API Key",
-                pattern: Regex::new(r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}").unwrap(),
+                pattern: Regex::new(r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}").expect("valid regex"),
                 severity: Severity::High,
             },
         ]

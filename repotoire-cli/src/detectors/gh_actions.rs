@@ -48,12 +48,12 @@ fn get_dangerous_pattern() -> &'static Regex {
             r"github\.event\.inputs\.[^}]+",
             r"github\.event\.sender\.login",
         ];
-        Regex::new(&format!(r"\$\{{\{{\s*({})\s*\}}\}}", patterns.join("|"))).unwrap()
+        Regex::new(&format!(r"\$\{{\{{\s*({})\s*\}}\}}", patterns.join("|"))).expect("valid regex")
     })
 }
 
 fn get_run_block_pattern() -> &'static Regex {
-    RUN_BLOCK_PATTERN.get_or_init(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").unwrap())
+    RUN_BLOCK_PATTERN.get_or_init(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").expect("valid regex"))
 }
 
 impl GHActionsInjectionDetector {

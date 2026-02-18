@@ -19,12 +19,12 @@ static FUNC_NAME: OnceLock<Regex> = OnceLock::new();
 
 fn mutable_default() -> &'static Regex {
     MUTABLE_DEFAULT.get_or_init(|| {
-        Regex::new(r"def\s+(\w+)\s*\([^)]*(\w+)\s*=\s*(\[\]|\{\}|set\(\)|list\(\)|dict\(\)|defaultdict\(\)|Counter\(\)|deque\(\))").unwrap()
+        Regex::new(r"def\s+(\w+)\s*\([^)]*(\w+)\s*=\s*(\[\]|\{\}|set\(\)|list\(\)|dict\(\)|defaultdict\(\)|Counter\(\)|deque\(\))").expect("valid regex")
     })
 }
 
 fn func_name() -> &'static Regex {
-    FUNC_NAME.get_or_init(|| Regex::new(r"def\s+(\w+)").unwrap())
+    FUNC_NAME.get_or_init(|| Regex::new(r"def\s+(\w+)").expect("valid regex"))
 }
 
 /// Get the appropriate fix based on mutable type

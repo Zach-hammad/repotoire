@@ -21,12 +21,12 @@ static VAR_NAME: OnceLock<Regex> = OnceLock::new();
 
 fn global_pattern() -> &'static Regex {
     GLOBAL_PATTERN.get_or_init(|| {
-        Regex::new(r"^(var\s+\w+\s*=|let\s+\w+\s*=|global\s+\w+|\w+\s*=\s*[^=])").unwrap()
+        Regex::new(r"^(var\s+\w+\s*=|let\s+\w+\s*=|global\s+\w+|\w+\s*=\s*[^=])").expect("valid regex")
     })
 }
 
 fn var_name_pattern() -> &'static Regex {
-    VAR_NAME.get_or_init(|| Regex::new(r"^(?:var|let|global)\s+(\w+)").unwrap())
+    VAR_NAME.get_or_init(|| Regex::new(r"^(?:var|let|global)\s+(\w+)").expect("valid regex"))
 }
 
 pub struct GlobalVariablesDetector {

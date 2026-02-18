@@ -19,7 +19,7 @@ use tracing::info;
 static FUNC_REF: OnceLock<Regex> = OnceLock::new();
 
 fn func_ref() -> &'static Regex {
-    FUNC_REF.get_or_init(|| Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap())
+    FUNC_REF.get_or_init(|| Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").expect("valid regex"))
 }
 
 pub struct CommentedCodeDetector {
@@ -166,6 +166,12 @@ impl Detector for CommentedCodeDetector {
 
                 while i < lines.len() {
                     let line = lines[i].trim();
+                    // Skip doc comments (//! and /// in Rust)
+                    if line.starts_with("//!") || line.starts_with("///") {
+                        i += 1;
+                        continue;
+                    }
+
                     let is_comment =
                         line.starts_with("//") || line.starts_with("#") || line.starts_with("*");
 

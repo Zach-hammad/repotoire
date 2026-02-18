@@ -372,7 +372,12 @@ pub fn default_detectors_with_config(
                 repository_path,
             ),
         )),
-        Arc::new(InfluentialCodeDetector::new()),
+        Arc::new(InfluentialCodeDetector::with_config(
+            DetectorConfig::from_project_config(
+                "InfluentialCodeDetector",
+                project_config,
+            ),
+        )),
         Arc::new(ModuleCohesionDetector::new()),
         Arc::new(ShotgunSurgeryDetector::with_config(
             DetectorConfig::from_project_config_with_type(

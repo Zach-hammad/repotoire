@@ -12,7 +12,7 @@ static WEAK_HASH: OnceLock<Regex> = OnceLock::new();
 static WEAK_CIPHER: OnceLock<Regex> = OnceLock::new();
 
 fn weak_hash() -> &'static Regex {
-    WEAK_HASH.get_or_init(|| Regex::new(r#"(?i)(md5|sha1|sha-1)\s*\(|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).unwrap())
+    WEAK_HASH.get_or_init(|| Regex::new(r#"(?i)(md5|sha1|sha-1)\s*\(|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex"))
 }
 
 /// Check if a line is merely mentioning a weak hash (in comments, strings, etc.)
@@ -109,7 +109,7 @@ fn is_hash_mention_not_usage(line: &str) -> bool {
 
 fn weak_cipher() -> &'static Regex {
     // Use \b on both sides to prevent matching 'nodes', 'description', etc.
-    WEAK_CIPHER.get_or_init(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").unwrap())
+    WEAK_CIPHER.get_or_init(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").expect("valid regex"))
 }
 
 /// Check if a line is merely mentioning a weak cipher (in definitions, error messages, etc.)
