@@ -635,6 +635,18 @@ impl SQLInjectionDetector {
                     }
                     seen_locations.insert(loc);
 
+                    // Skip entirely when is_likely_fp — the query uses parameterized
+                    // placeholders alongside interpolation, meaning the interpolated
+                    // parts are SQL structure (table/column names from whitelists),
+                    // not user input.  False-positive rate is too high to report.
+                    if is_likely_fp {
+                        debug!(
+                            "Skipping likely-FP SQL injection at {}:{} (parameterized + interpolation)",
+                            rel_path, line_num
+                        );
+                        continue;
+                    }
+
                     findings.push(self.create_finding(
                         &rel_path,
                         line_num,

@@ -2,6 +2,7 @@
 
 mod analyze;
 mod clean;
+mod watch;
 mod doctor;
 mod embedded_scripts;
 mod findings;
@@ -215,6 +216,16 @@ pub enum Commands {
     /// Check environment setup
     Doctor,
 
+    /// Watch for file changes and analyze in real-time
+    ///
+    /// Monitors your codebase for saves and runs detectors on changed files.
+    /// Catches AI-generated code issues as they happen.
+    Watch {
+        /// Only show high/critical findings
+        #[arg(long)]
+        relaxed: bool,
+    },
+
     /// Calibrate adaptive thresholds from your codebase
     ///
     /// Scans your code to learn YOUR patterns. Detectors then flag outliers
@@ -416,6 +427,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
         Some(Commands::Doctor) => doctor::run(),
 
+        Some(Commands::Watch { relaxed }) => watch::run(&cli.path, relaxed, false, false),
         Some(Commands::Calibrate) => run_calibrate(&cli.path),
         Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
 

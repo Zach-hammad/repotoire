@@ -228,29 +228,25 @@ impl Detector for GlobalVariablesDetector {
                 {
                     continue;
                 }
-                let mut in_function = false;
-                let mut brace_depth = 0;
+                // Track Python function scope with indentation depth
+                let mut py_indent_stack: Vec<usize> = Vec::new(); // indent levels of open def blocks
+                let mut py_in_function = false;
 
                 for (i, line) in content.lines().enumerate() {
                     let trimmed = line.trim();
 
-                    // Track function scope
-                    if trimmed.starts_with("def ")
-                        || trimmed.starts_with("function ")
-                        || trimmed.contains("=> {")
-                        || trimmed.starts_with("async ")
-                    {
-                        in_function = true;
-                    }
-                    brace_depth += line.matches('{').count() as i32;
-                    brace_depth -= line.matches('}').count() as i32;
-                    if brace_depth == 0 && in_function {
-                        in_function = false;
-                    }
-
-                    // Skip if inside function
-                    if in_function {
-                        continue;
+                    // --- Python scope tracking via indentation ---
+                    if ext == "py" {
+                        let indent = line.len() - line.trim_start().len();
+                        if !trimmed.is_empty() {
+                            // Pop any indent levels that are >= current indent (we've left those blocks)
+                            py_indent_stack.retain(|&lvl| lvl < indent);
+                            py_in_function = !py_indent_stack.is_empty();
+                        }
+                        if trimmed.starts_with("def ") || trimmed.starts_with("async def ") {
+                            py_indent_stack.push(indent);
+                            py_in_function = true;
+                        }
                     }
 
                     // Skip constants, imports, classes
@@ -268,9 +264,16 @@ impl Detector for GlobalVariablesDetector {
 
                     // Check for global assignment
                     let is_global = if ext == "py" {
-                        trimmed.contains("global ")
+                        // Only flag explicit `global varname` statements that are INSIDE functions
+                        // (that's their purpose: declaring a global from within a function)
+                        py_in_function && trimmed.starts_with("global ")
                     } else {
-                        trimmed.starts_with("var ") || trimmed.starts_with("let ")
+                        // For JS/TS: only flag `var`/`let` at module scope (no leading indentation).
+                        // Any indented declaration is inside a function, block, or class method —
+                        // JSX's {{ }} braces would break brace-counting, so indentation is safer.
+                        let at_module_scope = !line.starts_with(' ') && !line.starts_with('\t');
+                        at_module_scope
+                            && (trimmed.starts_with("var ") || trimmed.starts_with("let "))
                     };
 
                     if is_global {

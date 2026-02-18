@@ -38,6 +38,8 @@ pkg-url = "{ repo }/releases/download/v{ version }/repotoire-macos-x86_64.tar.gz
 pkg-url = "{ repo }/releases/download/v{ version }/repotoire-macos-aarch64.tar.gz"
 
 [dependencies]
+notify = "7"
+notify-debouncer-full = "0.4"
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 indicatif = "0.17"  # Progress bars

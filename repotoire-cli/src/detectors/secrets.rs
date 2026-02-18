@@ -230,9 +230,34 @@ impl SecretDetector {
                         continue;
                     }
 
-                    // Skip when value is reading from process.env (not hardcoding)
+                    // Skip when value is reading from environment variables or headers
+                    // (not hardcoding — the value is fetched at runtime, not embedded in source)
                     // Pattern: const secret = process.env.SECRET
                     if line.contains("= process.env.") || line.contains("=process.env.") {
+                        continue;
+                    }
+                    // Node/Deno: process.env["KEY"] or process.env.KEY
+                    if line.contains("process.env") {
+                        continue;
+                    }
+                    // Rust: std::env::var("KEY") or env::var("KEY")
+                    if line.contains("env::var(") || line.contains("std::env::var") {
+                        continue;
+                    }
+                    // HTTP headers: req.headers.get(), headers.get(), request.headers
+                    if line.contains("headers.get(")
+                        || line.contains("req.headers.")
+                        || line.contains("request.headers.")
+                        || line.contains("headers[")
+                    {
+                        continue;
+                    }
+                    // Python: os.environ["KEY"] or os.environ.get()
+                    if line.contains("os.environ[") || line.contains("os.environ.get(") || line.contains("os.getenv(") {
+                        continue;
+                    }
+                    // Go: os.Getenv("KEY")
+                    if line.contains("os.Getenv(") || line.contains("os.LookupEnv(") {
                         continue;
                     }
 

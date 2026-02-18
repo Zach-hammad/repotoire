@@ -137,8 +137,18 @@ impl InsecureRandomDetector {
             );
         }
 
-        // ID generation
-        if combined.contains("id") || combined.contains("uuid") || combined.contains("identifier") {
+        // ID generation — only flag security-sensitive IDs, not trace/metric/display IDs
+        if combined.contains("uuid") || combined.contains("identifier") {
+            return (SecurityContext::ID, "ID generation".to_string());
+        }
+        // Security-sensitive ID patterns
+        if (combined.contains("session_id") || combined.contains("sessionid")
+            || combined.contains("user_id") || combined.contains("userid")
+            || combined.contains("auth_id") || combined.contains("api_id"))
+            && !combined.contains("trace") && !combined.contains("metric")
+            && !combined.contains("display") && !combined.contains("record")
+            && !combined.contains("internal") && !combined.contains("log")
+        {
             return (SecurityContext::ID, "ID generation".to_string());
         }
 
@@ -286,6 +296,41 @@ impl Detector for InsecureRandomDetector {
                         // Only flag if in security context
                         if context == SecurityContext::Unknown && security_callers.is_empty() {
                             continue;
+                        }
+
+                        // For ID context: only flag if it looks like a *security-critical* ID
+                        // (session ID, CSRF token, auth token). Skip trace IDs, metric IDs,
+                        // display IDs, record IDs, game logic IDs — these don't need crypto-secure random.
+                        if context == SecurityContext::ID && security_callers.is_empty() {
+                            let line_lower = line.to_lowercase();
+                            let is_safe_id = line_lower.contains("traceid")
+                                || line_lower.contains("trace_id")
+                                || line_lower.contains("metricid")
+                                || line_lower.contains("metric_id")
+                                || line_lower.contains("displayid")
+                                || line_lower.contains("display_id")
+                                || line_lower.contains("recordid")
+                                || line_lower.contains("record_id")
+                                || line_lower.contains("requestid")
+                                || line_lower.contains("request_id")
+                                || line_lower.contains("gameid")
+                                || line_lower.contains("game_id")
+                                || line_lower.contains("itemid")
+                                || line_lower.contains("item_id")
+                                // session and auth IDs are security-critical; keep flagging those
+                                ;
+                            // Also skip if it's clearly a non-security random use:
+                            // e.g. Math.random() for game logic, UI jitter, test data
+                            let is_game_or_ui = line_lower.contains("game")
+                                || line_lower.contains("jitter")
+                                || line_lower.contains("color")
+                                || line_lower.contains("animation")
+                                || line_lower.contains("position")
+                                || line_lower.contains("offset")
+                                || line_lower.contains("delay");
+                            if is_safe_id || is_game_or_ui {
+                                continue;
+                            }
                         }
 
                         // Calculate severity

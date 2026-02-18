@@ -102,9 +102,68 @@ impl Detector for CallbackHellDetector {
                 let mut anonymous_count = 0;
 
                 for (i, line) in content.lines().enumerate() {
-                    // Count callback indicators
-                    let anon_funcs = line.matches("function(").count();
-                    let arrows = line.matches("=> {").count();
+                    let trimmed = line.trim();
+
+                    // Skip JSX element lines — JSX nesting is not callback hell
+                    if trimmed.starts_with('<')
+                        || trimmed.starts_with("//")
+                        || trimmed.starts_with("*")
+                        || trimmed.starts_with("/*")
+                    {
+                        continue;
+                    }
+
+                    // Skip React Query/hook configuration objects — these are not callbacks
+                    // e.g. useMutation({ mutationFn: async () => {} })
+                    //      useQuery({ queryFn: async () => {} })
+                    //      useCallback(() => {}, [])
+                    if trimmed.contains("useMutation(")
+                        || trimmed.contains("useQuery(")
+                        || trimmed.contains("useCallback(")
+                        || trimmed.contains("useMemo(")
+                        || trimmed.contains("useEffect(")
+                        || trimmed.contains("queryFn:")
+                        || trimmed.contains("mutationFn:")
+                        || trimmed.contains("onSuccess:")
+                        || trimmed.contains("onError:")
+                        || trimmed.contains("onSettled:")
+                    {
+                        continue;
+                    }
+
+                    // Count actual function/callback nesting patterns only.
+                    // Exclude:
+                    //  - JSX prop callbacks: onClick={() => {  (preceded by "={")
+                    //  - Object literal methods: { onSuccess: () => {
+                    //  - Template literal expressions: `${() => {`  (rare but possible)
+
+                    // anonymous functions explicitly passed as arguments
+                    let anon_funcs = line.matches("function(").count()
+                        + line.matches("function (").count();
+
+                    // Arrow functions: only count ones that look like callbacks passed to
+                    // functions, NOT JSX event prop assignments (e.g. onClick={() => {}).
+                    // Heuristic: if "=> {" is preceded by "{" as the ONLY char before "=>"
+                    // on this line it's likely a JSX prop or object method; skip those.
+                    let arrows = {
+                        let mut count = 0usize;
+                        // Count "=> {" occurrences that are genuine callback arguments
+                        for m in line.match_indices("=> {") {
+                            let before = &line[..m.0];
+                            // If immediately preceded by "={" or "= {" it's a JSX prop
+                            let is_jsx_prop = before.trim_end().ends_with("={")
+                                || before.trim_end().ends_with("= {");
+                            // If it's an object literal method (key: () => {)
+                            let is_object_method = before.contains(": ")
+                                && !before.contains('(');
+                            if !is_jsx_prop && !is_object_method {
+                                count += 1;
+                            }
+                        }
+                        count
+                    };
+
+                    // .then() chains are genuine callback hell indicators
                     let thens = line.matches(".then(").count();
 
                     anonymous_count += anon_funcs + arrows;

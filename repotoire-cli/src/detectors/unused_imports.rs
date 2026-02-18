@@ -214,6 +214,15 @@ impl Detector for UnusedImportsDetector {
                             continue;
                         }
                     } else if trimmed.starts_with("import ") {
+                        // For TypeScript: skip `import type { ... }` and `import type X from`
+                        // Type imports are erased at compile time and used only in type positions.
+                        // The simple word-search in is_symbol_used() can't find type positions,
+                        // so we'd get false positives for every type import.
+                        if matches!(ext, "ts" | "tsx")
+                            && (trimmed.starts_with("import type ") || trimmed.contains(" type {"))
+                        {
+                            continue;
+                        }
                         Self::extract_js_imports(trimmed)
                     } else {
                         continue;

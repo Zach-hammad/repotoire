@@ -20,7 +20,9 @@ static ASYNC_DEF: OnceLock<Regex> = OnceLock::new();
 
 fn async_call() -> &'static Regex {
     ASYNC_CALL.get_or_init(|| {
-        Regex::new(r"(?i)(fetch\(|axios\.|\.json\(\)|\.text\(\)|async_\w+\(|aio\w+\.|\.read\(\)|\.write\(\)|\.send\(\)|\.get\(|\.post\(|\.put\(|\.delete\()").expect("valid regex")
+        // Only match clearly async patterns. Avoid generic .get()/.send() which
+        // match Map.get(), headers.get(), element.send() etc.
+        Regex::new(r"(?i)(fetch\(|axios\.\w+\(|\.json\(\)|\.text\(\)|async_\w+\(|aio\w+\.)").expect("valid regex")
     })
 }
 
@@ -139,7 +141,8 @@ impl Detector for MissingAwaitDetector {
 
                 for (i, line) in lines.iter().enumerate() {
                     // Track async function scope
-                    if async_def().is_match(line) {
+                    let is_async_def_line = async_def().is_match(line);
+                    if is_async_def_line {
                         in_async = true;
                         async_depth = line.chars().take_while(|c| c.is_whitespace()).count();
 
@@ -175,6 +178,30 @@ impl Detector for MissingAwaitDetector {
                         continue;
                     }
 
+                    // Skip the async function declaration line itself — it's a definition,
+                    // not a call site, so any async_call match here is part of the signature.
+                    if is_async_def_line {
+                        continue;
+                    }
+
+                    // Skip React event handler prop definitions (onSubmit, onClick, onChange, etc.)
+                    // These are assigned async handlers, not missing-await call sites.
+                    {
+                        let ll = line.to_lowercase();
+                        if ll.contains("onsubmit=")
+                            || ll.contains("onclick=")
+                            || ll.contains("onchange=")
+                            || ll.contains("onpress=")
+                            || ll.contains("onblur=")
+                            || ll.contains("onfocus=")
+                            || ll.contains("onkeydown=")
+                            || ll.contains("onkeyup=")
+                            || ll.contains("onmousedown=")
+                        {
+                            continue;
+                        }
+                    }
+
                     // Check for missing await on known async patterns
                     let has_async_call = async_call().is_match(line);
 
@@ -186,10 +213,14 @@ impl Detector for MissingAwaitDetector {
                     if has_async_call || calls_known_async {
                         // Check if properly awaited or intentionally fire-and-forget
                         let trimmed_line = line.trim();
+                        let next_line = lines.get(i + 1).unwrap_or(&"");
                         let is_awaited = line.contains("await ")
                             || line.contains(".then(")
                             || line.contains("Promise.")
-                            || line.contains("return ") && line.contains("(");
+                            || (line.contains("return ") && line.contains("("))
+                            // Check if the next line starts with await (multi-line call)
+                            || next_line.trim().starts_with("await ")
+                            || next_line.contains("await ");
 
                         // Detect intentional fire-and-forget patterns
                         let is_fire_and_forget =

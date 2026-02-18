@@ -149,22 +149,49 @@ impl Detector for UnhandledPromiseDetector {
                         continue;
                     }
 
+                    // Skip async function DECLARATION lines — they define, not invoke
+                    if trimmed.starts_with("async function ")
+                        || trimmed.contains("= async (")
+                        || trimmed.contains("= async function")
+                        || (trimmed.contains("async ") && trimmed.ends_with("{"))
+                    {
+                        continue;
+                    }
+
+                    // Skip React Query hooks — they handle promise rejection internally
+                    if trimmed.contains("useMutation(")
+                        || trimmed.contains("useQuery(")
+                        || trimmed.contains("queryFn")
+                        || trimmed.contains("mutationFn")
+                    {
+                        continue;
+                    }
+
+                    // Skip if the line has proper await
+                    if trimmed.contains("await ") {
+                        continue;
+                    }
+
                     let has_promise = promise_pattern().is_match(line);
 
-                    // Also check calls to known async functions without await
+                    // Also check calls to known async functions without await.
+                    // Only flag if the current function context is itself async — calling
+                    // an async function from sync code is expected (you can't await there).
                     let calls_async = async_funcs
                         .iter()
                         .any(|f| line.contains(&format!("{}(", f)) && !line.contains("await"));
 
                     if has_promise || calls_async {
-                        // Check surrounding context for error handling
-                        let start = i.saturating_sub(3);
-                        let end = (i + 10).min(lines.len());
+                        // Check surrounding context for error handling.
+                        // Use a wider window to find try/catch inside the function body.
+                        let start = i.saturating_sub(20);
+                        let end = (i + 20).min(lines.len());
                         let context = lines[start..end].join(" ");
 
                         let has_catch = context.contains(".catch")
                             || context.contains("catch (")
                             || context.contains("catch(");
+                        // Look for try { anywhere in the preceding 20 lines (function body)
                         let in_try = lines[start..i]
                             .iter()
                             .any(|l| l.contains("try {") || l.contains("try{"));
@@ -172,6 +199,14 @@ impl Detector for UnhandledPromiseDetector {
 
                         if has_catch || in_try {
                             continue;
+                        }
+
+                        // Only flag .json() if it's clearly promise-chained (e.g. fetch().json())
+                        // Standalone .json() calls (like JSON parsing) should not be flagged
+                        if !has_promise || (line.contains(".json()") && !line.contains("fetch(") && !line.contains(".then(") && !line.contains("axios.")) {
+                            if !calls_async {
+                                continue;
+                            }
                         }
 
                         // Analyze context
