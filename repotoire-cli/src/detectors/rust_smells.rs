@@ -96,8 +96,9 @@ fn is_test_context(line: &str, content: &str, line_idx: usize) -> bool {
     // Check if line is in a test module or function
     let lines: Vec<&str> = content.lines().collect();
 
-    // Look backwards for #[test] or #[cfg(test)]
-    let start = line_idx.saturating_sub(10);
+    // Look backwards for #[test] or #[cfg(test)] — scan up to 50 lines back
+    // to catch unsafe blocks deep inside test functions/modules
+    let start = line_idx.saturating_sub(50);
     for i in start..=line_idx {
         if let Some(prev_line) = lines.get(i) {
             if prev_line.contains("#[test]")
