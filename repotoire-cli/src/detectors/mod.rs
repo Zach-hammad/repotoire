@@ -337,7 +337,7 @@ pub fn default_detectors_with_profile(
         Arc::new(GodClassDetector::with_config(make_config("GodClassDetector"))),
         Arc::new(LongParameterListDetector::with_config(make_config("LongParameterListDetector"))),
         // Code smell detectors
-        Arc::new(DataClumpsDetector::new()),
+        Arc::new(DataClumpsDetector::with_config(make_config("DataClumpsDetector"))),
         Arc::new(DeadCodeDetector::new()),
         Arc::new(FeatureEnvyDetector::with_config(make_config("FeatureEnvyDetector"))),
         Arc::new(InappropriateIntimacyDetector::new()),
@@ -366,7 +366,7 @@ pub fn default_detectors_with_profile(
         Arc::new(CoreUtilityDetector::new()),
         Arc::new(DegreeCentralityDetector::with_config(make_config("DegreeCentralityDetector"))),
         Arc::new(InfluentialCodeDetector::with_config(make_config("InfluentialCodeDetector"))),
-        Arc::new(ModuleCohesionDetector::new()),
+        Arc::new(ModuleCohesionDetector::with_config(make_config("ModuleCohesionDetector"))),
         Arc::new(ShotgunSurgeryDetector::with_config(make_config("ShotgunSurgeryDetector"))),
         // Security detectors (need repository path for file scanning)
         Arc::new(EvalDetector::with_repository_path(
