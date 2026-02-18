@@ -1,123 +1,117 @@
 # Repotoire 🎼
 
-**Graph-Powered Code Intelligence — Local-First, Blazing Fast**
+**Graph-powered code analysis. 114 detectors. 13 languages. One binary.**
 
-Repotoire builds a knowledge graph of your codebase to detect architectural issues, code smells, and security vulnerabilities that traditional linters miss.
+Repotoire builds a knowledge graph of your codebase and runs 114 detectors to find security vulnerabilities, architectural issues, and code smells that file-by-file linters miss.
 
 [![Crates.io](https://img.shields.io/crates/v/repotoire.svg)](https://crates.io/crates/repotoire)
+[![CI](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml/badge.svg)](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Pure Rust](https://img.shields.io/badge/Pure-Rust-orange.svg)](https://www.rust-lang.org/)
-
-## Why Repotoire?
-
-Most linters analyze files in isolation. Repotoire sees the **whole picture**:
-
-```
-Traditional Linters          Repotoire
-─────────────────────        ─────────────────────
-file1.py ✓                   file1.py ──┐
-file2.py ✓                   file2.py ──┼── Knowledge Graph
-file3.py ✓                   file3.py ──┘
-                                  │
-                             Circular deps?
-                             God classes?
-                             Dead code?
-                             Security vulns?
-```
-
-## Quick Start
 
 ```bash
-# Install
 cargo install repotoire
-
-# Analyze
 repotoire analyze .
 ```
 
-That's it. No API keys. No Docker. No cloud account. **24MB binary, pure Rust.**
+No API keys. No Docker. No cloud account. **Pure Rust, ~24MB binary.**
 
-### Binary Download (No Rust Required)
-
-```bash
-# Linux x86_64
-curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
-sudo mv repotoire /usr/local/bin/
-```
-
-## ⚡ Performance
-
-| Codebase | Files | Functions | Time |
-|----------|-------|-----------|------|
-| Small (CLI) | 147 | 1,029 | **0.22s** |
-| Medium | 456 | 4,348 | **2.0s** |
-| Large | 3,000 | ~20,000 | ~15s |
-
-- **Parallel parsing** with tree-sitter (native Rust)
-- **Cached git blame** (7.7x faster than naive)
-- **112 detectors** running in parallel
+---
 
 ## What It Finds
 
-**112 detectors** across 5 categories:
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Traditional linters see files.  Repotoire sees the graph.  │
+│                                                              │
+│  file1.rs ──┐                                                │
+│  file2.go ──┼── Knowledge Graph ── 114 Detectors             │
+│  file3.ts ──┘         │                                      │
+│                  Circular deps? God classes? Dead code?       │
+│                  SQL injection? Taint flow? Bottlenecks?      │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ### 🔒 Security (25+ detectors)
-- SQL/NoSQL injection, XSS, SSRF, XXE
-- Hardcoded secrets (AWS, GitHub, Stripe, etc.)
-- Command injection, path traversal
-- Insecure crypto, weak JWT algorithms
-- Prototype pollution, insecure deserialization
+SQL/NoSQL injection · XSS · SSRF · XXE · Command injection · Path traversal · Hardcoded secrets · Insecure crypto · Weak JWT · Prototype pollution · Insecure deserialization · Insecure TLS · Dependency vulnerabilities (OSV.dev)
 
-### 🏗️ Architecture (10+ detectors)
-- Circular dependencies (Tarjan's SCC)
-- Architectural bottlenecks (betweenness centrality)
-- God classes, feature envy
-- Hub dependencies, dead code
+### 🏗️ Architecture (15+ detectors)
+Circular dependencies (Tarjan's SCC) · Architectural bottlenecks (betweenness centrality) · God classes · Feature envy · Hub dependencies · Dead code · Import cycles · Delegation chains
 
 ### 🐛 Bug Risk (15+ detectors)
-- Missing await, unhandled promises
-- Mutable default arguments (Python)
-- Implicit coercion (JS == vs ===)
-- React hooks rules violations
-- Inconsistent returns
+Missing await · Unhandled promises · Mutable default args · Implicit coercion · React hooks violations · Inconsistent returns · Infinite loops
 
-### 🧹 Code Quality (20+ detectors)
-- Deep nesting, long methods
-- Magic numbers, single-char names
-- Duplicate code, commented code
-- TODO/FIXME scanner
+### 🧹 Quality (30+ detectors)
+Deep nesting · Long methods · Magic numbers · Duplicate code · AI-generated boilerplate detection · Naming patterns · Complexity spikes · Churn analysis
 
 ### ⚡ Performance (10+ detectors)
-- N+1 queries, sync in async
-- String concatenation in loops
-- Regex compilation in loops
-- Callback hell
+N+1 queries · Sync in async · String concat in loops · Regex compilation in loops · Callback hell
 
-## Supported Languages
+## Languages
 
-| Language | Parsing | Call Graph | Full Support |
-|----------|---------|------------|--------------|
-| Python | ✅ | ✅ | ✅ |
-| TypeScript | ✅ | ✅ | ✅ |
-| JavaScript | ✅ | ✅ | ✅ |
-| Go | ✅ | ✅ | ✅ |
-| Java | ✅ | ✅ | ✅ |
-| Rust | ✅ | ✅ | ✅ |
-| C/C++ | ✅ | ✅ | ✅ |
-| C# | ✅ | ✅ | ✅ |
+**Full graph analysis (tree-sitter):** Python · TypeScript · JavaScript · Go · Java · Rust · C · C++ · C#
+
+**Security/quality scanning:** Ruby · PHP · Kotlin · Swift (regex-based detectors)
+
+## Install
+
+```bash
+# From crates.io (requires Rust toolchain)
+cargo install repotoire
+
+# From source
+git clone https://github.com/Zach-hammad/repotoire
+cd repotoire/repotoire-cli
+cargo build --release
+
+# Binary download (Linux x86_64)
+curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
+sudo mv repotoire /usr/local/bin/
+
+# Homebrew (macOS)
+brew tap Zach-hammad/repotoire
+brew install repotoire
+```
+
+## Usage
+
+```bash
+# Analyze current directory
+repotoire analyze .
+
+# Only high/critical findings
+repotoire analyze . --relaxed
+
+# Output formats
+repotoire analyze . --format json
+repotoire analyze . --format html --output report.html
+repotoire analyze . --format sarif --output results.sarif
+repotoire analyze . --format markdown
+
+# CI: fail if high-severity findings exist
+repotoire analyze . --fail-on high
+
+# Skip slow parts for huge repos
+repotoire analyze . --lite
+
+# Interactive findings browser
+repotoire findings -i
+
+# AI-powered fixes (optional, requires API key)
+repotoire fix <finding-id>
+
+# Check your setup
+repotoire doctor
+```
 
 ## Sample Output
 
 ```
 🎼 Repotoire Analysis
 
-🔍 Analyzing: /home/user/myproject
-
-📁 456 files  ⚙️  4348 functions  🏛️  778 classes
+📁 456 files  ⚙️  4,348 functions  🏛️  778 classes
 
 ╔════════════════════ Health Report ════════════════════╗
-║  Grade: B                                             ║
-║  Score: 82.5/100                                      ║
+║  Grade: B           Score: 82.5/100                   ║
 ╚═══════════════════════════════════════════════════════╝
 
 🔍 Findings (127 total)
@@ -131,77 +125,41 @@ sudo mv repotoire /usr/local/bin/
 ✨ Analysis complete in 2.05s
 ```
 
-## CLI Reference
+## CI/CD
 
-```bash
-# Full analysis
-repotoire analyze .
-
-# Output formats
-repotoire analyze . --format json
-repotoire analyze . --format html
-repotoire analyze . --format sarif   # GitHub Code Scanning
-
-# Filter by severity
-repotoire analyze . --severity high  # Only high+ severity
-
-# Skip specific detectors
-repotoire analyze . --skip secret-detection --skip todo-scanner
-
-# View findings
-repotoire findings
-
-# AI-powered fixes (requires API key)
-repotoire fix 1
-```
-
-## AI-Powered Fixes (Optional)
-
-Bring your own API key for AI-assisted fixes:
-
-```bash
-# Cloud providers (pick one):
-export ANTHROPIC_API_KEY=sk-ant-...   # Claude (best)
-export OPENAI_API_KEY=sk-...          # GPT-4
-export DEEPINFRA_API_KEY=...          # Llama 3.3 (cheapest)
-export OPENROUTER_API_KEY=...         # Any model
-
-# Or use Ollama for 100% local, free AI:
-ollama pull llama3.3
-repotoire fix 1                       # Auto-detects Ollama
-```
-
-No API key? No problem. **All analysis works offline.**
-
-## CI/CD Integration
-
-### GitHub Actions
+### GitHub Actions (recommended)
 
 ```yaml
-name: Code Analysis
-on: [push, pull_request]
+name: Code Quality
+on: [pull_request]
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
       - name: Install Repotoire
-        run: |
-          curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
-          sudo mv repotoire /usr/local/bin/
-      
+        run: cargo install repotoire
+
+      - name: Analyze
+        run: repotoire analyze . --fail-on high
+```
+
+### SARIF (GitHub Code Scanning)
+
+```yaml
       - name: Analyze
         run: repotoire analyze . --format sarif --output results.sarif
-      
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v2
+
+      - uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
 ```
 
-### Pre-commit Hook
+### Pre-commit
 
 ```yaml
 # .pre-commit-config.yaml
@@ -210,66 +168,99 @@ repos:
     hooks:
       - id: repotoire
         name: repotoire
-        entry: repotoire analyze . --severity high
+        entry: repotoire analyze . --fail-on high --no-emoji
         language: system
         pass_filenames: false
 ```
 
+## Configuration
+
+Create `repotoire.toml` in your repo root (or run `repotoire init`):
+
+```toml
+# Exclude paths
+[exclude]
+paths = ["generated/", "vendor/", "third_party/"]
+
+# Override detector thresholds
+[detectors.god-class]
+thresholds = { critical_methods = 30, critical_lines = 1000 }
+
+[detectors.deep-nesting]
+thresholds = { high_severity_depth = 6 }
+
+[detectors.dead-code]
+enabled = false  # Disable entirely
+
+# Scoring weights
+[scoring]
+pillar_weights = { structure = 0.30, quality = 0.40, architecture = 0.30 }
+```
+
+## AI Fixes (Optional)
+
+Bring your own API key for AI-assisted code fixes:
+
+```bash
+# Any of these (pick one):
+export ANTHROPIC_API_KEY=sk-ant-...    # Claude
+export OPENAI_API_KEY=sk-...           # GPT-4
+export DEEPINFRA_API_KEY=...           # Llama (cheapest)
+export OPENROUTER_API_KEY=...          # Any model
+
+# Or 100% local with Ollama:
+ollama pull deepseek-coder:6.7b
+repotoire fix <finding-id>
+```
+
+No API key? No problem. All 114 detectors work fully offline.
+
 ## How It Works
 
 ```
-┌──────────┐    ┌───────────────┐    ┌──────────────┐    ┌──────────┐
-│  Source  │───▶│  Tree-sitter  │───▶│  petgraph +  │───▶│ 112      │
-│  Files   │    │  (Rust)       │    │  redb        │    │ Detectors│
-└──────────┘    └───────────────┘    └──────────────┘    └──────────┘
-                                            │
-         13 languages                        │      Graph algorithms:
-         Parallel parsing                   │      • Tarjan's SCC
-         ~7,500 files/sec                   │      • Betweenness centrality
-                                            │      • PageRank
-                                            ▼
-                                     ┌──────────────┐
-                                     │   Reports    │
-                                     │ CLI/HTML/JSON│
-                                     │    /SARIF    │
-                                     └──────────────┘
+Source Files ──▶ Tree-sitter ──▶ Knowledge Graph ──▶ 114 Detectors
+(13 languages)    (parallel)     (petgraph + redb)    (parallel)
+                                       │
+                                 Graph algorithms:
+                                 • Tarjan's SCC
+                                 • Betweenness centrality
+                                 • SSA taint analysis
+                                 • PageRank
+                                       │
+                                       ▼
+                                  CLI / HTML / JSON / SARIF / Markdown
 ```
 
-**Pure Rust stack:**
-- **Tree-sitter** — Fast, accurate parsing (native Rust bindings)
-- **petgraph** — Graph data structure and algorithms
-- **redb** — Embedded key-value store for caching
-- **rayon** — Parallel processing
+**Stack:** Tree-sitter (parsing) · petgraph (graphs) · redb (cache) · rayon (parallelism) · ureq (HTTP, optional)
 
-## Comparison
+## vs Others
 
-| Feature | Repotoire | SonarQube | Semgrep |
-|---------|-----------|-----------|---------|
-| Local-first | ✅ | ❌ | ✅ |
+| | Repotoire | SonarQube | Semgrep |
+|---|---|---|---|
+| Local-first | ✅ | ❌ (server) | ✅ |
 | No Docker | ✅ | ❌ | ✅ |
 | Graph analysis | ✅ | Partial | ❌ |
+| Taint analysis | ✅ (SSA) | ✅ | ✅ |
 | Circular deps | ✅ | ✅ | ❌ |
-| Security rules | 25+ | Many | Many |
-| BYOK AI fixes | ✅ | ❌ | ❌ |
-| Binary size | 24MB | ~1GB | ~50MB |
+| AI fixes (BYOK) | ✅ | ❌ | ❌ |
+| Binary size | ~24MB | ~1GB | ~50MB |
 | Free | ✅ | Limited | Limited |
 
-## Building from Source
+## MCP Server
+
+Repotoire includes an [MCP](https://modelcontextprotocol.io/) server for AI assistant integration:
 
 ```bash
-git clone https://github.com/Zach-hammad/repotoire
-cd repotoire/repotoire-cli
-cargo build --release
-./target/release/repotoire --version
+repotoire serve
 ```
+
+Tools: `analyze`, `get_findings`, `get_finding_detail`, `fix_finding`, `list_detectors`, `search_graph`, and more.
 
 ## License
 
 MIT — see [LICENSE](LICENSE)
 
 ---
-
-**Get started:**
 
 ```bash
 cargo install repotoire && repotoire analyze .
