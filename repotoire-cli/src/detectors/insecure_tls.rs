@@ -248,6 +248,11 @@ impl InsecureTlsDetector {
                         continue;
                     }
 
+                    // Skip matches inside string literals (e.g., pattern definitions in detector source)
+                    if ext == "rs" && (trimmed.starts_with('"') || trimmed.starts_with("&\"") || trimmed.starts_with("r#\"") || trimmed.starts_with("r\"")) {
+                        continue;
+                    }
+
                     // Skip low-confidence patterns unless combined with other signals
                     if *severity == Severity::Low {
                         continue; // Only flag direct insecure patterns
