@@ -210,6 +210,18 @@ pub(super) fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>>
     let findings_cache = repotoire_dir.join("last_findings.json");
     let data = std::fs::read_to_string(&findings_cache).ok()?;
     let json: serde_json::Value = serde_json::from_str(&data).ok()?;
+
+    // Version check: reject stale findings from different binary version
+    let cached_version = json.get("version").and_then(|v| v.as_str()).unwrap_or("");
+    if cached_version != env!("CARGO_PKG_VERSION") {
+        tracing::debug!(
+            "Findings cache version mismatch ({} vs {}), ignoring",
+            cached_version,
+            env!("CARGO_PKG_VERSION")
+        );
+        return None;
+    }
+
     let findings_arr = json.get("findings")?.as_array()?;
 
     let mut findings = Vec::new();
@@ -312,6 +324,7 @@ pub(super) fn cache_results(
 
     let findings_cache = repotoire_dir.join("last_findings.json");
     let findings_json = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
         "findings": all_findings.iter().map(|f| {
             serde_json::json!({
                 "id": f.id,

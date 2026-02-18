@@ -49,6 +49,8 @@ struct CachedFinding {
     pub category: Option<String>,
     pub cwe_id: Option<String>,
     pub why_it_matters: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<f64>,
 }
 
 impl From<&Finding> for CachedFinding {
@@ -71,6 +73,7 @@ impl From<&Finding> for CachedFinding {
             category: f.category.clone(),
             cwe_id: f.cwe_id.clone(),
             why_it_matters: f.why_it_matters.clone(),
+            confidence: f.confidence,
         }
     }
 }
@@ -100,6 +103,7 @@ impl CachedFinding {
             category: self.category.clone(),
             cwe_id: self.cwe_id.clone(),
             why_it_matters: self.why_it_matters.clone(),
+            confidence: self.confidence,
             ..Default::default()
         }
     }
@@ -192,6 +196,8 @@ pub struct IncrementalCache {
     cache_file: PathBuf,
     cache: CacheData,
     dirty: bool,
+    /// Memoized all-files hash to avoid re-hashing on every call
+    memoized_files_hash: Option<(usize, String)>, // (file_count, hash)
 }
 
 impl IncrementalCache {
@@ -210,6 +216,7 @@ impl IncrementalCache {
             cache_file,
             cache: CacheData::default(),
             dirty: false,
+            memoized_files_hash: None,
         };
 
         // Load existing cache
@@ -430,6 +437,32 @@ impl IncrementalCache {
         self.dirty = true;
     }
 
+    /// Remove cache entries for files that no longer exist in the file list.
+    /// Call this periodically to prevent unbounded cache growth.
+    pub fn prune_stale_entries(&mut self, current_files: &[PathBuf]) {
+        let current_keys: std::collections::HashSet<String> = current_files
+            .iter()
+            .map(|p| self.path_key(p))
+            .collect();
+
+        let before_files = self.cache.files.len();
+        let before_parse = self.cache.parse_cache.len();
+
+        self.cache.files.retain(|k, _| current_keys.contains(k));
+        self.cache.parse_cache.retain(|k, _| current_keys.contains(k));
+
+        let pruned_files = before_files - self.cache.files.len();
+        let pruned_parse = before_parse - self.cache.parse_cache.len();
+
+        if pruned_files > 0 || pruned_parse > 0 {
+            debug!(
+                "Pruned {} stale file entries, {} stale parse entries",
+                pruned_files, pruned_parse
+            );
+            self.dirty = true;
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Graph-level caching methods
     // -------------------------------------------------------------------------
@@ -442,8 +475,16 @@ impl IncrementalCache {
         }
     }
 
-    /// Compute a combined hash of all files for graph-level cache validation
-    pub fn compute_all_files_hash(&self, files: &[std::path::PathBuf]) -> String {
+    /// Compute a combined hash of all files for graph-level cache validation.
+    /// Result is memoized per file count to avoid re-hashing 200+ files multiple times.
+    pub fn compute_all_files_hash(&mut self, files: &[std::path::PathBuf]) -> String {
+        // Return memoized hash if file count matches (same analysis run)
+        if let Some((count, ref hash)) = self.memoized_files_hash {
+            if count == files.len() {
+                return hash.clone();
+            }
+        }
+
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
@@ -458,11 +499,13 @@ impl IncrementalCache {
             self.get_file_hash(path).hash(&mut hasher);
         }
 
-        format!("{:016x}", hasher.finish())
+        let hash = format!("{:016x}", hasher.finish());
+        self.memoized_files_hash = Some((files.len(), hash.clone()));
+        hash
     }
 
     /// Check if we can use cached detector results
-    pub fn can_use_cached_detectors(&self, files: &[std::path::PathBuf]) -> bool {
+    pub fn can_use_cached_detectors(&mut self, files: &[std::path::PathBuf]) -> bool {
         let current_hash = self.compute_all_files_hash(files);
         !self.is_graph_changed(&current_hash) && !self.cache.graph.detectors.is_empty()
     }
@@ -513,8 +556,9 @@ impl IncrementalCache {
         files: usize,
         functions: usize,
         classes: usize,
+        total_loc: usize,
     ) {
-        self.cache_score_with_subscores(score, grade, files, functions, classes, None, None, None);
+        self.cache_score_with_subscores(score, grade, files, functions, classes, None, None, None, total_loc);
     }
 
     /// Cache the score result with sub-scores
@@ -528,6 +572,7 @@ impl IncrementalCache {
         structure_score: Option<f64>,
         quality_score: Option<f64>,
         architecture_score: Option<f64>,
+        total_loc: usize,
     ) {
         self.cache.graph.score = Some(CachedScoreResult {
             score,
@@ -538,7 +583,7 @@ impl IncrementalCache {
             structure_score,
             quality_score,
             architecture_score,
-            total_loc: None, // Will be populated on next fresh analysis
+            total_loc: Some(total_loc),
         });
         self.dirty = true;
     }
@@ -549,7 +594,7 @@ impl IncrementalCache {
     }
 
     /// Check if we have a complete cached result (findings + score)
-    pub fn has_complete_cache(&self, files: &[std::path::PathBuf]) -> bool {
+    pub fn has_complete_cache(&mut self, files: &[std::path::PathBuf]) -> bool {
         let current_hash = self.compute_all_files_hash(files);
         !self.is_graph_changed(&current_hash)
             && !self.cache.graph.detectors.is_empty()

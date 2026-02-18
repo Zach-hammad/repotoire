@@ -25,7 +25,8 @@ use detect::{
 use files::{collect_file_list, collect_files_for_analysis};
 use graph::{build_graph, build_graph_chunked, parse_and_build_streaming};
 use output::{
-    check_fail_threshold, format_and_output, load_cached_findings, output_cached_results,
+    cache_results, check_fail_threshold, format_and_output, load_cached_findings,
+    output_cached_results,
 };
 use parse::{parse_files, parse_files_chunked, parse_files_lite, ParsePhaseResult};
 use postprocess::postprocess_findings;
@@ -187,8 +188,18 @@ pub fn run(
         parse_result.total_classes,
     );
 
-    // Cache scores for fast path on next run
-    cache_scores(&env, &score_result, &file_result, &parse_result);
+    // Cache scores for fast path on next run (use env.incremental_cache, not a new instance)
+    env.incremental_cache.cache_score_with_subscores(
+        score_result.overall_score,
+        &score_result.grade,
+        file_result.all_files.len(),
+        parse_result.total_functions,
+        parse_result.total_classes,
+        Some(score_result.structure_score),
+        Some(score_result.quality_score),
+        Some(score_result.architecture_score),
+        score_result.total_loc,
+    );
 
     // Phase 6: Generate output
     generate_reports(
@@ -205,11 +216,19 @@ pub fn run(
         &env.project_config,
     )?;
 
+    // Cache results for fast path on next run (report.2 = all_findings, since findings was drained by build_health_report)
+    let _ = cache_results(&env.repotoire_dir, &report.0, &report.2);
+
+    // Prune stale entries for deleted/renamed files
+    env.incremental_cache.prune_stale_entries(&file_result.all_files);
+
     // Cache postprocessed findings for both feedback and incremental fast path (#65)
+    let graph_hash = env.incremental_cache.compute_all_files_hash(&file_result.all_files);
+    env.incremental_cache.update_graph_hash(&graph_hash);
     env.incremental_cache
-        .cache_graph_findings("__all__", &findings);
+        .cache_graph_findings("__all__", &report.2);
     let _ = env.incremental_cache.save_cache();
-    cache_findings(path, &findings);
+    cache_findings(path, &report.2);
 
     // Final summary
     print_final_summary(env.quiet_mode, env.config.no_emoji, start_time);
@@ -237,7 +256,7 @@ fn try_cached_fast_path(
     start_time: Instant,
     explain_score: bool,
 ) -> Result<Option<()>> {
-    let cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
+    let mut cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
     let all_files = collect_file_list(&env.repo_path)?;
 
     if !cache.has_complete_cache(&all_files) {
@@ -658,26 +677,6 @@ fn parse_and_build(
 }
 
 /// Cache scores for fast path on next run.
-fn cache_scores(
-    env: &EnvironmentSetup,
-    score_result: &ScoreResult,
-    file_result: &FileCollectionResult,
-    parse_result: &ParsePhaseResult,
-) {
-    let mut cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
-    cache.cache_score_with_subscores(
-        score_result.overall_score,
-        &score_result.grade,
-        file_result.all_files.len(),
-        parse_result.total_functions,
-        parse_result.total_classes,
-        Some(score_result.structure_score),
-        Some(score_result.quality_score),
-        Some(score_result.architecture_score),
-    );
-    let _ = cache.save_cache();
-}
-
 /// Cache findings for the feedback command.
 fn cache_findings(path: &Path, findings: &[Finding]) {
     let cache_path = get_cache_path(path);
