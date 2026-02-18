@@ -1,10 +1,6 @@
 use super::store::GraphStore;
-use super::store_models::{CodeNode, NodeKind, EdgeKind, CodeEdge};
+use super::store_models::CodeNode;
 use std::collections::HashMap;
-use super::traits::GraphQuery;
-use petgraph::visit::EdgeRef;
-use petgraph::Direction;
-use petgraph::graph::NodeIndex;
 
 impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
     fn get_functions(&self) -> Vec<CodeNode> {
