@@ -80,7 +80,7 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
 
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    match ext {
+    let mut parsed = match ext {
         // Python
         "py" | "pyi" => python::parse(path),
 
@@ -119,7 +119,92 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
 
         // Unknown extension
         _ => Ok(ParseResult::default()),
+    };
+
+    // Enrich with nesting depth for all languages
+    if let Ok(ref mut result) = parsed {
+        enrich_nesting_depths(result, path);
     }
+
+    parsed
+}
+
+/// Compute max nesting depth for each function from source code.
+/// Uses brace counting for C-family languages, indent counting for Python.
+fn enrich_nesting_depths(result: &mut ParseResult, path: &Path) {
+    let Ok(source) = std::fs::read_to_string(path) else { return };
+    let lines: Vec<&str> = source.lines().collect();
+    let is_python = path.extension().map_or(false, |e| e == "py" || e == "pyi");
+
+    for func in &mut result.functions {
+        if func.max_nesting.is_some() { continue; }
+        let start = func.line_start.saturating_sub(1) as usize;
+        let end = (func.line_end as usize).min(lines.len());
+        if start >= end { continue; }
+
+        let max_depth = if is_python {
+            compute_nesting_indent(&lines[start..end])
+        } else {
+            compute_nesting_braces(&lines[start..end])
+        };
+        func.max_nesting = Some(max_depth);
+    }
+}
+
+/// Brace-based nesting for C-family languages
+fn compute_nesting_braces(lines: &[&str]) -> u32 {
+    let mut depth: i32 = 0;
+    let mut max_depth: i32 = 0;
+    // Start at -1 since the function's own opening brace is depth 0
+    let mut found_first = false;
+
+    for line in lines {
+        let trimmed = line.trim();
+        // Skip comments and strings (rough heuristic)
+        if trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.starts_with("/*") {
+            continue;
+        }
+        for ch in trimmed.chars() {
+            match ch {
+                '{' => {
+                    if found_first {
+                        depth += 1;
+                        max_depth = max_depth.max(depth);
+                    } else {
+                        found_first = true;
+                    }
+                }
+                '}' => {
+                    if found_first {
+                        depth -= 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    max_depth.max(0) as u32
+}
+
+/// Indent-based nesting for Python
+fn compute_nesting_indent(lines: &[&str]) -> u32 {
+    if lines.is_empty() { return 0; }
+
+    // Find base indentation from the function def line
+    let base_indent = lines[0].len() - lines[0].trim_start().len();
+    let mut max_extra = 0u32;
+
+    for line in &lines[1..] {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+        let indent = line.len() - line.trim_start().len();
+        if indent > base_indent {
+            // Each 4-space (or 1-tab) indent level is ~1 nesting level
+            let extra = ((indent - base_indent) / 4) as u32;
+            max_extra = max_extra.max(extra);
+        }
+    }
+    max_extra
 }
 
 /// Get the language name for a file extension
@@ -267,6 +352,7 @@ mod tests {
                 return_type: None,
                 is_async: false,
                 complexity: None,
+                max_nesting: None,
             }],
             classes: vec![],
             imports: vec![ImportInfo::runtime("os")],
@@ -285,6 +371,7 @@ mod tests {
                 return_type: None,
                 is_async: true,
                 complexity: None,
+                max_nesting: None,
             }],
             classes: vec![Class {
                 name: "MyClass".to_string(),

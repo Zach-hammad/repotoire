@@ -153,6 +153,8 @@ pub struct Function {
     pub return_type: Option<String>,
     pub is_async: bool,
     pub complexity: Option<u32>,
+    /// Maximum nesting depth within this function
+    pub max_nesting: Option<u32>,
 }
 
 /// A class in the code graph

@@ -106,6 +106,7 @@ fn extract_functions(
                 return_type,
                 is_async: false,
                 complexity: Some(calculate_complexity(&node, source)),
+                max_nesting: None,
             });
         }
     }

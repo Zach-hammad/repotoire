@@ -84,6 +84,8 @@ pub struct FunctionInfo {
     pub complexity: u32,
     pub parameters: Vec<String>,
     pub return_type: Option<String>,
+    /// Maximum nesting depth within this function
+    pub max_nesting: Option<u32>,
 }
 
 /// Lightweight class info
@@ -127,6 +129,7 @@ impl ParsedFileInfo {
                 complexity: f.complexity.unwrap_or(1),
                 parameters: f.parameters,
                 return_type: f.return_type,
+                max_nesting: f.max_nesting,
             })
             .collect();
 
@@ -186,6 +189,7 @@ impl ParsedFileInfo {
                     return_type: f.return_type.clone(),
                     is_async: f.is_async,
                     complexity: Some(f.complexity),
+                    max_nesting: f.max_nesting,
                 })
                 .collect(),
             classes: self

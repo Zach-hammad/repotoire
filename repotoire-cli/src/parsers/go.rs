@@ -103,6 +103,7 @@ fn extract_functions(
                 return_type,
                 is_async: false, // Go uses goroutines, not async/await
                 complexity: Some(calculate_complexity(&node, source)),
+                max_nesting: None,
             });
         }
     }
@@ -182,6 +183,7 @@ fn extract_methods(
                 return_type,
                 is_async: false,
                 complexity: Some(calculate_complexity(&node, source)),
+                max_nesting: None,
             });
         }
     }

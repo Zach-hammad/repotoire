@@ -261,6 +261,7 @@ fn extract_functions(
                 return_type,
                 is_async,
                 complexity: Some(calculate_complexity(&node, source)),
+                max_nesting: None,
             });
         }
     }
@@ -624,6 +625,7 @@ fn parse_arrow_field_node(
         return_type,
         is_async,
         complexity: Some(calculate_complexity(arrow_node, source)),
+        max_nesting: None,
     })
 }
 
@@ -657,6 +659,7 @@ fn parse_method_node(
         return_type,
         is_async,
         complexity: Some(calculate_complexity(node, source)),
+        max_nesting: None,
     })
 }
 

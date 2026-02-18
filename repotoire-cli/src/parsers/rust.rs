@@ -114,6 +114,7 @@ fn extract_functions(
                 return_type,
                 is_async,
                 complexity: Some(calculate_complexity(&node, source)),
+                max_nesting: None,
             });
         }
     }
@@ -417,6 +418,7 @@ fn parse_impl_method(
         return_type,
         is_async,
         complexity: Some(calculate_complexity(node, source)),
+        max_nesting: None,
     })
 }
 

@@ -377,6 +377,7 @@ fn parse_method_node(
         return_type,
         is_async: false,
         complexity: Some(calculate_complexity(node, source)),
+        max_nesting: None,
     })
 }
 
@@ -407,6 +408,7 @@ fn parse_constructor_node(
         return_type: Some(class_name.to_string()),
         is_async: false,
         complexity: Some(calculate_complexity(node, source)),
+        max_nesting: None,
     })
 }
 

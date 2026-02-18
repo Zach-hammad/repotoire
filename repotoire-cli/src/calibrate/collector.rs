@@ -13,6 +13,7 @@ pub fn collect_metrics(
 ) -> StyleProfile {
     let mut complexity_values = Vec::new();
     let mut func_length_values = Vec::new();
+    let mut nesting_values = Vec::new();
     let mut param_values = Vec::new();
     let mut file_length_values = Vec::new();
     let mut class_method_values = Vec::new();
@@ -31,6 +32,9 @@ pub fn collect_metrics(
                 func_length_values.push(loc as f64);
             }
             param_values.push(func.parameters.len() as f64);
+            if let Some(n) = func.max_nesting {
+                nesting_values.push(n as f64);
+            }
         }
 
         for class in &result.classes {
@@ -41,6 +45,7 @@ pub fn collect_metrics(
     let mut metrics = HashMap::new();
     metrics.insert(MetricKind::Complexity, MetricDistribution::from_values(&mut complexity_values));
     metrics.insert(MetricKind::FunctionLength, MetricDistribution::from_values(&mut func_length_values));
+    metrics.insert(MetricKind::NestingDepth, MetricDistribution::from_values(&mut nesting_values));
     metrics.insert(MetricKind::ParameterCount, MetricDistribution::from_values(&mut param_values));
     metrics.insert(MetricKind::FileLength, MetricDistribution::from_values(&mut file_length_values));
     metrics.insert(MetricKind::ClassMethodCount, MetricDistribution::from_values(&mut class_method_values));
