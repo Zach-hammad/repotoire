@@ -36,8 +36,6 @@ const nextConfig: NextConfig = {
       "lodash-es",
       "clsx",
       "tailwind-merge",
-      // Auth
-      "@clerk/nextjs",
       // HTTP
       "swr",
       // Animations

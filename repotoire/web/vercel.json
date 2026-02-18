@@ -8,21 +8,26 @@
   "redirects": [
     {
       "source": "/dashboard/:path*",
-      "destination": "/teams",
+      "destination": "/",
       "permanent": false
     },
     {
       "source": "/sign-up/:path*",
-      "destination": "/docs/cli",
+      "destination": "/",
       "permanent": false
     },
     {
       "source": "/sign-in/:path*",
-      "destination": "/docs/cli",
+      "destination": "/",
       "permanent": false
     },
     {
-      "source": "/pricing",
+      "source": "/status/:path*",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/changelog/:path*",
       "destination": "/",
       "permanent": false
     }
