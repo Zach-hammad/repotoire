@@ -21,13 +21,12 @@ const footerLinks = {
     { label: "Features", href: "/features" },
     { label: "Pricing", href: "/pricing" },
     { label: "Docs", href: "/docs" },
-    { label: "Changelog", href: "/changelog" },
+    { label: "GitHub", href: "https://github.com/Zach-hammad/repotoire" },
   ],
   Company: [
     { label: "About", href: "/about" },
     { label: "Blog", href: "/blog" },
     { label: "Contact", href: "/contact" },
-    { label: "Status", href: "/status" },
   ],
   Legal: [
     { label: "Privacy", href: "/privacy" },
