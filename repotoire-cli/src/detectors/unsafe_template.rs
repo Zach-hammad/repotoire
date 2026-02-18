@@ -45,6 +45,7 @@ pub struct UnsafeTemplateDetector {
     repository_path: PathBuf,
     max_findings: usize,
     exclude_patterns: Vec<String>,
+    compiled_globs: Vec<Regex>,
     // Python patterns
     jinja2_env_pattern: Regex,
     autoescape_true_pattern: Regex,
@@ -105,6 +106,7 @@ impl UnsafeTemplateDetector {
             config,
             repository_path,
             max_findings,
+            compiled_globs: crate::detectors::base::compile_glob_patterns(&exclude_patterns),
             exclude_patterns,
             jinja2_env_pattern,
             autoescape_true_pattern,
@@ -128,28 +130,7 @@ impl UnsafeTemplateDetector {
 
     /// Check if path should be excluded
     fn should_exclude(&self, path: &str) -> bool {
-        for pattern in &self.exclude_patterns {
-            if pattern.ends_with('/') {
-                let dir = pattern.trim_end_matches('/');
-                if path.split('/').any(|p| p == dir) {
-                    return true;
-                }
-            } else if pattern.contains('*') {
-                let pattern = pattern.replace('*', ".*");
-                if let Ok(re) = Regex::new(&format!("^{}$", pattern)) {
-                    let filename = Path::new(path)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("");
-                    if re.is_match(path) || re.is_match(filename) {
-                        return true;
-                    }
-                }
-            } else if path.contains(pattern) {
-                return true;
-            }
-        }
-        false
+        crate::detectors::base::should_exclude_path(path, &self.exclude_patterns, &self.compiled_globs)
     }
 
     /// Scan Python files for template vulnerabilities

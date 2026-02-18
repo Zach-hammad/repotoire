@@ -20,7 +20,7 @@ static TODO_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn get_pattern() -> &'static Regex {
     TODO_PATTERN
-        .get_or_init(|| Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX|BUG)[\s:]+(.{0,80})").expect("valid regex"))
+        .get_or_init(|| Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX)[\s:]+(.{0,80})|\b(BUG)\s*:\s*(.{0,80})").expect("valid regex"))
 }
 
 pub struct TodoScanner {
@@ -151,6 +151,10 @@ impl Detector for TodoScanner {
                 for (line_num, line) in content.lines().enumerate() {
                     // Only scan comment lines — skip string literals and code
                     let trimmed = line.trim_start();
+                    // Skip doc comments — TODOs in documentation describe behavior, not tasks
+                    if trimmed.starts_with("//!") || trimmed.starts_with("///") {
+                        continue;
+                    }
                     let is_comment = trimmed.starts_with("//")
                         || trimmed.starts_with('#')
                         || trimmed.starts_with('*')
@@ -162,8 +166,8 @@ impl Detector for TodoScanner {
                     }
 
                     if let Some(caps) = get_pattern().captures(line) {
-                        let tag = caps.get(1).map(|m| m.as_str()).unwrap_or("TODO");
-                        let msg = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
+                        let tag = caps.get(1).or(caps.get(3)).map(|m| m.as_str()).unwrap_or("TODO");
+                        let msg = caps.get(2).or(caps.get(4)).map(|m| m.as_str().trim()).unwrap_or("");
                         let line_u32 = (line_num + 1) as u32;
 
                         // Graph-enhanced analysis

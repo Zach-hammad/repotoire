@@ -472,3 +472,41 @@ mod tests {
         assert!(!is_test_file(Path::new("testing_utils.py"))); // "testing" != "test"
     }
 }
+
+/// Pre-compile glob patterns from exclude list into regexes
+pub fn compile_glob_patterns(patterns: &[String]) -> Vec<regex::Regex> {
+    patterns
+        .iter()
+        .filter(|p| p.contains('*'))
+        .filter_map(|p| {
+            let re_str = format!("^{}$", p.replace('*', ".*"));
+            regex::Regex::new(&re_str).ok()
+        })
+        .collect()
+}
+
+/// Check if a path should be excluded based on patterns and pre-compiled globs
+pub fn should_exclude_path(path: &str, patterns: &[String], compiled_globs: &[regex::Regex]) -> bool {
+    for pattern in patterns {
+        if pattern.ends_with('/') {
+            let dir = pattern.trim_end_matches('/');
+            if path.split('/').any(|p| p == dir) {
+                return true;
+            }
+        } else if pattern.contains('*') {
+            continue; // handled by compiled_globs below
+        } else if path.contains(pattern) {
+            return true;
+        }
+    }
+    let filename = std::path::Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    for re in compiled_globs {
+        if re.is_match(path) || re.is_match(filename) {
+            return true;
+        }
+    }
+    false
+}

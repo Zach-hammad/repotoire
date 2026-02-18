@@ -30,17 +30,17 @@ fn regex_new() -> &'static Regex {
 
 /// Check if a regex compilation is cached (OnceLock, lazy_static, etc.)
 fn is_cached_regex(line: &str) -> bool {
-    let l = line.trim();
-    l.contains("get_or_init")
-        || l.contains("lazy_static")
-        || l.contains("LazyLock")
-        || l.contains("Lazy::new")
-        || l.contains("OnceLock")
-        || l.contains("OnceCell")
+    let trimmed = line.trim();
+    trimmed.contains("get_or_init")
+        || trimmed.contains("lazy_static")
+        || trimmed.contains("LazyLock")
+        || trimmed.contains("Lazy::new")
+        || trimmed.contains("OnceLock")
+        || trimmed.contains("OnceCell")
         // Skip lines that are just string constants containing regex pattern names
-        || l.starts_with('"')
-        || l.starts_with("r#\"")
-        || l.starts_with("r\"")
+        || trimmed.starts_with('"')
+        || trimmed.starts_with("r#\"")
+        || trimmed.starts_with("r\"")
 }
 
 /// Check if a Regex::new call is inside a cached context by looking at surrounding lines

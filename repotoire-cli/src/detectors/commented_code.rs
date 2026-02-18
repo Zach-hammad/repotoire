@@ -172,8 +172,9 @@ impl Detector for CommentedCodeDetector {
                         continue;
                     }
 
-                    let is_comment =
-                        line.starts_with("//") || line.starts_with("#") || line.starts_with("*");
+                    let is_comment = line.starts_with("//")
+                        || (line.starts_with("#") && ext != "rs")
+                        || line.starts_with("*");
 
                     // Skip annotation comments
                     if is_comment && Self::is_annotation_comment(line) {

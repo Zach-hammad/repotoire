@@ -63,6 +63,7 @@ pub struct EvalDetector {
     repository_path: PathBuf,
     max_findings: usize,
     exclude_patterns: Vec<String>,
+    compiled_globs: Vec<Regex>,
     taint_analyzer: TaintAnalyzer,
     // Compiled regex patterns
     variable_arg_pattern: Regex,
@@ -128,11 +129,21 @@ impl EvalDetector {
             Regex::new(&format!(r#"\b({func_names})\s*\(\s*["'][^"']*["']\s*[,)]"#))
                 .expect("Invalid regex");
 
+        let compiled_globs: Vec<Regex> = exclude_patterns
+            .iter()
+            .filter(|p| p.contains('*'))
+            .filter_map(|p| {
+                let re_str = format!("^{}$", p.replace('*', ".*"));
+                Regex::new(&re_str).ok()
+            })
+            .collect();
+
         Self {
             config,
             repository_path,
             max_findings,
             exclude_patterns,
+            compiled_globs,
             taint_analyzer: TaintAnalyzer::new(),
             variable_arg_pattern,
             fstring_arg_pattern,
@@ -153,18 +164,19 @@ impl EvalDetector {
                     return true;
                 }
             } else if pattern.contains('*') {
-                // Simple glob matching
-                let pattern = pattern.replace('*', ".*");
-                if let Ok(re) = Regex::new(&format!("^{}$", pattern)) {
-                    let filename = Path::new(path)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("");
-                    if re.is_match(path) || re.is_match(filename) {
-                        return true;
-                    }
-                }
+                // Glob patterns are pre-compiled in self.compiled_globs
+                continue;
             } else if path.contains(pattern) {
+                return true;
+            }
+        }
+        // Check pre-compiled glob patterns
+        let filename = Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        for re in &self.compiled_globs {
+            if re.is_match(path) || re.is_match(filename) {
                 return true;
             }
         }

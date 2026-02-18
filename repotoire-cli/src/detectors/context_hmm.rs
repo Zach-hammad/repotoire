@@ -662,16 +662,16 @@ impl ContextHMM {
 
     /// Log probability of observing features given state (Gaussian emission)
     fn log_emission_prob(&self, state: FunctionContext, features: &[f64; NUM_FEATURES]) -> f64 {
-        let s = state.index();
+        let state_idx = state.index();
         let mut log_prob = 0.0;
 
-        for i in 0..NUM_FEATURES {
-            let mean = self.emission_mean[s][i];
-            let var = self.emission_var[s][i].max(0.01); // Avoid div by zero
-            let x = features[i];
+        for feat in 0..NUM_FEATURES {
+            let mean = self.emission_mean[state_idx][feat];
+            let var = self.emission_var[state_idx][feat].max(0.01); // Avoid div by zero
+            let val = features[feat];
 
             // Log of Gaussian PDF (ignoring constant)
-            log_prob += -0.5 * ((x - mean).powi(2) / var + var.ln());
+            log_prob += -0.5 * ((val - mean).powi(2) / var + var.ln());
         }
 
         log_prob
@@ -689,33 +689,33 @@ impl ContextHMM {
         let mut feature_sq_sums = [[0.0f64; NUM_FEATURES]; 5];
 
         for (features, context) in examples {
-            let s = context.index();
-            state_counts[s] += 1.0;
+            let ctx_idx = context.index();
+            state_counts[ctx_idx] += 1.0;
 
             let vec = features.to_vector();
-            for i in 0..NUM_FEATURES {
-                feature_sums[s][i] += vec[i];
-                feature_sq_sums[s][i] += vec[i] * vec[i];
+            for feat in 0..NUM_FEATURES {
+                feature_sums[ctx_idx][feat] += vec[feat];
+                feature_sq_sums[ctx_idx][feat] += vec[feat] * vec[feat];
             }
         }
 
         // Update initial probabilities
         let total: f64 = state_counts.iter().sum();
-        for s in 0..5 {
-            self.initial[s] = (state_counts[s] + 1.0) / (total + 5.0); // Laplace smoothing
+        for state in 0..5 {
+            self.initial[state] = (state_counts[state] + 1.0) / (total + 5.0); // Laplace smoothing
         }
 
         // Update emission parameters
-        for s in 0..5 {
-            if state_counts[s] > 0.0 {
-                for i in 0..NUM_FEATURES {
-                    let n = state_counts[s];
-                    let mean = feature_sums[s][i] / n;
-                    let var = (feature_sq_sums[s][i] / n - mean * mean).max(0.01);
+        for state in 0..5 {
+            if state_counts[state] > 0.0 {
+                for feat in 0..NUM_FEATURES {
+                    let count = state_counts[state];
+                    let mean = feature_sums[state][feat] / count;
+                    let var = (feature_sq_sums[state][feat] / count - mean * mean).max(0.01);
 
                     // Direct update from bootstrap labels (no smoothing)
-                    self.emission_mean[s][i] = mean;
-                    self.emission_var[s][i] = var;
+                    self.emission_mean[state][feat] = mean;
+                    self.emission_var[state][feat] = var;
                 }
             }
         }
@@ -879,11 +879,11 @@ impl CRFWeights {
     /// CRF-style score for a classification
     pub fn score(&self, features: &FunctionFeatures, context: FunctionContext) -> f64 {
         let vec = features.to_vector();
-        let s = context.index();
+        let ctx_idx = context.index();
 
         let mut score = 0.0;
-        for (i, &v) in vec.iter().enumerate() {
-            score += self.feature_weights[s][i] * v;
+        for (feat_idx, &val) in vec.iter().enumerate() {
+            score += self.feature_weights[ctx_idx][feat_idx] * val;
         }
         score
     }

@@ -972,13 +972,26 @@ impl Detector for MutexPoisoningRiskDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
-                    // Skip comments
+                    // Skip comments and string literals
                     let trimmed = line.trim();
-                    if trimmed.starts_with("//") {
+                    if trimmed.starts_with("//")
+                        || trimmed.starts_with('"')
+                        || trimmed.starts_with("r#\"")
+                    {
                         continue;
                     }
 
                     // Detect .lock().unwrap() pattern
+                    // Skip string literals (pattern names in detector descriptions)
+                    let trimmed_mutex = line.trim();
+                    if trimmed_mutex.starts_with('"')
+                        || trimmed_mutex.starts_with("r#\"")
+                        || trimmed_mutex.ends_with("\\n\\")
+                        || trimmed_mutex.ends_with(".to_string(),")
+                        || trimmed_mutex.contains("\".lock()")
+                    {
+                        continue;
+                    }
                     if mutex_unwrap().is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;

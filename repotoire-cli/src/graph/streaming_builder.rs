@@ -93,18 +93,19 @@ impl ModuleLookup {
             }
             Language::TypeScript | Language::JavaScript => {
                 for ext in &[".ts", ".tsx", ".js", ".jsx", ".mjs"] {
-                    if relative_path.ends_with(ext) {
-                        let base = relative_path.trim_end_matches(ext);
+                    if !relative_path.ends_with(ext) {
+                        continue;
+                    }
+                    let base = relative_path.trim_end_matches(ext);
+                    self.by_pattern
+                        .entry(base.to_string())
+                        .or_default()
+                        .push(relative_path.to_string());
+                    if base.ends_with("/index") {
                         self.by_pattern
-                            .entry(base.to_string())
+                            .entry(base.trim_end_matches("/index").to_string())
                             .or_default()
                             .push(relative_path.to_string());
-                        if base.ends_with("/index") {
-                            self.by_pattern
-                                .entry(base.trim_end_matches("/index").to_string())
-                                .or_default()
-                                .push(relative_path.to_string());
-                        }
                     }
                 }
             }

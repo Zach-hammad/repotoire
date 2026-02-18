@@ -61,40 +61,40 @@ pub(super) fn finish_git_enrichment(
         ProgressBar,
     )>,
 ) {
-    if let Some((git_handle, git_spinner)) = git_result {
-        match git_handle.join() {
-            Ok(Ok(stats)) => {
-                if stats.functions_enriched > 0 || stats.classes_enriched > 0 {
-                    let cache_info = if stats.cache_hits > 0 {
-                        format!(" ({} cached)", stats.cache_hits)
-                    } else {
-                        String::new()
-                    };
-                    git_spinner.finish_with_message(format!(
-                        "{}Enriched {} functions, {} classes{}",
-                        style("✓ ").green(),
-                        style(stats.functions_enriched).cyan(),
-                        style(stats.classes_enriched).cyan(),
-                        style(cache_info).dim(),
-                    ));
-                } else {
-                    git_spinner.finish_with_message(format!(
-                        "{}No git history to enrich",
-                        style("- ").dim(),
-                    ));
-                }
-            }
-            Ok(Err(e)) => {
-                git_spinner.finish_with_message(format!(
-                    "{}Git enrichment skipped: {}",
-                    style("⚠ ").yellow(),
-                    e
-                ));
-            }
-            Err(_) => {
-                git_spinner
-                    .finish_with_message(format!("{}Git enrichment failed", style("⚠ ").yellow(),));
-            }
+    let Some((git_handle, git_spinner)) = git_result else {
+        return;
+    };
+    match git_handle.join() {
+        Ok(Ok(stats)) if stats.functions_enriched > 0 || stats.classes_enriched > 0 => {
+            let cache_info = if stats.cache_hits > 0 {
+                format!(" ({} cached)", stats.cache_hits)
+            } else {
+                String::new()
+            };
+            git_spinner.finish_with_message(format!(
+                "{}Enriched {} functions, {} classes{}",
+                style("✓ ").green(),
+                style(stats.functions_enriched).cyan(),
+                style(stats.classes_enriched).cyan(),
+                style(cache_info).dim(),
+            ));
+        }
+        Ok(Ok(_)) => {
+            git_spinner.finish_with_message(format!(
+                "{}No git history to enrich",
+                style("- ").dim(),
+            ));
+        }
+        Ok(Err(e)) => {
+            git_spinner.finish_with_message(format!(
+                "{}Git enrichment skipped: {}",
+                style("⚠ ").yellow(),
+                e
+            ));
+        }
+        Err(_) => {
+            git_spinner
+                .finish_with_message(format!("{}Git enrichment failed", style("⚠ ").yellow(),));
         }
     }
 }

@@ -176,8 +176,16 @@ impl Detector for SingleCharNamesDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
+                let mut in_test_block = false;
 
                 for (i, line) in lines.iter().enumerate() {
+                    // Skip everything after #[cfg(test)] (Rust test modules)
+                    if line.contains("#[cfg(test)]") {
+                        in_test_block = true;
+                    }
+                    if in_test_block {
+                        continue;
+                    }
                     // Skip loop variables (for i in, for (int i, etc)
                     if line.contains("for ") || line.contains("for(") {
                         continue;

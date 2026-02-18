@@ -180,16 +180,13 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions) -> Resu
             if let Some(ref patch) = rule_fix.patch {
                 term.write_line(&format!("\n  {}:", style("Changes").bold()))?;
                 for line in patch.lines() {
-                    let formatted = if line.starts_with('+') && !line.starts_with("+++") {
-                        format!("    {}", style(line).green())
-                    } else if line.starts_with('-') && !line.starts_with("---") {
-                        format!("    {}", style(line).red())
-                    } else if line.starts_with("@@") {
-                        format!("    {}", style(line).cyan())
-                    } else {
-                        format!("    {}", line)
+                    let colored = match line.as_bytes().first() {
+                        Some(b'+') if !line.starts_with("+++") => style(line).green().to_string(),
+                        Some(b'-') if !line.starts_with("---") => style(line).red().to_string(),
+                        Some(b'@') => style(line).cyan().to_string(),
+                        _ => line.to_string(),
                     };
-                    term.write_line(&formatted)?;
+                    term.write_line(&format!("    {}", colored))?;
                 }
             } else {
                 term.write_line(&format!(

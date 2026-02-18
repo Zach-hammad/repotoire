@@ -59,33 +59,23 @@ impl McpServer {
             if line.trim().is_empty() {
                 continue;
             }
-
             debug!("Received: {}", line);
-
-            match self.handle_message(&line) {
-                Ok(Some(response)) => {
-                    let response_str = serde_json::to_string(&response)?;
-                    debug!("Sending: {}", response_str);
-                    writeln!(stdout, "{}", response_str)?;
-                    stdout.flush()?;
-                }
-                Ok(None) => {
-                    // Notification, no response needed
-                }
+            let response = match self.handle_message(&line) {
+                Ok(Some(resp)) => resp,
+                Ok(None) => continue, // Notification, no response needed
                 Err(e) => {
                     error!("Error handling message: {}", e);
-                    let error_response = json!({
+                    json!({
                         "jsonrpc": "2.0",
                         "id": null,
-                        "error": {
-                            "code": -32603,
-                            "message": e.to_string()
-                        }
-                    });
-                    writeln!(stdout, "{}", serde_json::to_string(&error_response)?)?;
-                    stdout.flush()?;
+                        "error": { "code": -32603, "message": e.to_string() }
+                    })
                 }
-            }
+            };
+            let response_str = serde_json::to_string(&response)?;
+            debug!("Sending: {}", response_str);
+            writeln!(stdout, "{}", response_str)?;
+            stdout.flush()?;
         }
 
         Ok(())

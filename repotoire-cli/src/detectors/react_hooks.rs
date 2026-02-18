@@ -62,9 +62,9 @@ fn use_effect() -> &'static Regex {
 
 /// Extract hook name from line
 fn extract_hook_name(line: &str) -> Option<String> {
-    if let Some(m) = hook_call().find(line) {
-        let s = m.as_str();
-        Some(s.trim_end_matches(['(', ' ']).to_string())
+    if let Some(matched) = hook_call().find(line) {
+        let hook = matched.as_str();
+        Some(hook.trim_end_matches(['(', ' ']).to_string())
     } else {
         None
     }

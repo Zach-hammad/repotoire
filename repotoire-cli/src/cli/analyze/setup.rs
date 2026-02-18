@@ -205,13 +205,13 @@ pub(super) fn create_spinner_style() -> ProgressStyle {
     ProgressStyle::default_spinner()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
         .template("{spinner:.green} {msg}")
-        .unwrap()
+        .expect("valid template")
 }
 
 /// Create bar progress style
 pub(super) fn create_bar_style() -> ProgressStyle {
     ProgressStyle::default_bar()
         .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-        .unwrap()
+        .expect("valid template")
         .progress_chars("█▓▒░  ")
 }

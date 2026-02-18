@@ -68,14 +68,13 @@ fn word_boundary_match(text: &str, pattern: &str) -> bool {
         let abs_pos = search_from + pos;
         // Before: must be start of string, underscore, dot, or non-alphanumeric
         let before_ok = abs_pos == 0 || {
-            let c = bytes[abs_pos - 1];
-            !c.is_ascii_alphanumeric() // underscores, dots, parens, spaces, etc. are OK
+            let prev = bytes[abs_pos - 1];
+            !prev.is_ascii_alphanumeric()
         };
-        // After: must be end of string, underscore, dot, or non-alphanumeric
         let after_pos = abs_pos + pattern.len();
         let after_ok = after_pos >= text.len() || {
-            let c = bytes[after_pos];
-            !c.is_ascii_alphanumeric() // underscores, dots, parens, etc. are OK
+            let next = bytes[after_pos];
+            !next.is_ascii_alphanumeric()
         };
 
         if before_ok && after_ok {

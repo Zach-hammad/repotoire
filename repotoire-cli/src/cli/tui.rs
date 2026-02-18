@@ -485,68 +485,73 @@ pub fn run(findings: Vec<Finding>, repo_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// Returns true if the app should quit
+fn handle_key_event(app: &mut App, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char('q') | KeyCode::Esc if !app.show_detail && !app.show_agents => {
+            return true;
+        }
+        KeyCode::Esc => {
+            app.show_detail = false;
+            app.show_agents = false;
+        }
+        KeyCode::Down | KeyCode::Char('j') if !app.show_agents => app.next(),
+        KeyCode::Up | KeyCode::Char('k') if !app.show_agents => app.previous(),
+        KeyCode::Enter if !app.show_agents => app.show_detail = !app.show_detail,
+        KeyCode::PageDown => {
+            for _ in 0..10 {
+                app.next();
+            }
+        }
+        KeyCode::PageUp => {
+            for _ in 0..10 {
+                app.previous();
+            }
+        }
+        KeyCode::Char('f') => {
+            if let Some(msg) = app.run_fix() {
+                app.set_status(msg, false);
+            }
+        }
+        KeyCode::Char('F') => {
+            if let Some(msg) = app.launch_agent() {
+                let is_error = msg.starts_with("❌") || msg.starts_with("⚠️");
+                app.set_status(msg, is_error);
+            }
+        }
+        KeyCode::Char('a') | KeyCode::Char('A') => {
+            app.show_agents = !app.show_agents;
+        }
+        KeyCode::Char('c') => {
+            if let Some(msg) = app.cancel_latest_agent() {
+                let is_error = msg.starts_with("❌") || msg.starts_with("⚠️");
+                app.set_status(msg, is_error);
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     loop {
-        // Poll agents for status updates
         app.poll_agents();
         app.maybe_clear_status();
-
-        // Increment frame counter for spinner animation
         app.frame = app.frame.wrapping_add(1);
 
         terminal.draw(|f| ui(f, app))?;
 
-        // Non-blocking event check with timeout for agent polling
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc
-                            if !app.show_detail && !app.show_agents =>
-                        {
-                            return Ok(())
-                        }
-                        KeyCode::Esc => {
-                            app.show_detail = false;
-                            app.show_agents = false;
-                        }
-                        KeyCode::Down | KeyCode::Char('j') if !app.show_agents => app.next(),
-                        KeyCode::Up | KeyCode::Char('k') if !app.show_agents => app.previous(),
-                        KeyCode::Enter if !app.show_agents => app.show_detail = !app.show_detail,
-                        KeyCode::PageDown => {
-                            for _ in 0..10 {
-                                app.next();
-                            }
-                        }
-                        KeyCode::PageUp => {
-                            for _ in 0..10 {
-                                app.previous();
-                            }
-                        }
-                        KeyCode::Char('f') => {
-                            if let Some(msg) = app.run_fix() {
-                                app.set_status(msg, false);
-                            }
-                        }
-                        KeyCode::Char('F') => {
-                            if let Some(msg) = app.launch_agent() {
-                                let is_error = msg.starts_with("❌") || msg.starts_with("⚠️");
-                                app.set_status(msg, is_error);
-                            }
-                        }
-                        KeyCode::Char('a') | KeyCode::Char('A') => {
-                            app.show_agents = !app.show_agents;
-                        }
-                        KeyCode::Char('c') => {
-                            if let Some(msg) = app.cancel_latest_agent() {
-                                let is_error = msg.starts_with("❌") || msg.starts_with("⚠️");
-                                app.set_status(msg, is_error);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
+        }
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        if handle_key_event(app, key.code) {
+            return Ok(());
         }
     }
 }

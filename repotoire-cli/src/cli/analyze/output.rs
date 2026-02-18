@@ -15,18 +15,18 @@ use std::time::Instant;
 
 /// Normalize a path to be relative
 fn normalize_path(path: &Path) -> String {
-    let s = path.display().to_string();
-    if let Some(stripped) = s.strip_prefix("/tmp/") {
+    let path_str = path.display().to_string();
+    if let Some(stripped) = path_str.strip_prefix("/tmp/") {
         if let Some(pos) = stripped.find('/') {
             return stripped[pos + 1..].to_string();
         }
     }
     if let Ok(home) = std::env::var("HOME") {
-        if let Some(stripped) = s.strip_prefix(&home) {
+        if let Some(stripped) = path_str.strip_prefix(&home) {
             return stripped.trim_start_matches('/').to_string();
         }
     }
-    s
+    path_str
 }
 
 /// Filter findings by severity and limit

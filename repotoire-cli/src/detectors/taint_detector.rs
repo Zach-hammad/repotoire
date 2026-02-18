@@ -153,6 +153,7 @@ pub struct TaintDetector {
     repository_path: PathBuf,
     max_findings: usize,
     exclude_patterns: Vec<String>,
+    compiled_globs: Vec<Regex>,
     source_patterns: Vec<(Regex, String)>,
     sink_patterns: Vec<(Regex, String)>,
 }
@@ -204,6 +205,7 @@ impl TaintDetector {
             config,
             repository_path,
             max_findings,
+            compiled_globs: crate::detectors::base::compile_glob_patterns(&exclude_patterns),
             exclude_patterns,
             source_patterns,
             sink_patterns,
@@ -212,28 +214,7 @@ impl TaintDetector {
 
     /// Check if path should be excluded
     fn should_exclude(&self, path: &str) -> bool {
-        for pattern in &self.exclude_patterns {
-            if pattern.ends_with('/') {
-                let dir = pattern.trim_end_matches('/');
-                if path.split('/').any(|p| p == dir) {
-                    return true;
-                }
-            } else if pattern.contains('*') {
-                let pattern = pattern.replace('*', ".*");
-                if let Ok(re) = Regex::new(&format!("^{}$", pattern)) {
-                    let filename = Path::new(path)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("");
-                    if re.is_match(path) || re.is_match(filename) {
-                        return true;
-                    }
-                }
-            } else if path.contains(pattern) {
-                return true;
-            }
-        }
-        false
+        crate::detectors::base::should_exclude_path(path, &self.exclude_patterns, &self.compiled_globs)
     }
 
     /// Analyze a file for taint flows using pattern matching

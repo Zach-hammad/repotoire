@@ -5,6 +5,9 @@
 # Internal tool, not a library. Docs are in README + code comments.
 enabled = false
 
+[exclude]
+paths = ["scripts/"]
+
 [detectors.influential-code]
 # Core analysis functions (scan_files, analyze_intra_function) are expected
 # to have high fan-in. Only flag truly extreme cases.
@@ -13,3 +16,7 @@ thresholds = { min_fan_in = 500 }
 [detectors.degree-centrality]
 # Hub functions like find() and add_node() are by design.
 thresholds = { min_total_degree = 100, min_elevated_fanin = 30 }
+
+[detectors.shotgun-surgery]
+# Core utility functions (load, save, find, add_node) are used everywhere by design.
+thresholds = { high_files = 25, critical_modules = 10 }

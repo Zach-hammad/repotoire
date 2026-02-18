@@ -58,7 +58,7 @@ pub fn run() -> Result<()> {
         let found = config_names
             .iter()
             .find(|name| cwd.join(name).exists())
-            .unwrap();
+            .expect("config exists (checked above)");
         println!("✓ Config: {} found", found);
     } else {
         println!("○ Config: none (using defaults)");
