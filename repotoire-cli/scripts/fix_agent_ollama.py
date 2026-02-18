@@ -124,10 +124,10 @@ def generate_fim(model: str, prefix: str, suffix: str) -> str:
         if resp.status_code == 200:
             return resp.json().get("response", "").strip()
         else:
-            print(f"❌ Ollama error: {resp.status_code}", file=sys.stderr)
+            print(f"❌ Ollama error: {resp.status_code!r}", file=sys.stderr)
             return ""
     except Exception as e:
-        print(f"❌ Ollama request failed: {e}", file=sys.stderr)
+        print(f"❌ Ollama request failed: {str(e)[:200]}", file=sys.stderr)
         return ""
 
 
@@ -167,10 +167,10 @@ RULES:
         if resp.status_code == 200:
             return resp.json().get("response", "").strip()
         else:
-            print(f"❌ Ollama error: {resp.status_code}", file=sys.stderr)
+            print(f"❌ Ollama error: {resp.status_code!r}", file=sys.stderr)
             return ""
     except Exception as e:
-        print(f"❌ Ollama request failed: {e}", file=sys.stderr)
+        print(f"❌ Ollama request failed: {str(e)[:200]}", file=sys.stderr)
         return ""
 
 

@@ -150,29 +150,17 @@ impl<'a> GitEnricher<'a> {
                 .get_entity_blame(&func.file_path, line_start, line_end)
             {
                 Ok(blame_info) => {
-                    if let (Some(last_modified), Some(author)) =
-                        (&blame_info.last_modified, &blame_info.last_author)
-                    {
-                        // Update function with git data (skip Commit nodes for speed)
-                        self.graph.update_node_properties(
-                            &func.qualified_name,
-                            &[
-                                (
-                                    "last_modified",
-                                    serde_json::Value::String(last_modified.clone()),
-                                ),
-                                ("author", serde_json::Value::String(author.clone())),
-                                (
-                                    "commit_count",
-                                    serde_json::Value::Number(
-                                        (blame_info.commit_count as i64).into(),
-                                    ),
-                                ),
-                            ],
-                        );
-                        stats.functions_enriched += 1;
-                        // Skip creating Commit nodes and edges - too slow for large repos
-                    }
+                    let Some(last_modified) = &blame_info.last_modified else { continue };
+                    let Some(author) = &blame_info.last_author else { continue };
+                    self.graph.update_node_properties(
+                        &func.qualified_name,
+                        &[
+                            ("last_modified", serde_json::Value::String(last_modified.clone())),
+                            ("author", serde_json::Value::String(author.clone())),
+                            ("commit_count", serde_json::Value::Number((blame_info.commit_count as i64).into())),
+                        ],
+                    );
+                    stats.functions_enriched += 1;
                 }
                 Err(e) => {
                     debug!(

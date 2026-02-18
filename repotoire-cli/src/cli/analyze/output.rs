@@ -156,23 +156,21 @@ pub(super) fn format_and_output(
 
     // Show pagination info (suppress for machine-readable formats)
     let quiet_mode = format == "json" || format == "sarif";
-    if !quiet_mode {
-        if let Some((current_page, total_pages, per_page, total)) = pagination_info {
-            let page_icon = if no_emoji { "" } else { "📑 " };
+    if let Some((current_page, total_pages, per_page, total)) = pagination_info.filter(|_| !quiet_mode) {
+        let page_icon = if no_emoji { "" } else { "📑 " };
+        println!(
+            "\n{}Showing page {} of {} ({} findings per page, {} total)",
+            style(page_icon).bold(),
+            style(current_page).cyan(),
+            style(total_pages).cyan(),
+            style(per_page).dim(),
+            style(total).cyan(),
+        );
+        if current_page < total_pages {
             println!(
-                "\n{}Showing page {} of {} ({} findings per page, {} total)",
-                style(page_icon).bold(),
-                style(current_page).cyan(),
-                style(total_pages).cyan(),
-                style(per_page).dim(),
-                style(total).cyan(),
+                "   Use {} to see more",
+                style(format!("--page {}", current_page + 1)).yellow()
             );
-            if current_page < total_pages {
-                println!(
-                    "   Use {} to see more",
-                    style(format!("--page {}", current_page + 1)).yellow()
-                );
-            }
         }
     }
 

@@ -193,10 +193,8 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions) -> Resu
                     "\n  {} (no auto-patch available)",
                     style("Manual fix required").yellow()
                 ))?;
-                for step in &rule_fix.steps {
-                    if !step.is_empty() && !step.starts_with("  ") && !step.starts_with("```") {
-                        term.write_line(&format!("    • {}", step))?;
-                    }
+                for step in rule_fix.steps.iter().filter(|s| !s.is_empty() && !s.starts_with("  ") && !s.starts_with("```")) {
+                    term.write_line(&format!("    • {}", step))?;
                 }
             }
             term.write_line("")?;

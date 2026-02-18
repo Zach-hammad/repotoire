@@ -116,23 +116,7 @@ pub fn render(report: &HealthReport) -> Result<String> {
             };
 
             // Get file and line
-            let file_info = if let Some(file) = finding.affected_files.first() {
-                let file_str = file.display().to_string();
-                let short_file = if file_str.chars().count() > 25 {
-                    let skip = file_str.chars().count() - 22;
-                    let truncated: String = file_str.chars().skip(skip).collect();
-                    format!("...{}", truncated)
-                } else {
-                    file_str
-                };
-                if let Some(line) = finding.line_start {
-                    format!("{}:{}", short_file, line)
-                } else {
-                    short_file
-                }
-            } else {
-                String::new()
-            };
+            let file_info = format_file_location(finding);
 
             out.push_str(&format!(
                 "  {DIM}{:>3}{RESET}  {sev_c}{}{RESET}  {:<40}  {DIM}{}{RESET}\n",
@@ -171,6 +155,23 @@ pub fn render(report: &HealthReport) -> Result<String> {
 }
 
 /// Format score with color
+fn format_file_location(finding: &crate::models::Finding) -> String {
+    let Some(file) = finding.affected_files.first() else {
+        return String::new();
+    };
+    let file_str = file.display().to_string();
+    let short_file = if file_str.chars().count() > 25 {
+        let skip = file_str.chars().count() - 22;
+        format!("...{}", file_str.chars().skip(skip).collect::<String>())
+    } else {
+        file_str
+    };
+    match finding.line_start {
+        Some(line) => format!("{}:{}", short_file, line),
+        None => short_file,
+    }
+}
+
 fn format_score(score: f64) -> String {
     let color = if score >= 80.0 {
         "\x1b[32m"

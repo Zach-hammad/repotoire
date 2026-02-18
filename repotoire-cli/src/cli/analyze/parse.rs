@@ -186,18 +186,17 @@ pub(super) fn parse_files_chunked(
                 }
 
                 // Parse and cache
-                match parse_file(file_path) {
-                    Ok(result) => {
-                        if let Ok(mut cache_guard) = cache.lock() {
-                            cache_guard.cache_parse_result(file_path, &result);
-                        }
-                        Some((file_path.clone(), result))
-                    }
+                let result = match parse_file(file_path) {
+                    Ok(r) => r,
                     Err(e) => {
                         tracing::warn!("Failed to parse {}: {}", file_path.display(), e);
-                        None
+                        return None;
                     }
+                };
+                if let Ok(mut cache_guard) = cache.lock() {
+                    cache_guard.cache_parse_result(file_path, &result);
                 }
+                Some((file_path.clone(), result))
             })
             .collect();
 

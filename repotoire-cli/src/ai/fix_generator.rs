@@ -344,34 +344,8 @@ impl FixGenerator {
             // Basic syntax validation - just check for obvious issues
             let code = &change.fixed_code;
 
-            match language {
-                "python" => {
-                    // Check for incomplete function definitions
-                    if code.contains("def ") && !code.contains(':') {
-                        return false;
-                    }
-                    // Check for unbalanced parentheses
-                    if code.matches('(').count() != code.matches(')').count() {
-                        return false;
-                    }
-                    // Check for unbalanced brackets
-                    if code.matches('[').count() != code.matches(']').count() {
-                        return false;
-                    }
-                }
-                "javascript" | "typescript" => {
-                    // Check for unbalanced braces
-                    if code.matches('{').count() != code.matches('}').count() {
-                        return false;
-                    }
-                }
-                "rust" | "go" | "java" => {
-                    // Check for unbalanced braces
-                    if code.matches('{').count() != code.matches('}').count() {
-                        return false;
-                    }
-                }
-                _ => {}
+            if !is_syntactically_valid(code, language) {
+                return false;
             }
         }
 
@@ -412,6 +386,19 @@ impl FixGenerator {
         }
 
         true
+    }
+}
+
+/// Check if generated code has balanced delimiters for the language
+fn is_syntactically_valid(code: &str, language: &str) -> bool {
+    let balanced = |open: char, close: char| code.matches(open).count() == code.matches(close).count();
+    match language {
+        "python" => {
+            if code.contains("def ") && !code.contains(':') { return false; }
+            balanced('(', ')') && balanced('[', ']')
+        }
+        "javascript" | "typescript" | "rust" | "go" | "java" => balanced('{', '}'),
+        _ => true,
     }
 }
 

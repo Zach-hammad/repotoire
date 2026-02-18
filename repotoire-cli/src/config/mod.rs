@@ -8,6 +8,7 @@
 //! - CLI defaults
 
 mod project_config;
+mod project_type_scoring;
 mod user_config;
 
 pub use project_config::{

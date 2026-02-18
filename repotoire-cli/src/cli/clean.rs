@@ -51,13 +51,12 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
     println!();
     let mut removed = 0;
     for (_, dir) in &to_remove {
-        match std::fs::remove_dir_all(dir) {
-            Ok(_) => {
-                println!("Removed: {}", dir.display());
-                removed += 1;
-            }
-            Err(e) => eprintln!("Failed to remove {}: {}", dir.display(), e),
+        if let Err(e) = std::fs::remove_dir_all(dir) {
+            eprintln!("Failed to remove {}: {}", dir.display(), e);
+            continue;
         }
+        println!("Removed: {}", dir.display());
+        removed += 1;
     }
 
     println!(

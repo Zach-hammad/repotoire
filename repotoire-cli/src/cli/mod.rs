@@ -431,42 +431,7 @@ pub fn run(cli: Cli) -> Result<()> {
                     println!("  export ANTHROPIC_API_KEY=\"sk-ant-...\"");
                     Ok(())
                 }
-                ConfigAction::Show => {
-                    let config = UserConfig::load()?;
-                    println!("📁 Config paths:");
-                    if let Some(user_path) = UserConfig::user_config_path() {
-                        let exists = user_path.exists();
-                        println!(
-                            "  User:    {} {}",
-                            user_path.display(),
-                            if exists { "✓" } else { "(not found)" }
-                        );
-                    }
-                    println!(
-                        "  Project: ./repotoire.toml {}",
-                        if std::path::Path::new("repotoire.toml").exists() {
-                            "✓"
-                        } else {
-                            "(not found)"
-                        }
-                    );
-                    println!();
-                    println!("🤖 AI Backend: {}", config.ai_backend());
-                    if config.use_ollama() {
-                        println!("  Ollama URL:   {}", config.ollama_url());
-                        println!("  Ollama Model: {}", config.ollama_model());
-                    } else {
-                        println!(
-                            "  ANTHROPIC_API_KEY: {}",
-                            if config.has_ai_key() {
-                                "✓ configured"
-                            } else {
-                                "✗ not set"
-                            }
-                        );
-                    }
-                    Ok(())
-                }
+                ConfigAction::Show => show_config(),
                 ConfigAction::Set { key, value } => {
                     let config_path = UserConfig::user_config_path()
                         .ok_or_else(|| anyhow::anyhow!("Could not determine config path"))?;
@@ -648,4 +613,25 @@ pub fn run(cli: Cli) -> Result<()> {
             )
         }
     }
+}
+
+fn show_config() -> anyhow::Result<()> {
+    let config = crate::config::UserConfig::load()?;
+    println!("📁 Config paths:");
+    if let Some(user_path) = crate::config::UserConfig::user_config_path() {
+        let status = if user_path.exists() { "✓" } else { "(not found)" };
+        println!("  User:    {} {}", user_path.display(), status);
+    }
+    let proj_status = if std::path::Path::new("repotoire.toml").exists() { "✓" } else { "(not found)" };
+    println!("  Project: ./repotoire.toml {}", proj_status);
+    println!();
+    println!("🤖 AI Backend: {}", config.ai_backend());
+    if config.use_ollama() {
+        println!("  Ollama URL:   {}", config.ollama_url());
+        println!("  Ollama Model: {}", config.ollama_model());
+    } else {
+        let key_status = if config.has_ai_key() { "✓ configured" } else { "✗ not set" };
+        println!("  ANTHROPIC_API_KEY: {}", key_status);
+    }
+    Ok(())
 }

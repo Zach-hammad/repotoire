@@ -26,12 +26,14 @@ pub(super) fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
 
     for entry in walker.filter_map(|e| e.ok()) {
         let path = entry.path();
-        if path.is_file() {
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if SUPPORTED_EXTENSIONS.contains(&ext) {
-                    files.push(path.to_path_buf());
-                }
-            }
+        if !path.is_file() {
+            continue;
+        }
+        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        if SUPPORTED_EXTENSIONS.contains(&ext) {
+            files.push(path.to_path_buf());
         }
     }
 

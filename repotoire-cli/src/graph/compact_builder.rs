@@ -89,13 +89,9 @@ pub fn build_compact_graph(
 
         let handle = thread::spawn(move || {
             for path in rx {
-                let info = match parse_file_lightweight(&path) {
-                    Ok(info) => info,
-                    Err(e) => {
-                        errors.fetch_add(1, Ordering::Relaxed);
-                        tracing::debug!("Parse error {}: {}", path.display(), e);
-                        continue;
-                    }
+                let Ok(info) = parse_file_lightweight(&path) else {
+                    errors.fetch_add(1, Ordering::Relaxed);
+                    continue;
                 };
                 if tx.send(info).is_err() {
                     break;

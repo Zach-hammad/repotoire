@@ -61,28 +61,22 @@ pub fn run(path: &Path) -> Result<()> {
     // Check for cached findings
     if findings_path.exists() {
         println!("  {} Findings cached", style("[OK]").green());
-
-        if let Ok(content) = std::fs::read_to_string(&findings_path) {
-            if let Ok(report) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(findings) = report.get("findings").and_then(|f| f.as_array()) {
-                    let total = findings.len();
-                    let critical = findings
-                        .iter()
-                        .filter(|f| f.get("severity").and_then(|s| s.as_str()) == Some("critical"))
-                        .count();
-                    let high = findings
-                        .iter()
-                        .filter(|f| f.get("severity").and_then(|s| s.as_str()) == Some("high"))
-                        .count();
-
-                    println!(
-                        "      {} findings ({} critical, {} high)",
-                        style(total).cyan(),
-                        style(critical).red(),
-                        style(high).yellow()
-                    );
-                }
-            }
+        let findings = std::fs::read_to_string(&findings_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+            .and_then(|r| r.get("findings").and_then(|f| f.as_array()).cloned());
+        if let Some(findings) = findings {
+            let total = findings.len();
+            let critical = findings.iter()
+                .filter(|f| f.get("severity").and_then(|s| s.as_str()) == Some("critical"))
+                .count();
+            let high = findings.iter()
+                .filter(|f| f.get("severity").and_then(|s| s.as_str()) == Some("high"))
+                .count();
+            println!(
+                "      {} findings ({} critical, {} high)",
+                style(total).cyan(), style(critical).red(), style(high).yellow()
+            );
         }
     }
 

@@ -162,10 +162,8 @@ impl GitHistory {
             if let Some(since_ts) = since {
                 let commit_time = commit.time();
                 let commit_dt = Utc.timestamp_opt(commit_time.seconds(), 0).single();
-                if let Some(dt) = commit_dt {
-                    if dt < since_ts {
-                        break; // Commits are sorted by time, so we can stop
-                    }
+                if commit_dt.is_some_and(|dt| dt < since_ts) {
+                    break; // Commits are sorted by time, so we can stop
                 }
             }
 

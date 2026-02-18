@@ -7,10 +7,13 @@ pub mod compact_builder;
 pub mod compact_store;
 pub mod interner;
 pub mod store;
+pub mod store_models;
+pub mod store_query;
 pub mod streaming_builder;
 pub mod traits;
 
-pub use store::{CodeEdge, CodeNode, EdgeKind, GraphStore, NodeKind};
+pub use store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
+pub use store::GraphStore;
 
 pub use traits::GraphQuery;
 

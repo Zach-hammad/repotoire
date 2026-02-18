@@ -168,34 +168,8 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
 
     let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    let (new_catch, new_body) = match ext {
-        "py" => {
-            // Python: except Exception as e:\n    logger.error(...)
-            let new_catch = format!("{}except Exception as e:", indent_str);
-            let new_body = format!(
-                "{}import logging\n{}logger = logging.getLogger(__name__)\n{}logger.error(f\"Error occurred: {{e}}\")",
-                inner_indent, inner_indent, inner_indent
-            );
-            (new_catch, new_body)
-        }
-        "js" | "ts" | "jsx" | "tsx" => {
-            // JS/TS: catch (error) { console.error(...); }
-            let new_catch = format!("{}catch (error) {{", indent_str);
-            let new_body = format!(
-                "{}console.error('Error occurred:', error);\n{}}}",
-                inner_indent, indent_str
-            );
-            (new_catch, new_body)
-        }
-        "java" | "cs" => {
-            let new_catch = format!("{}catch (Exception e) {{", indent_str);
-            let new_body = format!(
-                "{}// Log the exception\n{}System.err.println(\"Error: \" + e.getMessage());\n{}e.printStackTrace();\n{}}}",
-                inner_indent, inner_indent, inner_indent, indent_str
-            );
-            (new_catch, new_body)
-        }
-        _ => return None,
+    let Some((new_catch, new_body)) = empty_catch_replacement(ext, &indent_str, &inner_indent) else {
+        return None;
     };
 
     // Build patch
@@ -250,6 +224,24 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
 }
 
 /// Fix magic numbers by suggesting constant extraction
+fn empty_catch_replacement(ext: &str, indent: &str, inner: &str) -> Option<(String, String)> {
+    match ext {
+        "py" => Some((
+            format!("{}except Exception as e:", indent),
+            format!("{}import logging\n{}logger = logging.getLogger(__name__)\n{}logger.error(f\"Error occurred: {{{{e}}}}\")", inner, inner, inner),
+        )),
+        "js" | "ts" | "jsx" | "tsx" => Some((
+            format!("{}catch (error) {{", indent),
+            format!("{}console.error('Error occurred:', error);\n{}}}", inner, indent),
+        )),
+        "java" | "cs" => Some((
+            format!("{}catch (Exception e) {{", indent),
+            format!("{}// Log the exception\n{}System.err.println(\"Error: \" + e.getMessage());\n{}e.printStackTrace();\n{}}}", inner, inner, inner, indent),
+        )),
+        _ => None,
+    }
+}
+
 fn fix_magic_numbers(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
     let file_path = finding.affected_files.first()?;
     let full_path = repo_path.join(file_path);

@@ -196,15 +196,11 @@ impl GitBlame {
             }
 
             // Compute fresh blame
-            if let Ok(repo) = Repository::discover(&repo_path) {
-                if let Ok(entries) = blame_file_with_repo(&repo, file_path) {
-                    mem_cache.insert(file_path.clone(), entries.clone());
-
-                    // Update disk cache
-                    update_disk_cache(&disk_cache, file_path, &repo_path, entries);
-                    computed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                }
-            }
+            let Ok(repo) = Repository::discover(&repo_path) else { return };
+            let Ok(entries) = blame_file_with_repo(&repo, file_path) else { return };
+            mem_cache.insert(file_path.clone(), entries.clone());
+            update_disk_cache(&disk_cache, file_path, &repo_path, entries);
+            computed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         });
 
         // Save disk cache after warming

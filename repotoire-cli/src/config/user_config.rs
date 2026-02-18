@@ -43,12 +43,10 @@ impl UserConfig {
         let mut config = UserConfig::default();
 
         // Load user config
-        if let Some(user_config_path) = Self::user_config_path() {
-            if user_config_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&user_config_path) {
-                    if let Ok(user_config) = toml::from_str::<UserConfig>(&content) {
-                        config.merge(user_config);
-                    }
+        if let Some(path) = Self::user_config_path().filter(|p| p.exists()) {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(user_config) = toml::from_str::<UserConfig>(&content) {
+                    config.merge(user_config);
                 }
             }
         }

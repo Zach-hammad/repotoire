@@ -31,18 +31,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     if query_lower.contains("function") {
         let functions = graph.get_functions();
         if json_output {
-            let json: Vec<_> = functions
-                .iter()
-                .map(|f| {
-                    serde_json::json!({
-                        "name": f.name,
-                        "qualified_name": f.qualified_name,
-                        "file": f.file_path,
-                        "line_start": f.line_start,
-                        "line_end": f.line_end,
-                    })
-                })
-                .collect();
+            let json: Vec<_> = functions.iter().map(function_to_json).collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Functions ({})\n", style("📊").bold(), functions.len());
@@ -291,4 +280,14 @@ pub fn stats(path: &Path) -> Result<()> {
     println!("  Total edges: {}", style(graph.edge_count()).bold());
 
     Ok(())
+}
+
+fn function_to_json(f: &crate::graph::CodeNode) -> serde_json::Value {
+    serde_json::json!({
+        "name": f.name,
+        "qualified_name": f.qualified_name,
+        "file": f.file_path,
+        "line_start": f.line_start,
+        "line_end": f.line_end,
+    })
 }

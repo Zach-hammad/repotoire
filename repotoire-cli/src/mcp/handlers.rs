@@ -424,15 +424,15 @@ pub fn handle_get_hotspots(state: &mut HandlerState, args: &Value) -> Result<Val
             std::collections::HashMap::new();
 
         for finding in &findings {
-            if let Some(files) = finding.get("affected_files").and_then(|v| v.as_array()) {
-                for file in files {
-                    if let Some(path) = file.as_str() {
-                        let entry = file_counts.entry(path.to_string()).or_insert((0, vec![]));
-                        entry.0 += 1;
-                        if let Some(sev) = finding.get("severity").and_then(|v| v.as_str()) {
-                            entry.1.push(sev.to_string());
-                        }
-                    }
+            let Some(files) = finding.get("affected_files").and_then(|v| v.as_array()) else {
+                continue;
+            };
+            for file in files {
+                let Some(path) = file.as_str() else { continue };
+                let entry = file_counts.entry(path.to_string()).or_insert((0, vec![]));
+                entry.0 += 1;
+                if let Some(sev) = finding.get("severity").and_then(|v| v.as_str()) {
+                    entry.1.push(sev.to_string());
                 }
             }
         }

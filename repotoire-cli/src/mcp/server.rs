@@ -62,14 +62,10 @@ impl McpServer {
             debug!("Received: {}", line);
             let response = match self.handle_message(&line) {
                 Ok(Some(resp)) => resp,
-                Ok(None) => continue, // Notification, no response needed
+                Ok(None) => continue,
                 Err(e) => {
                     error!("Error handling message: {}", e);
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": null,
-                        "error": { "code": -32603, "message": e.to_string() }
-                    })
+                    error_response(e)
                 }
             };
             let response_str = serde_json::to_string(&response)?;
@@ -218,6 +214,14 @@ struct JsonRpcRequest {
 }
 
 /// Run the MCP server
+fn error_response(e: anyhow::Error) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": { "code": -32603, "message": e.to_string() }
+    })
+}
+
 pub fn run_server(repo_path: PathBuf, force_local: bool) -> Result<()> {
     let mut server = McpServer::new(repo_path, force_local);
     server.run()
