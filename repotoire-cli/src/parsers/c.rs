@@ -7,7 +7,7 @@ use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
-use tree_sitter::{Node, Parser, Query, QueryCursor};
+use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
 /// Parse a C file and extract all code entities
 pub fn parse(path: &Path) -> Result<ParseResult> {
@@ -65,9 +65,9 @@ fn extract_functions(
         Query::new(&language.into(), query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(&query, *root, source);
 
-    for m in matches {
+    while let Some(m) = matches.next() {
         let mut func_node = None;
         let mut name = String::new();
         let mut params_node = None;
@@ -191,9 +191,9 @@ fn extract_structs(
     let query = Query::new(&language.into(), query_str).context("Failed to create struct query")?;
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(&query, *root, source);
 
-    for m in matches {
+    while let Some(m) = matches.next() {
         let mut node = None;
         let mut name = String::new();
         let mut is_typedef = false;
@@ -268,9 +268,9 @@ fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Res
         Query::new(&language.into(), query_str).context("Failed to create include query")?;
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(&query, *root, source);
 
-    for m in matches {
+    while let Some(m) = matches.next() {
         for capture in m.captures.iter() {
             if let Ok(text) = capture.node.utf8_text(source) {
                 // Remove quotes or angle brackets

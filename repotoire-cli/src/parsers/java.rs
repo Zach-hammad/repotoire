@@ -7,7 +7,7 @@ use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
-use tree_sitter::{Node, Parser, Query, QueryCursor};
+use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
 /// Parse a Java file and extract all code entities
 pub fn parse(path: &Path) -> Result<ParseResult> {
@@ -446,9 +446,9 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
     let query = Query::new(&language.into(), query_str).context("Failed to create import query")?;
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(&query, *root, source);
 
-    for m in matches {
+    while let Some(m) = matches.next() {
         for capture in m.captures.iter() {
             if let Ok(text) = capture.node.utf8_text(source) {
                 result.imports.push(ImportInfo::runtime(text.to_string()));

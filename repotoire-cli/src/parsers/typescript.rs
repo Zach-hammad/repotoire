@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
-use tree_sitter::{Language, Node, Parser, Query, QueryCursor};
+use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator};
 
 /// Function query string (shared across languages)
 const FUNC_QUERY_STR: &str = r#"
@@ -202,9 +202,9 @@ fn extract_functions(
     let query = get_func_query(ext, language);
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
-    for m in matches {
+    while let Some(m) = matches.next() {
         let mut func_node = None;
         let mut name = String::new();
         let mut params_node = None;
@@ -384,9 +384,9 @@ fn extract_classes(
     let query = get_class_query(ext, language);
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
-    for m in matches {
+    while let Some(m) = matches.next() {
         let mut class_node = None;
         let mut name = String::new();
         let mut is_interface = false;
@@ -680,9 +680,9 @@ fn extract_imports(
     let query = Query::new(language, query_str).context("Failed to create import query")?;
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(&query, *root, source);
 
-    for m in matches {
+    while let Some(m) = matches.next() {
         for capture in m.captures.iter() {
             let capture_name = query.capture_names()[capture.index as usize];
 
