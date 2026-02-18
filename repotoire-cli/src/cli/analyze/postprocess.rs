@@ -53,6 +53,18 @@ pub(super) fn postprocess_findings(
     // Step 2: Apply detector overrides from project config
     apply_detector_overrides(findings, project_config);
 
+    // Step 2.5: Filter out findings for excluded paths
+    if !project_config.exclude.paths.is_empty() {
+        let before = findings.len();
+        findings.retain(|f| {
+            !f.affected_files.iter().any(|p| project_config.should_exclude(p))
+        });
+        let removed = before - findings.len();
+        if removed > 0 {
+            tracing::debug!("Filtered {} findings from excluded paths", removed);
+        }
+    }
+
     // Step 3: Filter findings to only include files in the analyzed set (respects --max-files)
     if max_files > 0 {
         filter_by_max_files(findings, all_files);

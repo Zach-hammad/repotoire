@@ -245,28 +245,32 @@ fn build_sarif(report: &HealthReport) -> SarifReport {
                 },
             },
             results,
-            invocations: vec![SarifInvocation {
-                execution_successful: true,
-                end_time_utc: Utc::now().to_rfc3339(),
-                tool_execution_notifications: vec![SarifNotification {
-                    level: "note".to_string(),
-                    message: SarifMessage {
-                        text: format!(
-                            "Analysis complete. Grade: {}, Score: {:.1}/100",
-                            report.grade, report.overall_score
-                        ),
-                    },
-                    descriptor: SarifDescriptor {
-                        id: "summary".to_string(),
-                    },
-                }],
-            }],
+            invocations: vec![build_invocation(report)],
             original_uri_base_ids: None,
         }],
     }
 }
 
 /// Build a SARIF rule from a detector
+fn build_invocation(report: &HealthReport) -> SarifInvocation {
+    SarifInvocation {
+        execution_successful: true,
+        end_time_utc: Utc::now().to_rfc3339(),
+        tool_execution_notifications: vec![SarifNotification {
+            level: "note".to_string(),
+            message: SarifMessage {
+                text: format!(
+                    "Analysis complete. Grade: {}, Score: {:.1}/100",
+                    report.grade, report.overall_score
+                ),
+            },
+            descriptor: SarifDescriptor {
+                id: "summary".to_string(),
+            },
+        }],
+    }
+}
+
 fn build_rule(detector: &str, findings: &[&Finding]) -> SarifRule {
     // Get max severity from findings
     let max_severity = findings

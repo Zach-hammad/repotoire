@@ -12,7 +12,7 @@ use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::{debug, info};
@@ -251,6 +251,20 @@ impl MessageChainDetector {
                 continue;
             }
 
+            // Skip trait delegation chains — when most links in the chain have the
+            // same function name (e.g. get_callers → self.inner.get_callers → ...).
+            // This is a standard Rust/OOP pattern for trait forwarding, not a design issue.
+            if self.is_trait_delegation_chain(&chain_members) {
+                debug!(
+                    "Skipping trait delegation chain starting at {} ({} levels, same-name forwarding)",
+                    func.name, chain_depth
+                );
+                for member in &chain_members {
+                    reported_in_chain.insert(member.clone());
+                }
+                continue;
+            }
+
             // Skip chains where all functions are in the same file
             // (same-file decomposition is usually intentional)
             let all_funcs = graph.get_functions();
@@ -303,6 +317,34 @@ impl MessageChainDetector {
         }
 
         findings
+    }
+
+    /// Check if a chain is trait delegation — most members share the same function name.
+    /// e.g. GraphStore::get_callers → CompactGraphStore::get_callers → MmapStore::get_callers
+    fn is_trait_delegation_chain(&self, chain_members: &[String]) -> bool {
+        if chain_members.len() < 3 {
+            return false;
+        }
+
+        // Extract the simple function name from each qualified name (last segment after ::)
+        let names: Vec<&str> = chain_members
+            .iter()
+            .filter_map(|qn| qn.rsplit("::").next())
+            .collect();
+
+        if names.is_empty() {
+            return false;
+        }
+
+        // Count how many share the most common name
+        let mut freq: HashMap<&str, usize> = HashMap::new();
+        for name in &names {
+            *freq.entry(name).or_default() += 1;
+        }
+
+        let max_freq = freq.values().copied().max().unwrap_or(0);
+        // If >50% of chain members share the same function name, it's trait delegation
+        max_freq * 2 > names.len()
     }
 
     /// Trace how deep a delegation chain goes, collecting member names.

@@ -84,8 +84,8 @@ def get_models() -> list[str]:
         resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         if resp.status_code == 200:
             return [m["name"] for m in resp.json().get("models", [])]
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug("Failed to list models: %s", e)
     return []
 
 
@@ -127,7 +127,7 @@ def generate_fim(model: str, prefix: str, suffix: str) -> str:
             print(f"❌ Ollama error: {resp.status_code!r}", file=sys.stderr)
             return ""
     except Exception as e:
-        print(f"❌ Ollama request failed: {str(e)[:200]}", file=sys.stderr)
+        print(f"❌ Ollama request failed: {str(e)[:200].replace(chr(10), " ")}", file=sys.stderr)
         return ""
 
 
@@ -170,7 +170,7 @@ RULES:
             print(f"❌ Ollama error: {resp.status_code!r}", file=sys.stderr)
             return ""
     except Exception as e:
-        print(f"❌ Ollama request failed: {str(e)[:200]}", file=sys.stderr)
+        print(f"❌ Ollama request failed: {str(e)[:200].replace(chr(10), " ")}", file=sys.stderr)
         return ""
 
 

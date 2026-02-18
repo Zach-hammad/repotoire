@@ -51,27 +51,25 @@ pub struct AgentTask {
 impl AgentTask {
     /// Check if the agent process has completed
     fn poll(&mut self) -> bool {
-        if let Some(ref mut child) = self.child {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    if status.success() {
-                        self.status = AgentStatus::Completed(true);
-                    } else {
-                        self.status =
-                            AgentStatus::Failed(format!("Exit code: {:?}", status.code()));
-                    }
-                    self.child = None;
-                    true
-                }
-                Ok(None) => false, // Still running
-                Err(e) => {
-                    self.status = AgentStatus::Failed(format!("Poll error: {}", e));
-                    self.child = None;
-                    true
-                }
+        let Some(ref mut child) = self.child else {
+            return true; // Already completed
+        };
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                self.status = if status.success() {
+                    AgentStatus::Completed(true)
+                } else {
+                    AgentStatus::Failed(format!("Exit code: {:?}", status.code()))
+                };
+                self.child = None;
+                true
             }
-        } else {
-            true // Already completed
+            Ok(None) => false, // Still running
+            Err(e) => {
+                self.status = AgentStatus::Failed(format!("Poll error: {}", e));
+                self.child = None;
+                true
+            }
         }
     }
 

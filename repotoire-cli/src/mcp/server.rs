@@ -56,11 +56,12 @@ impl McpServer {
 
         for line in reader.lines() {
             let line = line.context("Failed to read from stdin")?;
-            if line.trim().is_empty() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
                 continue;
             }
-            debug!("Received: {}", line);
-            let response = match self.handle_message(&line) {
+            debug!("Received: {}", trimmed);
+            let response = match self.handle_message(trimmed) {
                 Ok(Some(resp)) => resp,
                 Ok(None) => continue,
                 Err(e) => {

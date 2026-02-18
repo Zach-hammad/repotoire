@@ -145,31 +145,31 @@ impl<'a> GitEnricher<'a> {
             }
 
             // Get blame info for this function
-            match self
+            let blame_info = match self
                 .blame
                 .get_entity_blame(&func.file_path, line_start, line_end)
             {
-                Ok(blame_info) => {
-                    let Some(last_modified) = &blame_info.last_modified else { continue };
-                    let Some(author) = &blame_info.last_author else { continue };
-                    self.graph.update_node_properties(
-                        &func.qualified_name,
-                        &[
-                            ("last_modified", serde_json::Value::String(last_modified.clone())),
-                            ("author", serde_json::Value::String(author.clone())),
-                            ("commit_count", serde_json::Value::Number((blame_info.commit_count as i64).into())),
-                        ],
-                    );
-                    stats.functions_enriched += 1;
-                }
+                Ok(info) => info,
                 Err(e) => {
                     debug!(
                         "Failed to get blame for {}:{}: {}",
                         func.file_path, line_start, e
                     );
                     stats.files_skipped += 1;
+                    continue;
                 }
-            }
+            };
+            let Some(last_modified) = &blame_info.last_modified else { continue };
+            let Some(author) = &blame_info.last_author else { continue };
+            self.graph.update_node_properties(
+                &func.qualified_name,
+                &[
+                    ("last_modified", serde_json::Value::String(last_modified.clone())),
+                    ("author", serde_json::Value::String(author.clone())),
+                    ("commit_count", serde_json::Value::Number((blame_info.commit_count as i64).into())),
+                ],
+            );
+            stats.functions_enriched += 1;
         }
 
         Ok(stats)

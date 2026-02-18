@@ -41,6 +41,9 @@ fn is_cached_regex(line: &str) -> bool {
         || trimmed.starts_with('"')
         || trimmed.starts_with("r#\"")
         || trimmed.starts_with("r\"")
+        // Skip lines inside Rust multi-line string literals (end with \n\)
+        || trimmed.ends_with("\\n\\")
+        || trimmed.ends_with(".to_string(),")
 }
 
 /// Check if a Regex::new call is inside a cached context by looking at surrounding lines

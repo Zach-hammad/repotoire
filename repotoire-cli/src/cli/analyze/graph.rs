@@ -696,41 +696,41 @@ pub(super) fn build_call_edges_fast(
         let callee_name = callee_name.rsplit('.').next().unwrap_or(callee_name);
 
         // Try to find callee in this file first (fast path)
-        let callee_qn =
-            if let Some(callee_func) = result.functions.iter().find(|f| f.name == callee_name) {
-                callee_func.qualified_name.clone()
-            } else {
-                // Use module lookup for O(1) resolution
-                let mut found = None;
-                if let Some(module) = callee_module {
-                    // O(1) lookup by module name
-                    if let Some(candidates) = module_lookup.by_stem.get(module) {
-                        for (_file_path, idx) in candidates {
-                            if let Some((_, other_result)) = parse_results.get(*idx) {
-                                if let Some(func) = other_result
-                                    .functions
-                                    .iter()
-                                    .find(|f| f.name == callee_name)
-                                {
-                                    found = Some(func.qualified_name.clone());
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
+        if let Some(callee_func) = result.functions.iter().find(|f| f.name == callee_name) {
+            edges.push((caller.clone(), callee_func.qualified_name.clone(), CodeEdge::calls()));
+            continue;
+        }
 
-                if found.is_none() {
-                    found = global_func_map.get(callee_name).cloned();
-                }
-
-                match found {
-                    Some(qn) => qn,
-                    None => continue,
-                }
-            };
+        // Use module lookup for O(1) cross-file resolution
+        let found = resolve_callee_cross_file(
+            callee_name, callee_module, module_lookup, parse_results, global_func_map,
+        );
+        let callee_qn = match found {
+            Some(qn) => qn,
+            None => continue,
+        };
         edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
     }
+}
+
+/// Resolve a callee function name across files using module lookup.
+fn resolve_callee_cross_file(
+    callee_name: &str,
+    callee_module: Option<&str>,
+    module_lookup: &ModuleLookup,
+    parse_results: &[(PathBuf, crate::parsers::ParseResult)],
+    global_func_map: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    if let Some(module) = callee_module {
+        let candidates = module_lookup.by_stem.get(module)?;
+        for (_file_path, idx) in candidates {
+            let (_, other_result) = parse_results.get(*idx)?;
+            if let Some(func) = other_result.functions.iter().find(|f| f.name == callee_name) {
+                return Some(func.qualified_name.clone());
+            }
+        }
+    }
+    global_func_map.get(callee_name).cloned()
 }
 
 /// Build import edges using pre-computed lookup (O(1) instead of O(n))

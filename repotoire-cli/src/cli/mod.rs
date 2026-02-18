@@ -432,43 +432,7 @@ pub fn run(cli: Cli) -> Result<()> {
                     Ok(())
                 }
                 ConfigAction::Show => show_config(),
-                ConfigAction::Set { key, value } => {
-                    let config_path = UserConfig::user_config_path()
-                        .ok_or_else(|| anyhow::anyhow!("Could not determine config path"))?;
-
-                    // Read existing or create new
-                    let mut content = if config_path.exists() {
-                        std::fs::read_to_string(&config_path)?
-                    } else {
-                        UserConfig::init_user_config()?;
-                        std::fs::read_to_string(&config_path)?
-                    };
-
-                    // Simple key replacement (supports ai.anthropic_api_key format)
-                    let toml_key = key.replace('.', "_").replace("ai_", "");
-                    if content.contains(&format!("# {} =", toml_key)) {
-                        content = content.replace(
-                            &format!("# {} =", toml_key),
-                            &format!("{} = \"{}\" #", toml_key, value),
-                        );
-                    } else if content.contains(&format!("{} =", toml_key)) {
-                        // Replace existing value
-                        let re = regex::Regex::new(&format!(r#"{}\s*=\s*"[^"]*""#, toml_key))?;
-                        content = re
-                            .replace(&content, format!("{} = \"{}\"", toml_key, value))
-                            .to_string();
-                    } else {
-                        // Append under [ai] section
-                        if !content.contains("[ai]") {
-                            content.push_str("\n[ai]\n");
-                        }
-                        content.push_str(&format!("{} = \"{}\"\n", toml_key, value));
-                    }
-
-                    std::fs::write(&config_path, content)?;
-                    println!("✅ Set {} in {}", key, config_path.display());
-                    Ok(())
-                }
+                ConfigAction::Set { key, value } => set_config_value(&key, &value),
             }
         }
 
@@ -613,6 +577,41 @@ pub fn run(cli: Cli) -> Result<()> {
             )
         }
     }
+}
+
+fn set_config_value(key: &str, value: &str) -> anyhow::Result<()> {
+    use crate::config::UserConfig;
+    let config_path = UserConfig::user_config_path()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine config path"))?;
+
+    let mut content = if config_path.exists() {
+        std::fs::read_to_string(&config_path)?
+    } else {
+        UserConfig::init_user_config()?;
+        std::fs::read_to_string(&config_path)?
+    };
+
+    let toml_key = key.replace('.', "_").replace("ai_", "");
+    if content.contains(&format!("# {} =", toml_key)) {
+        content = content.replace(
+            &format!("# {} =", toml_key),
+            &format!("{} = \"{}\" #", toml_key, value),
+        );
+    } else if content.contains(&format!("{} =", toml_key)) {
+        let re = regex::Regex::new(&format!(r#"{}\s*=\s*"[^"]*""#, toml_key))?;
+        content = re
+            .replace(&content, format!("{} = \"{}\"", toml_key, value))
+            .to_string();
+    } else {
+        if !content.contains("[ai]") {
+            content.push_str("\n[ai]\n");
+        }
+        content.push_str(&format!("{} = \"{}\"\n", toml_key, value));
+    }
+
+    std::fs::write(&config_path, content)?;
+    println!("✅ Set {} in {}", key, config_path.display());
+    Ok(())
 }
 
 fn show_config() -> anyhow::Result<()> {

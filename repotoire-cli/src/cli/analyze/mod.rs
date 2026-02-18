@@ -484,34 +484,7 @@ fn generate_reports(
         let explanation = scorer.explain(&score_result.breakdown);
         match format {
             "json" => {
-                // Print explanation as a separate JSON object to stderr
-                // (stdout already has the findings JSON)
-                let explain_json = serde_json::json!({
-                    "explanation": explanation,
-                    "breakdown": {
-                        "overall_score": score_result.breakdown.overall_score,
-                        "grade": &score_result.breakdown.grade,
-                        "kloc": score_result.breakdown.graph_metrics.total_loc as f64 / 1000.0,
-                        "structure": {
-                            "score": score_result.breakdown.structure.final_score,
-                            "base": score_result.breakdown.structure.base_score,
-                            "penalty": score_result.breakdown.structure.penalty_points,
-                            "findings": score_result.breakdown.structure.finding_count,
-                        },
-                        "quality": {
-                            "score": score_result.breakdown.quality.final_score,
-                            "base": score_result.breakdown.quality.base_score,
-                            "penalty": score_result.breakdown.quality.penalty_points,
-                            "findings": score_result.breakdown.quality.finding_count,
-                        },
-                        "architecture": {
-                            "score": score_result.breakdown.architecture.final_score,
-                            "base": score_result.breakdown.architecture.base_score,
-                            "penalty": score_result.breakdown.architecture.penalty_points,
-                            "findings": score_result.breakdown.architecture.finding_count,
-                        },
-                    }
-                });
+                let explain_json = build_explain_json(&explanation, &score_result.breakdown);
                 eprintln!("{}", serde_json::to_string_pretty(&explain_json).unwrap_or_default());
             }
             _ => {
@@ -677,6 +650,28 @@ fn parse_and_build(
 }
 
 /// Cache scores for fast path on next run.
+fn build_explain_json(explanation: &str, bd: &crate::scoring::ScoreBreakdown) -> serde_json::Value {
+    fn pillar_json(p: &crate::scoring::PillarBreakdown) -> serde_json::Value {
+        serde_json::json!({
+            "score": p.final_score,
+            "base": p.base_score,
+            "penalty": p.penalty_points,
+            "findings": p.finding_count,
+        })
+    }
+    serde_json::json!({
+        "explanation": explanation,
+        "breakdown": {
+            "overall_score": bd.overall_score,
+            "grade": &bd.grade,
+            "kloc": bd.graph_metrics.total_loc as f64 / 1000.0,
+            "structure": pillar_json(&bd.structure),
+            "quality": pillar_json(&bd.quality),
+            "architecture": pillar_json(&bd.architecture),
+        }
+    })
+}
+
 /// Cache findings for the feedback command.
 fn cache_findings(path: &Path, findings: &[Finding]) {
     let cache_path = get_cache_path(path);

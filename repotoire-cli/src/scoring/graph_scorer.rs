@@ -672,18 +672,14 @@ impl<'a> GraphScorer<'a> {
             } else {
                 total_bonus
             };
-            if !pillar.bonuses.is_empty() {
-                let has_bonuses = pillar.bonuses.iter().any(|(_, v)| *v > 0.001);
-                if has_bonuses {
-                    lines.push("- Bonuses (additive, capped at 50% of penalty):".to_string());
-                    for (name, value) in &pillar.bonuses {
-                        if *value > 0.001 {
-                            lines.push(format!("  - {}: +{:.1} pts", name, value * 100.0));
-                        }
-                    }
-                    if capped < total_bonus {
-                        lines.push(format!("  - *(capped from {:.1} to {:.1} pts)*", total_bonus, capped));
-                    }
+            let active_bonuses: Vec<_> = pillar.bonuses.iter().filter(|(_, v)| *v > 0.001).collect();
+            if !active_bonuses.is_empty() {
+                lines.push("- Bonuses (additive, capped at 50% of penalty):".to_string());
+                for (name, value) in &active_bonuses {
+                    lines.push(format!("  - {}: +{:.1} pts", name, value * 100.0));
+                }
+                if capped < total_bonus {
+                    lines.push(format!("  - *(capped from {:.1} to {:.1} pts)*", total_bonus, capped));
                 }
             }
             lines.push(format!("- Final: {:.1}", pillar.final_score));

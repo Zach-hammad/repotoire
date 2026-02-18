@@ -186,12 +186,13 @@ impl GitBlame {
             // Check disk cache first
             {
                 let dc = disk_cache.read().unwrap();
-                if dc.is_valid(file_path, &repo_path) {
-                    if let Some(cached) = dc.files.get(file_path) {
-                        mem_cache.insert(file_path.clone(), cached.entries.clone());
-                        cache_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        return;
-                    }
+                let cached = dc.is_valid(file_path, &repo_path)
+                    .then(|| dc.files.get(file_path))
+                    .flatten();
+                if let Some(cached) = cached {
+                    mem_cache.insert(file_path.clone(), cached.entries.clone());
+                    cache_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return;
                 }
             }
 

@@ -23,6 +23,22 @@ pub struct FixOptions {
 }
 
 /// Simple yes/no confirmation prompt
+fn display_patch_preview(term: &console::Term, patch: &str) -> Result<()> {
+    for line in patch.lines().take(15) {
+        let styled = if line.starts_with('+') && !line.starts_with("+++") {
+            format!("  {}", style(line).green())
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            format!("  {}", style(line).red())
+        } else if line.starts_with("@@") {
+            format!("  {}", style(line).cyan())
+        } else {
+            continue;
+        };
+        term.write_line(&styled)?;
+    }
+    Ok(())
+}
+
 fn confirm(prompt: &str) -> Result<bool> {
     print!("{} [Y/n] ", prompt);
     io::stdout().flush()?;
@@ -258,15 +274,7 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions) -> Resu
             ))?;
 
             if let Some(ref patch) = rule_fix.patch {
-                for line in patch.lines().take(15) {
-                    if line.starts_with('+') && !line.starts_with("+++") {
-                        term.write_line(&format!("  {}", style(line).green()))?;
-                    } else if line.starts_with('-') && !line.starts_with("---") {
-                        term.write_line(&format!("  {}", style(line).red()))?;
-                    } else if line.starts_with("@@") {
-                        term.write_line(&format!("  {}", style(line).cyan()))?;
-                    }
-                }
+                display_patch_preview(&term, patch)?;
             }
 
             if !confirm("Apply this fix?")? {
