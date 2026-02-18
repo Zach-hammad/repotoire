@@ -28,6 +28,24 @@ impl LargeFilesDetector {
         }
     }
 
+    /// Apply adaptive thresholds from a style profile.
+    pub fn with_style_profile(mut self, profile: &crate::calibrate::StyleProfile) -> Self {
+        use crate::calibrate::MetricKind;
+        if let Some(dist) = profile.get(MetricKind::FileLength) {
+            if dist.confident {
+                let adaptive = dist.p90.ceil() as usize;
+                if adaptive > self.threshold {
+                    tracing::info!(
+                        "LargeFiles: adaptive threshold {} (from p90={:.0}, default={})",
+                        adaptive, dist.p90, self.threshold
+                    );
+                    self.threshold = adaptive;
+                }
+            }
+        }
+        self
+    }
+
     /// Analyze file structure using graph
     fn analyze_file_structure(
         graph: &dyn crate::graph::GraphQuery,

@@ -14,7 +14,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 
 /// Quick file list collection (no git, no incremental checking) for cache validation
-pub(super) fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
 
     let walker = WalkBuilder::new(repo_path)

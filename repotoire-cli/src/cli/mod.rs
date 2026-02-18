@@ -215,6 +215,12 @@ pub enum Commands {
     /// Check environment setup
     Doctor,
 
+    /// Calibrate adaptive thresholds from your codebase
+    ///
+    /// Scans your code to learn YOUR patterns. Detectors then flag outliers
+    /// from your style, not arbitrary numbers.
+    Calibrate,
+
     /// Remove cached analysis data for a repository
     Clean {
         /// Preview what would be removed without deleting
@@ -410,6 +416,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
         Some(Commands::Doctor) => doctor::run(),
 
+        Some(Commands::Calibrate) => run_calibrate(&cli.path),
         Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
 
         Some(Commands::Version) => {
@@ -577,6 +584,70 @@ pub fn run(cli: Cli) -> Result<()> {
             )
         }
     }
+}
+
+fn run_calibrate(path: &std::path::Path) -> anyhow::Result<()> {
+    use crate::calibrate::{collect_metrics, MetricKind, StyleProfile};
+    use crate::parsers::parse_file;
+    use console::style;
+
+    let repo_path = std::fs::canonicalize(path)?;
+    println!("🎯 Calibrating adaptive thresholds for {}\n", repo_path.display());
+
+    // Collect files using standard walker
+    let files = crate::cli::analyze::files::collect_file_list(&repo_path)?;
+    println!("  Scanning {} files...", files.len());
+
+    // Parse all files and collect (ParseResult, file_loc) pairs
+    let mut parse_results = Vec::new();
+    for file_path in &files {
+        if let Ok(result) = parse_file(file_path) {
+            let loc = std::fs::read_to_string(file_path)
+                .map(|c| c.lines().count())
+                .unwrap_or(0);
+            parse_results.push((result, loc));
+        }
+    }
+
+    // Get git commit SHA
+    let commit_sha = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&repo_path)
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string());
+
+    // Collect metrics
+    let profile = collect_metrics(&parse_results, files.len(), commit_sha);
+
+    // Display results
+    println!("\n📊 Style Profile\n");
+    println!("  Functions: {}  Files: {}\n", profile.total_functions, profile.total_files);
+
+    for kind in MetricKind::all() {
+        let Some(dist) = profile.get(*kind) else { continue };
+        if dist.count == 0 { continue; }
+        let confidence = if dist.confident {
+            style("✓").green().to_string()
+        } else {
+            style("⚠ low sample").yellow().to_string()
+        };
+        println!(
+            "  {:<20} mean={:>6.1}  p50={:>5.0}  p90={:>5.0}  p95={:>5.0}  max={:>5.0}  n={:<5} {}",
+            kind.name(), dist.mean, dist.p50, dist.p90, dist.p95, dist.max, dist.count, confidence
+        );
+    }
+
+    // Save
+    profile.save(&repo_path)?;
+    println!(
+        "\n✅ Saved to {}\n",
+        repo_path.join(".repotoire").join(StyleProfile::FILENAME).display()
+    );
+    println!("Detectors will now use adaptive thresholds on next analyze.");
+
+    Ok(())
 }
 
 fn set_config_value(key: &str, value: &str) -> anyhow::Result<()> {

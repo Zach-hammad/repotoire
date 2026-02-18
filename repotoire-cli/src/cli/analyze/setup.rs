@@ -55,6 +55,7 @@ pub(super) struct EnvironmentSetup {
     pub repotoire_dir: PathBuf,
     pub incremental_cache: IncrementalCache,
     pub quiet_mode: bool,
+    pub style_profile: Option<crate::calibrate::StyleProfile>,
 }
 
 /// Result of score calculation phase
@@ -131,6 +132,12 @@ pub(super) fn setup_environment(
         config
     };
 
+    // Load adaptive style profile if present
+    let style_profile = crate::calibrate::StyleProfile::load(&repo_path);
+    if style_profile.is_some() && !quiet_mode {
+        println!("📐 Using adaptive thresholds from style profile");
+    }
+
     Ok(EnvironmentSetup {
         repo_path,
         project_config,
@@ -138,6 +145,7 @@ pub(super) fn setup_environment(
         repotoire_dir,
         incremental_cache,
         quiet_mode,
+        style_profile,
     })
 }
 

@@ -50,12 +50,30 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
 
     println!();
     let mut removed = 0;
-    for (_, dir) in &to_remove {
-        if let Err(e) = std::fs::remove_dir_all(dir) {
-            eprintln!("Failed to remove {}: {}", dir.display(), e);
-            continue;
+    for (kind, dir) in &to_remove {
+        // For legacy .repotoire dirs, preserve style-profile.json
+        if kind == &"Legacy" {
+            let profile = dir.join("style-profile.json");
+            let profile_backup = profile.exists().then(|| std::fs::read(&profile).ok()).flatten();
+            if let Err(e) = std::fs::remove_dir_all(dir) {
+                eprintln!("Failed to remove {}: {}", dir.display(), e);
+                continue;
+            }
+            // Restore style profile if it existed
+            if let Some(data) = profile_backup {
+                let _ = std::fs::create_dir_all(dir);
+                let _ = std::fs::write(&profile, data);
+                println!("Removed: {} (preserved style-profile.json)", dir.display());
+            } else {
+                println!("Removed: {}", dir.display());
+            }
+        } else {
+            if let Err(e) = std::fs::remove_dir_all(dir) {
+                eprintln!("Failed to remove {}: {}", dir.display(), e);
+                continue;
+            }
+            println!("Removed: {}", dir.display());
         }
-        println!("Removed: {}", dir.display());
         removed += 1;
     }
 

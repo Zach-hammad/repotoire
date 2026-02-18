@@ -18,6 +18,7 @@
 
 pub mod ai;
 pub mod cache;
+pub mod calibrate;
 pub mod classifier;
 mod cli;
 pub mod config;

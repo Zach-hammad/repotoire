@@ -10,7 +10,7 @@
 //! 7. Output results (text, json, sarif, html, md) (output.rs)
 
 mod detect;
-mod files;
+pub(crate) mod files;
 mod graph;
 mod output;
 mod parse;
@@ -429,6 +429,7 @@ fn execute_detection_phase(
             env.config.no_emoji,
             &mut detector_cache,
             &file_result.all_files,
+            env.style_profile.as_ref(),
         )?
     };
 

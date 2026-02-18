@@ -9,7 +9,7 @@
 
 use crate::config::ProjectConfig;
 use crate::detectors::{
-    default_detectors_with_config, ConfidenceMethod, DetectorEngine, IncrementalCache,
+    ConfidenceMethod, DetectorEngine, IncrementalCache,
     SeverityResolution, VotingEngine, VotingStats, VotingStrategy,
 };
 use crate::git;
@@ -113,6 +113,7 @@ pub(super) fn run_detectors(
     no_emoji: bool,
     cache: &mut IncrementalCache,
     all_files: &[std::path::PathBuf],
+    style_profile: Option<&crate::calibrate::StyleProfile>,
 ) -> Result<Vec<Finding>> {
     // Check if we can use cached detector results
     if cache.can_use_cached_detectors(all_files) {
@@ -139,7 +140,7 @@ pub(super) fn run_detectors(
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
     // Register default detectors
-    for detector in default_detectors_with_config(repo_path, project_config) {
+    for detector in crate::detectors::default_detectors_with_profile(repo_path, project_config, style_profile) {
         let name = detector.name();
         if !skip_set.contains(name) {
             engine.register(detector);

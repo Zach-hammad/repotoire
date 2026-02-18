@@ -306,6 +306,14 @@ pub fn default_detectors_with_config(
     repository_path: &Path,
     project_config: &ProjectConfig,
 ) -> Vec<Arc<dyn Detector>> {
+    default_detectors_with_profile(repository_path, project_config, None)
+}
+
+pub fn default_detectors_with_profile(
+    repository_path: &Path,
+    project_config: &ProjectConfig,
+    style_profile: Option<&crate::calibrate::StyleProfile>,
+) -> Vec<Arc<dyn Detector>> {
     // Get project type for coupling/complexity multipliers
     let project_type = project_config.get_project_type(repository_path);
     tracing::info!(
@@ -415,9 +423,15 @@ pub fn default_detectors_with_config(
         // New code quality detectors
         Arc::new(EmptyCatchDetector::new(repository_path)),
         Arc::new(TodoScanner::new(repository_path)),
-        Arc::new(DeepNestingDetector::new(repository_path)),
+        Arc::new({
+            let d = DeepNestingDetector::new(repository_path);
+            match style_profile { Some(p) => d.with_style_profile(p), None => d }
+        }),
         Arc::new(MagicNumbersDetector::new(repository_path)),
-        Arc::new(LargeFilesDetector::new(repository_path)),
+        Arc::new({
+            let d = LargeFilesDetector::new(repository_path);
+            match style_profile { Some(p) => d.with_style_profile(p), None => d }
+        }),
         Arc::new(MissingDocstringsDetector::new(repository_path)),
         // New performance detectors
         Arc::new(SyncInAsyncDetector::new(repository_path)),
