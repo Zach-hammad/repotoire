@@ -71,9 +71,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 
-# Async (for AI API calls)
-tokio = { version = "1", features = ["rt-multi-thread"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Sync HTTP (for AI API calls + OSV.dev)
+ureq = { version = "3", features = ["json"] }
 
 # Error handling
 anyhow = "1"

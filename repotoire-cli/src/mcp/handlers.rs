@@ -474,7 +474,7 @@ pub fn handle_get_hotspots(state: &mut HandlerState, args: &Value) -> Result<Val
 // =============================================================================
 
 /// Search code semantically (PRO)
-pub async fn handle_search_code(state: &HandlerState, args: &Value) -> Result<Value> {
+pub fn handle_search_code(state: &HandlerState, args: &Value) -> Result<Value> {
     if !state.is_pro() {
         return Ok(json!({
             "error": "This feature requires a PRO subscription.",
@@ -482,32 +482,23 @@ pub async fn handle_search_code(state: &HandlerState, args: &Value) -> Result<Va
         }));
     }
 
-    let query = args
-        .get("query")
-        .and_then(|v| v.as_str())
-        .context("Missing required argument: query")?;
-
+    let query = args.get("query").and_then(|v| v.as_str()).context("Missing required argument: query")?;
     let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
     let entity_types = args.get("entity_types");
 
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/api/v1/code/search", state.api_url))
+    let agent = ureq::Agent::new_with_defaults();
+    let response = agent
+        .post(&format!("{}/api/v1/code/search", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())
         .header("Content-Type", "application/json")
-        .json(&json!({
-            "query": query,
-            "top_k": top_k,
-            "entity_types": entity_types
-        }))
-        .send()
-        .await?;
+        .send_json(&json!({ "query": query, "top_k": top_k, "entity_types": entity_types }))
+        .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
 
-    handle_api_response(response).await
+    handle_api_response(response)
 }
 
 /// Ask about codebase (PRO)
-pub async fn handle_ask(state: &HandlerState, args: &Value) -> Result<Value> {
+pub fn handle_ask(state: &HandlerState, args: &Value) -> Result<Value> {
     if !state.is_pro() {
         return Ok(json!({
             "error": "This feature requires a PRO subscription.",
@@ -515,36 +506,26 @@ pub async fn handle_ask(state: &HandlerState, args: &Value) -> Result<Value> {
         }));
     }
 
-    let question = args
-        .get("question")
-        .and_then(|v| v.as_str())
-        .context("Missing required argument: question")?;
-
+    let question = args.get("question").and_then(|v| v.as_str()).context("Missing required argument: question")?;
     let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
 
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/api/v1/code/ask", state.api_url))
+    let agent = ureq::Agent::new_with_defaults();
+    let response = agent
+        .post(&format!("{}/api/v1/code/ask", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())
         .header("Content-Type", "application/json")
-        .json(&json!({
-            "question": question,
-            "top_k": top_k
-        }))
-        .send()
-        .await?;
+        .send_json(&json!({ "question": question, "top_k": top_k }))
+        .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
 
-    handle_api_response(response).await
+    handle_api_response(response)
 }
 
 /// Generate fix for a finding (PRO or BYOK)
-pub async fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<Value> {
-    // BYOK: Use local AI if user provided their own key
+pub fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<Value> {
     if let Some(backend) = &state.ai_backend {
-        return handle_generate_fix_local(state, args, *backend).await;
+        return handle_generate_fix_local(state, args, *backend);
     }
 
-    // Cloud PRO fallback
     if !state.is_pro() {
         return Ok(json!({
             "error": "AI features require an API key.",
@@ -553,27 +534,21 @@ pub async fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<V
         }));
     }
 
-    let finding_id = args
-        .get("finding_id")
-        .and_then(|v| v.as_str())
-        .context("Missing required argument: finding_id")?;
+    let finding_id = args.get("finding_id").and_then(|v| v.as_str()).context("Missing required argument: finding_id")?;
 
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/api/v1/fixes/generate", state.api_url))
+    let agent = ureq::Agent::new_with_defaults();
+    let response = agent
+        .post(&format!("{}/api/v1/fixes/generate", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())
         .header("Content-Type", "application/json")
-        .json(&json!({
-            "finding_id": finding_id
-        }))
-        .send()
-        .await?;
+        .send_json(&json!({ "finding_id": finding_id }))
+        .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
 
-    handle_api_response(response).await
+    handle_api_response(response)
 }
 
 /// Generate fix using local AI (BYOK)
-async fn handle_generate_fix_local(
+fn handle_generate_fix_local(
     state: &HandlerState,
     args: &Value,
     backend: LlmBackend,
@@ -626,7 +601,7 @@ async fn handle_generate_fix_local(
         .map(|p| p.display().to_string())
         .unwrap_or_default();
 
-    match generator.generate_fix(finding, &state.repo_path).await {
+    match generator.generate_fix(finding, &state.repo_path) {
         Ok(fix) => Ok(json!({
             "finding": {
                 "title": finding.title,
@@ -646,36 +621,33 @@ async fn handle_generate_fix_local(
     }
 }
 
-/// Handle API response with proper error mapping
-async fn handle_api_response(response: reqwest::Response) -> Result<Value> {
-    let status = response.status();
+/// Handle API response with proper error mapping (sync — ureq)
+fn handle_api_response(response: ureq::http::Response<ureq::Body>) -> Result<Value> {
+    let status = response.status().as_u16();
 
-    if status == reqwest::StatusCode::UNAUTHORIZED {
+    if status == 401 {
         return Ok(json!({
             "error": "Invalid API key. Get your key at https://app.repotoire.io/settings/api-keys"
         }));
     }
-
-    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+    if status == 402 {
         return Ok(json!({
             "error": "Feature requires PRO subscription. Upgrade at https://repotoire.com/pricing"
         }));
     }
-
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+    if status == 429 {
         return Ok(json!({
             "error": "Rate limit exceeded. Please try again later."
         }));
     }
-
-    if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_default();
+    if status >= 400 {
+        let error_text = response.into_body().read_to_string().unwrap_or_default();
         return Ok(json!({
             "error": format!("API error ({}): {}", status, error_text)
         }));
     }
 
-    let body: Value = response.json().await?;
+    let body: Value = response.into_body().read_json()?;
     Ok(body)
 }
 

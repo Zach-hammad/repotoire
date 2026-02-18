@@ -1,9 +1,9 @@
 //! LLM API client supporting OpenAI and Anthropic backends
 //!
 //! Provides a unified interface for making API calls to different LLM providers.
+//! Uses ureq (sync HTTP) — no async runtime needed.
 
 use crate::ai::{AiError, AiResult};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -19,18 +19,16 @@ pub enum LlmBackend {
 }
 
 impl LlmBackend {
-    /// Get the environment variable name for the API key
     pub fn env_key(&self) -> &'static str {
         match self {
             LlmBackend::Anthropic => "ANTHROPIC_API_KEY",
             LlmBackend::OpenAi => "OPENAI_API_KEY",
             LlmBackend::Deepinfra => "DEEPINFRA_API_KEY",
             LlmBackend::OpenRouter => "OPENROUTER_API_KEY",
-            LlmBackend::Ollama => "OLLAMA_MODEL", // Not a key, just model name
+            LlmBackend::Ollama => "OLLAMA_MODEL",
         }
     }
 
-    /// Get the signup URL for the API key
     pub fn signup_url(&self) -> &'static str {
         match self {
             LlmBackend::Anthropic => "https://console.anthropic.com/settings/keys",
@@ -41,7 +39,6 @@ impl LlmBackend {
         }
     }
 
-    /// Get the default model for this backend
     pub fn default_model(&self) -> &'static str {
         match self {
             LlmBackend::Anthropic => "claude-sonnet-4-20250514",
@@ -52,7 +49,6 @@ impl LlmBackend {
         }
     }
 
-    /// Get the API base URL
     pub fn api_url(&self) -> &'static str {
         match self {
             LlmBackend::Anthropic => "https://api.anthropic.com/v1/messages",
@@ -63,24 +59,18 @@ impl LlmBackend {
         }
     }
 
-    /// Check if this backend uses OpenAI-compatible API format
     pub fn is_openai_compatible(&self) -> bool {
         matches!(
             self,
-            LlmBackend::OpenAi
-                | LlmBackend::Deepinfra
-                | LlmBackend::OpenRouter
-                | LlmBackend::Ollama
+            LlmBackend::OpenAi | LlmBackend::Deepinfra | LlmBackend::OpenRouter | LlmBackend::Ollama
         )
     }
 
-    /// Check if this backend requires an API key
     pub fn requires_api_key(&self) -> bool {
         !matches!(self, LlmBackend::Ollama)
     }
 }
 
-/// Message role in a conversation
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -89,7 +79,6 @@ pub enum Role {
     Assistant,
 }
 
-/// A message in the conversation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
@@ -98,28 +87,16 @@ pub struct Message {
 
 impl Message {
     pub fn user(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::User,
-            content: content.into(),
-        }
+        Self { role: Role::User, content: content.into() }
     }
-
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::Assistant,
-            content: content.into(),
-        }
+        Self { role: Role::Assistant, content: content.into() }
     }
-
     pub fn system(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::System,
-            content: content.into(),
-        }
+        Self { role: Role::System, content: content.into() }
     }
 }
 
-/// Configuration for the AI client
 #[derive(Debug, Clone)]
 pub struct AiConfig {
     pub backend: LlmBackend,
@@ -134,51 +111,40 @@ impl Default for AiConfig {
             backend: LlmBackend::default(),
             model: None,
             max_tokens: 4096,
-            temperature: 0.2, // Low temperature for consistent code generation
+            temperature: 0.2,
         }
     }
 }
 
 impl AiConfig {
-    /// Get the effective model name
     pub fn model(&self) -> &str {
-        self.model
-            .as_deref()
-            .unwrap_or_else(|| self.backend.default_model())
+        self.model.as_deref().unwrap_or_else(|| self.backend.default_model())
     }
 }
 
-/// Unified LLM client supporting OpenAI and Anthropic
+/// Unified LLM client — sync HTTP via ureq (no tokio needed)
 pub struct AiClient {
     config: AiConfig,
     api_key: String,
-    http: reqwest::Client,
+    agent: ureq::Agent,
 }
 
 impl AiClient {
-    /// Create a new client with explicit API key
     pub fn new(config: AiConfig, api_key: impl Into<String>) -> Self {
         Self {
             config,
             api_key: api_key.into(),
-            http: reqwest::Client::new(),
+            agent: ureq::Agent::new_with_defaults(),
         }
     }
 
-    /// Create a client from environment variables
     pub fn from_env(backend: LlmBackend) -> AiResult<Self> {
-        let config = AiConfig {
-            backend,
-            ..Default::default()
-        };
+        let config = AiConfig { backend, ..Default::default() };
         Self::from_env_with_config(config)
     }
 
-    /// Create a client from environment with custom config
     pub fn from_env_with_config(mut config: AiConfig) -> AiResult<Self> {
-        // Ollama doesn't require an API key
         if !config.backend.requires_api_key() {
-            // Check if OLLAMA_MODEL is set to override default
             if let Ok(model) = env::var("OLLAMA_MODEL") {
                 config.model = Some(model);
             }
@@ -194,25 +160,19 @@ impl AiClient {
         Ok(Self::new(config, api_key))
     }
 
-    /// Check if Ollama is available locally and has a model we can use
     pub fn ollama_available() -> bool {
-        // Check if Ollama is running
         if std::net::TcpStream::connect("127.0.0.1:11434").is_err() {
             return false;
         }
-
-        // Try to list models - this validates Ollama is responding
         match std::process::Command::new("ollama").args(["list"]).output() {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                // Check if any model is available
                 stdout.lines().nth(1).is_some()
             }
             Err(_) => false,
         }
     }
 
-    /// Get a message about available Ollama models
     pub fn ollama_models() -> Option<String> {
         std::process::Command::new("ollama")
             .args(["list"])
@@ -221,32 +181,24 @@ impl AiClient {
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
     }
 
-    /// Get the backend being used
     pub fn backend(&self) -> LlmBackend {
         self.config.backend
     }
 
-    /// Get the model being used
     pub fn model(&self) -> &str {
         self.config.model()
     }
 
-    /// Generate a response from the LLM
-    pub async fn generate(&self, messages: Vec<Message>, system: Option<&str>) -> AiResult<String> {
+    /// Generate a response (sync)
+    pub fn generate(&self, messages: Vec<Message>, system: Option<&str>) -> AiResult<String> {
         if self.config.backend.is_openai_compatible() {
-            self.generate_openai(messages, system).await
+            self.generate_openai(messages, system)
         } else {
-            self.generate_anthropic(messages, system).await
+            self.generate_anthropic(messages, system)
         }
     }
 
-    /// Generate response using OpenAI API
-    async fn generate_openai(
-        &self,
-        mut messages: Vec<Message>,
-        system: Option<&str>,
-    ) -> AiResult<String> {
-        // Prepend system message if provided
+    fn generate_openai(&self, mut messages: Vec<Message>, system: Option<&str>) -> AiResult<String> {
         if let Some(sys) = system {
             messages.insert(0, Message::system(sys));
         }
@@ -258,34 +210,26 @@ impl AiClient {
             temperature: self.config.temperature,
         };
 
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", self.api_key))
-                .map_err(|_| AiError::ConfigError("Invalid API key format".to_string()))?,
-        );
+        let mut req = self.agent.post(self.config.backend.api_url())
+            .header("Content-Type", "application/json");
 
-        let response = self
-            .http
-            .post(self.config.backend.api_url())
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await?;
+        if self.config.backend.requires_api_key() {
+            req = req.header("Authorization", &format!("Bearer {}", self.api_key));
+        }
 
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::ApiError {
-                status: status.as_u16(),
-                message: error_text,
-            });
+        let response = req
+            .send_json(&body)
+            .map_err(|e| AiError::ApiError { status: 0, message: e.to_string() })?;
+
+        let status = response.status().as_u16();
+        if status >= 400 {
+            let error_text = response.into_body().read_to_string().unwrap_or_default();
+            return Err(AiError::ApiError { status, message: error_text });
         }
 
         let resp: OpenAiResponse = response
-            .json()
-            .await
+            .into_body()
+            .read_json()
             .map_err(|e| AiError::ParseError(e.to_string()))?;
 
         resp.choices
@@ -295,17 +239,8 @@ impl AiClient {
             .ok_or_else(|| AiError::ParseError("No response choices".to_string()))
     }
 
-    /// Generate response using Anthropic API
-    async fn generate_anthropic(
-        &self,
-        messages: Vec<Message>,
-        system: Option<&str>,
-    ) -> AiResult<String> {
-        // Filter out system messages (Anthropic handles system separately)
-        let messages: Vec<_> = messages
-            .into_iter()
-            .filter(|m| m.role != Role::System)
-            .collect();
+    fn generate_anthropic(&self, messages: Vec<Message>, system: Option<&str>) -> AiResult<String> {
+        let messages: Vec<_> = messages.into_iter().filter(|m| m.role != Role::System).collect();
 
         let body = AnthropicRequest {
             model: self.config.model().to_string(),
@@ -315,35 +250,22 @@ impl AiClient {
             temperature: Some(self.config.temperature),
         };
 
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers.insert(
-            "x-api-key",
-            HeaderValue::from_str(&self.api_key)
-                .map_err(|_| AiError::ConfigError("Invalid API key format".to_string()))?,
-        );
-        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        let response = self.agent.post(self.config.backend.api_url())
+            .header("Content-Type", "application/json")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .send_json(&body)
+            .map_err(|e| AiError::ApiError { status: 0, message: e.to_string() })?;
 
-        let response = self
-            .http
-            .post(self.config.backend.api_url())
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::ApiError {
-                status: status.as_u16(),
-                message: error_text,
-            });
+        let status = response.status().as_u16();
+        if status >= 400 {
+            let error_text = response.into_body().read_to_string().unwrap_or_default();
+            return Err(AiError::ApiError { status, message: error_text });
         }
 
         let resp: AnthropicResponse = response
-            .json()
-            .await
+            .into_body()
+            .read_json()
             .map_err(|e| AiError::ParseError(e.to_string()))?;
 
         resp.content
@@ -409,10 +331,7 @@ mod tests {
     #[test]
     fn test_backend_defaults() {
         assert_eq!(LlmBackend::OpenAi.default_model(), "gpt-4o");
-        assert_eq!(
-            LlmBackend::Anthropic.default_model(),
-            "claude-sonnet-4-20250514"
-        );
+        assert_eq!(LlmBackend::Anthropic.default_model(), "claude-sonnet-4-20250514");
     }
 
     #[test]

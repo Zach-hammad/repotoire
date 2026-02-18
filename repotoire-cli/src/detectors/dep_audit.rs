@@ -445,15 +445,8 @@ impl DepAuditDetector {
         // OSV batch API limit is 1000 queries per request
         let mut all_results = Vec::new();
 
-        // Create runtime once, not per batch (#61)
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(e) => {
-                warn!("Failed to create tokio runtime for OSV query: {}", e);
-                return vec![];
-            }
-        };
-        let client = reqwest::Client::new();
+        // Sync HTTP via ureq (no tokio needed)
+        let agent = ureq::Agent::new_with_defaults();
 
         for chunk in deps.chunks(1000) {
             let query = OsvBatchQuery {
@@ -469,27 +462,14 @@ impl DepAuditDetector {
                     .collect(),
             };
 
-            let body = match serde_json::to_string(&query) {
-                Ok(b) => b,
-                Err(e) => {
-                    warn!("Failed to serialize OSV query: {}", e);
-                    continue;
-                }
-            };
-
-            // Use blocking reqwest with shared runtime + client (#61)
-            let result = rt.block_on(async {
-                client
-                    .post("https://api.osv.dev/v1/querybatch")
-                    .header("Content-Type", "application/json")
-                    .body(body)
-                    .send()
-                    .await
-            });
+            let result = agent
+                .post("https://api.osv.dev/v1/querybatch")
+                .header("Content-Type", "application/json")
+                .send_json(&query);
 
             match result {
                 Ok(response) => {
-                    let text = rt.block_on(async { response.text().await });
+                    let text = response.into_body().read_to_string();
                     if let Ok(text) = text {
                         if let Ok(batch_response) = serde_json::from_str::<OsvBatchResponse>(&text)
                         {

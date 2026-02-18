@@ -38,7 +38,7 @@ pub enum AiError {
     MissingApiKey { env_var: String, signup_url: String },
 
     #[error("API request failed: {0}")]
-    RequestFailed(#[from] reqwest::Error),
+    RequestFailed(String),
 
     #[error("API error: {status} - {message}")]
     ApiError { status: u16, message: String },

@@ -120,7 +120,7 @@ impl FixGenerator {
     }
 
     /// Generate a fix for a finding
-    pub async fn generate_fix(&self, finding: &Finding, repo_path: &Path) -> AiResult<FixProposal> {
+    pub fn generate_fix(&self, finding: &Finding, repo_path: &Path) -> AiResult<FixProposal> {
         // Determine language from file extension
         let language = finding
             .affected_files
@@ -148,7 +148,7 @@ impl FixGenerator {
         let response = self
             .client
             .generate(vec![Message::user(prompt)], Some(system_prompt))
-            .await?;
+            ?;
 
         // Parse response
         let mut fix = self.parse_response(&response, finding, fix_type)?;
@@ -165,7 +165,7 @@ impl FixGenerator {
     }
 
     /// Generate a fix with retry on validation failure
-    pub async fn generate_fix_with_retry(
+    pub fn generate_fix_with_retry(
         &self,
         finding: &Finding,
         repo_path: &Path,
@@ -198,7 +198,7 @@ impl FixGenerator {
             let response = self
                 .client
                 .generate(vec![Message::user(prompt)], Some(system_prompt))
-                .await?;
+                ?;
 
             let mut fix = self.parse_response(&response, finding, fix_type)?;
             fix.syntax_valid = self.validate_syntax(&fix, language);
@@ -222,7 +222,7 @@ impl FixGenerator {
         }
 
         // Return last attempt even if invalid
-        self.generate_fix(finding, repo_path).await
+        self.generate_fix(finding, repo_path)
     }
 
     fn read_code_section(&self, finding: &Finding, repo_path: &Path) -> AiResult<String> {

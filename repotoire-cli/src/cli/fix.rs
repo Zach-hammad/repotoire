@@ -460,10 +460,10 @@ fn run_ai_fix(
     ))?;
 
     // Generate fix using async runtime
-    let rt = tokio::runtime::Runtime::new()?;
+    // Sync — no runtime needed (ureq)
     let generator = FixGenerator::new(client);
 
-    let fix = rt.block_on(async { generator.generate_fix_with_retry(finding, path, 2).await })?;
+    let fix = generator.generate_fix_with_retry(finding, path, 2)?;
 
     // Display fix
     term.write_line(&format!("{} {}\n", style("Fix:").green().bold(), fix.title))?;

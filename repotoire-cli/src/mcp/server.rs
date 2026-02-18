@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use tokio::runtime::Runtime;
+// No async runtime needed — ureq is sync
 use tracing::{debug, error, info};
 
 use super::handlers::HandlerState;
@@ -207,19 +207,13 @@ impl McpServer {
     }
 
     fn handle_async_tool(&self, name: &str, arguments: &Value) -> Result<Value> {
-        // Create a runtime for async operations
-        let rt = Runtime::new().context("Failed to create tokio runtime")?;
-
-        rt.block_on(async {
-            match name {
-                "search_code" => super::handlers::handle_search_code(&self.state, arguments).await,
-                "ask" => super::handlers::handle_ask(&self.state, arguments).await,
-                "generate_fix" => {
-                    super::handlers::handle_generate_fix(&self.state, arguments).await
-                }
-                _ => Err(anyhow::anyhow!("Unknown async tool: {}", name)),
-            }
-        })
+        // All handlers are now sync (ureq)
+        match name {
+            "search_code" => super::handlers::handle_search_code(&self.state, arguments),
+            "ask" => super::handlers::handle_ask(&self.state, arguments),
+            "generate_fix" => super::handlers::handle_generate_fix(&self.state, arguments),
+            _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
+        }
     }
 }
 

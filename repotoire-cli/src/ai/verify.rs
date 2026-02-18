@@ -7,7 +7,6 @@ use crate::ai::client::{AiClient, LlmBackend};
 use crate::ai::{AiError, AiResult};
 use crate::models::{Finding, Severity};
 use std::path::Path;
-use tokio::runtime::Runtime;
 use tracing::{debug, info, warn};
 
 /// Result of LLM verification
@@ -56,8 +55,8 @@ impl FindingVerifier {
         })
     }
 
-    /// Verify a single finding
-    pub async fn verify_finding(&self, finding: &Finding) -> VerifyResult {
+    /// Verify a single finding (sync — ureq)
+    pub fn verify_finding(&self, finding: &Finding) -> VerifyResult {
         // Read code context
         let code_context = match self.read_code_context(finding) {
             Ok(ctx) => ctx,
@@ -101,7 +100,7 @@ FALSE_POSITIVE: <brief reason>"#,
             content: prompt,
         }];
 
-        match self.client.generate(messages, None).await {
+        match self.client.generate(messages, None) {
             Ok(response) => self.parse_response(&response),
             Err(e) => VerifyResult::Error {
                 message: e.to_string(),
@@ -203,25 +202,14 @@ pub fn verify_findings(findings: Vec<Finding>, repo_path: &Path) -> Vec<Finding>
         }
     };
 
-    // Create runtime for async
-    let rt = match Runtime::new() {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("Failed to create runtime: {}. Skipping verification.", e);
-            let mut all = other_findings;
-            all.extend(high_findings);
-            return all;
-        }
-    };
-
-    // Verify each HIGH finding
+    // Verify each HIGH finding (sync — no runtime needed)
     let mut verified_findings = Vec::new();
     let mut fp_count = 0;
     let mut tp_count = 0;
     let mut err_count = 0;
 
     for finding in high_findings {
-        let result = rt.block_on(verifier.verify_finding(&finding));
+        let result = verifier.verify_finding(&finding);
 
         match result {
             VerifyResult::TruePositive { reason } => {
