@@ -206,7 +206,8 @@ pub fn run(
     )?;
 
     // Cache postprocessed findings for both feedback and incremental fast path (#65)
-    env.incremental_cache.cache_graph_findings("__all__", &findings);
+    env.incremental_cache
+        .cache_graph_findings("__all__", &findings);
     let _ = env.incremental_cache.save_cache();
     cache_findings(path, &findings);
 

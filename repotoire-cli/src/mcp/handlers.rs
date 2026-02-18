@@ -482,16 +482,22 @@ pub fn handle_search_code(state: &HandlerState, args: &Value) -> Result<Value> {
         }));
     }
 
-    let query = args.get("query").and_then(|v| v.as_str()).context("Missing required argument: query")?;
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .context("Missing required argument: query")?;
     let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
     let entity_types = args.get("entity_types");
 
-    let agent = ureq::config::Config::builder().http_status_as_error(false).build().new_agent();
+    let agent = ureq::config::Config::builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
     let response = agent
         .post(&format!("{}/api/v1/code/search", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())
         .header("Content-Type", "application/json")
-        .send_json(&json!({ "query": query, "top_k": top_k, "entity_types": entity_types }))
+        .send_json(json!({ "query": query, "top_k": top_k, "entity_types": entity_types }))
         .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
 
     handle_api_response(response)
@@ -506,15 +512,21 @@ pub fn handle_ask(state: &HandlerState, args: &Value) -> Result<Value> {
         }));
     }
 
-    let question = args.get("question").and_then(|v| v.as_str()).context("Missing required argument: question")?;
+    let question = args
+        .get("question")
+        .and_then(|v| v.as_str())
+        .context("Missing required argument: question")?;
     let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
 
-    let agent = ureq::config::Config::builder().http_status_as_error(false).build().new_agent();
+    let agent = ureq::config::Config::builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
     let response = agent
         .post(&format!("{}/api/v1/code/ask", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())
         .header("Content-Type", "application/json")
-        .send_json(&json!({ "question": question, "top_k": top_k }))
+        .send_json(json!({ "question": question, "top_k": top_k }))
         .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
 
     handle_api_response(response)
@@ -534,14 +546,20 @@ pub fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<Value> 
         }));
     }
 
-    let finding_id = args.get("finding_id").and_then(|v| v.as_str()).context("Missing required argument: finding_id")?;
+    let finding_id = args
+        .get("finding_id")
+        .and_then(|v| v.as_str())
+        .context("Missing required argument: finding_id")?;
 
-    let agent = ureq::config::Config::builder().http_status_as_error(false).build().new_agent();
+    let agent = ureq::config::Config::builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
     let response = agent
         .post(&format!("{}/api/v1/fixes/generate", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())
         .header("Content-Type", "application/json")
-        .send_json(&json!({ "finding_id": finding_id }))
+        .send_json(json!({ "finding_id": finding_id }))
         .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
 
     handle_api_response(response)

@@ -53,7 +53,9 @@ pub struct PipelineConfig {
 impl PipelineConfig {
     /// Create config for a repo of given size
     pub fn for_repo_size(num_files: usize) -> Self {
-        let num_workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let num_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
 
         // Adaptive buffer sizing:
         // - Small repos (<5k): buffer 100 (fast, ~500KB in-flight)
