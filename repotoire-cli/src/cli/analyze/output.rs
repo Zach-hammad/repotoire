@@ -349,7 +349,7 @@ pub(super) fn output_cached_results(
     format: &str,
     output_path: Option<&Path>,
     start_time: Instant,
-    _explain_score: bool,
+    explain_score: bool,
     severity: &Option<String>,
     top: Option<usize>,
     page: usize,
@@ -398,6 +398,15 @@ pub(super) fn output_cached_results(
         paginated_findings.len(),
         no_emoji,
     )?;
+
+    // Warn if --explain-score used with cached results
+    if explain_score {
+        eprintln!(
+            "{}",
+            console::style("Note: --explain-score requires a fresh analysis. Run `repotoire clean` first, then re-analyze.")
+                .yellow()
+        );
+    }
 
     // Final summary (text only)
     if format != "json" && format != "sarif" {

@@ -460,11 +460,46 @@ fn generate_reports(
         no_emoji,
     )?;
 
-    if explain_score && format == "text" {
-        println!("\n{}", style("─".repeat(60)).dim());
+    if explain_score {
         let scorer = crate::scoring::GraphScorer::new(graph, project_config);
         let explanation = scorer.explain(&score_result.breakdown);
-        println!("{}", explanation);
+        match format {
+            "json" => {
+                // Print explanation as a separate JSON object to stderr
+                // (stdout already has the findings JSON)
+                let explain_json = serde_json::json!({
+                    "explanation": explanation,
+                    "breakdown": {
+                        "overall_score": score_result.breakdown.overall_score,
+                        "grade": &score_result.breakdown.grade,
+                        "kloc": score_result.breakdown.graph_metrics.total_loc as f64 / 1000.0,
+                        "structure": {
+                            "score": score_result.breakdown.structure.final_score,
+                            "base": score_result.breakdown.structure.base_score,
+                            "penalty": score_result.breakdown.structure.penalty_points,
+                            "findings": score_result.breakdown.structure.finding_count,
+                        },
+                        "quality": {
+                            "score": score_result.breakdown.quality.final_score,
+                            "base": score_result.breakdown.quality.base_score,
+                            "penalty": score_result.breakdown.quality.penalty_points,
+                            "findings": score_result.breakdown.quality.finding_count,
+                        },
+                        "architecture": {
+                            "score": score_result.breakdown.architecture.final_score,
+                            "base": score_result.breakdown.architecture.base_score,
+                            "penalty": score_result.breakdown.architecture.penalty_points,
+                            "findings": score_result.breakdown.architecture.finding_count,
+                        },
+                    }
+                });
+                eprintln!("{}", serde_json::to_string_pretty(&explain_json).unwrap_or_default());
+            }
+            _ => {
+                println!("\n{}", style("─".repeat(60)).dim());
+                println!("{}", explanation);
+            }
+        }
     }
 
     Ok(())
