@@ -79,7 +79,7 @@ impl StreamingDetectorEngine {
             output_path,
             batch_size: 10,
             max_findings_per_detector: 5000,
-            workers: num_cpus::get(),
+            workers: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
         }
     }
 

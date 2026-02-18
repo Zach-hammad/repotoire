@@ -15,7 +15,6 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Thresholds for shotgun surgery detection
 #[derive(Debug, Clone)]
@@ -259,7 +258,7 @@ impl Detector for ShotgunSurgeryDetector {
             };
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "ShotgunSurgeryDetector".to_string(),
                 severity,
                 title: format!("Shotgun Surgery Risk: {}", class.name),
@@ -447,7 +446,7 @@ impl Detector for ShotgunSurgeryDetector {
 
             if caller_modules.len() >= self.thresholds.critical_modules {
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "ShotgunSurgeryDetector".to_string(),
                     severity: Severity::High,
                     title: format!("High-Impact Function: {}", func.name),

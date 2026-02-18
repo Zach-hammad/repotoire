@@ -11,7 +11,6 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
-use uuid::Uuid;
 
 pub struct MissingDocstringsDetector {
     repository_path: PathBuf,
@@ -210,7 +209,7 @@ impl Detector for MissingDocstringsDetector {
                     let template = Self::generate_template(&func.name, func.param_count(), ext);
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "MissingDocstringsDetector".to_string(),
                         severity,
                         title: format!("Missing documentation: `{}`", func.name),

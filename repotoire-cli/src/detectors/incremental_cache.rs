@@ -256,18 +256,20 @@ impl IncrementalCache {
     pub fn get_file_hash(&self, path: &Path) -> String {
         match fs::File::open(path) {
             Ok(mut file) => {
-                let mut ctx = md5::Context::new();
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::Hasher;
+                let mut hasher = DefaultHasher::new();
                 let mut buffer = [0u8; HASH_BUFFER_SIZE];
 
                 loop {
                     match file.read(&mut buffer) {
                         Ok(0) => break,
-                        Ok(n) => ctx.consume(&buffer[..n]),
+                        Ok(n) => hasher.write(&buffer[..n]),
                         Err(_) => break,
                     }
                 }
 
-                format!("{:x}", ctx.compute())
+                format!("{:016x}", hasher.finish())
             }
             Err(_) => format!("error:{}", path.display()),
         }
@@ -440,7 +442,9 @@ impl IncrementalCache {
 
     /// Compute a combined hash of all files for graph-level cache validation
     pub fn compute_all_files_hash(&self, files: &[std::path::PathBuf]) -> String {
-        let mut ctx = md5::Context::new();
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
 
         // Sort files for deterministic hashing
         let mut sorted_files: Vec<_> = files.iter().collect();
@@ -448,11 +452,11 @@ impl IncrementalCache {
 
         for path in sorted_files {
             // Hash file path and content hash
-            ctx.consume(path.to_string_lossy().as_bytes());
-            ctx.consume(self.get_file_hash(path).as_bytes());
+            path.to_string_lossy().as_bytes().hash(&mut hasher);
+            self.get_file_hash(path).hash(&mut hasher);
         }
 
-        format!("{:x}", ctx.compute())
+        format!("{:016x}", hasher.finish())
     }
 
     /// Check if we can use cached detector results

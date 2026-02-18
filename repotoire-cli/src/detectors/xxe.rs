@@ -13,7 +13,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static XXE_PATTERN: OnceLock<Regex> = OnceLock::new();
 static USER_INPUT: OnceLock<Regex> = OnceLock::new();
@@ -301,7 +300,7 @@ impl Detector for XxeDetector {
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "XxeDetector".to_string(),
                         severity,
                         title: "XML External Entity (XXE) vulnerability".to_string(),

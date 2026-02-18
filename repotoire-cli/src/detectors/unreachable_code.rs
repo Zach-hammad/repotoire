@@ -13,7 +13,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 static RETURN_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -520,7 +519,7 @@ impl UnreachableCodeDetector {
             debug!("Dead function found: {} in {}", func.name, func.file_path);
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "UnreachableCodeDetector".to_string(),
                 severity: if !dead_callees.is_empty() {
                     Severity::High
@@ -579,7 +578,7 @@ impl UnreachableCodeDetector {
                 .collect();
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "UnreachableCodeDetector".to_string(),
                 severity: Severity::Low, // Lower - fixing root dead function will resolve this
                 title: format!("Transitively dead: {}", func.name),
@@ -743,7 +742,7 @@ impl UnreachableCodeDetector {
 
                         if next_indent >= curr_indent && !next.starts_with("}") {
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "UnreachableCodeDetector".to_string(),
                                 severity: Severity::Medium,
                                 title: "Unreachable code after return".to_string(),

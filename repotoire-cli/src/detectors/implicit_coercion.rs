@@ -14,7 +14,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static LOOSE_EQUALITY: OnceLock<Regex> = OnceLock::new();
 
@@ -178,7 +177,7 @@ impl Detector for ImplicitCoercionDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "ImplicitCoercionDetector".to_string(),
                             severity,
                             title: "Loose equality (==) used".to_string(),

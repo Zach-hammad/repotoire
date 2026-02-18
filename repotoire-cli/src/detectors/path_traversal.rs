@@ -8,7 +8,6 @@ use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static FILE_OP: OnceLock<Regex> = OnceLock::new();
 static PATH_JOIN: OnceLock<Regex> = OnceLock::new();
@@ -177,7 +176,7 @@ impl Detector for PathTraversalDetector {
                         );
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "PathTraversalDetector".to_string(),
                             severity,
                             title: "Potential path traversal in file operation".to_string(),
@@ -203,7 +202,7 @@ impl Detector for PathTraversalDetector {
                         );
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "PathTraversalDetector".to_string(),
                             severity,
                             title: "Path traversal via path.join with user input".to_string(),
@@ -228,7 +227,7 @@ impl Detector for PathTraversalDetector {
                         );
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "PathTraversalDetector".to_string(),
                             severity,
                             title: "Path traversal in file download".to_string(),
@@ -264,7 +263,7 @@ impl Detector for PathTraversalDetector {
                         );
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "PathTraversalDetector".to_string(),
                             severity,
                             title: "Path traversal via string concatenation".to_string(),

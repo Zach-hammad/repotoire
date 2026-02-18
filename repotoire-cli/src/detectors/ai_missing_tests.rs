@@ -26,7 +26,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::debug;
-use uuid::Uuid;
 
 /// Default configuration
 const DEFAULT_MIN_FUNCTION_LOC: usize = 5;
@@ -294,7 +293,7 @@ describe('{}', () => {{
         );
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "AIMissingTestsDetector".to_string(),
             severity: Severity::Medium,
             title: format!("Missing tests for {}: {}", func_type, name),
@@ -390,7 +389,7 @@ impl Detector for AIMissingTestsDetector {
                 };
 
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "AIMissingTestsDetector".to_string(),
                     severity,
                     title: format!("Missing Test: {}", func.name),
@@ -501,7 +500,7 @@ impl Detector for AIMissingTestsDetector {
                 };
 
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "AIMissingTestsDetector".to_string(),
                     severity,
                     title: format!("Missing Test: {}", func.name),

@@ -13,7 +13,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 static ASSIGNMENT: OnceLock<Regex> = OnceLock::new();
 static VAR_READ: OnceLock<Regex> = OnceLock::new();
@@ -140,7 +139,7 @@ impl DeadStoreDetector {
                                 seen_assignments.insert((var.to_string(), i));
 
                                 findings.push(Finding {
-                                    id: Uuid::new_v4().to_string(),
+                                    id: String::new(),
                                     detector: "DeadStoreDetector".to_string(),
                                     severity: Severity::Low,
                                     title: format!("Dead store: {}", var),
@@ -207,7 +206,7 @@ impl DeadStoreDetector {
                     // Simple function with many params = likely unused params
                     if callees.len() <= 2 && param_count >= 5 {
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "DeadStoreDetector".to_string(),
                             severity: Severity::Low,
                             title: format!("Function `{}` has {} parameters but simple body", func.name, param_count),

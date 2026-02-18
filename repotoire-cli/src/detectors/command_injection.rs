@@ -8,7 +8,6 @@ use anyhow::Result;
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static SHELL_EXEC: OnceLock<Regex> = OnceLock::new();
 static GO_EXEC: OnceLock<Regex> = OnceLock::new();
@@ -276,7 +275,7 @@ impl Detector for CommandInjectionDetector {
                             }
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "CommandInjectionDetector".to_string(),
                                 severity,
                                 title: "Potential command injection".to_string(),
@@ -305,7 +304,7 @@ impl Detector for CommandInjectionDetector {
                             );
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "CommandInjectionDetector".to_string(),
                                 severity,
                                 title: "Command injection via template literal".to_string(),
@@ -330,7 +329,7 @@ impl Detector for CommandInjectionDetector {
                             );
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "CommandInjectionDetector".to_string(),
                                 severity,
                                 title: "Command injection via interpolated variable".to_string(),
@@ -364,7 +363,7 @@ impl Detector for CommandInjectionDetector {
                             );
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "CommandInjectionDetector".to_string(),
                                 severity,
                                 title: "Command injection via direct user input".to_string(),
@@ -410,7 +409,7 @@ impl Detector for CommandInjectionDetector {
                             );
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "CommandInjectionDetector".to_string(),
                                 severity,
                                 title: "Potential command injection in Go exec.Command".to_string(),

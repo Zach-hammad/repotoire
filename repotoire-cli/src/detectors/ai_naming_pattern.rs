@@ -23,7 +23,6 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Default configuration
 const DEFAULT_GENERIC_RATIO_THRESHOLD: f64 = 0.4; // 40%
@@ -392,7 +391,7 @@ impl AINamingPatternDetector {
         let ratio_pct = format!("{:.0}%", analysis.generic_ratio * 100.0);
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "AINamingPatternDetector".to_string(),
             severity: Severity::Low, // Always LOW as specified
             title: format!(
@@ -456,7 +455,7 @@ impl Detector for AINamingPatternDetector {
 
             if is_generic && func.loc() > 10 {
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "AINamingPatternDetector".to_string(),
                     severity: Severity::Low,
                     title: format!("Generic Naming: {}", func.name),

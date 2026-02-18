@@ -11,7 +11,6 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
-use uuid::Uuid;
 
 pub struct InconsistentReturnsDetector {
     repository_path: PathBuf,
@@ -217,7 +216,7 @@ impl Detector for InconsistentReturnsDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "InconsistentReturnsDetector".to_string(),
                         severity,
                         title: format!("Inconsistent returns in '{}'", func.name),

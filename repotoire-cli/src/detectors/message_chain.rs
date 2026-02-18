@@ -16,7 +16,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 static CHAIN_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -175,7 +174,7 @@ impl MessageChainDetector {
                         let severity = self.calculate_severity(depth);
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "MessageChainDetector".to_string(),
                             severity,
                             title: format!("Law of Demeter violation: {}-level chain", depth),
@@ -281,7 +280,7 @@ impl MessageChainDetector {
             };
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "MessageChainDetector".to_string(),
                 severity,
                 title: format!("Delegation chain: {} starts a {}-level chain", func.name, chain_depth),

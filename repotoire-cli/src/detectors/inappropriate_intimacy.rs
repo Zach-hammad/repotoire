@@ -30,7 +30,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Thresholds for inappropriate intimacy detection
 #[derive(Debug, Clone)]
@@ -152,7 +151,7 @@ impl InappropriateIntimacyDetector {
         }
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "InappropriateIntimacyDetector".to_string(),
             severity,
             title: format!("Inappropriate Intimacy: {} ↔ {}", class1_name, class2_name),
@@ -395,7 +394,7 @@ impl Detector for InappropriateIntimacyDetector {
                 }
 
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "InappropriateIntimacyDetector".to_string(),
                     severity,
                     title: "Inappropriate Intimacy".to_string(),

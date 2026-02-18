@@ -7,7 +7,6 @@ use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static WEAK_HASH: OnceLock<Regex> = OnceLock::new();
 static WEAK_CIPHER: OnceLock<Regex> = OnceLock::new();
@@ -391,7 +390,7 @@ impl Detector for InsecureCryptoDetector {
 
                     if weak_hash().is_match(line) && !is_hash_mention_not_usage(line) {
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "InsecureCryptoDetector".to_string(),
                             severity: Severity::High,
                             title: "Weak hash algorithm (MD5/SHA1)".to_string(),
@@ -414,7 +413,7 @@ impl Detector for InsecureCryptoDetector {
                     // Check for weak cipher usage, but skip mere mentions
                     if weak_cipher().is_match(line) && !is_cipher_mention_not_usage(line) {
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "InsecureCryptoDetector".to_string(),
                             severity: Severity::High,
                             title: "Weak cipher algorithm".to_string(),

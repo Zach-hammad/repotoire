@@ -25,7 +25,6 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Taint source patterns (user input, network, etc.)
 /// NOTE: These should only be actual INPUT sources, not operations that use input
@@ -414,7 +413,7 @@ impl TaintDetector {
         let suggested_fix = self.get_recommendation(&flow.vulnerability);
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "TaintDetector".to_string(),
             severity,
             title,
@@ -626,7 +625,7 @@ impl Detector for TaintDetector {
                 seen.insert(loc);
 
                 findings.push(Finding {
-                    id: uuid::Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "TaintDetector".to_string(),
                     title: format!("{} via data flow", category.name()),
                     description: format!(

@@ -15,7 +15,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static BROAD_EXCEPT: OnceLock<Regex> = OnceLock::new();
 
@@ -219,7 +218,7 @@ impl Detector for BroadExceptionDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "BroadExceptionDetector".to_string(),
                             severity,
                             title: "Broad exception catch".to_string(),

@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static TIMEOUT_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -280,7 +279,7 @@ impl Detector for HardcodedTimeoutDetector {
                             };
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "HardcodedTimeoutDetector".to_string(),
                                 severity,
                                 title: format!("Hardcoded timeout: {}", format_duration(value)),

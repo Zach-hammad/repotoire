@@ -12,7 +12,6 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use tracing::info;
-use uuid::Uuid;
 
 pub struct DeepNestingDetector {
     repository_path: PathBuf,
@@ -237,7 +236,7 @@ impl Detector for DeepNestingDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "DeepNestingDetector".to_string(),
                         severity,
                         title: format!(

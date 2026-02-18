@@ -20,7 +20,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Thresholds for long parameter list detection
 #[derive(Debug, Clone)]
@@ -292,7 +291,7 @@ impl LongParameterListDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "LongParameterListDetector".to_string(),
             severity,
             title: format!(
@@ -454,7 +453,7 @@ impl Detector for LongParameterListDetector {
             };
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "LongParameterListDetector".to_string(),
                 severity,
                 title: format!("Long parameter list: {}", func.name),

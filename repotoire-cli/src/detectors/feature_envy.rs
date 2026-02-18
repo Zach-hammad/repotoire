@@ -30,7 +30,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Thresholds for feature envy detection
 #[derive(Debug, Clone)]
@@ -253,7 +252,7 @@ impl FeatureEnvyDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "FeatureEnvyDetector".to_string(),
             severity,
             title: format!("Feature Envy: {}", method_simple),
@@ -504,7 +503,7 @@ impl Detector for FeatureEnvyDetector {
                 };
 
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "FeatureEnvyDetector".to_string(),
                     severity,
                     title: format!("Feature Envy: {}", func.name),

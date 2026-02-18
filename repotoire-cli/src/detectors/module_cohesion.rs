@@ -11,7 +11,6 @@ use anyhow::Result;
 use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Detects modularity issues using Louvain community detection.
 ///
@@ -244,7 +243,7 @@ impl ModuleCohesionDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "ModuleCohesionDetector".to_string(),
             severity,
             title: format!("Poor codebase modularity (score: {:.2})", modularity_score),
@@ -310,7 +309,7 @@ impl ModuleCohesionDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "ModuleCohesionDetector".to_string(),
             severity,
             title: format!(
@@ -382,7 +381,7 @@ impl ModuleCohesionDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "ModuleCohesionDetector".to_string(),
             severity,
             title: format!("Potentially misplaced file: {}", file_path),
@@ -438,7 +437,7 @@ impl ModuleCohesionDetector {
             .to_string();
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "ModuleCohesionDetector".to_string(),
             severity: Severity::Medium,
             title: format!(
@@ -520,7 +519,7 @@ impl Detector for ModuleCohesionDetector {
 
                 if cohesion < 0.3 && (internal + external) >= 5 {
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "ModuleCohesionDetector".to_string(),
                         severity: Severity::Medium,
                         title: "Low Module Cohesion".to_string(),

@@ -20,7 +20,6 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Dangerous code execution functions (without parens - used in regex)
 const CODE_EXEC_FUNCTIONS: &[&str] = &["eval", "exec", "__import__", "import_module"];
@@ -444,7 +443,7 @@ impl EvalDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "EvalDetector".to_string(),
             severity,
             title,

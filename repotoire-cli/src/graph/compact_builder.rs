@@ -7,7 +7,7 @@ use super::compact_store::CompactGraphStore;
 
 use crate::parsers::lightweight::LightweightFileInfo;
 use anyhow::Result;
-use crossbeam::channel::bounded;
+use crossbeam_channel::bounded;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
@@ -206,7 +206,7 @@ pub fn build_compact_graph(
 
 /// Adaptive configuration based on repo size
 pub fn adaptive_config(num_files: usize) -> (usize, usize) {
-    let num_workers = num_cpus::get();
+    let num_workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
 
     // Smaller buffers for larger repos
     let buffer_size = match num_files {

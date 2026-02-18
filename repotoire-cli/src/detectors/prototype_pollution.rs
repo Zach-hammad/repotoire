@@ -13,7 +13,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static POLLUTION_PATTERN: OnceLock<Regex> = OnceLock::new();
 static USER_INPUT: OnceLock<Regex> = OnceLock::new();
@@ -304,7 +303,7 @@ impl Detector for PrototypePollutionDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "PrototypePollutionDetector".to_string(),
                         severity,
                         title: format!("Prototype pollution: {}", pattern_desc),

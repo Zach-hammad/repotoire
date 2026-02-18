@@ -14,7 +14,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static PYTHON_IMPORT: OnceLock<Regex> = OnceLock::new();
 static JS_IMPORT: OnceLock<Regex> = OnceLock::new();
@@ -267,7 +266,7 @@ impl Detector for UnusedImportsDetector {
                 };
 
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "UnusedImportsDetector".to_string(),
                     severity,
                     title: format!("Unused import{}: {}", if group.len() > 1 { "s" } else { "" }, symbols_str),

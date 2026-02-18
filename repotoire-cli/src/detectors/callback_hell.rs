@@ -13,7 +13,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::info;
-use uuid::Uuid;
 
 pub struct CallbackHellDetector {
     repository_path: PathBuf,
@@ -190,7 +189,7 @@ impl Detector for CallbackHellDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "CallbackHellDetector".to_string(),
                         severity,
                         title: format!("Callback hell ({} levels deep)", max_depth),

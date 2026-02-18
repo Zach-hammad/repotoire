@@ -11,7 +11,6 @@ use anyhow::Result;
 use rayon::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Detects central coordinators and isolated code using Harmonic Centrality.
 ///
@@ -172,7 +171,7 @@ impl CoreUtilityDetector {
             };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "CoreUtilityDetector".to_string(),
             severity,
             title,
@@ -258,7 +257,7 @@ impl CoreUtilityDetector {
         };
 
         Some(Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "CoreUtilityDetector".to_string(),
             severity,
             title: format!("Isolated code: {} ({})", name, isolation_level),
@@ -333,7 +332,7 @@ impl Detector for CoreUtilityDetector {
             // Core utility: high fan-in, low fan-out (many depend on it, it depends on few)
             if fan_in >= 10 && fan_out <= 2 {
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "CoreUtilityDetector".to_string(),
                     severity: Severity::Info,
                     title: format!("Core Utility: {}", func.name),

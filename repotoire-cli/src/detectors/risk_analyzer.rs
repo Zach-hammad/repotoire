@@ -541,7 +541,7 @@ mod tests {
 
     fn create_test_finding(detector: &str, severity: Severity, file: &str) -> Finding {
         Finding {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: detector.to_string(),
             severity,
             title: format!("Test finding from {}", detector),

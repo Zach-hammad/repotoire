@@ -18,12 +18,10 @@ use std::path::PathBuf;
 /// - file path (where it was found)
 /// - line number (specific location)
 /// - title (what the issue is)
-pub fn deterministic_finding_id(detector: &str, file: &str, line: u32, title: &str) -> String {
-    // Use MD5 for stable cross-version hashing (#33).
-    // DefaultHasher is intentionally not stable across Rust/compiler versions.
-    let input = format!("{detector}\n{file}\n{line}\n{title}");
-    let digest = md5::compute(input.as_bytes());
-    format!("{:x}", digest)[..16].to_string()
+pub fn deterministic_finding_id(detector: &str, file: &str, line: u32, _title: &str) -> String {
+    // Note: postprocessing overwrites all IDs via finding_id() (#73).
+    // Cache invalidates on binary version change (#66), so DefaultHasher instability is fine.
+    crate::detectors::base::finding_id(detector, file, line)
 }
 
 /// Severity levels for findings

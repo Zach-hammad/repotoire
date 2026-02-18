@@ -34,7 +34,7 @@
 
 use crate::parsers::lightweight::{LightweightFileInfo, LightweightParseStats};
 use crate::parsers::parse_file_lightweight;
-use crossbeam::channel::{bounded, Receiver};
+use crossbeam_channel::{bounded, Receiver};
 use std::path::PathBuf;
 
 use std::thread;
@@ -114,13 +114,13 @@ impl ParallelPipelineResult {
 /// # Arguments
 ///
 /// * `files` - Files to parse
-/// * `num_workers` - Number of parallel parser threads (typically `num_cpus::get()`)
+/// * `num_workers` - Number of parallel parser threads (typically `std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)`)
 /// * `buffer_size` - Channel buffer size (controls memory, typically 100-500)
 ///
 /// # Example
 ///
 /// ```ignore
-/// let pipeline = parse_files_pipeline(files, num_cpus::get(), 100);
+/// let pipeline = parse_files_pipeline(files, std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4), 100);
 /// for info in pipeline.receiver {
 ///     builder.process_file(&info)?;
 /// }

@@ -14,7 +14,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static NONE_ALG: OnceLock<Regex> = OnceLock::new();
 static HS256_ALG: OnceLock<Regex> = OnceLock::new();
@@ -330,7 +329,7 @@ impl Detector for JwtWeakDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "JwtWeakDetector".to_string(),
                         severity: vuln.severity(),
                         title: vuln.title().to_string(),

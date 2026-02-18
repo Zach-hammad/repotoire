@@ -12,7 +12,6 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::sync::Arc;
 use tracing::debug;
-use uuid::Uuid;
 
 /// Detects architectural bottlenecks using graph metrics and function context.
 ///
@@ -206,7 +205,7 @@ impl ArchitecturalBottleneckDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "ArchitecturalBottleneckDetector".to_string(),
             severity,
             title,

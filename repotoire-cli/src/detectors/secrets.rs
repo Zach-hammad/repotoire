@@ -11,7 +11,6 @@ use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tracing::debug;
-use uuid::Uuid;
 
 /// Secret patterns with their names and severity
 static SECRET_PATTERNS: OnceLock<Vec<SecretPattern>> = OnceLock::new();
@@ -283,7 +282,7 @@ impl SecretDetector {
 
                     let line_start = line_num as u32 + 1;
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "SecretDetector".to_string(),
                         severity: effective_severity,
                         title: format!("Hardcoded {}", pattern.name),

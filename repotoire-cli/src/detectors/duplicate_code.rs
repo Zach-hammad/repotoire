@@ -13,7 +13,6 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 pub struct DuplicateCodeDetector {
     repository_path: PathBuf,
@@ -272,7 +271,7 @@ impl Detector for DuplicateCodeDetector {
                 };
 
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "DuplicateCodeDetector".to_string(),
                     severity,
                     title: format!("Duplicate code ({} occurrences)", locations.len()),

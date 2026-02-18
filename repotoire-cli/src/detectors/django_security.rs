@@ -14,7 +14,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static CSRF_EXEMPT: OnceLock<Regex> = OnceLock::new();
 static DEBUG_TRUE: OnceLock<Regex> = OnceLock::new();
@@ -178,7 +177,7 @@ impl Detector for DjangoSecurityDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "DjangoSecurityDetector".to_string(),
                             severity,
                             title: "CSRF protection disabled".to_string(),
@@ -221,7 +220,7 @@ impl Detector for DjangoSecurityDetector {
                         && !crate::detectors::base::is_test_path(fname)
                     {
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "DjangoSecurityDetector".to_string(),
                             severity: Severity::Critical,
                             title: "DEBUG = True in settings".to_string(),
@@ -269,7 +268,7 @@ impl Detector for DjangoSecurityDetector {
                         && !fname.contains("local")
                     {
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "DjangoSecurityDetector".to_string(),
                             severity: Severity::Critical,
                             title: "Hardcoded SECRET_KEY".to_string(),
@@ -302,7 +301,7 @@ impl Detector for DjangoSecurityDetector {
                         && !fname.contains("local")
                     {
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "DjangoSecurityDetector".to_string(),
                             severity: Severity::High,
                             title: "ALLOWED_HOSTS allows all hosts".to_string(),
@@ -367,7 +366,7 @@ impl Detector for DjangoSecurityDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "DjangoSecurityDetector".to_string(),
                             severity,
                             title: "Raw SQL usage".to_string(),

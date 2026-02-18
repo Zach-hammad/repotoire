@@ -12,7 +12,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::info;
-use uuid::Uuid;
 
 pub struct LargeFilesDetector {
     repository_path: PathBuf,
@@ -208,7 +207,7 @@ impl Detector for LargeFilesDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "LargeFilesDetector".to_string(),
                         severity,
                         title: format!("Large file: {} lines", lines),

@@ -14,7 +14,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static PROMISE_PATTERN: OnceLock<Regex> = OnceLock::new();
 static ASYNC_FUNC: OnceLock<Regex> = OnceLock::new();
@@ -214,7 +213,7 @@ impl Detector for UnhandledPromiseDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "UnhandledPromiseDetector".to_string(),
                             severity,
                             title: if calls_async {

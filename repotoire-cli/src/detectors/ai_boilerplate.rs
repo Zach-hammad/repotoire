@@ -25,7 +25,6 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Default thresholds for boilerplate detection
 const DEFAULT_SIMILARITY_THRESHOLD: f64 = 0.70; // 70% AST similarity
@@ -496,7 +495,7 @@ Consolidate database access patterns."#
             .collect();
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "AIBoilerplateDetector".to_string(),
             severity,
             title,

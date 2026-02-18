@@ -49,9 +49,12 @@ fn hash_path(path: &Path) -> String {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let path_str = canonical.to_string_lossy();
 
-    // Stable cross-version hash (#33).
-    let digest = md5::compute(path_str.as_bytes());
-    let hash = format!("{:x}", digest);
+    // Stable cross-version hash (#33). Using DefaultHasher instead of md5 crate.
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    path_str.as_bytes().hash(&mut hasher);
+    let hash = format!("{:016x}", hasher.finish());
 
     // Use canonical path's file_name for consistent naming (important when path is ".")
     let repo_name = canonical

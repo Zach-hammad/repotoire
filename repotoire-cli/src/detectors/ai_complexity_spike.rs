@@ -20,7 +20,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Default configuration values
 const DEFAULT_WINDOW_DAYS: i64 = 30;
@@ -202,7 +201,7 @@ impl AIComplexitySpikeDetector {
         let suggested_fix = self.build_suggested_fix(spike);
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "AIComplexitySpikeDetector".to_string(),
             severity,
             title,
@@ -473,7 +472,7 @@ impl Detector for AIComplexitySpikeDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "AIComplexitySpikeDetector".to_string(),
                         severity,
                         title: format!("Complexity Spike: {}", func.name),

@@ -14,7 +14,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static ASYNC_CALL: OnceLock<Regex> = OnceLock::new();
 static ASYNC_DEF: OnceLock<Regex> = OnceLock::new();
@@ -249,7 +248,7 @@ impl Detector for MissingAwaitDetector {
                             };
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "MissingAwaitDetector".to_string(),
                                 severity,
                                 title: "Async call without await".to_string(),

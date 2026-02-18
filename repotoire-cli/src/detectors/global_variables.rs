@@ -15,7 +15,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static GLOBAL_PATTERN: OnceLock<Regex> = OnceLock::new();
 static VAR_NAME: OnceLock<Regex> = OnceLock::new();
@@ -156,7 +155,7 @@ impl GlobalVariablesDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "GlobalVariablesDetector".to_string(),
             severity,
             title: format!("Global mutable variable: {}", var_name),

@@ -30,7 +30,7 @@ use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
 use crate::parsers::lightweight::{LightweightFileInfo, LightweightParseStats};
 use crate::parsers::parse_file_lightweight;
 use anyhow::Result;
-use crossbeam::channel::bounded;
+use crossbeam_channel::bounded;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -53,7 +53,7 @@ pub struct PipelineConfig {
 impl PipelineConfig {
     /// Create config for a repo of given size
     pub fn for_repo_size(num_files: usize) -> Self {
-        let num_workers = num_cpus::get();
+        let num_workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
 
         // Adaptive buffer sizing:
         // - Small repos (<5k): buffer 100 (fast, ~500KB in-flight)

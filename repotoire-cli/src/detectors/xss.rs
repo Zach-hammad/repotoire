@@ -8,7 +8,6 @@ use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static XSS_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -153,7 +152,7 @@ impl Detector for XssDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "XssDetector".to_string(),
                             severity,
                             title: "Potential XSS vulnerability".to_string(),

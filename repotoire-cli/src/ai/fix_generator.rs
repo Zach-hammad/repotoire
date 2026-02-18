@@ -305,16 +305,15 @@ impl FixGenerator {
         let confidence = calculate_confidence(&data, finding, &changes);
 
         // Generate fix ID
-        let fix_id = format!(
-            "{:x}",
-            md5::compute(format!(
-                "{}:{}:{}",
-                finding.id,
-                finding.line_start.unwrap_or(0),
-                chrono::Utc::now().timestamp()
-            ))
-        )[..12]
-            .to_string();
+        let fix_id = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut h = DefaultHasher::new();
+            finding.id.hash(&mut h);
+            finding.line_start.unwrap_or(0).hash(&mut h);
+            chrono::Utc::now().timestamp().hash(&mut h);
+            format!("{:012x}", h.finish())[..12].to_string()
+        };
 
         Ok(FixProposal {
             id: fix_id,

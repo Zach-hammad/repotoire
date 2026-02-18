@@ -550,7 +550,7 @@ use crate::models::Finding;
 /// intra-function taint analysis.
 pub fn taint_path_to_finding(path: &TaintPath, detector_name: &str, vuln_name: &str) -> Finding {
     Finding {
-        id: uuid::Uuid::new_v4().to_string(),
+        id: String::new(),
         detector: detector_name.to_string(),
         title: format!("{} via data flow", vuln_name),
         description: format!(

@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static TODO_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -235,7 +234,7 @@ impl Detector for TodoScanner {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "TodoScanner".to_string(),
                             severity,
                             title: format!(

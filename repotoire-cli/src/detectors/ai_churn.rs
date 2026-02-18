@@ -20,7 +20,6 @@ use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 /// Time thresholds in hours
 const CRITICAL_FIX_VELOCITY_HOURS: i64 = 24;
@@ -342,7 +341,7 @@ impl AIChurnDetector {
         };
 
         Some(Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "AIChurnDetector".to_string(),
             severity,
             title: format!("AI churn pattern in `{}`", record.function_name),

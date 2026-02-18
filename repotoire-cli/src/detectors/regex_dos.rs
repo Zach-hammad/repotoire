@@ -14,7 +14,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static REGEX_CREATE: OnceLock<Regex> = OnceLock::new();
 static VULNERABLE: OnceLock<Regex> = OnceLock::new();
@@ -319,7 +318,7 @@ impl Detector for RegexDosDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "RegexDosDetector".to_string(),
                         severity,
                         title: "Potential ReDoS vulnerability".to_string(),

@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 use std::path::Path;
-use walkdir::WalkDir;
 
 pub fn run(path: &Path, dry_run: bool) -> Result<()> {
     let repo_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -16,12 +15,15 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
     }
 
     // 2. Find any legacy .repotoire directories in repo
-    for entry in WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
+    for entry in ignore::WalkBuilder::new(path)
+        .hidden(false)
+        .git_ignore(false)
+        .build()
         .filter_map(|e| e.ok())
     {
-        if entry.file_type().is_dir() && entry.file_name() == ".repotoire" {
+        if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false)
+            && entry.file_name() == ".repotoire"
+        {
             to_remove.push(("Legacy".to_string(), entry.path().to_path_buf()));
         }
     }

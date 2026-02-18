@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static DEBUG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -202,7 +201,7 @@ impl Detector for DebugCodeDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "DebugCodeDetector".to_string(),
                             severity,
                             title: if line.contains("debugger") || line.contains("pdb") {

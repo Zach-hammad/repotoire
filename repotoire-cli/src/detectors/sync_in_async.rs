@@ -14,7 +14,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static ASYNC_FUNC: OnceLock<Regex> = OnceLock::new();
 static BLOCKING: OnceLock<Regex> = OnceLock::new();
@@ -259,7 +258,7 @@ impl Detector for SyncInAsyncDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "SyncInAsyncDetector".to_string(),
                             severity,
                             title: format!("Blocking call `{}` in async function", blocking_call),

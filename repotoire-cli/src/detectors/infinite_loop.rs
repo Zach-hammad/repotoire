@@ -15,7 +15,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static INFINITE_WHILE: OnceLock<Regex> = OnceLock::new();
 static BREAK_RETURN: OnceLock<Regex> = OnceLock::new();
@@ -413,7 +412,7 @@ impl Detector for InfiniteLoopDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "InfiniteLoopDetector".to_string(),
                             severity: Severity::High,
                             title: "Potential infinite loop".to_string(),

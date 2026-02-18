@@ -13,7 +13,6 @@ use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// GitHub Actions injection detector
 pub struct GHActionsInjectionDetector {
@@ -241,7 +240,7 @@ This can lead to:
         );
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "GHActionsInjectionDetector".to_string(),
             severity: Severity::Critical,
             title,

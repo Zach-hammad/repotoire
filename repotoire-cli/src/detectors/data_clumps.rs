@@ -15,7 +15,6 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Thresholds for data clumps detection
 #[derive(Debug, Clone)]
@@ -408,7 +407,7 @@ impl Detector for DataClumpsDetector {
                 .collect();
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "DataClumpsDetector".to_string(),
                 severity,
                 title: format!("Data clump: ({})", params_str),

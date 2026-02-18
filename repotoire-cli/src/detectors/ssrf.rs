@@ -8,7 +8,6 @@ use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static HTTP_CLIENT: OnceLock<Regex> = OnceLock::new();
 
@@ -183,7 +182,7 @@ impl Detector for SsrfDetector {
                             };
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "SsrfDetector".to_string(),
                                 severity,
                                 title: "Potential SSRF vulnerability".to_string(),

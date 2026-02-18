@@ -13,7 +13,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static CORS_PATTERN: OnceLock<Regex> = OnceLock::new();
 static CREDENTIALS_PATTERN: OnceLock<Regex> = OnceLock::new();
@@ -226,7 +225,7 @@ impl Detector for CorsMisconfigDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "CorsMisconfigDetector".to_string(),
                             severity,
                             title: if has_credentials {

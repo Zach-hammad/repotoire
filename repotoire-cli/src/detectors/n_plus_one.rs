@@ -15,7 +15,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 static LOOP: OnceLock<Regex> = OnceLock::new();
 static QUERY: OnceLock<Regex> = OnceLock::new();
@@ -228,7 +227,7 @@ impl NPlusOneDetector {
                     &mut visited,
                 ) {
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "NPlusOneDetector".to_string(),
                         severity: Severity::High,
                         title: format!("Hidden N+1: {} calls query in loop", func.name),
@@ -347,7 +346,7 @@ impl Detector for NPlusOneDetector {
 
                         if query_pattern().is_match(line) {
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "NPlusOneDetector".to_string(),
                                 severity: Severity::High,
                                 title: "Potential N+1 query".to_string(),

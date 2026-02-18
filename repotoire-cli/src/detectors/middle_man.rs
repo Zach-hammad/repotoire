@@ -15,7 +15,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Thresholds for middle man detection
 #[derive(Debug, Clone)]
@@ -241,7 +240,7 @@ impl Detector for MiddleManDetector {
             };
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "MiddleManDetector".to_string(),
                 severity,
                 title: format!("Middle Man: {}", class.name),

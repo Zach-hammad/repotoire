@@ -15,7 +15,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static NUMBER_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -452,7 +451,7 @@ impl Detector for MagicNumbersDetector {
                                 let suggested_name = suggest_constant_name(num, line);
 
                                 findings.push(Finding {
-                                    id: Uuid::new_v4().to_string(),
+                                    id: String::new(),
                                     detector: "MagicNumbersDetector".to_string(),
                                     severity,
                                     title: format!("Magic number: {}", num),

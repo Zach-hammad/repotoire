@@ -14,7 +14,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static INSECURE_RANDOM: OnceLock<Regex> = OnceLock::new();
 
@@ -325,7 +324,7 @@ impl Detector for InsecureRandomDetector {
                             .unwrap_or("random");
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "InsecureRandomDetector".to_string(),
                             severity,
                             title: format!("Insecure `{}` used for {}", random_func, usage),

@@ -15,7 +15,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static LOOP_PATTERN: OnceLock<Regex> = OnceLock::new();
 static STRING_CONCAT: OnceLock<Regex> = OnceLock::new();
@@ -184,7 +183,7 @@ impl Detector for StringConcatLoopDetector {
                             let suggestion = Self::get_suggestion(ext);
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "StringConcatLoopDetector".to_string(),
                                 severity: Severity::Medium,
                                 title: "String concatenation in loop".to_string(),
@@ -244,7 +243,7 @@ impl Detector for StringConcatLoopDetector {
                 for callee in graph.get_callees(&func.qualified_name) {
                     if concat_funcs.contains(&callee.qualified_name) {
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "StringConcatLoopDetector".to_string(),
                             severity: Severity::Medium,
                             title: format!("Hidden string concat: {} → {}", func.name, callee.name),

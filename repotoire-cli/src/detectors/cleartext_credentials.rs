@@ -14,7 +14,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -230,7 +229,7 @@ impl Detector for CleartextCredentialsDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "CleartextCredentialsDetector".to_string(),
                             severity,
                             title: format!("{} may be logged in cleartext", cred_type),

@@ -29,7 +29,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Thresholds for refused bequest detection
 #[derive(Debug, Clone)]
@@ -157,7 +156,7 @@ impl RefusedBequestDetector {
         );
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "RefusedBequestDetector".to_string(),
             severity,
             title: format!("Refused bequest: {} inherits {}", child_class, parent_class),
@@ -395,7 +394,7 @@ impl Detector for RefusedBequestDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "RefusedBequestDetector".to_string(),
                             severity,
                             title: format!("Refused Bequest: {}", child.name),

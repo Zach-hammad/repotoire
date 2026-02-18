@@ -64,8 +64,7 @@ petgraph = "0.7"
 redb = "2.4"
 
 # Parallel pipeline channels
-crossbeam = "0.8"
-num_cpus = "1.16"
+crossbeam-channel = "0.5"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -92,11 +91,8 @@ ignore = "0.4"  # .gitignore support
 dashmap = "6"   # Concurrent hashmap for file cache
 regex = "1"
 chrono = "0.4"
-uuid = { version = "1", features = ["v4"] }
-md5 = "0.7"
 ratatui = "0.30.0"
 crossterm = "0.29.0"
-walkdir = "2.5.0"
 dirs = "6.0.0"
 lasso = { version = "0.7.3", features = ["multi-threaded"] }
 [profile.release]

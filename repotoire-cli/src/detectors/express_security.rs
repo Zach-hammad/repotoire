@@ -14,7 +14,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static EXPRESS_APP: OnceLock<Regex> = OnceLock::new();
 static ROUTE_HANDLER: OnceLock<Regex> = OnceLock::new();
@@ -230,7 +229,7 @@ impl Detector for ExpressSecurityDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "ExpressSecurityDetector".to_string(),
                         severity,
                         title: "Express app missing helmet".to_string(),
@@ -285,7 +284,7 @@ impl Detector for ExpressSecurityDetector {
                     };
 
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "ExpressSecurityDetector".to_string(),
                         severity,
                         title: "Express app missing rate limiting".to_string(),
@@ -339,7 +338,7 @@ impl Detector for ExpressSecurityDetector {
                 // Body parser limit finding
                 if !features.has_body_parser_limit {
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "ExpressSecurityDetector".to_string(),
                         severity: Severity::Low,
                         title: "No body size limit configured".to_string(),
@@ -373,7 +372,7 @@ impl Detector for ExpressSecurityDetector {
 
                 if !has_error_handler && features.route_count > 3 {
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "ExpressSecurityDetector".to_string(),
                         severity: Severity::Medium,
                         title: "No global error handler".to_string(),
@@ -409,7 +408,7 @@ impl Detector for ExpressSecurityDetector {
                 // Check for auth on routes
                 if features.auth_middleware_count == 0 && features.route_count > 5 {
                     findings.push(Finding {
-                        id: Uuid::new_v4().to_string(),
+                        id: String::new(),
                         detector: "ExpressSecurityDetector".to_string(),
                         severity: Severity::Medium,
                         title: "No authentication middleware detected".to_string(),

@@ -8,7 +8,6 @@ use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -74,7 +73,7 @@ impl Detector for LogInjectionDetector {
                             && (line.contains("f\"") || line.contains("${") || line.contains("+ "))
                         {
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "LogInjectionDetector".to_string(),
                                 severity: Severity::Medium,
                                 title: "User input in log statement".to_string(),

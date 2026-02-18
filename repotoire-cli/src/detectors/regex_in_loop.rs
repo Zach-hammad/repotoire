@@ -14,7 +14,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static LOOP: OnceLock<Regex> = OnceLock::new();
 static REGEX_NEW: OnceLock<Regex> = OnceLock::new();
@@ -156,7 +155,7 @@ impl Detector for RegexInLoopDetector {
                         // Direct regex compilation in loop
                         if regex_new().is_match(line) {
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "RegexInLoopDetector".to_string(),
                                 severity: Severity::Medium,
                                 title: "Regex compiled inside loop".to_string(),
@@ -232,7 +231,7 @@ impl Detector for RegexInLoopDetector {
                         0,
                     ) {
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "RegexInLoopDetector".to_string(),
                             severity: Severity::Medium,
                             title: format!("Hidden regex in loop: {}", func.name),

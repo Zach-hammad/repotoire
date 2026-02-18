@@ -12,7 +12,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::info;
-use uuid::Uuid;
 
 pub struct EmptyCatchDetector {
     config: DetectorConfig,
@@ -187,7 +186,7 @@ impl EmptyCatchDetector {
                 };
 
                 findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
+                    id: String::new(),
                     detector: "EmptyCatchDetector".to_string(),
                     severity,
                     title: "Empty catch block swallows exceptions".to_string(),

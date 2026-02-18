@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static TEST_IMPORT: OnceLock<Regex> = OnceLock::new();
 static TEST_USAGE: OnceLock<Regex> = OnceLock::new();
@@ -260,7 +259,7 @@ impl Detector for TestInProductionDetector {
             let first_line = issues.first().map(|(l, _, _)| *l).unwrap_or(1);
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "TestInProductionDetector".to_string(),
                 severity,
                 title: format!("Test code in production: {} issue{}", 

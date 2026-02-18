@@ -13,7 +13,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static COOKIE_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -239,7 +238,7 @@ impl Detector for InsecureCookieDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "InsecureCookieDetector".to_string(),
                             severity,
                             title: format!("Cookie missing {} flag{}",

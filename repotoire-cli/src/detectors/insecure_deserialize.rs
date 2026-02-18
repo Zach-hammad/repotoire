@@ -14,7 +14,6 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static DESERIALIZE_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -277,7 +276,7 @@ impl Detector for InsecureDeserializeDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "InsecureDeserializeDetector".to_string(),
                             severity,
                             title: format!("Insecure deserialization: {}", method),

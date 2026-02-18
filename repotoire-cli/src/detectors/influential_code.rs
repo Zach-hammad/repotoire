@@ -11,7 +11,6 @@ use anyhow::Result;
 use rayon::prelude::*;
 use std::sync::Arc;
 use tracing::debug;
-use uuid::Uuid;
 
 /// Detects influential code and potential bloated code using PageRank.
 ///
@@ -200,7 +199,7 @@ impl InfluentialCodeDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "InfluentialCodeDetector".to_string(),
             severity,
             title,

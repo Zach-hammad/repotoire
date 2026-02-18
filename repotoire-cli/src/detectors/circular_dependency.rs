@@ -13,7 +13,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Analysis of coupling strength in a cycle
 struct CouplingAnalysis {
@@ -209,7 +208,7 @@ impl CircularDependencyDetector {
         coupling: CouplingAnalysis,
         graph: &dyn crate::graph::GraphQuery,
     ) -> Finding {
-        let finding_id = Uuid::new_v4().to_string();
+        let finding_id = String::new();
         let max_coupling = coupling.edge_strengths.values().max().copied().unwrap_or(1);
         let severity = Self::calculate_severity(scc_size, max_coupling);
 

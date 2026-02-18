@@ -20,7 +20,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Default thresholds (based on ICSE 2025 research)
 const DEFAULT_SIMILARITY_THRESHOLD: f64 = 0.70; // 70% Jaccard similarity
@@ -312,7 +311,7 @@ impl AIDuplicateBlockDetector {
         }
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "AIDuplicateBlockDetector".to_string(),
             severity,
             title: format!(

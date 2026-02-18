@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static SINGLE_CHAR: OnceLock<Regex> = OnceLock::new();
 
@@ -247,7 +246,7 @@ impl Detector for SingleCharNamesDetector {
                             };
 
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "SingleCharNamesDetector".to_string(),
                                 severity,
                                 title: format!("Single-character variable: {}", v),

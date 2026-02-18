@@ -14,7 +14,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static WILDCARD_PATTERN: OnceLock<Regex> = OnceLock::new();
 static MODULE_NAME: OnceLock<Regex> = OnceLock::new();
@@ -154,7 +153,7 @@ impl Detector for WildcardImportsDetector {
                         };
 
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: String::new(),
                             detector: "WildcardImportsDetector".to_string(),
                             severity: Severity::Low,
                             title: format!(

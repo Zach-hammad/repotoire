@@ -14,7 +14,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
-use uuid::Uuid;
 
 static GENERATOR_DEF: OnceLock<Regex> = OnceLock::new();
 static YIELD_STMT: OnceLock<Regex> = OnceLock::new();
@@ -215,7 +214,7 @@ impl Detector for GeneratorMisuseDetector {
                         // Single yield outside loop = probably should be a simple return
                         if yield_count == 1 && !yield_in_loop {
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "GeneratorMisuseDetector".to_string(),
                                 severity: Severity::Low,
                                 title: format!("Single-yield generator: `{}`", func_name),
@@ -258,7 +257,7 @@ impl Detector for GeneratorMisuseDetector {
                             && !self.is_consumed_lazily(func_name, graph)
                         {
                             findings.push(Finding {
-                                id: Uuid::new_v4().to_string(),
+                                id: String::new(),
                                 detector: "GeneratorMisuseDetector".to_string(),
                                 severity: Severity::Low,
                                 title: format!("Generator always list()-wrapped: `{}`", func_name),

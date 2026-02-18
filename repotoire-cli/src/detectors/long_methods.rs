@@ -14,7 +14,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::info;
-use uuid::Uuid;
 
 pub struct LongMethodsDetector {
     repository_path: PathBuf,
@@ -219,7 +218,7 @@ impl Detector for LongMethodsDetector {
             };
 
             findings.push(Finding {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 detector: "LongMethodsDetector".to_string(),
                 severity,
                 title: format!("Long method: {} ({} lines)", func.name, lines),

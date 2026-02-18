@@ -20,7 +20,6 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Default file patterns to exclude
 const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
@@ -324,7 +323,7 @@ impl PickleDeserializationDetector {
         let suggested_fix = self.get_recommendation(pattern_type);
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: String::new(),
             detector: "PickleDeserializationDetector".to_string(),
             severity: Severity::High,
             title,
