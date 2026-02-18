@@ -147,8 +147,7 @@ impl FixGenerator {
         // Call LLM
         let response = self
             .client
-            .generate(vec![Message::user(prompt)], Some(system_prompt))
-            ?;
+            .generate(vec![Message::user(prompt)], Some(system_prompt))?;
 
         // Parse response
         let mut fix = self.parse_response(&response, finding, fix_type)?;
@@ -197,8 +196,7 @@ impl FixGenerator {
 
             let response = self
                 .client
-                .generate(vec![Message::user(prompt)], Some(system_prompt))
-                ?;
+                .generate(vec![Message::user(prompt)], Some(system_prompt))?;
 
             let mut fix = self.parse_response(&response, finding, fix_type)?;
             fix.syntax_valid = self.validate_syntax(&fix, language);

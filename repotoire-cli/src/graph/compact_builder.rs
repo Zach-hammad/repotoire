@@ -206,7 +206,9 @@ pub fn build_compact_graph(
 
 /// Adaptive configuration based on repo size
 pub fn adaptive_config(num_files: usize) -> (usize, usize) {
-    let num_workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let num_workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
 
     // Smaller buffers for larger repos
     let buffer_size = match num_files {

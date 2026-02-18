@@ -62,7 +62,10 @@ impl LlmBackend {
     pub fn is_openai_compatible(&self) -> bool {
         matches!(
             self,
-            LlmBackend::OpenAi | LlmBackend::Deepinfra | LlmBackend::OpenRouter | LlmBackend::Ollama
+            LlmBackend::OpenAi
+                | LlmBackend::Deepinfra
+                | LlmBackend::OpenRouter
+                | LlmBackend::Ollama
         )
     }
 
@@ -87,13 +90,22 @@ pub struct Message {
 
 impl Message {
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: Role::User, content: content.into() }
+        Self {
+            role: Role::User,
+            content: content.into(),
+        }
     }
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: Role::Assistant, content: content.into() }
+        Self {
+            role: Role::Assistant,
+            content: content.into(),
+        }
     }
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: Role::System, content: content.into() }
+        Self {
+            role: Role::System,
+            content: content.into(),
+        }
     }
 }
 
@@ -118,7 +130,9 @@ impl Default for AiConfig {
 
 impl AiConfig {
     pub fn model(&self) -> &str {
-        self.model.as_deref().unwrap_or_else(|| self.backend.default_model())
+        self.model
+            .as_deref()
+            .unwrap_or_else(|| self.backend.default_model())
     }
 }
 
@@ -147,7 +161,10 @@ impl AiClient {
     }
 
     pub fn from_env(backend: LlmBackend) -> AiResult<Self> {
-        let config = AiConfig { backend, ..Default::default() };
+        let config = AiConfig {
+            backend,
+            ..Default::default()
+        };
         Self::from_env_with_config(config)
     }
 
@@ -206,7 +223,11 @@ impl AiClient {
         }
     }
 
-    fn generate_openai(&self, mut messages: Vec<Message>, system: Option<&str>) -> AiResult<String> {
+    fn generate_openai(
+        &self,
+        mut messages: Vec<Message>,
+        system: Option<&str>,
+    ) -> AiResult<String> {
         if let Some(sys) = system {
             messages.insert(0, Message::system(sys));
         }
@@ -218,21 +239,27 @@ impl AiClient {
             temperature: self.config.temperature,
         };
 
-        let mut req = self.agent.post(self.config.backend.api_url())
+        let mut req = self
+            .agent
+            .post(self.config.backend.api_url())
             .header("Content-Type", "application/json");
 
         if self.config.backend.requires_api_key() {
             req = req.header("Authorization", &format!("Bearer {}", self.api_key));
         }
 
-        let response = req
-            .send_json(&body)
-            .map_err(|e| AiError::ApiError { status: 0, message: e.to_string() })?;
+        let response = req.send_json(&body).map_err(|e| AiError::ApiError {
+            status: 0,
+            message: e.to_string(),
+        })?;
 
         let status = response.status().as_u16();
         if status >= 400 {
             let error_text = response.into_body().read_to_string().unwrap_or_default();
-            return Err(AiError::ApiError { status, message: error_text });
+            return Err(AiError::ApiError {
+                status,
+                message: error_text,
+            });
         }
 
         let resp: OpenAiResponse = response
@@ -248,7 +275,10 @@ impl AiClient {
     }
 
     fn generate_anthropic(&self, messages: Vec<Message>, system: Option<&str>) -> AiResult<String> {
-        let messages: Vec<_> = messages.into_iter().filter(|m| m.role != Role::System).collect();
+        let messages: Vec<_> = messages
+            .into_iter()
+            .filter(|m| m.role != Role::System)
+            .collect();
 
         let body = AnthropicRequest {
             model: self.config.model().to_string(),
@@ -258,17 +288,25 @@ impl AiClient {
             temperature: Some(self.config.temperature),
         };
 
-        let response = self.agent.post(self.config.backend.api_url())
+        let response = self
+            .agent
+            .post(self.config.backend.api_url())
             .header("Content-Type", "application/json")
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .send_json(&body)
-            .map_err(|e| AiError::ApiError { status: 0, message: e.to_string() })?;
+            .map_err(|e| AiError::ApiError {
+                status: 0,
+                message: e.to_string(),
+            })?;
 
         let status = response.status().as_u16();
         if status >= 400 {
             let error_text = response.into_body().read_to_string().unwrap_or_default();
-            return Err(AiError::ApiError { status, message: error_text });
+            return Err(AiError::ApiError {
+                status,
+                message: error_text,
+            });
         }
 
         let resp: AnthropicResponse = response
@@ -339,7 +377,10 @@ mod tests {
     #[test]
     fn test_backend_defaults() {
         assert_eq!(LlmBackend::OpenAi.default_model(), "gpt-4o");
-        assert_eq!(LlmBackend::Anthropic.default_model(), "claude-sonnet-4-20250514");
+        assert_eq!(
+            LlmBackend::Anthropic.default_model(),
+            "claude-sonnet-4-20250514"
+        );
     }
 
     #[test]

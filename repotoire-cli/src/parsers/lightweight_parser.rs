@@ -41,7 +41,10 @@ pub fn parse_file_lightweight(path: &Path) -> Result<LightweightFileInfo> {
         .map(|lines| lines.len() as u32)
         .unwrap_or_else(|| {
             // Fallback: max entity line_end (misses trailing module-level code)
-            result.functions.iter().map(|f| f.line_end)
+            result
+                .functions
+                .iter()
+                .map(|f| f.line_end)
                 .chain(result.classes.iter().map(|c| c.line_end))
                 .max()
                 .unwrap_or(1)

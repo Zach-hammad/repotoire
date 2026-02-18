@@ -33,7 +33,9 @@ pub(super) fn postprocess_findings(
 ) {
     // Step 0: Replace random UUIDs with deterministic IDs for cache dedup (#73)
     for finding in findings.iter_mut() {
-        let file = finding.affected_files.first()
+        let file = finding
+            .affected_files
+            .first()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         let line = finding.line_start.unwrap_or(0);
