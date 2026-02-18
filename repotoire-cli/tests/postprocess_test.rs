@@ -6,8 +6,16 @@
 use std::process::Command;
 
 fn repotoire_bin() -> String {
-    let path =
-        std::env::var("REPOTOIRE_BIN").unwrap_or_else(|_| "target/release/repotoire".to_string());
+    // Check CARGO_BIN_EXE first (set by cargo test), then REPOTOIRE_BIN, then release, then debug
+    let path = std::env::var("CARGO_BIN_EXE_repotoire")
+        .or_else(|_| std::env::var("REPOTOIRE_BIN"))
+        .unwrap_or_else(|_| {
+            if std::path::Path::new("target/release/repotoire").exists() {
+                "target/release/repotoire".to_string()
+            } else {
+                "target/debug/repotoire".to_string()
+            }
+        });
     if !std::path::Path::new(&path).exists() {
         panic!(
             "Release binary not found at '{}'. Build with: cargo build --release",

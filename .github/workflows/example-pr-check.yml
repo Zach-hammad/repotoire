@@ -14,8 +14,30 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-
-      - uses: Zach-hammad/repotoire/.github/actions/repotoire-check@main
         with:
-          fail-on: high        # Fail on high or critical findings
-          comment-on-pr: true  # Post results as PR comment
+          workspaces: repotoire-cli
+
+      - name: Install Repotoire
+        run: cd repotoire-cli && cargo install --path . --locked 2>/dev/null || cd repotoire-cli && cargo install --path .
+
+      - name: Run Analysis
+        id: analyze
+        run: |
+          set +e
+          OUTPUT=$(repotoire analyze repotoire-cli --fail-on high 2>&1)
+          EXIT_CODE=$?
+          echo "$OUTPUT"
+
+          SCORE=$(echo "$OUTPUT" | grep -oP 'Score:\s*\K[\d.]+' | head -1)
+          GRADE=$(echo "$OUTPUT" | grep -oP 'Grade:\s*\K\S+' | head -1)
+          FINDINGS=$(echo "$OUTPUT" | grep -oP '\d+ findings' | grep -oP '\d+' | head -1)
+
+          echo "## 🔍 Repotoire Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Score | ${SCORE:-N/A}/100 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Grade | ${GRADE:-N/A} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Findings | ${FINDINGS:-0} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | $([ $EXIT_CODE -eq 0 ] && echo '✅ Pass' || echo '❌ Fail') |" >> $GITHUB_STEP_SUMMARY
+
+          exit $EXIT_CODE
