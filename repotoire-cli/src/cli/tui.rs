@@ -659,8 +659,7 @@ fn render_agents_panel(f: &mut Frame, area: Rect, app: &App) {
     let log_lines: Vec<Line> = app
         .agents
         .iter()
-        .filter(|a| matches!(a.status, AgentStatus::Running))
-        .next_back()
+        .rfind(|a| matches!(a.status, AgentStatus::Running))
         .map(|agent| {
             tail_file(&agent.log_file, 15)
                 .into_iter()
