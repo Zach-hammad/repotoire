@@ -486,7 +486,7 @@ pub fn handle_search_code(state: &HandlerState, args: &Value) -> Result<Value> {
     let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
     let entity_types = args.get("entity_types");
 
-    let agent = ureq::Agent::new_with_defaults();
+    let agent = ureq::config::Config::builder().http_status_as_error(false).build().new_agent();
     let response = agent
         .post(&format!("{}/api/v1/code/search", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())
@@ -509,7 +509,7 @@ pub fn handle_ask(state: &HandlerState, args: &Value) -> Result<Value> {
     let question = args.get("question").and_then(|v| v.as_str()).context("Missing required argument: question")?;
     let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
 
-    let agent = ureq::Agent::new_with_defaults();
+    let agent = ureq::config::Config::builder().http_status_as_error(false).build().new_agent();
     let response = agent
         .post(&format!("{}/api/v1/code/ask", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())
@@ -536,7 +536,7 @@ pub fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<Value> 
 
     let finding_id = args.get("finding_id").and_then(|v| v.as_str()).context("Missing required argument: finding_id")?;
 
-    let agent = ureq::Agent::new_with_defaults();
+    let agent = ureq::config::Config::builder().http_status_as_error(false).build().new_agent();
     let response = agent
         .post(&format!("{}/api/v1/fixes/generate", state.api_url))
         .header("X-API-Key", state.api_key.as_ref().unwrap())

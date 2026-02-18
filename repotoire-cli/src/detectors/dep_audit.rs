@@ -446,7 +446,7 @@ impl DepAuditDetector {
         let mut all_results = Vec::new();
 
         // Sync HTTP via ureq (no tokio needed)
-        let agent = ureq::Agent::new_with_defaults();
+        let agent = ureq::config::Config::builder().http_status_as_error(false).build().new_agent();
 
         for chunk in deps.chunks(1000) {
             let query = OsvBatchQuery {

@@ -129,12 +129,20 @@ pub struct AiClient {
     agent: ureq::Agent,
 }
 
+fn make_agent() -> ureq::Agent {
+    ureq::config::Config::builder()
+        .http_status_as_error(false) // We handle status codes ourselves (parity with reqwest)
+        .timeout_global(Some(std::time::Duration::from_secs(120))) // LLM calls can be slow
+        .build()
+        .new_agent()
+}
+
 impl AiClient {
     pub fn new(config: AiConfig, api_key: impl Into<String>) -> Self {
         Self {
             config,
             api_key: api_key.into(),
-            agent: ureq::Agent::new_with_defaults(),
+            agent: make_agent(),
         }
     }
 
