@@ -306,6 +306,7 @@ pub(super) fn cache_results(
         "total_files": report.total_files,
         "total_functions": report.total_functions,
         "total_classes": report.total_classes,
+        "total_loc": report.total_loc,
     });
     fs::write(&health_cache, serde_json::to_string_pretty(&health_json)?)?;
 
@@ -383,6 +384,7 @@ pub(super) fn output_cached_results(
         total_files: cached_score.total_files,
         total_functions: cached_score.total_functions,
         total_classes: cached_score.total_classes,
+        total_loc: cached_score.total_loc.unwrap_or(0),
     };
 
     // Use format_and_output for consistent behavior with normal path

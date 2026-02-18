@@ -57,8 +57,8 @@ pub fn render(report: &HealthReport) -> Result<String> {
         report.overall_score, report.grade
     ));
     out.push_str(&format!(
-        "Files: {}  Functions: {}  Classes: {}\n\n",
-        report.total_files, report.total_functions, report.total_classes
+        "Files: {}  Functions: {}  Classes: {}  LOC: {}\n\n",
+        report.total_files, report.total_functions, report.total_classes, report.total_loc
     ));
 
     // Category scores (compact)

@@ -127,6 +127,8 @@ pub struct CachedScoreResult {
     pub quality_score: Option<f64>,
     #[serde(default)]
     pub architecture_score: Option<f64>,
+    #[serde(default)]
+    pub total_loc: Option<usize>,
 }
 
 /// Graph-level cache data
@@ -536,6 +538,7 @@ impl IncrementalCache {
             structure_score,
             quality_score,
             architecture_score,
+            total_loc: None, // Will be populated on next fresh analysis
         });
         self.dirty = true;
     }

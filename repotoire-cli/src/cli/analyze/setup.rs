@@ -65,6 +65,7 @@ pub(super) struct ScoreResult {
     pub architecture_score: f64,
     pub grade: String,
     pub breakdown: crate::scoring::ScoreBreakdown,
+    pub total_loc: usize,
 }
 
 /// Phase 1: Validate repository path and setup analysis environment

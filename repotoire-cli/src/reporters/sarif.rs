@@ -557,6 +557,7 @@ mod tests {
             total_files: 10,
             total_functions: 50,
             total_classes: 5,
+            total_loc: 5000,
         };
 
         let sarif_json = render(&report).expect("SARIF render should succeed");

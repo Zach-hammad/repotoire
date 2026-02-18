@@ -30,6 +30,7 @@ pub(super) fn calculate_scores(
         metrics.simple_function_ratio * 100.0
     );
 
+    let total_loc = breakdown.graph_metrics.total_loc;
     ScoreResult {
         overall_score: breakdown.overall_score,
         structure_score: breakdown.structure.final_score,
@@ -37,6 +38,7 @@ pub(super) fn calculate_scores(
         architecture_score: breakdown.architecture.final_score,
         grade: breakdown.grade.clone(),
         breakdown,
+        total_loc,
     }
 }
 
@@ -74,6 +76,7 @@ pub(super) fn build_health_report(
         total_files,
         total_functions,
         total_classes,
+        total_loc: score_result.total_loc,
     };
 
     (report, pagination_info, all_findings)

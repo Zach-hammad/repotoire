@@ -131,6 +131,8 @@ pub struct GraphMetrics {
     pub total_functions: usize,
     /// Total files analyzed
     pub total_files: usize,
+    /// Total lines of code across all files
+    pub total_loc: usize,
 }
 
 /// Graph-aware health scorer
@@ -165,10 +167,26 @@ impl<'a> GraphScorer<'a> {
             test_bonus * 100.0
         );
 
-        // Calculate penalties from findings
-        let size_factor = ((metrics.total_files + metrics.total_functions) as f64)
-            .sqrt()
-            .max(5.0);
+        // Density-based penalty normalization
+        // Each finding's penalty is scaled by project size (kLOC).
+        // A 30kLOC project with 45 findings scores the same as
+        // a 2kLOC project with 3 findings (same density).
+        let kloc = (metrics.total_loc as f64 / 1000.0).max(1.0);
+
+        // Severity weights — base penalty per finding at 1 finding/kLOC density
+        let severity_weight = |severity: &Severity| -> f64 {
+            match severity {
+                Severity::Critical => 8.0,
+                Severity::High => 4.0,
+                Severity::Medium => 1.0,
+                Severity::Low => 0.2,
+                Severity::Info => 0.0,
+            }
+        };
+
+        // Scale factor: how harshly findings-per-kLOC maps to penalty points.
+        // scale=5 means 1 medium/kLOC = 5 penalty points total.
+        const DENSITY_SCALE: f64 = 5.0;
 
         let mut structure_penalty = 0.0;
         let mut quality_penalty = 0.0;
@@ -178,15 +196,8 @@ impl<'a> GraphScorer<'a> {
         let mut architecture_count = 0;
 
         for finding in findings {
-            let base_deduction = match finding.severity {
-                Severity::Critical => 10.0,
-                Severity::High => 5.0,
-                Severity::Medium => 1.5,
-                Severity::Low => 0.3,
-                Severity::Info => 0.0,
-            };
-
-            let scaled = base_deduction / size_factor;
+            // Each finding contributes: weight * scale / kLOC
+            let scaled = severity_weight(&finding.severity) * DENSITY_SCALE / kloc;
 
             let category = finding.category.as_deref().unwrap_or("");
             let detector = finding.detector.to_lowercase();
@@ -267,6 +278,17 @@ impl<'a> GraphScorer<'a> {
             + architecture.final_score * weights.architecture;
 
         let overall = overall.max(5.0);
+
+        // Never report 100.0 if there are medium+ findings — cap at 99.9
+        let has_medium_plus = findings.iter().any(|f| {
+            matches!(f.severity, Severity::Critical | Severity::High | Severity::Medium)
+        });
+        let overall = if has_medium_plus && overall >= 99.95 {
+            99.9
+        } else {
+            overall
+        };
+
         let grade = self.calculate_grade(overall, findings);
 
         info!(
@@ -293,8 +315,11 @@ impl<'a> GraphScorer<'a> {
         bonuses: Vec<(&str, f64)>,
     ) -> PillarBreakdown {
         let base_score = (100.0 - penalty).clamp(25.0, 100.0);
+        // Additive bonuses: each bonus adds up to its max % as points
+        // e.g. 5% test bonus = +5 points, not *1.05 multiplier
         let total_bonus: f64 = bonuses.iter().map(|(_, b)| b).sum();
-        let final_score = (base_score * (1.0 + total_bonus)).min(100.0);
+        let bonus_points = total_bonus * 100.0; // Convert ratio to points
+        let final_score = (base_score + bonus_points).min(100.0);
 
         PillarBreakdown {
             name: name.to_string(),
@@ -401,6 +426,12 @@ impl<'a> GraphScorer<'a> {
             test_files as f64 / files.len() as f64
         };
 
+        // Total LOC from file nodes
+        let total_loc: usize = files
+            .iter()
+            .map(|f| f.get_i64("loc").unwrap_or(0) as usize)
+            .sum();
+
         GraphMetrics {
             module_count: modules.len(),
             avg_coupling,
@@ -410,6 +441,7 @@ impl<'a> GraphScorer<'a> {
             test_file_ratio: test_ratio,
             total_functions: functions.len(),
             total_files: files.len(),
+            total_loc,
         }
     }
 
@@ -528,6 +560,8 @@ impl<'a> GraphScorer<'a> {
     /// Generate human-readable explanation of the score
     pub fn explain(&self, breakdown: &ScoreBreakdown) -> String {
         let mut lines = Vec::new();
+        let m = &breakdown.graph_metrics;
+        let kloc = m.total_loc as f64 / 1000.0;
 
         lines.push(format!(
             "# Health Score: {:.1} ({})\n",
@@ -537,12 +571,14 @@ impl<'a> GraphScorer<'a> {
         lines.push("## Scoring Formula\n".to_string());
         lines.push("```".to_string());
         lines.push("Overall = Structure × 0.33 + Quality × 0.34 + Architecture × 0.33".to_string());
-        lines.push("Pillar  = (100 - penalties) × (1 + graph_bonuses)".to_string());
+        lines.push("Pillar  = (100 - penalties) + graph_bonuses".to_string());
+        lines.push(format!("Penalty = severity_weight × 5.0 / kLOC   (kLOC = {:.1})", kloc));
         lines.push("```\n".to_string());
+        lines.push("Severity weights: Critical=8.0, High=4.0, Medium=1.0, Low=0.2\n".to_string());
 
         // Graph metrics
         lines.push("## Graph Analysis\n".to_string());
-        let m = &breakdown.graph_metrics;
+        lines.push(format!("- **Lines of code**: {} ({:.1} kLOC)", m.total_loc, kloc));
         lines.push(format!("- **Modules**: {}", m.module_count));
         lines.push(format!(
             "- **Coupling**: {:.1}% cross-module calls (lower is better)",
@@ -576,14 +612,17 @@ impl<'a> GraphScorer<'a> {
                 pillar.name, pillar.final_score
             ));
             lines.push(format!(
-                "- Base: 100 - {:.1} penalties = {:.1}",
+                "- Base: 100 - {:.2} penalties = {:.1}",
                 pillar.penalty_points, pillar.base_score
             ));
             if !pillar.bonuses.is_empty() {
-                lines.push("- Bonuses:".to_string());
-                for (name, value) in &pillar.bonuses {
-                    if *value > 0.001 {
-                        lines.push(format!("  - {}: +{:.1}%", name, value * 100.0));
+                let has_bonuses = pillar.bonuses.iter().any(|(_, v)| *v > 0.001);
+                if has_bonuses {
+                    lines.push("- Bonuses (additive):".to_string());
+                    for (name, value) in &pillar.bonuses {
+                        if *value > 0.001 {
+                            lines.push(format!("  - {}: +{:.1} pts", name, value * 100.0));
+                        }
                     }
                 }
             }

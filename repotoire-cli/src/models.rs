@@ -125,6 +125,7 @@ pub struct HealthReport {
     pub total_files: usize,
     pub total_functions: usize,
     pub total_classes: usize,
+    pub total_loc: usize,
 }
 
 impl HealthReport {
