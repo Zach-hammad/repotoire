@@ -47,9 +47,13 @@ impl ArchitecturalBottleneckDetector {
     /// Create with custom config
     #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
-        let high_complexity_threshold = config.get_option_or("high_complexity_threshold", 20);
-        let min_fan_in = config.get_option_or("min_fan_in", 15);
-        let min_complexity = config.get_option_or("min_complexity", 15);
+        use crate::calibrate::MetricKind;
+        let high_complexity_threshold = config.get_option_or("high_complexity_threshold",
+            config.adaptive.warn_usize(MetricKind::Complexity, 20) as u32) as u32;
+        let min_fan_in = config.get_option_or("min_fan_in",
+            config.adaptive.warn_usize(MetricKind::FanIn, 15));
+        let min_complexity = config.get_option_or("min_complexity",
+            config.adaptive.warn_usize(MetricKind::Complexity, 15));
         Self {
             config,
             high_complexity_threshold,

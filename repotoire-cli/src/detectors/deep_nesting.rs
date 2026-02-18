@@ -28,37 +28,22 @@ impl DeepNestingDetector {
         }
     }
 
-    /// Apply adaptive thresholds from a style profile.
-    /// Uses p90 nesting depth as the warn threshold (minimum: default).
-    pub fn with_style_profile(mut self, profile: &crate::calibrate::StyleProfile) -> Self {
+    /// Create with adaptive threshold resolver
+    pub fn with_resolver(repository_path: impl Into<PathBuf>, resolver: &crate::calibrate::ThresholdResolver) -> Self {
         use crate::calibrate::MetricKind;
-        if let Some(dist) = profile.get(MetricKind::NestingDepth) {
-            if dist.confident {
-                let adaptive = dist.p90.ceil() as usize;
-                if adaptive > self.threshold {
-                    tracing::info!(
-                        "DeepNesting: adaptive threshold {} (from p90={:.0}, default={})",
-                        adaptive, dist.p90, self.threshold
-                    );
-                    self.threshold = adaptive;
-                }
-            }
+        let default_threshold = 4usize;
+        let threshold = resolver.warn_usize(MetricKind::NestingDepth, default_threshold);
+        if threshold != default_threshold {
+            tracing::info!(
+                "DeepNesting: adaptive threshold {} (default={})",
+                threshold, default_threshold
+            );
         }
-        // Also try complexity as a proxy if nesting isn't available
-        if let Some(dist) = profile.get(MetricKind::Complexity) {
-            if dist.confident && profile.get(MetricKind::NestingDepth).map_or(true, |d| !d.confident) {
-                // sqrt(complexity) ≈ nesting depth
-                let adaptive = (dist.p90.sqrt().ceil() as usize).max(self.threshold);
-                if adaptive > self.threshold {
-                    tracing::info!(
-                        "DeepNesting: adaptive threshold {} (from complexity p90={:.0})",
-                        adaptive, dist.p90
-                    );
-                    self.threshold = adaptive;
-                }
-            }
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 100,
+            threshold,
         }
-        self
     }
 
     /// Find the function containing this line

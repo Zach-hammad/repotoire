@@ -93,6 +93,8 @@ pub struct DetectorConfig {
     pub coupling_multiplier: f64,
     /// Complexity threshold multiplier based on project type
     pub complexity_multiplier: f64,
+    /// Adaptive threshold resolver (from style profile)
+    pub adaptive: crate::calibrate::ThresholdResolver,
 }
 
 impl DetectorConfig {
@@ -104,6 +106,7 @@ impl DetectorConfig {
             options: HashMap::new(),
             coupling_multiplier: 1.0,
             complexity_multiplier: 1.0,
+            adaptive: crate::calibrate::ThresholdResolver::default(),
         }
     }
 
@@ -155,6 +158,12 @@ impl DetectorConfig {
         config.coupling_multiplier = project_type.coupling_multiplier();
         config.complexity_multiplier = project_type.complexity_multiplier();
         config
+    }
+
+    /// Set adaptive threshold resolver from style profile
+    pub fn with_adaptive(mut self, resolver: crate::calibrate::ThresholdResolver) -> Self {
+        self.adaptive = resolver;
+        self
     }
 
     /// Set the repository ID

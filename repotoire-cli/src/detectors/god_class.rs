@@ -100,19 +100,23 @@ impl GodClassDetector {
 
     /// Create with custom config
     pub fn with_config(config: DetectorConfig) -> Self {
+        use crate::calibrate::MetricKind;
         let thresholds = GodClassThresholds {
             max_methods: config
                 .get_option("max_methods")
                 .or_else(|| config.get_option("method_count"))
-                .unwrap_or(20),
+                .unwrap_or_else(|| config.adaptive.warn_usize(MetricKind::ClassMethodCount, 20)),
             critical_methods: config.get_option_or("critical_methods", 30),
             max_lines: config
                 .get_option("max_lines")
                 .or_else(|| config.get_option("loc"))
-                .unwrap_or(500),
-            critical_lines: config.get_option_or("critical_lines", 1000),
-            max_complexity: config.get_option_or("max_complexity", 100),
-            critical_complexity: config.get_option_or("critical_complexity", 200),
+                .unwrap_or_else(|| config.adaptive.warn_usize(MetricKind::FileLength, 500)),
+            critical_lines: config.get_option_or("critical_lines",
+                config.adaptive.high_usize(MetricKind::FileLength, 1000)),
+            max_complexity: config.get_option_or("max_complexity",
+                config.adaptive.warn_usize(MetricKind::Complexity, 100)),
+            critical_complexity: config.get_option_or("critical_complexity",
+                config.adaptive.high_usize(MetricKind::Complexity, 200)),
         };
 
         let use_pattern_exclusions = config.get_option_or("use_pattern_exclusions", true);

@@ -148,6 +148,29 @@ pub fn run(
         return Ok(());
     }
 
+    // Auto-calibrate if no style profile exists
+    if env.style_profile.is_none() && !file_result.all_files.is_empty() {
+        let parse_pairs: Vec<_> = parse_result.parse_results.iter().map(|(path, pr)| {
+            let loc = std::fs::read_to_string(path)
+                .map(|c| c.lines().count())
+                .unwrap_or(0);
+            (pr.clone(), loc)
+        }).collect();
+        let commit_sha = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&env.repo_path)
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string());
+        let profile = crate::calibrate::collect_metrics(&parse_pairs, file_result.all_files.len(), commit_sha);
+        let _ = profile.save(&env.repo_path);
+        env.style_profile = Some(profile);
+        if !env.quiet_mode {
+            println!("📐 Auto-calibrated adaptive thresholds ({} functions)", parse_pairs.len());
+        }
+    }
+
     // Phase 3: Run detectors
     let multi = MultiProgress::new();
     let spinner_style = create_spinner_style();

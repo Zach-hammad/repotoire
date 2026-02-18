@@ -7,6 +7,8 @@
 
 mod profile;
 mod collector;
+mod resolver;
 
 pub use profile::{StyleProfile, MetricDistribution, MetricKind};
 pub use collector::collect_metrics;
+pub use resolver::ThresholdResolver;

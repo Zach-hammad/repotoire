@@ -322,33 +322,24 @@ pub fn default_detectors_with_profile(
         project_type.coupling_multiplier()
     );
 
+    // Build adaptive threshold resolver
+    let resolver = crate::calibrate::ThresholdResolver::new(style_profile.cloned());
+
+    // Helper to build detector config with adaptive resolver
+    let make_config = |name: &str| -> DetectorConfig {
+        DetectorConfig::from_project_config_with_type(name, project_config, repository_path)
+            .with_adaptive(resolver.clone())
+    };
+
     vec![
         // Core detectors (with project config support)
         Arc::new(CircularDependencyDetector::new()),
-        Arc::new(GodClassDetector::with_config(
-            DetectorConfig::from_project_config_with_type(
-                "GodClassDetector",
-                project_config,
-                repository_path,
-            ),
-        )),
-        Arc::new(LongParameterListDetector::with_config(
-            DetectorConfig::from_project_config_with_type(
-                "LongParameterListDetector",
-                project_config,
-                repository_path,
-            ),
-        )),
+        Arc::new(GodClassDetector::with_config(make_config("GodClassDetector"))),
+        Arc::new(LongParameterListDetector::with_config(make_config("LongParameterListDetector"))),
         // Code smell detectors
         Arc::new(DataClumpsDetector::new()),
         Arc::new(DeadCodeDetector::new()),
-        Arc::new(FeatureEnvyDetector::with_config(
-            DetectorConfig::from_project_config_with_type(
-                "FeatureEnvyDetector",
-                project_config,
-                repository_path,
-            ),
-        )),
+        Arc::new(FeatureEnvyDetector::with_config(make_config("FeatureEnvyDetector"))),
         Arc::new(InappropriateIntimacyDetector::new()),
         Arc::new(LazyClassDetector::new()),
         Arc::new(MessageChainDetector::new(repository_path)),
@@ -371,29 +362,12 @@ pub fn default_detectors_with_profile(
         Arc::new(RequireGradTypoDetector::new(repository_path)),
         Arc::new(DeprecatedTorchApiDetector::new(repository_path)),
         // Graph/architecture detectors
-        Arc::new(ArchitecturalBottleneckDetector::new()),
+        Arc::new(ArchitecturalBottleneckDetector::with_config(make_config("ArchitecturalBottleneckDetector"))),
         Arc::new(CoreUtilityDetector::new()),
-        Arc::new(DegreeCentralityDetector::with_config(
-            DetectorConfig::from_project_config_with_type(
-                "DegreeCentralityDetector",
-                project_config,
-                repository_path,
-            ),
-        )),
-        Arc::new(InfluentialCodeDetector::with_config(
-            DetectorConfig::from_project_config(
-                "InfluentialCodeDetector",
-                project_config,
-            ),
-        )),
+        Arc::new(DegreeCentralityDetector::with_config(make_config("DegreeCentralityDetector"))),
+        Arc::new(InfluentialCodeDetector::with_config(make_config("InfluentialCodeDetector"))),
         Arc::new(ModuleCohesionDetector::new()),
-        Arc::new(ShotgunSurgeryDetector::with_config(
-            DetectorConfig::from_project_config_with_type(
-                "ShotgunSurgeryDetector",
-                project_config,
-                repository_path,
-            ),
-        )),
+        Arc::new(ShotgunSurgeryDetector::with_config(make_config("ShotgunSurgeryDetector"))),
         // Security detectors (need repository path for file scanning)
         Arc::new(EvalDetector::with_repository_path(
             repository_path.to_path_buf(),
@@ -423,15 +397,9 @@ pub fn default_detectors_with_profile(
         // New code quality detectors
         Arc::new(EmptyCatchDetector::new(repository_path)),
         Arc::new(TodoScanner::new(repository_path)),
-        Arc::new({
-            let d = DeepNestingDetector::new(repository_path);
-            match style_profile { Some(p) => d.with_style_profile(p), None => d }
-        }),
+        Arc::new(DeepNestingDetector::with_resolver(repository_path, &resolver)),
         Arc::new(MagicNumbersDetector::new(repository_path)),
-        Arc::new({
-            let d = LargeFilesDetector::new(repository_path);
-            match style_profile { Some(p) => d.with_style_profile(p), None => d }
-        }),
+        Arc::new(LargeFilesDetector::with_resolver(repository_path, &resolver)),
         Arc::new(MissingDocstringsDetector::new(repository_path)),
         // New performance detectors
         Arc::new(SyncInAsyncDetector::new(repository_path)),
