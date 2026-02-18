@@ -135,6 +135,60 @@ pub struct GraphMetrics {
     pub total_loc: usize,
 }
 
+/// Which pillar a finding belongs to
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Pillar {
+    Structure,
+    Quality,
+    Architecture,
+}
+
+/// Classify a finding into a pillar based on its category and detector name.
+/// Every category maps to exactly one pillar — no splitting.
+fn classify_pillar(category: &str, detector: &str, is_security: bool) -> Pillar {
+    // Security always → Quality (it's a code quality issue)
+    if is_security {
+        return Pillar::Quality;
+    }
+
+    match category {
+        // Structure: code shape, readability, size, naming
+        c if c.contains("complex") => Pillar::Structure,
+        c if c.contains("naming") => Pillar::Structure,
+        c if c.contains("readab") => Pillar::Structure,
+        c if c.contains("style") => Pillar::Structure,
+        c if c.contains("maintainab") => Pillar::Structure,
+
+        // Architecture: module boundaries, dependencies, coupling
+        c if c.contains("architect") => Pillar::Architecture,
+        c if c.contains("bottleneck") => Pillar::Architecture,
+        c if c.contains("circular") => Pillar::Architecture,
+        c if c.contains("coupling") => Pillar::Architecture,
+
+        // Quality: correctness, reliability, performance, error handling
+        c if c.contains("security") => Pillar::Quality,
+        c if c.contains("reliab") => Pillar::Quality,
+        c if c.contains("correct") => Pillar::Quality,
+        c if c.contains("performance") => Pillar::Quality,
+        c if c.contains("error") => Pillar::Quality,
+        c if c.contains("safety") => Pillar::Quality,
+
+        // Fallback: use detector name heuristics
+        _ => {
+            if detector.contains("dependency") || detector.contains("import") {
+                Pillar::Architecture
+            } else if detector.contains("large") || detector.contains("nesting")
+                || detector.contains("dead") || detector.contains("naming")
+            {
+                Pillar::Structure
+            } else {
+                // Default: Quality (correctness, misc)
+                Pillar::Quality
+            }
+        }
+    }
+}
+
 /// Graph-aware health scorer
 pub struct GraphScorer<'a> {
     graph: &'a GraphStore,
@@ -210,31 +264,21 @@ impl<'a> GraphScorer<'a> {
             };
             let effective = scaled * security_mult;
 
-            // Assign to pillars based on category
-            if is_security || category.contains("security") {
-                quality_penalty += effective;
-                quality_count += 1;
-            } else if category.contains("architect")
-                || category.contains("bottleneck")
-                || category.contains("circular")
-                || category.contains("coupling")
-                || detector.contains("dependency")
-            {
-                architecture_penalty += effective;
-                architecture_count += 1;
-            } else if category.contains("complex")
-                || category.contains("naming")
-                || category.contains("readab")
-                || category.contains("style")
-            {
-                structure_penalty += effective;
-                structure_count += 1;
-            } else {
-                // Distribute evenly
-                quality_penalty += effective / 3.0;
-                structure_penalty += effective / 3.0;
-                architecture_penalty += effective / 3.0;
-                quality_count += 1;
+            // Route findings to pillars based on category
+            let pillar = classify_pillar(category, &detector, is_security);
+            match pillar {
+                Pillar::Quality => {
+                    quality_penalty += effective;
+                    quality_count += 1;
+                }
+                Pillar::Structure => {
+                    structure_penalty += effective;
+                    structure_count += 1;
+                }
+                Pillar::Architecture => {
+                    architecture_penalty += effective;
+                    architecture_count += 1;
+                }
             }
         }
 
@@ -318,8 +362,15 @@ impl<'a> GraphScorer<'a> {
         // Additive bonuses: each bonus adds up to its max % as points
         // e.g. 5% test bonus = +5 points, not *1.05 multiplier
         let total_bonus: f64 = bonuses.iter().map(|(_, b)| b).sum();
-        let bonus_points = total_bonus * 100.0; // Convert ratio to points
-        let final_score = (base_score + bonus_points).min(100.0);
+        let bonus_points = total_bonus * 100.0;
+        // Bonuses can recover at most half the penalty — they can't fully mask issues.
+        // If penalty=4 and bonus=5, you recover 2 (not 5), giving 98 not 101.
+        let capped_bonus = if penalty > 0.0 {
+            bonus_points.min(penalty * 0.5)
+        } else {
+            bonus_points
+        };
+        let final_score = (base_score + capped_bonus).min(100.0);
 
         PillarBreakdown {
             name: name.to_string(),
@@ -615,17 +666,27 @@ impl<'a> GraphScorer<'a> {
                 "- Base: 100 - {:.2} penalties = {:.1}",
                 pillar.penalty_points, pillar.base_score
             ));
+            let total_bonus: f64 = pillar.bonuses.iter().map(|(_, v)| v).sum::<f64>() * 100.0;
+            let capped = if pillar.penalty_points > 0.0 {
+                total_bonus.min(pillar.penalty_points * 0.5)
+            } else {
+                total_bonus
+            };
             if !pillar.bonuses.is_empty() {
                 let has_bonuses = pillar.bonuses.iter().any(|(_, v)| *v > 0.001);
                 if has_bonuses {
-                    lines.push("- Bonuses (additive):".to_string());
+                    lines.push("- Bonuses (additive, capped at 50% of penalty):".to_string());
                     for (name, value) in &pillar.bonuses {
                         if *value > 0.001 {
                             lines.push(format!("  - {}: +{:.1} pts", name, value * 100.0));
                         }
                     }
+                    if capped < total_bonus {
+                        lines.push(format!("  - *(capped from {:.1} to {:.1} pts)*", total_bonus, capped));
+                    }
                 }
             }
+            lines.push(format!("- Final: {:.1}", pillar.final_score));
             lines.push(format!("- Findings: {}\n", pillar.finding_count));
         }
 
