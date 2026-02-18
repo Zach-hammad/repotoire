@@ -369,6 +369,8 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
                             || trimmed.starts_with("r#\"")
                             || trimmed.starts_with("r\"")
                             || trimmed.starts_with('\'')
+                            || trimmed.ends_with("\\n\\")
+                            || trimmed.ends_with("\\")
                         {
                             continue;
                         }
