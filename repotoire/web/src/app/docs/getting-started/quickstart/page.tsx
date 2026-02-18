@@ -27,7 +27,7 @@ repotoire analyze .
 That's it. Repotoire will:
 - Parse your code (Python, TypeScript, Go, Java, Rust, C/C++, C#, Kotlin)
 - Build a local knowledge graph
-- Run 81 detectors
+- Run 114 detectors
 - Show your health score
 
 ## Example Output
@@ -38,7 +38,7 @@ That's it. Repotoire will:
 Repository: ./my-project
 Files: 156 | Functions: 412 | Classes: 89
 
-Running 81 detectors...
+Running 114 detectors...
 
 ┌──────────────────┬───────┬───────┐
 │ Category         │ Score │ Grade │

@@ -99,6 +99,13 @@ repotoire findings -i
 # AI-powered fixes (optional, requires API key)
 repotoire fix <finding-id>
 
+# Adaptive thresholds — learns YOUR coding style
+repotoire calibrate .    # explicit (optional — auto-runs on first analyze)
+repotoire analyze .      # auto-calibrates if no profile exists
+
+# Scoring breakdown
+repotoire analyze . --explain-score
+
 # Check your setup
 repotoire doctor
 ```
@@ -172,6 +179,30 @@ repos:
         language: system
         pass_filenames: false
 ```
+
+## Adaptive Thresholds
+
+Repotoire learns YOUR coding patterns. Instead of arbitrary defaults, it analyzes your codebase's statistical distribution and flags only outliers from your style.
+
+```bash
+repotoire calibrate .   # Generate style profile (optional — auto-runs on first analyze)
+```
+
+On first `analyze`, repotoire auto-calibrates and saves a profile to `.repotoire/style-profile.json`:
+
+```
+📊 Style Profile (your-project, 2886 functions)
+
+  complexity      mean=4.7  p90=12  p95=17
+  nesting_depth   mean=1.4  p90=4   p95=5
+  function_length mean=24   p90=60  p95=91
+  file_length     mean=408  p90=773 p95=915
+  parameter_count mean=1.5  p90=3   p95=4
+```
+
+Detectors use `max(default, your_p90)` as thresholds — they only go UP, never down. A messy codebase gets more lenient thresholds (flag only YOUR outliers), while a clean codebase stays at defaults.
+
+**Detectors with adaptive thresholds:** DeepNesting, LargeFiles, GodClass, LongParameterList, ArchitecturalBottleneck.
 
 ## Configuration
 

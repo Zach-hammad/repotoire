@@ -29,25 +29,32 @@ repotoire findings
 repotoire status
 \`\`\`
 
-## Core Commands
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| \`analyze\` | Parse codebase, build graph, run detectors |
+| \`analyze\` | Parse codebase, build graph, run 114 detectors |
+| \`calibrate\` | Generate adaptive thresholds from your coding style |
 | \`findings\` | List all findings with filters |
+| \`fix\` | AI-powered fixes (BYOK — Claude, GPT-4, Ollama) |
+| \`graph\` | Query the code graph directly |
+| \`doctor\` | Check environment setup |
+| \`clean\` | Remove cached analysis data |
+| \`init\` | Generate \`repotoire.toml\` config |
 | \`status\` | Show project health summary |
-| \`query\` | Run Cypher queries on the graph |
-| \`hotspots\` | Find code with multiple issues |
 
-## AI Commands (Pro)
+## Adaptive Thresholds
 
-These require an API key (\`OPENAI_API_KEY\` or \`ANTHROPIC_API_KEY\`):
+Repotoire learns your coding patterns. On first \`analyze\`, it auto-calibrates
+thresholds based on your codebase's p90/p95 percentiles. No manual setup needed.
 
-| Command | Description |
-|---------|-------------|
-| \`ask\` | Ask questions about your code (RAG) |
-| \`fix\` | Generate AI-powered fixes |
-| \`auto-fix\` | Batch fix multiple issues |
+\`\`\`bash
+# Explicit calibration (optional)
+repotoire calibrate .
+
+# Auto-calibrates on first run, reuses profile after
+repotoire analyze .
+\`\`\`
 
 ## MCP Server
 

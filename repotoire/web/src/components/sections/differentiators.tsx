@@ -17,9 +17,9 @@ const comparisons = [
     repotoire: "AI-generated code with 70% approval rate",
   },
   {
-    title: "Search",
-    competitor: "Regex pattern matching",
-    repotoire: "Natural language queries",
+    title: "Thresholds",
+    competitor: "Fixed arbitrary numbers",
+    repotoire: "Adaptive — learns YOUR coding style",
   },
 ]
 
