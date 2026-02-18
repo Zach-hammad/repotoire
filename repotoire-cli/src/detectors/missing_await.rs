@@ -75,7 +75,8 @@ impl MissingAwaitDetector {
             if !found_open {
                 if line.contains('{') || (ext == "py" && line.contains(':')) {
                     found_open = true;
-                    brace_depth = 1;
+                    // Count all braces on the opening line (e.g. `async function foo() {`)
+                    brace_depth = line.matches('{').count() as i32 - line.matches('}').count() as i32;
                     if line.contains("await ") { return true; }
                     continue;
                 }
@@ -136,16 +137,17 @@ impl Detector for MissingAwaitDetector {
             // Find async function boundaries using brace counting
             // We need to know: (a) are we inside an async function? (b) which one?
             let mut async_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
+            // Pre-fetch functions for this file to avoid O(n²) graph lookups
+            let file_funcs: Vec<_> = graph.get_functions().into_iter()
+                .filter(|f| f.file_path == path_str || path_str.ends_with(&f.file_path))
+                .collect();
+
             for (i, line) in lines.iter().enumerate() {
                 if !Self::is_async_declaration(line) { continue; }
 
-                // Find the function name
-                let func_name = graph.get_functions().into_iter()
-                    .find(|f| {
-                        (f.file_path == path_str || path_str.ends_with(&f.file_path))
-                            && f.line_start <= (i + 1) as u32
-                            && f.line_end >= (i + 1) as u32
-                    })
+                // Find the function name from pre-fetched list
+                let func_name = file_funcs.iter()
+                    .find(|f| f.line_start <= (i + 1) as u32 && f.line_end >= (i + 1) as u32)
                     .map(|f| f.name.clone())
                     .unwrap_or_default();
 

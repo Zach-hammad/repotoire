@@ -135,7 +135,8 @@ pub(super) fn setup_environment(
     // Load adaptive style profile if present
     let style_profile = crate::calibrate::StyleProfile::load(&repo_path);
     if style_profile.is_some() && !quiet_mode {
-        println!("📐 Using adaptive thresholds from style profile");
+        let icon = if config.no_emoji { "" } else { "📐 " };
+        println!("{}Using adaptive thresholds from style profile", icon);
     }
 
     Ok(EnvironmentSetup {

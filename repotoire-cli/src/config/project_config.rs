@@ -635,11 +635,10 @@ fn glob_match(pattern: &str, path: &str) -> bool {
         }
     }
 
-    // Exact match, prefix match (for directories), or path-segment match
-    // So "scripts/" matches both "scripts/foo.py" and "/abs/path/scripts/foo.py"
-    path.starts_with(pattern)
-        || path == pattern
-        || path.contains(&format!("/{}", pattern))
+    // Exact match or prefix match (for directories)
+    // "vendor/" only matches "vendor/foo.py", NOT "src/vendor/foo.py"
+    // Use "**/vendor/**" pattern for recursive matching
+    path.starts_with(pattern) || path == pattern
 }
 
 #[cfg(test)]

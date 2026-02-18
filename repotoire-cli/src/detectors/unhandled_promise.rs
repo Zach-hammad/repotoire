@@ -186,16 +186,31 @@ impl Detector for UnhandledPromiseDetector {
                     }
 
                     // Verify the containing function is actually async
-                    // Look back for the nearest function definition
+                    // Walk backward tracking brace depth to find the NEAREST enclosing function
                     let mut is_in_async_context = false;
+                    let mut depth = 0i32;
                     for j in (0..=i).rev() {
                         let prev = lines[j].trim();
-                        if prev.contains("async ") && (prev.contains("function") || prev.contains("=>") || prev.contains("(")) {
+                        // Track braces going backward: } increases depth, { decreases
+                        depth += prev.matches('}').count() as i32;
+                        depth -= prev.matches('{').count() as i32;
+                        // We've exited our scope — this is the enclosing function definition
+                        if depth < 0 {
+                            if prev.contains("async ") {
+                                is_in_async_context = true;
+                            }
+                            break;
+                        }
+                        // Also check for function declaration at same scope level
+                        if depth == 0 && (prev.starts_with("async function ")
+                            || prev.starts_with("export async function ")
+                            || (prev.contains("async ") && prev.contains("=>"))
+                            || prev.starts_with("async ("))
+                        {
                             is_in_async_context = true;
                             break;
                         }
-                        // Stop at function boundary (non-async function definition)
-                        if (prev.starts_with("function ") || prev.starts_with("export function "))
+                        if depth == 0 && (prev.starts_with("function ") || prev.starts_with("export function "))
                             && !prev.contains("async")
                         {
                             break;

@@ -167,7 +167,8 @@ pub fn run(
         let _ = profile.save(&env.repo_path);
         env.style_profile = Some(profile);
         if !env.quiet_mode {
-            println!("📐 Auto-calibrated adaptive thresholds ({} functions)", parse_pairs.len());
+            let icon = if env.config.no_emoji { "" } else { "📐 " };
+            println!("{}Auto-calibrated adaptive thresholds ({} functions)", icon, parse_pairs.len());
         }
     }
 

@@ -128,18 +128,30 @@ impl DeadStoreDetector {
 
                     // Track interface/type blocks for TypeScript
                     if matches!(ext, "ts" | "tsx") {
-                        if trimmed.starts_with("interface ")
-                            || trimmed.starts_with("export interface ")
-                            || trimmed.starts_with("type ")
-                            || trimmed.starts_with("export type ")
+                        if !in_interface
+                            && (trimmed.starts_with("interface ")
+                                || trimmed.starts_with("export interface ")
+                                || trimmed.starts_with("type ")
+                                || trimmed.starts_with("export type "))
                         {
-                            in_interface = true;
-                            interface_depth = 0;
+                            if trimmed.contains('{') {
+                                // Block interface/type — track with braces
+                                in_interface = true;
+                                interface_depth = trimmed.matches('{').count() as i32
+                                    - trimmed.matches('}').count() as i32;
+                                if interface_depth <= 0 {
+                                    in_interface = false; // Single-line: type Foo = { bar: string }
+                                }
+                                continue;
+                            } else {
+                                // Single-line type alias: `type Foo = string;` — skip just this line
+                                continue;
+                            }
                         }
                         if in_interface {
                             interface_depth += trimmed.matches('{').count() as i32;
                             interface_depth -= trimmed.matches('}').count() as i32;
-                            if interface_depth <= 0 && trimmed.contains('}') {
+                            if interface_depth <= 0 {
                                 in_interface = false;
                             }
                             continue; // Skip all lines inside interfaces/type definitions
