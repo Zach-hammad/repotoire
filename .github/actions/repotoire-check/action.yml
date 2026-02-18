@@ -1,123 +1,187 @@
 name: 'Repotoire Code Quality Check'
-description: 'Analyze code quality and post findings to PR comments'
-author: 'Repotoire Team'
+description: 'Graph-powered code analysis with 114 detectors. Zero dependencies.'
+author: 'Repotoire'
 
 branding:
   icon: 'check-circle'
-  color: 'blue'
+  color: 'purple'
 
 inputs:
+  version:
+    description: 'Repotoire version to install (default: latest)'
+    required: false
+    default: 'latest'
+
   fail-on:
-    description: 'Minimum severity level to fail the check (critical, high, medium, low)'
+    description: 'Minimum severity to fail the check (critical, high, medium, low, off)'
     required: false
     default: 'critical'
+
+  format:
+    description: 'Output format (text, json, sarif)'
+    required: false
+    default: 'text'
+
+  path:
+    description: 'Path to analyze (default: .)'
+    required: false
+    default: '.'
+
+  args:
+    description: 'Additional arguments to pass to repotoire analyze'
+    required: false
+    default: ''
 
   comment-on-pr:
     description: 'Post findings as PR comment'
     required: false
     default: 'true'
 
-  incremental:
-    description: 'Use incremental analysis (only changed files)'
-    required: false
-    default: 'true'
-
-  neo4j-uri:
-    description: 'Neo4j connection URI'
-    required: false
-    default: 'bolt://localhost:7687'
-
-  neo4j-password:
-    description: 'Neo4j password (use secrets for this)'
-    required: true
-
   github-token:
-    description: 'GitHub token for PR comments (defaults to GITHUB_TOKEN)'
+    description: 'GitHub token for PR comments'
     required: false
     default: ${{ github.token }}
 
-  python-version:
-    description: 'Python version to use'
-    required: false
-    default: '3.10'
-
 outputs:
-  findings-count:
-    description: 'Total number of findings'
-    value: ${{ steps.analyze.outputs.findings-count }}
-
-  critical-count:
-    description: 'Number of critical findings'
-    value: ${{ steps.analyze.outputs.critical-count }}
-
-  health-score:
-    description: 'Overall health score (0-100)'
-    value: ${{ steps.analyze.outputs.health-score }}
+  score:
+    description: 'Health score (0-100)'
+    value: ${{ steps.analyze.outputs.score }}
+  grade:
+    description: 'Letter grade (A+ through F)'
+    value: ${{ steps.analyze.outputs.grade }}
+  findings:
+    description: 'Total findings count'
+    value: ${{ steps.analyze.outputs.findings }}
+  exit-code:
+    description: 'Exit code from analysis (0=pass, 1=findings exceed threshold)'
+    value: ${{ steps.analyze.outputs.exit-code }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ inputs.python-version }}
-
-    - name: Install uv
-      shell: bash
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
     - name: Install Repotoire
       shell: bash
       run: |
-        uv pip install -e "${{ github.action_path }}/../../.."
-
-    - name: Get changed files
-      id: changed-files
-      shell: bash
-      run: |
-        if [ "${{ github.event_name }}" == "pull_request" ]; then
-          echo "files=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.sha }} | grep '\.py$' | tr '\n' ' ')" >> $GITHUB_OUTPUT
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          echo "Installing latest repotoire from crates.io..."
+          cargo install repotoire --locked 2>/dev/null || cargo install repotoire
         else
-          echo "files=$(git diff --name-only HEAD~1 | grep '\.py$' | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          echo "Installing repotoire v${{ inputs.version }}..."
+          cargo install repotoire --version "${{ inputs.version }}" --locked 2>/dev/null || \
+            cargo install repotoire --version "${{ inputs.version }}"
         fi
 
-    - name: Run Repotoire Analysis
+    - name: Run Analysis
       id: analyze
       shell: bash
-      env:
-        REPOTOIRE_NEO4J_URI: ${{ inputs.neo4j-uri }}
-        REPOTOIRE_NEO4J_PASSWORD: ${{ inputs.neo4j-password }}
       run: |
-        ${{ github.action_path }}/run-analysis.sh \
-          --fail-on "${{ inputs.fail-on }}" \
-          --incremental "${{ inputs.incremental }}" \
-          --files "${{ steps.changed-files.outputs.files }}"
+        set +e
+
+        # Build command
+        CMD="repotoire analyze ${{ inputs.path }}"
+        CMD="$CMD --fail-on ${{ inputs.fail-on }}"
+
+        if [ "${{ inputs.format }}" = "sarif" ]; then
+          CMD="$CMD --format sarif --output results.sarif"
+        fi
+
+        if [ -n "${{ inputs.args }}" ]; then
+          CMD="$CMD ${{ inputs.args }}"
+        fi
+
+        echo "Running: $CMD"
+
+        # Capture output
+        OUTPUT=$($CMD 2>&1)
+        EXIT_CODE=$?
+
+        echo "$OUTPUT"
+
+        # Parse score/grade from output
+        SCORE=$(echo "$OUTPUT" | grep -oP 'Score:\s*\K[\d.]+' | head -1)
+        GRADE=$(echo "$OUTPUT" | grep -oP 'Grade:\s*\K\S+' | head -1)
+        FINDINGS=$(echo "$OUTPUT" | grep -oP '\d+ findings' | grep -oP '\d+' | head -1)
+
+        echo "score=${SCORE:-0}" >> $GITHUB_OUTPUT
+        echo "grade=${GRADE:-N/A}" >> $GITHUB_OUTPUT
+        echo "findings=${FINDINGS:-0}" >> $GITHUB_OUTPUT
+        echo "exit-code=${EXIT_CODE}" >> $GITHUB_OUTPUT
+
+        # Write step summary
+        echo "## 🔍 Repotoire Analysis" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Score | ${SCORE:-N/A}/100 |" >> $GITHUB_STEP_SUMMARY
+        echo "| Grade | ${GRADE:-N/A} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Findings | ${FINDINGS:-0} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Status | $([ $EXIT_CODE -eq 0 ] && echo '✅ Pass' || echo '❌ Fail') |" >> $GITHUB_STEP_SUMMARY
+
+        # Save full output for PR comment
+        echo "$OUTPUT" > /tmp/repotoire-output.txt
+
+        # Exit with the original code
+        exit $EXIT_CODE
+
+    - name: Upload SARIF
+      if: inputs.format == 'sarif' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: results.sarif
+      continue-on-error: true
 
     - name: Post PR Comment
-      if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+      if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' && always()
       uses: actions/github-script@v7
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const fs = require('fs');
-          const comment = fs.readFileSync('${{ github.workspace }}/.repotoire/pr-comment.md', 'utf8');
+          let output = '';
+          try {
+            output = fs.readFileSync('/tmp/repotoire-output.txt', 'utf8');
+          } catch (e) {
+            output = 'Analysis output not available.';
+          }
 
-          // Find existing comment
+          const score = '${{ steps.analyze.outputs.score }}' || 'N/A';
+          const grade = '${{ steps.analyze.outputs.grade }}' || 'N/A';
+          const findings = '${{ steps.analyze.outputs.findings }}' || '0';
+          const passed = '${{ steps.analyze.outputs.exit-code }}' === '0';
+
+          const comment = `## 🔍 Repotoire Code Quality Report
+
+          | Metric | Value |
+          |--------|-------|
+          | Score | **${score}/100** |
+          | Grade | **${grade}** |
+          | Findings | ${findings} |
+          | Status | ${passed ? '✅ Pass' : '❌ Threshold exceeded'} |
+
+          <details>
+          <summary>Full output</summary>
+
+          \`\`\`
+          ${output.substring(0, 60000)}
+          \`\`\`
+
+          </details>
+
+          ---
+          *Analyzed by [Repotoire](https://repotoire.com) • [Install CLI](https://github.com/Zach-hammad/repotoire)*`;
+
+          // Find existing bot comment
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: context.issue.number,
           });
 
-          const botComment = comments.find(comment =>
-            comment.user.type === 'Bot' &&
-            comment.body.includes('🤖 Repotoire Code Quality Report')
+          const botComment = comments.find(c =>
+            c.body.includes('🔍 Repotoire Code Quality Report')
           );
 
           if (botComment) {
-            // Update existing comment
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -125,7 +189,6 @@ runs:
               body: comment
             });
           } else {
-            // Create new comment
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,

@@ -1,32 +1,21 @@
-# Example workflow for Repotoire PR checks
-# Copy this to your repo as .github/workflows/repotoire.yml
-
-name: Repotoire
+name: Code Quality (Repotoire)
 
 on:
   pull_request:
-    branches: [main, master]
-  push:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
   analyze:
-    name: Code Analysis
+    name: Repotoire Analysis
     runs-on: ubuntu-latest
-    
-    permissions:
-      contents: read
-      pull-requests: write
-    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Run Repotoire
-        uses: repotoire/repotoire/.github/actions/pr-check@main
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: Zach-hammad/repotoire/.github/actions/repotoire-check@main
         with:
-          severity: medium        # Report medium+ severity issues
-          fail-on: high           # Fail check on high/critical issues
-          changed-only: true      # Only analyze changed files
-          # Optional: Add API keys for AI-powered fix suggestions
-          # openai-key: ${{ secrets.OPENAI_API_KEY }}
+          fail-on: high        # Fail on high or critical findings
+          comment-on-pr: true  # Post results as PR comment
