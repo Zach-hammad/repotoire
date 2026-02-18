@@ -174,6 +174,39 @@ impl Detector for UnhandledPromiseDetector {
 
                     let has_promise = promise_pattern().is_match(line);
 
+                    // Verify that this line is actually inside an async function
+                    // or deals with promises. Don't flag sync code.
+                    if !has_promise && !line.contains("await ") && !line.contains(".then(") {
+                        // Check if calling a known async function
+                        let calls_async_fn = async_funcs.iter()
+                            .any(|f| line.contains(&format!("{}(", f)) && !line.contains("await"));
+                        if !calls_async_fn {
+                            continue;
+                        }
+                    }
+
+                    // Verify the containing function is actually async
+                    // Look back for the nearest function definition
+                    let mut is_in_async_context = false;
+                    for j in (0..=i).rev() {
+                        let prev = lines[j].trim();
+                        if prev.contains("async ") && (prev.contains("function") || prev.contains("=>") || prev.contains("(")) {
+                            is_in_async_context = true;
+                            break;
+                        }
+                        // Stop at function boundary (non-async function definition)
+                        if (prev.starts_with("function ") || prev.starts_with("export function "))
+                            && !prev.contains("async")
+                        {
+                            break;
+                        }
+                    }
+                    // Only flag un-caught promises, not async function calls in sync code
+                    // (calling async from sync is expected — you'd handle it at the call site)
+                    if !is_in_async_context && !has_promise {
+                        continue;
+                    }
+
                     // Also check calls to known async functions without await.
                     // Only flag if the current function context is itself async — calling
                     // an async function from sync code is expected (you can't await there).

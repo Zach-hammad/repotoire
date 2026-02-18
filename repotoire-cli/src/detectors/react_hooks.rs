@@ -249,8 +249,18 @@ impl Detector for ReactHooksDetector {
                     // These match nested_func() because of "const x = (" pattern, but the
                     // callback/options inside a hook invocation are NOT nested hook calls —
                     // the hook itself is called at the component level.
+                    // Track hook call option blocks — anything inside useMutation({...}),
+                    // useQuery({...}), useCallback(() => {...}), etc. is NOT a nested function.
+                    let is_hook_call_line = hook_call().is_match(line)
+                        && (line.contains("useMutation") || line.contains("useQuery")
+                            || line.contains("useCallback") || line.contains("useMemo")
+                            || line.contains("useEffect") || line.contains("useLayoutEffect")
+                            || line.contains("useInfiniteQuery"));
+
                     let is_hook_call_assignment = nested_func().is_match(line) && hook_call().is_match(line);
-                    if nested_func().is_match(line) && component_depth > 0 && !is_hook_call_assignment {
+                    if nested_func().is_match(line) && component_depth > 0
+                        && !is_hook_call_assignment && !is_hook_call_line
+                    {
                         in_nested_func = true;
                         nested_depth = line.matches('{').count() as i32;
                     }

@@ -76,8 +76,41 @@ impl Detector for XssDetector {
                 continue;
             }
 
-            // Skip framework internals (React/Vue/Angular core SSR code)
+            // Skip non-served static HTML files (mockups, specs, design docs, fixtures)
             let path_str_lower = path.to_string_lossy().to_lowercase();
+            if ext == "html" && (
+                path_str_lower.contains("mockup")
+                || path_str_lower.contains("mock-")
+                || path_str_lower.contains("spec")
+                || path_str_lower.contains("fixture")
+                || path_str_lower.contains("example")
+                || path_str_lower.contains("demo")
+                || path_str_lower.contains("design")
+                || path_str_lower.contains("prototype")
+                || path_str_lower.contains("wireframe")
+                || path_str_lower.contains("static")
+            ) {
+                continue;
+            }
+
+            // For HTML files, check if data comes from hardcoded arrays (not user input)
+            // If the file contains no form inputs, fetch calls, or URL params, it's static
+            if ext == "html" {
+                if let Some(content) = crate::cache::global_cache().get_content(path) {
+                    let has_dynamic_input = content.contains("fetch(")
+                        || content.contains("XMLHttpRequest")
+                        || content.contains("location.search")
+                        || content.contains("location.hash")
+                        || content.contains("document.cookie")
+                        || content.contains("window.name")
+                        || content.contains("postMessage");
+                    if !has_dynamic_input {
+                        continue; // Pure static HTML with hardcoded data
+                    }
+                }
+            }
+
+            // Skip framework internals (React/Vue/Angular core SSR code)
             if path_str_lower.contains("fizzconfig")  // React SSR core
                 || path_str_lower.contains("server/react")
                 || path_str_lower.contains("dom-bindings")  // React DOM bindings

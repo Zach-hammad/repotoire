@@ -119,7 +119,33 @@ impl DeadStoreDetector {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut seen_assignments: HashSet<(String, usize)> = HashSet::new();
 
+                // Track if we're inside a TS interface/type block
+                let mut in_interface = false;
+                let mut interface_depth = 0i32;
+
                 for (i, line) in lines.iter().enumerate() {
+                    let trimmed = line.trim();
+
+                    // Track interface/type blocks for TypeScript
+                    if matches!(ext, "ts" | "tsx") {
+                        if trimmed.starts_with("interface ")
+                            || trimmed.starts_with("export interface ")
+                            || trimmed.starts_with("type ")
+                            || trimmed.starts_with("export type ")
+                        {
+                            in_interface = true;
+                            interface_depth = 0;
+                        }
+                        if in_interface {
+                            interface_depth += trimmed.matches('{').count() as i32;
+                            interface_depth -= trimmed.matches('}').count() as i32;
+                            if interface_depth <= 0 && trimmed.contains('}') {
+                                in_interface = false;
+                            }
+                            continue; // Skip all lines inside interfaces/type definitions
+                        }
+                    }
+
                     if let Some(caps) = assignment().captures(line) {
                         if let Some(var_match) = caps.get(2) {
                             let var = var_match.as_str();

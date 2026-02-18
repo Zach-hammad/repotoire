@@ -219,8 +219,14 @@ impl Detector for UnusedImportsDetector {
                         // The simple word-search in is_symbol_used() can't find type positions,
                         // so we'd get false positives for every type import.
                         if matches!(ext, "ts" | "tsx")
-                            && (trimmed.starts_with("import type ") || trimmed.contains(" type {"))
+                            && (trimmed.starts_with("import type ")
+                                || trimmed.contains(" type {")
+                                || trimmed.contains("{ type ")
+                                || trimmed.contains(", type "))
                         {
+                            // Skip entire import if it's a type-only import or
+                            // contains any inline type imports (import { type X, type Y })
+                            // These are used in type annotations which our word search may miss
                             continue;
                         }
                         Self::extract_js_imports(trimmed)

@@ -16,19 +16,11 @@ use std::sync::OnceLock;
 use tracing::info;
 
 static ASYNC_CALL: OnceLock<Regex> = OnceLock::new();
-static ASYNC_DEF: OnceLock<Regex> = OnceLock::new();
 
 fn async_call() -> &'static Regex {
     ASYNC_CALL.get_or_init(|| {
-        // Only match clearly async patterns. Avoid generic .get()/.send() which
-        // match Map.get(), headers.get(), element.send() etc.
-        Regex::new(r"(?i)(fetch\(|axios\.\w+\(|\.json\(\)|\.text\(\)|async_\w+\(|aio\w+\.)").expect("valid regex")
-    })
-}
-
-fn async_def() -> &'static Regex {
-    ASYNC_DEF.get_or_init(|| {
-        Regex::new(r"(?:async\s+(?:def|function)|async\s+\w+\s*\(|async\s+\w+\s*=)").expect("valid regex")
+        // Only match clearly async I/O patterns — NOT generic method calls
+        Regex::new(r"(?i)\b(fetch\(|axios\.\w+\(|\.\bjson\(\)|\.\btext\(\)|async_\w+\(|aio\w+\.)").expect("valid regex")
     })
 }
 
@@ -45,52 +37,64 @@ impl MissingAwaitDetector {
         }
     }
 
-    /// Identify async functions from the graph
+    /// Identify async functions from the graph — only trust the is_async property
     fn find_async_functions(graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut async_funcs = HashSet::new();
-
         for func in graph.get_functions() {
-            // Check if function is marked as async in properties
             if let Some(is_async) = func.properties.get("is_async") {
                 if is_async.as_bool().unwrap_or(false) {
                     async_funcs.insert(func.name.clone());
                 }
             }
-
-            // Check function name patterns that are typically async
-            let name_lower = func.name.to_lowercase();
-            if name_lower.starts_with("async_")
-                || name_lower.starts_with("fetch_")
-                || name_lower.starts_with("get_")
-                || name_lower.starts_with("load_")
-                || name_lower.ends_with("_async")
-            {
-                // Check file content for async keyword
-                if let Ok(content) = std::fs::read_to_string(&func.file_path) {
-                    let lines: Vec<&str> = content.lines().collect();
-                    if let Some(line) = lines.get(func.line_start.saturating_sub(1) as usize) {
-                        if line.contains("async ") {
-                            async_funcs.insert(func.name.clone());
-                        }
-                    }
-                }
-            }
         }
-
         async_funcs
     }
 
-    /// Find containing function name
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<String> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| f.name)
+    /// Check if a line is an async function/method DECLARATION (not a call)
+    fn is_async_declaration(line: &str) -> bool {
+        let trimmed = line.trim();
+        // async function foo() {
+        // async foo() {
+        // const foo = async () => {
+        // const foo = async function() {
+        // export async function foo() {
+        // async def foo():  (Python)
+        trimmed.contains("async function ")
+            || trimmed.contains("async def ")
+            || trimmed.contains("= async (")
+            || trimmed.contains("= async function")
+            || (trimmed.starts_with("async ") && trimmed.contains('(') && trimmed.contains('{'))
+            || (trimmed.starts_with("export async "))
+    }
+
+    /// Check if the function body actually contains await (it's a real async function)
+    fn function_body_has_await(lines: &[&str], start: usize, ext: &str) -> bool {
+        let mut brace_depth = 0i32;
+        let mut found_open = false;
+        for line in &lines[start..] {
+            if !found_open {
+                if line.contains('{') || (ext == "py" && line.contains(':')) {
+                    found_open = true;
+                    brace_depth = 1;
+                    if line.contains("await ") { return true; }
+                    continue;
+                }
+                continue;
+            }
+            brace_depth += line.matches('{').count() as i32;
+            brace_depth -= line.matches('}').count() as i32;
+            if line.contains("await ") { return true; }
+            if ext != "py" && brace_depth <= 0 { break; }
+            // Python: stop at dedent
+            if ext == "py" {
+                let indent = line.len() - line.trim_start().len();
+                let start_indent = lines[start].len() - lines[start].trim_start().len();
+                if !line.trim().is_empty() && indent <= start_indent && !line.trim().starts_with('#') {
+                    break;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -104,8 +108,6 @@ impl Detector for MissingAwaitDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-
-        // Find all async functions in the codebase
         let known_async_funcs = Self::find_async_functions(graph);
 
         let walker = ignore::WalkBuilder::new(&self.repository_path)
@@ -118,206 +120,171 @@ impl Detector for MissingAwaitDetector {
                 break;
             }
             let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
+            if !path.is_file() { continue; }
 
             let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "jsx" | "tsx" | "py") {
-                continue;
-            }
+            if !matches!(ext, "js" | "ts" | "jsx" | "tsx" | "py") { continue; }
 
-            // Skip non-production paths
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
-                let lines: Vec<&str> = content.lines().collect();
-                let mut in_async = false;
-                let mut async_depth = 0;
-                let mut current_async_func = String::new();
+            let Some(content) = crate::cache::global_cache().get_content(path) else { continue };
+            let lines: Vec<&str> = content.lines().collect();
 
-                for (i, line) in lines.iter().enumerate() {
-                    // Track async function scope
-                    let is_async_def_line = async_def().is_match(line);
-                    if is_async_def_line {
-                        in_async = true;
-                        async_depth = line.chars().take_while(|c| c.is_whitespace()).count();
+            // Find async function boundaries using brace counting
+            // We need to know: (a) are we inside an async function? (b) which one?
+            let mut async_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
+            for (i, line) in lines.iter().enumerate() {
+                if !Self::is_async_declaration(line) { continue; }
 
-                        // Extract function name
-                        if let Some(func) =
-                            Self::find_containing_function(graph, &path_str, (i + 1) as u32)
-                        {
-                            current_async_func = func;
-                        }
+                // Find the function name
+                let func_name = graph.get_functions().into_iter()
+                    .find(|f| {
+                        (f.file_path == path_str || path_str.ends_with(&f.file_path))
+                            && f.line_start <= (i + 1) as u32
+                            && f.line_end >= (i + 1) as u32
+                    })
+                    .map(|f| f.name.clone())
+                    .unwrap_or_default();
+
+                // Only flag if the function body actually uses await
+                // (an async function that never awaits is fine — it just returns a Promise)
+                if !Self::function_body_has_await(&lines, i, ext) {
+                    continue;
+                }
+
+                // Find the function end via brace counting
+                let mut depth = 0i32;
+                let mut end = i;
+                for (j, l) in lines[i..].iter().enumerate() {
+                    depth += l.matches('{').count() as i32;
+                    depth -= l.matches('}').count() as i32;
+                    if depth <= 0 && j > 0 {
+                        end = i + j;
+                        break;
                     }
+                }
+                if end == i { end = (i + 50).min(lines.len() - 1); } // fallback
 
-                    // Check if we've left the async function (Python indentation)
-                    if in_async && ext == "py" {
-                        let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
-                        if !line.trim().is_empty() && current_indent <= async_depth && i > 0 {
-                            in_async = false;
-                        }
-                    }
+                async_ranges.push((i, end, func_name));
+            }
 
-                    // JS/TS: track braces
-                    if in_async
-                        && matches!(ext, "js" | "ts" | "jsx" | "tsx")
-                        && line.contains("}")
-                        && !line.contains("{")
+            // Now scan for un-awaited async calls within async function bodies
+            for (start, end, func_name) in &async_ranges {
+                for i in (*start + 1)..=*end {
+                    let Some(line) = lines.get(i) else { continue };
+                    let trimmed = line.trim();
+
+                    // Skip blank lines, comments, declarations
+                    if trimmed.is_empty()
+                        || trimmed.starts_with("//")
+                        || trimmed.starts_with("/*")
+                        || trimmed.starts_with('*')
+                        || Self::is_async_declaration(line)
                     {
-                        // Simplified scope tracking
-                        if line.trim() == "}" || line.trim() == "};" {
-                            in_async = false;
-                        }
-                    }
-
-                    if !in_async {
                         continue;
                     }
 
-                    // Skip the async function declaration line itself — it's a definition,
-                    // not a call site, so any async_call match here is part of the signature.
-                    if is_async_def_line {
-                        continue;
-                    }
-
-                    // Skip React event handler prop definitions (onSubmit, onClick, onChange, etc.)
-                    // These are assigned async handlers, not missing-await call sites.
+                    // Skip React event handler assignments
                     {
-                        let ll = line.to_lowercase();
-                        if ll.contains("onsubmit=")
-                            || ll.contains("onclick=")
-                            || ll.contains("onchange=")
-                            || ll.contains("onpress=")
-                            || ll.contains("onblur=")
-                            || ll.contains("onfocus=")
-                            || ll.contains("onkeydown=")
-                            || ll.contains("onkeyup=")
-                            || ll.contains("onmousedown=")
+                        let ll = trimmed.to_lowercase();
+                        if ll.contains("onsubmit=") || ll.contains("onclick=")
+                            || ll.contains("onchange=") || ll.contains("onpress=")
+                            || ll.contains("onblur=") || ll.contains("onfocus=")
                         {
                             continue;
                         }
                     }
 
-                    // Check for missing await on known async patterns
-                    let has_async_call = async_call().is_match(line);
-
-                    // Also check calls to known async functions
-                    let calls_known_async = known_async_funcs
-                        .iter()
-                        .any(|func| line.contains(&format!("{}(", func)));
-
-                    if has_async_call || calls_known_async {
-                        // Check if properly awaited or intentionally fire-and-forget
-                        let trimmed_line = line.trim();
-                        let next_line = lines.get(i + 1).unwrap_or(&"");
-                        let is_awaited = line.contains("await ")
-                            || line.contains(".then(")
-                            || line.contains("Promise.")
-                            || (line.contains("return ") && line.contains("("))
-                            // Check if the next line starts with await (multi-line call)
-                            || next_line.trim().starts_with("await ")
-                            || next_line.contains("await ");
-
-                        // Detect intentional fire-and-forget patterns
-                        let is_fire_and_forget =
-                            // void operator is the explicit TS/JS fire-and-forget idiom
-                            trimmed_line.starts_with("void ")
-                            // .catch() means errors are handled, just not awaited
-                            || line.contains(".catch(")
-                            // Common fire-and-forget variable assignment patterns
-                            || line.contains("// fire-and-forget")
-                            || line.contains("// fire and forget")
-                            || line.contains("// best-effort")
-                            || line.contains("// non-blocking")
-                            || line.contains("// async, don't wait");
-
-                        // Skip telemetry/tracking/analytics functions (inherently fire-and-forget)
-                        let is_telemetry = {
-                            let ll = line.to_lowercase();
-                            ll.contains("track(")
-                                || ll.contains("track_")
-                                || ll.contains("telemetry")
-                                || ll.contains("analytics")
-                                || ll.contains("log_event")
-                                || ll.contains("logevent")
-                                || ll.contains("send_event")
-                                || ll.contains("sendevent")
-                                || ll.contains("report_")
-                                || ll.contains("metric")
-                        };
-
-                        if !is_awaited && !is_fire_and_forget && !is_telemetry {
-                            // Build context
-                            let mut notes = Vec::new();
-                            if !current_async_func.is_empty() {
-                                notes.push(format!(
-                                    "📦 In async function: `{}`",
-                                    current_async_func
-                                ));
-                            }
-                            if calls_known_async {
-                                notes.push(
-                                    "🔍 Calls a function defined as async in this codebase"
-                                        .to_string(),
-                                );
-                            }
-
-                            let context_notes = if notes.is_empty() {
-                                String::new()
-                            } else {
-                                format!("\n\n**Analysis:**\n{}", notes.join("\n"))
-                            };
-
-                            let severity = if calls_known_async {
-                                Severity::High // Calling a known async without await = definite bug
-                            } else {
-                                Severity::Medium
-                            };
-
-                            findings.push(Finding {
-                                id: String::new(),
-                                detector: "MissingAwaitDetector".to_string(),
-                                severity,
-                                title: "Async call without await".to_string(),
-                                description: format!(
-                                    "Async function called without await - returns Promise/coroutine, not the actual value.{}",
-                                    context_notes
-                                ),
-                                affected_files: vec![path.to_path_buf()],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
-                                suggested_fix: Some(
-                                    "Add await before the async call:\n\
-                                     ```javascript\n\
-                                     const result = await fetchData();  // JS/TS\n\
-                                     ```\n\
-                                     ```python\n\
-                                     result = await fetch_data()  # Python\n\
-                                     ```".to_string()
-                                ),
-                                estimated_effort: Some("2 minutes".to_string()),
-                                category: Some("bug-risk".to_string()),
-                                cwe_id: None,
-                                why_it_matters: Some(
-                                    "Without await, you get a Promise/coroutine object instead of the actual result. \
-                                     This can cause subtle bugs where code appears to work but operates on the wrong type.".to_string()
-                                ),
-                                ..Default::default()
-                            });
-                        }
+                    // Skip React Query / hook options
+                    if trimmed.contains("useMutation(") || trimmed.contains("useQuery(")
+                        || trimmed.contains("queryFn") || trimmed.contains("mutationFn")
+                    {
+                        continue;
                     }
+
+                    let has_async_call = async_call().is_match(line);
+                    let calls_known_async = known_async_funcs.iter()
+                        .any(|func| {
+                            line.contains(&format!("{}(", func))
+                                && !line.contains(&format!("async {}", func)) // skip declarations
+                                && !line.contains(&format!("function {}", func)) // skip declarations
+                        });
+
+                    if !has_async_call && !calls_known_async { continue; }
+
+                    // Check if properly awaited
+                    let next_line = lines.get(i + 1).map(|l| *l).unwrap_or("");
+                    let prev_line = if i > 0 { lines.get(i - 1).map(|l| *l).unwrap_or("") } else { "" };
+
+                    let is_awaited = line.contains("await ")
+                        || line.contains(".then(")
+                        || line.contains("Promise.")
+                        || (line.contains("return ") && (has_async_call || calls_known_async))
+                        // Multi-line: await on next line
+                        || next_line.trim().starts_with("await ")
+                        || next_line.trim().starts_with(".then(")
+                        // Previous line started a chain: const x = await \n  fetch(...)
+                        || prev_line.contains("await");
+
+                    // Fire-and-forget patterns
+                    let is_fire_and_forget = trimmed.starts_with("void ")
+                        || line.contains(".catch(")
+                        || line.contains("// fire-and-forget")
+                        || line.contains("// fire and forget")
+                        || line.contains("// best-effort")
+                        || line.contains("// non-blocking");
+
+                    // Telemetry — inherently fire-and-forget
+                    let is_telemetry = {
+                        let ll = line.to_lowercase();
+                        ll.contains("track(") || ll.contains("telemetry")
+                            || ll.contains("analytics") || ll.contains("log_event")
+                            || ll.contains("send_event") || ll.contains("metric")
+                    };
+
+                    if is_awaited || is_fire_and_forget || is_telemetry { continue; }
+
+                    let severity = if calls_known_async { Severity::High } else { Severity::Medium };
+
+                    let mut notes = Vec::new();
+                    if !func_name.is_empty() {
+                        notes.push(format!("📦 In async function: `{}`", func_name));
+                    }
+                    if calls_known_async {
+                        notes.push("🔍 Calls a function defined as async in this codebase".to_string());
+                    }
+                    let context_notes = if notes.is_empty() { String::new() }
+                    else { format!("\n\n**Analysis:**\n{}", notes.join("\n")) };
+
+                    findings.push(Finding {
+                        id: String::new(),
+                        detector: "MissingAwaitDetector".to_string(),
+                        severity,
+                        title: "Async call without await".to_string(),
+                        description: format!(
+                            "Async function called without await - returns Promise/coroutine, not the actual value.{}",
+                            context_notes
+                        ),
+                        affected_files: vec![path.to_path_buf()],
+                        line_start: Some((i + 1) as u32),
+                        line_end: Some((i + 1) as u32),
+                        suggested_fix: Some("Add `await` before the async call.".to_string()),
+                        estimated_effort: Some("2 minutes".to_string()),
+                        category: Some("bug-risk".to_string()),
+                        cwe_id: None,
+                        why_it_matters: Some(
+                            "Without await, you get a Promise object instead of the actual result.".to_string()
+                        ),
+                        ..Default::default()
+                    });
                 }
             }
         }
 
-        info!(
-            "MissingAwaitDetector found {} findings (graph-aware)",
-            findings.len()
-        );
+        info!("MissingAwaitDetector found {} findings", findings.len());
         Ok(findings)
     }
 }
