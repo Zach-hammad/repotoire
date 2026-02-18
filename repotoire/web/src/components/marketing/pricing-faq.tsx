@@ -9,79 +9,71 @@ import {
 
 const faqs = [
   {
-    question: "What counts as an analysis?",
+    question: "Is Repotoire really free?",
     answer:
-      "An analysis is triggered each time we scan your repository. This happens automatically on push events (if enabled) or manually when you click \"Analyze Now\". Incremental analysis of unchanged files doesn't count toward your limit.",
+      "Yes. Repotoire is MIT-licensed and free forever. All 114 detectors, all 13 languages, all export formats. No freemium, no feature gates, no cloud account required.",
   },
   {
-    question: "Can I upgrade or downgrade anytime?",
+    question: "Do I need an API key?",
     answer:
-      "Yes! You can change your plan at any time. When upgrading, you'll be charged the prorated difference. When downgrading, the new rate applies at your next billing cycle.",
+      "No. All analysis runs locally with zero network calls. API keys are only needed for the optional AI-powered fix feature (bring your own key from Anthropic, OpenAI, or use Ollama for 100% free local AI).",
   },
   {
-    question: "What's your cancellation and refund policy?",
+    question: "What languages are supported?",
     answer:
-      "You can cancel your subscription at any time from your account settings. Cancellation takes effect at the end of your current billing period. We don't offer refunds for partial months, but you'll retain access until your paid period ends.",
+      "Full graph analysis with tree-sitter: Python, TypeScript, JavaScript, Go, Java, Rust, C, C++, C#. Security and quality scanning via regex: Ruby, PHP, Kotlin, Swift.",
   },
   {
-    question: "Do you offer annual billing?",
+    question: "How does it compare to SonarQube or Semgrep?",
     answer:
-      "Yes, we offer annual billing with a 20% discount. You can switch between monthly and annual billing at any time from your account settings.",
+      "Repotoire is a single ~24MB binary with zero dependencies. No Docker, no server, no cloud. It builds a full knowledge graph of your codebase to find cross-file issues (circular deps, architectural bottlenecks, taint flow) that file-by-file tools miss.",
   },
   {
-    question: "What payment methods do you accept?",
+    question: "Can I use it in CI/CD?",
     answer:
-      "We accept all major credit cards (Visa, Mastercard, American Express) through Stripe. Enterprise customers can pay via invoice.",
+      "Yes. Use --fail-on high to fail builds when high-severity findings exist. Export as SARIF for GitHub Code Scanning integration. Works in any CI: GitHub Actions, GitLab CI, Jenkins, etc.",
   },
   {
-    question: "Is there a free trial?",
+    question: "How fast is it?",
     answer:
-      "Yes! The Team plan comes with a 7-day free trial. You'll get full access to all team features during the trial. No credit card required.",
+      "Most codebases analyze in 1-5 seconds. Large monorepos (~20k functions) take ~15 seconds. Use --lite mode for huge repos. Results are cached — subsequent runs are near-instant for unchanged files.",
   },
   {
-    question: "Do I need a credit card to start the trial?",
+    question: "Does my code leave my machine?",
     answer:
-      "No credit card is required to start your 7-day trial. You'll only be asked for payment details if you decide to continue after the trial ends.",
+      "Never. Everything runs locally. The only optional network calls are: AI fix generation (if you provide an API key) and dependency vulnerability checks against OSV.dev. Both are opt-in.",
   },
   {
-    question: "How does the AI auto-fix work?",
+    question: "What about enterprise support?",
     answer:
-      "Every issue detected comes with an AI-generated fix suggestion using GPT-4o and RAG over your codebase. You review the suggested changes with a side-by-side diff and approve them with one click. You're always in control.",
-  },
-  {
-    question: "Can I self-host Repotoire?",
-    answer:
-      "Yes, Enterprise customers can deploy Repotoire on their own infrastructure. This ensures your code never leaves your network. Contact sales for setup assistance.",
-  },
-  {
-    question: "What languages do you support?",
-    answer:
-      "We support 9 languages with full graph analysis: Python, TypeScript, JavaScript, Go, Java, Rust, C/C++, C#, and Kotlin. All parsing is done with tree-sitter for speed and accuracy.",
-  },
-  {
-    question: "How do you handle security?",
-    answer:
-      "We're SOC2-compliant with end-to-end encryption. Your code is processed in isolated containers and never stored after analysis. Enterprise customers can use our self-hosted option for zero code leaving their network.",
+      "Contact us for custom detector development, team training, CI/CD pipeline setup, and priority support agreements.",
   },
 ]
 
 export function PricingFAQ() {
   return (
-    <Accordion type="single" collapsible className="w-full space-y-4">
-      {faqs.map((faq, index) => (
-        <AccordionItem
-          key={index}
-          value={`item-${index}`}
-          className="card-elevated rounded-xl px-5 transition-all duration-300 hover:border-primary/20"
-        >
-          <AccordionTrigger className="text-left font-display font-medium text-foreground hover:no-underline py-4">
-            {faq.question}
-          </AccordionTrigger>
-          <AccordionContent className="text-muted-foreground pb-4">
-            {faq.answer}
-          </AccordionContent>
-        </AccordionItem>
-      ))}
-    </Accordion>
+    <section className="py-20 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto">
+        <h2 className="text-2xl font-display font-bold text-center text-foreground mb-10">
+          Frequently Asked Questions
+        </h2>
+        <Accordion type="single" collapsible className="w-full space-y-4">
+          {faqs.map((faq, index) => (
+            <AccordionItem
+              key={index}
+              value={`item-${index}`}
+              className="card-elevated rounded-xl px-5 transition-all duration-300 hover:border-primary/20"
+            >
+              <AccordionTrigger className="text-left font-display font-medium text-foreground hover:no-underline py-4">
+                {faq.question}
+              </AccordionTrigger>
+              <AccordionContent className="text-muted-foreground pb-4">
+                {faq.answer}
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </div>
+    </section>
   )
 }

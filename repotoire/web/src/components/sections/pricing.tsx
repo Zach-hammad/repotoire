@@ -23,7 +23,7 @@ const tiers = [
     icon: Terminal,
     features: [
       "Full code analysis",
-      "47 built-in detectors",
+      "114 built-in detectors",
       "Knowledge graph queries",
       "Git history analysis",
       "MCP server for AI assistants",

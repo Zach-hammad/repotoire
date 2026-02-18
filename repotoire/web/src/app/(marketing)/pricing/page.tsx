@@ -4,10 +4,10 @@ import { PricingFAQ } from "@/components/marketing/pricing-faq"
 
 export const metadata: Metadata = {
   title: "Pricing - Repotoire",
-  description: "Simple, transparent pricing. Try free for 7 days, cancel anytime.",
+  description: "Repotoire is free, open source, and always will be. 114 detectors, 13 languages, zero cost.",
   openGraph: {
     title: "Pricing - Repotoire",
-    description: "Simple, transparent pricing. Try free for 7 days, cancel anytime.",
+    description: "Repotoire is free, open source, and always will be.",
     type: "website",
   },
 }
@@ -22,29 +22,18 @@ export default function PricingPage() {
               Pricing
             </span>
             <h1 className="text-4xl font-display font-bold tracking-tight sm:text-5xl lg:text-6xl text-foreground">
-              Simple, <span className="text-gradient">transparent</span> pricing
+              Free. <span className="text-gradient">Open source.</span> Always.
             </h1>
             <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
-              Try free for 7 days. Cancel anytime. No hidden fees.
+              114 detectors. 13 languages. Graph-powered analysis. No API keys, no accounts, no cloud required.
             </p>
           </div>
 
-          <div className="opacity-0 animate-fade-up delay-200">
-            <PricingCards />
-          </div>
+          <PricingCards />
         </div>
       </section>
 
-      <section className="py-20 border-t border-border">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-display font-bold text-center mb-12 text-foreground opacity-0 animate-fade-up">
-            Frequently asked questions
-          </h2>
-          <div className="opacity-0 animate-fade-up delay-100">
-            <PricingFAQ />
-          </div>
-        </div>
-      </section>
+      <PricingFAQ />
     </>
   )
 }

@@ -19,6 +19,7 @@ function Logo({ className }: { className?: string }) {
 const footerLinks = {
   Product: [
     { label: "Features", href: "/features" },
+    { label: "Pricing", href: "/pricing" },
     { label: "Docs", href: "/docs" },
     { label: "Changelog", href: "/changelog" },
   ],
@@ -73,7 +74,7 @@ export function Footer() {
           <p className="text-sm text-muted-foreground">© {new Date().getFullYear()} Repotoire. All rights reserved.</p>
           <div className="flex items-center gap-4">
             <a
-              href="https://github.com/Zach-hammad"
+              href="https://github.com/Zach-hammad/repotoire"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Follow Repotoire on GitHub"

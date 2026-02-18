@@ -12,7 +12,7 @@ const faqs = [
   {
     question: "What languages do you support?",
     answer:
-      "We support 9 languages: Python, TypeScript, JavaScript, Go, Java, Rust, C/C++, C#, and Kotlin — all with full graph analysis.",
+      "We support 13 languages. Full graph analysis: Python, TypeScript, JavaScript, Go, Java, Rust, C, C++, C#. Security scanning: Ruby, PHP, Kotlin, Swift.",
   },
   {
     question: "Is the AI auto-fix safe?",
