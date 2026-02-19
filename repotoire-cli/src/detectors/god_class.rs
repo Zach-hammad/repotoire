@@ -378,6 +378,15 @@ impl GodClassDetector {
             )
         };
 
+        // Use method count as the primary metric for explainability
+        let explanation = self.config.adaptive.explain(
+            crate::calibrate::MetricKind::ClassMethodCount,
+            method_count as f64,
+            20.0, // default max_methods
+        );
+        let threshold_metadata = explanation.to_metadata().into_iter().collect();
+        let description = format!("{}\n\n📊 {}", description, explanation.to_note());
+
         Finding {
             id: String::new(),
             detector: "GodClassDetector".to_string(),
@@ -403,6 +412,7 @@ impl GodClassDetector {
                  affect other parts, leading to bugs and technical debt."
                     .to_string(),
             ),
+            threshold_metadata,
             ..Default::default()
         }
     }

@@ -208,6 +208,14 @@ impl ArchitecturalBottleneckDetector {
                 .to_string(),
         };
 
+        let explanation = self.config.adaptive.explain(
+            crate::calibrate::MetricKind::Complexity,
+            complexity as f64,
+            20.0, // default high_complexity_threshold
+        );
+        let threshold_metadata = explanation.to_metadata().into_iter().collect();
+        let description = format!("{}\n\n📊 {}", description, explanation.to_note());
+
         Finding {
             id: String::new(),
             detector: "ArchitecturalBottleneckDetector".to_string(),
@@ -226,6 +234,7 @@ impl ArchitecturalBottleneckDetector {
                 High fan-in with high complexity means many callers depend on risky code."
                     .to_string(),
             ),
+            threshold_metadata,
             ..Default::default()
         }
     }

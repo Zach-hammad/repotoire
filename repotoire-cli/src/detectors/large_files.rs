@@ -17,6 +17,8 @@ pub struct LargeFilesDetector {
     repository_path: PathBuf,
     max_findings: usize,
     threshold: usize,
+    default_threshold: usize,
+    resolver: crate::calibrate::ThresholdResolver,
 }
 
 impl LargeFilesDetector {
@@ -25,6 +27,8 @@ impl LargeFilesDetector {
             repository_path: repository_path.into(),
             max_findings: 50,
             threshold: 800,
+            default_threshold: 800,
+            resolver: Default::default(),
         }
     }
 
@@ -43,6 +47,8 @@ impl LargeFilesDetector {
             repository_path: repository_path.into(),
             max_findings: 50,
             threshold,
+            default_threshold,
+            resolver: resolver.clone(),
         }
     }
 
@@ -224,14 +230,21 @@ impl Detector for LargeFilesDetector {
                         "1-2 hours"
                     };
 
+                    let explanation = self.resolver.explain(
+                        crate::calibrate::MetricKind::FileLength,
+                        lines as f64,
+                        self.default_threshold as f64,
+                    );
+                    let threshold_metadata = explanation.to_metadata().into_iter().collect();
+
                     findings.push(Finding {
                         id: String::new(),
                         detector: "LargeFilesDetector".to_string(),
                         severity,
                         title: format!("Large file: {} lines", lines),
                         description: format!(
-                            "File exceeds recommended size ({} lines > {} threshold).{}",
-                            lines, self.threshold, context_notes
+                            "File exceeds recommended size ({} lines > {} threshold).{}\n\n📊 {}",
+                            lines, self.threshold, context_notes, explanation.to_note()
                         ),
                         affected_files: vec![path.to_path_buf()],
                         line_start: Some(1),
@@ -249,6 +262,7 @@ impl Detector for LargeFilesDetector {
                              They often indicate that the module has too many responsibilities."
                                 .to_string()
                         }),
+                        threshold_metadata,
                         ..Default::default()
                     });
                 }

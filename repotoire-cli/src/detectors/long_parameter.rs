@@ -293,6 +293,14 @@ impl LongParameterListDetector {
             )
         };
 
+        let explanation = self.config.adaptive.explain(
+            crate::calibrate::MetricKind::ParameterCount,
+            param_count as f64,
+            5.0, // default max_params
+        );
+        let threshold_metadata = explanation.to_metadata().into_iter().collect();
+        let description = format!("{}\n\n📊 {}", description, explanation.to_note());
+
         Finding {
             id: String::new(),
             detector: "LongParameterListDetector".to_string(),
@@ -316,6 +324,7 @@ impl LongParameterListDetector {
                  doing too much and should be split."
                     .to_string(),
             ),
+            threshold_metadata,
             ..Default::default()
         }
     }
@@ -455,14 +464,21 @@ impl Detector for LongParameterListDetector {
                 "Group related parameters into a configuration object or class".to_string()
             };
 
+            let explanation = self.config.adaptive.explain(
+                crate::calibrate::MetricKind::ParameterCount,
+                param_count as f64,
+                5.0,
+            );
+            let threshold_metadata = explanation.to_metadata().into_iter().collect();
+
             findings.push(Finding {
                 id: String::new(),
                 detector: "LongParameterListDetector".to_string(),
                 severity,
                 title: format!("Long parameter list: {}", func.name),
                 description: format!(
-                    "Function '{}' has {} parameters (threshold: {}).{}",
-                    func.name, param_count, self.thresholds.max_params, pattern_notes
+                    "Function '{}' has {} parameters (threshold: {}).{}\n\n📊 {}",
+                    func.name, param_count, self.thresholds.max_params, pattern_notes, explanation.to_note()
                 ),
                 affected_files: vec![func.file_path.clone().into()],
                 line_start: Some(func.line_start),
@@ -476,6 +492,7 @@ impl Detector for LongParameterListDetector {
                      Callers must remember parameter order and meaning."
                         .to_string(),
                 ),
+                threshold_metadata,
                 ..Default::default()
             });
         }
