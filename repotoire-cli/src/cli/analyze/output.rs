@@ -156,7 +156,9 @@ pub(super) fn format_and_output(
 
     // Show pagination info (suppress for machine-readable formats)
     let quiet_mode = format == "json" || format == "sarif";
-    if let Some((current_page, total_pages, per_page, total)) = pagination_info.filter(|_| !quiet_mode) {
+    if let Some((current_page, total_pages, per_page, total)) =
+        pagination_info.filter(|_| !quiet_mode)
+    {
         let page_icon = if no_emoji { "" } else { "📑 " };
         println!(
             "\n{}Showing page {} of {} ({} findings per page, {} total)",

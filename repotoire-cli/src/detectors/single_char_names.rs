@@ -19,7 +19,8 @@ static SINGLE_CHAR: OnceLock<Regex> = OnceLock::new();
 
 fn single_char() -> &'static Regex {
     SINGLE_CHAR.get_or_init(|| {
-        Regex::new(r"\b(let|var|const|def|int|string|float|double)\s+([a-zA-Z])\s*[=:]").expect("valid regex")
+        Regex::new(r"\b(let|var|const|def|int|string|float|double)\s+([a-zA-Z])\s*[=:]")
+            .expect("valid regex")
     })
 }
 

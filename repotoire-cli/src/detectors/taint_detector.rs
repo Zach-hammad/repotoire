@@ -214,7 +214,11 @@ impl TaintDetector {
 
     /// Check if path should be excluded
     fn should_exclude(&self, path: &str) -> bool {
-        crate::detectors::base::should_exclude_path(path, &self.exclude_patterns, &self.compiled_globs)
+        crate::detectors::base::should_exclude_path(
+            path,
+            &self.exclude_patterns,
+            &self.compiled_globs,
+        )
     }
 
     /// Analyze a file for taint flows using pattern matching

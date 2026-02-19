@@ -109,7 +109,8 @@ fn is_hash_mention_not_usage(line: &str) -> bool {
 
 fn weak_cipher() -> &'static Regex {
     // Use \b on both sides to prevent matching 'nodes', 'description', etc.
-    WEAK_CIPHER.get_or_init(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").expect("valid regex"))
+    WEAK_CIPHER
+        .get_or_init(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").expect("valid regex"))
 }
 
 /// Check if a line is merely mentioning a weak cipher (in definitions, error messages, etc.)

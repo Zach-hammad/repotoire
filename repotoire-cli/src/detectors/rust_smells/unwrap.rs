@@ -41,18 +41,28 @@ impl Detector for UnwrapWithoutContextDetector {
                 break;
             }
             let path = entry.path();
-            if !path.is_file() { continue; }
+            if !path.is_file() {
+                continue;
+            }
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "rs" { continue; }
+            if ext != "rs" {
+                continue;
+            }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else { continue };
+            let Some(content) = crate::cache::global_cache().get_content(path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
-                if is_safe_unwrap_context(line, &content, i) { continue; }
+                if is_safe_unwrap_context(line, &content, i) {
+                    continue;
+                }
 
                 let has_unwrap = unwrap_call().is_match(line);
                 let has_expect = expect_call().is_match(line);
 
-                if has_expect && has_meaningful_expect_message(line) { continue; }
+                if has_expect && has_meaningful_expect_message(line) {
+                    continue;
+                }
 
                 if has_unwrap || has_expect {
                     let file_str = path.to_string_lossy();
@@ -92,7 +102,10 @@ impl Detector for UnwrapWithoutContextDetector {
             }
         }
 
-        info!("UnwrapWithoutContextDetector found {} findings", findings.len());
+        info!(
+            "UnwrapWithoutContextDetector found {} findings",
+            findings.len()
+        );
         Ok(findings)
     }
 }

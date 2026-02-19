@@ -21,7 +21,8 @@ static FUNC_CALL: OnceLock<Regex> = OnceLock::new();
 
 fn bool_args() -> &'static Regex {
     BOOL_ARGS.get_or_init(|| {
-        Regex::new(r"\w+\s*\([^)]*\b(true|false|True|False)\s*,\s*(true|false|True|False)").expect("valid regex")
+        Regex::new(r"\w+\s*\([^)]*\b(true|false|True|False)\s*,\s*(true|false|True|False)")
+            .expect("valid regex")
     })
 }
 

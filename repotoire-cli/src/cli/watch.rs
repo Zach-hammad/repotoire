@@ -18,16 +18,11 @@ use crate::parsers::parse_file;
 
 /// Supported source file extensions
 const WATCH_EXTENSIONS: &[&str] = &[
-    "rs", "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs",
-    "go", "java", "c", "h", "cpp", "cc", "cxx", "hpp", "cs", "kt", "kts",
+    "rs", "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "go", "java", "c", "h", "cpp", "cc",
+    "cxx", "hpp", "cs", "kt", "kts",
 ];
 
-pub fn run(
-    path: &Path,
-    relaxed: bool,
-    no_emoji: bool,
-    quiet: bool,
-) -> Result<()> {
+pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()> {
     let repo_path = std::fs::canonicalize(path)?;
 
     if !quiet {
@@ -37,14 +32,8 @@ pub fn run(
             style(icon).bold(),
             style(repo_path.display()).cyan()
         );
-        println!(
-            "  {} Save a file to trigger analysis",
-            style("→").dim()
-        );
-        println!(
-            "  {} Press Ctrl+C to stop\n",
-            style("→").dim()
-        );
+        println!("  {} Save a file to trigger analysis", style("→").dim());
+        println!("  {} Press Ctrl+C to stop\n", style("→").dim());
     }
 
     // Load config and style profile
@@ -94,9 +83,7 @@ pub fn run(
 
                 // Analyze each changed file
                 for file_path in &changed_files {
-                    let rel_path = file_path
-                        .strip_prefix(&repo_path)
-                        .unwrap_or(file_path);
+                    let rel_path = file_path.strip_prefix(&repo_path).unwrap_or(file_path);
 
                     let findings = analyze_single_file(
                         file_path,
@@ -148,19 +135,39 @@ pub fn run(
                             total_catches += 1;
                             let sev_icon = match f.severity {
                                 crate::models::Severity::Critical => {
-                                    if no_emoji { "CRIT" } else { "🔴" }
+                                    if no_emoji {
+                                        "CRIT"
+                                    } else {
+                                        "🔴"
+                                    }
                                 }
                                 crate::models::Severity::High => {
-                                    if no_emoji { "HIGH" } else { "🟠" }
+                                    if no_emoji {
+                                        "HIGH"
+                                    } else {
+                                        "🟠"
+                                    }
                                 }
                                 crate::models::Severity::Medium => {
-                                    if no_emoji { "MED " } else { "🟡" }
+                                    if no_emoji {
+                                        "MED "
+                                    } else {
+                                        "🟡"
+                                    }
                                 }
                                 crate::models::Severity::Low => {
-                                    if no_emoji { "LOW " } else { "🔵" }
+                                    if no_emoji {
+                                        "LOW "
+                                    } else {
+                                        "🔵"
+                                    }
                                 }
                                 crate::models::Severity::Info => {
-                                    if no_emoji { "INFO" } else { "⚪" }
+                                    if no_emoji {
+                                        "INFO"
+                                    } else {
+                                        "⚪"
+                                    }
                                 }
                             };
                             let line = f.line_start.map_or(String::new(), |l| format!(":{}", l));
@@ -212,8 +219,11 @@ pub fn run(
         }
     }
 
-    println!("\n{} Caught {} issues during watch session.", 
-        if no_emoji { "" } else { "📊" }, total_catches);
+    println!(
+        "\n{} Caught {} issues during watch session.",
+        if no_emoji { "" } else { "📊" },
+        total_catches
+    );
     Ok(())
 }
 
@@ -235,38 +245,32 @@ fn analyze_single_file(
     // Build a minimal graph with just this file
     let graph = crate::graph::GraphStore::in_memory();
     for func in &parse_result.functions {
-        let node = crate::graph::CodeNode::new(
-            crate::graph::NodeKind::Function,
-            &func.name,
-            &rel_str,
-        )
-        .with_property("complexity", func.complexity.unwrap_or(1) as i64)
-        .with_property("loc", (func.line_end - func.line_start + 1) as i64)
-        .with_property("is_async", func.is_async);
+        let node =
+            crate::graph::CodeNode::new(crate::graph::NodeKind::Function, &func.name, &rel_str)
+                .with_property("complexity", func.complexity.unwrap_or(1) as i64)
+                .with_property("loc", (func.line_end - func.line_start + 1) as i64)
+                .with_property("is_async", func.is_async);
         graph.add_node(node);
     }
     for class in &parse_result.classes {
-        let node = crate::graph::CodeNode::new(
-            crate::graph::NodeKind::Class,
-            &class.name,
-            &rel_str,
-        )
-        .with_property("methodCount", class.methods.len() as i64);
+        let node =
+            crate::graph::CodeNode::new(crate::graph::NodeKind::Class, &class.name, &rel_str)
+                .with_property("methodCount", class.methods.len() as i64);
         graph.add_node(node);
     }
 
     // Read file content for line-based detectors
     let source = std::fs::read_to_string(file_path).unwrap_or_default();
     let loc = source.lines().count();
-    let file_node = crate::graph::CodeNode::new(
-        crate::graph::NodeKind::File,
-        &rel_str,
-        &rel_str,
-    )
-    .with_property("loc", loc as i64)
-    .with_property("language", crate::parsers::language_for_extension(
-        file_path.extension().and_then(|e| e.to_str()).unwrap_or("")
-    ).unwrap_or("unknown"));
+    let file_node = crate::graph::CodeNode::new(crate::graph::NodeKind::File, &rel_str, &rel_str)
+        .with_property("loc", loc as i64)
+        .with_property(
+            "language",
+            crate::parsers::language_for_extension(
+                file_path.extension().and_then(|e| e.to_str()).unwrap_or(""),
+            )
+            .unwrap_or("unknown"),
+        );
     graph.add_node(file_node);
 
     // Run detectors
@@ -321,7 +325,7 @@ fn is_ai_detector(name: &str) -> bool {
 fn is_ignored_path(path: &Path, repo_path: &Path) -> bool {
     let rel = path.strip_prefix(repo_path).unwrap_or(path);
     let rel_str = rel.to_string_lossy();
-    
+
     rel_str.contains("target/")
         || rel_str.contains("node_modules/")
         || rel_str.contains(".git/")

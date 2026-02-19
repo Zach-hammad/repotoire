@@ -47,9 +47,16 @@ pub fn collect_metrics(
 
     for (result, file_loc) in parse_results {
         // Exclude tests/generated/vendor from calibration to prevent baseline poisoning
-        let file_path = result.functions.first()
+        let file_path = result
+            .functions
+            .first()
             .map(|f| f.file_path.to_string_lossy().to_string())
-            .or_else(|| result.classes.first().map(|c| c.file_path.to_string_lossy().to_string()))
+            .or_else(|| {
+                result
+                    .classes
+                    .first()
+                    .map(|c| c.file_path.to_string_lossy().to_string())
+            })
             .unwrap_or_default();
 
         if should_exclude_from_calibration(&file_path) {
@@ -80,22 +87,45 @@ pub fn collect_metrics(
     }
 
     if excluded_files > 0 {
-        debug!("Calibration: excluded {} files (test/generated/vendor)", excluded_files);
+        debug!(
+            "Calibration: excluded {} files (test/generated/vendor)",
+            excluded_files
+        );
     }
 
     let mut metrics = HashMap::new();
-    metrics.insert(MetricKind::Complexity, MetricDistribution::from_values(&mut complexity_values));
-    metrics.insert(MetricKind::FunctionLength, MetricDistribution::from_values(&mut func_length_values));
-    metrics.insert(MetricKind::NestingDepth, MetricDistribution::from_values(&mut nesting_values));
-    metrics.insert(MetricKind::ParameterCount, MetricDistribution::from_values(&mut param_values));
-    metrics.insert(MetricKind::FileLength, MetricDistribution::from_values(&mut file_length_values));
-    metrics.insert(MetricKind::ClassMethodCount, MetricDistribution::from_values(&mut class_method_values));
+    metrics.insert(
+        MetricKind::Complexity,
+        MetricDistribution::from_values(&mut complexity_values),
+    );
+    metrics.insert(
+        MetricKind::FunctionLength,
+        MetricDistribution::from_values(&mut func_length_values),
+    );
+    metrics.insert(
+        MetricKind::NestingDepth,
+        MetricDistribution::from_values(&mut nesting_values),
+    );
+    metrics.insert(
+        MetricKind::ParameterCount,
+        MetricDistribution::from_values(&mut param_values),
+    );
+    metrics.insert(
+        MetricKind::FileLength,
+        MetricDistribution::from_values(&mut file_length_values),
+    );
+    metrics.insert(
+        MetricKind::ClassMethodCount,
+        MetricDistribution::from_values(&mut class_method_values),
+    );
 
     let now = chrono::Utc::now().to_rfc3339();
 
     info!(
         "Calibrated {} metrics from {} functions across {} files",
-        metrics.len(), total_functions, total_files
+        metrics.len(),
+        total_functions,
+        total_files
     );
 
     for kind in MetricKind::all() {
@@ -103,7 +133,13 @@ pub fn collect_metrics(
             if dist.confident {
                 info!(
                     "  {}: mean={:.1}, p50={:.0}, p90={:.0}, p95={:.0}, max={:.0} (n={})",
-                    kind.name(), dist.mean, dist.p50, dist.p90, dist.p95, dist.max, dist.count
+                    kind.name(),
+                    dist.mean,
+                    dist.p50,
+                    dist.p90,
+                    dist.p95,
+                    dist.max,
+                    dist.count
                 );
             }
         }

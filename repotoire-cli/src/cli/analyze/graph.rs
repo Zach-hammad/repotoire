@@ -697,13 +697,21 @@ pub(super) fn build_call_edges_fast(
 
         // Try to find callee in this file first (fast path)
         if let Some(callee_func) = result.functions.iter().find(|f| f.name == callee_name) {
-            edges.push((caller.clone(), callee_func.qualified_name.clone(), CodeEdge::calls()));
+            edges.push((
+                caller.clone(),
+                callee_func.qualified_name.clone(),
+                CodeEdge::calls(),
+            ));
             continue;
         }
 
         // Use module lookup for O(1) cross-file resolution
         let found = resolve_callee_cross_file(
-            callee_name, callee_module, module_lookup, parse_results, global_func_map,
+            callee_name,
+            callee_module,
+            module_lookup,
+            parse_results,
+            global_func_map,
         );
         let callee_qn = match found {
             Some(qn) => qn,
@@ -725,7 +733,11 @@ fn resolve_callee_cross_file(
         let candidates = module_lookup.by_stem.get(module)?;
         for (_file_path, idx) in candidates {
             let (_, other_result) = parse_results.get(*idx)?;
-            if let Some(func) = other_result.functions.iter().find(|f| f.name == callee_name) {
+            if let Some(func) = other_result
+                .functions
+                .iter()
+                .find(|f| f.name == callee_name)
+            {
                 return Some(func.qualified_name.clone());
             }
         }

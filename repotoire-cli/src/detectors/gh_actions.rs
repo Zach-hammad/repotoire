@@ -53,7 +53,8 @@ fn get_dangerous_pattern() -> &'static Regex {
 }
 
 fn get_run_block_pattern() -> &'static Regex {
-    RUN_BLOCK_PATTERN.get_or_init(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").expect("valid regex"))
+    RUN_BLOCK_PATTERN
+        .get_or_init(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").expect("valid regex"))
 }
 
 impl GHActionsInjectionDetector {

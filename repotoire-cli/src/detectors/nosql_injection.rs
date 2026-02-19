@@ -25,8 +25,9 @@ fn nosql_pattern() -> &'static Regex {
 }
 
 fn dangerous_ops() -> &'static Regex {
-    DANGEROUS_OPS
-        .get_or_init(|| Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").expect("valid regex"))
+    DANGEROUS_OPS.get_or_init(|| {
+        Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").expect("valid regex")
+    })
 }
 
 fn user_input() -> &'static Regex {

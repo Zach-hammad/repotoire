@@ -78,19 +78,19 @@ impl Detector for XssDetector {
 
             // Skip non-served static HTML files (mockups, specs, design docs, fixtures)
             let path_str_lower = path.to_string_lossy().to_lowercase();
-            if ext == "html" && (
-                path_str_lower.contains("/mockup")
-                || path_str_lower.contains("/mock-")
-                || path_str_lower.contains("/specs/")
-                || path_str_lower.contains("/spec/")
-                || path_str_lower.contains("/fixture")
-                || path_str_lower.contains("/example")
-                || path_str_lower.contains("/demo")
-                || path_str_lower.contains("/design/")
-                || path_str_lower.contains("/prototype")
-                || path_str_lower.contains("/wireframe")
-                || path_str_lower.contains("/static/")
-            ) {
+            if ext == "html"
+                && (path_str_lower.contains("/mockup")
+                    || path_str_lower.contains("/mock-")
+                    || path_str_lower.contains("/specs/")
+                    || path_str_lower.contains("/spec/")
+                    || path_str_lower.contains("/fixture")
+                    || path_str_lower.contains("/example")
+                    || path_str_lower.contains("/demo")
+                    || path_str_lower.contains("/design/")
+                    || path_str_lower.contains("/prototype")
+                    || path_str_lower.contains("/wireframe")
+                    || path_str_lower.contains("/static/"))
+            {
                 continue;
             }
 

@@ -40,24 +40,40 @@ impl CloneInHotPathDetector {
 }
 
 impl Detector for CloneInHotPathDetector {
-    fn name(&self) -> &'static str { "rust-clone-in-hot-path" }
-    fn description(&self) -> &'static str { "Detects .clone() in loops and iterators" }
+    fn name(&self) -> &'static str {
+        "rust-clone-in-hot-path"
+    }
+    fn description(&self) -> &'static str {
+        "Detects .clone() in loops and iterators"
+    }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false).git_ignore(true).build();
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            if path.extension().and_then(|e| e.to_str()) != Some("rs") { continue; }
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else { continue };
+            let Some(content) = crate::cache::global_cache().get_content(path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
                 let trimmed = line.trim();
-                if trimmed.starts_with("//") { continue; }
+                if trimmed.starts_with("//") {
+                    continue;
+                }
 
                 if clone_call().is_match(line) && Self::is_hot_path_context(&content, i, line) {
                     let file_str = path.to_string_lossy();

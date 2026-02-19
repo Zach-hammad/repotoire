@@ -45,7 +45,8 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             // Generic API keys
             SecretPattern {
                 name: "Generic API Key",
-                pattern: Regex::new(r"(?i)api[_-]?key\s*[=:]\s*[a-zA-Z0-9_\-]{20,}").expect("valid regex"),
+                pattern: Regex::new(r"(?i)api[_-]?key\s*[=:]\s*[a-zA-Z0-9_\-]{20,}")
+                    .expect("valid regex"),
                 severity: Severity::High,
             },
             SecretPattern {
@@ -64,7 +65,8 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             // Slack
             SecretPattern {
                 name: "Slack Token",
-                pattern: Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*").expect("valid regex"),
+                pattern: Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*")
+                    .expect("valid regex"),
                 severity: Severity::Critical,
             },
             // Stripe
@@ -76,13 +78,15 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             // Database URLs
             SecretPattern {
                 name: "Database URL with Password",
-                pattern: Regex::new(r"(?i)(postgres|mysql|mongodb|redis)://[^:]+:[^@]+@").expect("valid regex"),
+                pattern: Regex::new(r"(?i)(postgres|mysql|mongodb|redis)://[^:]+:[^@]+@")
+                    .expect("valid regex"),
                 severity: Severity::Critical,
             },
             // SendGrid
             SecretPattern {
                 name: "SendGrid API Key",
-                pattern: Regex::new(r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}").expect("valid regex"),
+                pattern: Regex::new(r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}")
+                    .expect("valid regex"),
                 severity: Severity::High,
             },
         ]
@@ -253,7 +257,10 @@ impl SecretDetector {
                         continue;
                     }
                     // Python: os.environ["KEY"] or os.environ.get()
-                    if line.contains("os.environ[") || line.contains("os.environ.get(") || line.contains("os.getenv(") {
+                    if line.contains("os.environ[")
+                        || line.contains("os.environ.get(")
+                        || line.contains("os.getenv(")
+                    {
                         continue;
                     }
                     // Go: os.Getenv("KEY")

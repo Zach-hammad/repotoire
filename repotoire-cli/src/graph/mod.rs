@@ -12,8 +12,8 @@ pub mod store_query;
 pub mod streaming_builder;
 pub mod traits;
 
-pub use store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 pub use store::GraphStore;
+pub use store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 
 pub use traits::GraphQuery;
 

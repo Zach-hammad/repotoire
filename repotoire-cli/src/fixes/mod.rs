@@ -168,7 +168,8 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
 
     let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    let Some((new_catch, new_body)) = empty_catch_replacement(ext, &indent_str, &inner_indent) else {
+    let Some((new_catch, new_body)) = empty_catch_replacement(ext, &indent_str, &inner_indent)
+    else {
         return None;
     };
 

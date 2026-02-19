@@ -495,7 +495,10 @@ pub fn handle_search_code(state: &HandlerState, args: &Value) -> Result<Value> {
         .new_agent();
     let response = agent
         .post(&format!("{}/api/v1/code/search", state.api_url))
-        .header("X-API-Key", state.api_key.as_deref().unwrap_or("missing-key"))
+        .header(
+            "X-API-Key",
+            state.api_key.as_deref().unwrap_or("missing-key"),
+        )
         .header("Content-Type", "application/json")
         .send_json(json!({ "query": query, "top_k": top_k, "entity_types": entity_types }))
         .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
@@ -524,7 +527,10 @@ pub fn handle_ask(state: &HandlerState, args: &Value) -> Result<Value> {
         .new_agent();
     let response = agent
         .post(&format!("{}/api/v1/code/ask", state.api_url))
-        .header("X-API-Key", state.api_key.as_deref().unwrap_or("missing-key"))
+        .header(
+            "X-API-Key",
+            state.api_key.as_deref().unwrap_or("missing-key"),
+        )
         .header("Content-Type", "application/json")
         .send_json(json!({ "question": question, "top_k": top_k }))
         .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
@@ -557,7 +563,10 @@ pub fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<Value> 
         .new_agent();
     let response = agent
         .post(&format!("{}/api/v1/fixes/generate", state.api_url))
-        .header("X-API-Key", state.api_key.as_deref().unwrap_or("missing-key"))
+        .header(
+            "X-API-Key",
+            state.api_key.as_deref().unwrap_or("missing-key"),
+        )
         .header("Content-Type", "application/json")
         .send_json(json!({ "finding_id": finding_id }))
         .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;

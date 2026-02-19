@@ -60,7 +60,11 @@ impl FindingVerifier {
         // Read code context
         let code_context = match self.read_code_context(finding) {
             Ok(ctx) => ctx,
-            Err(e) => return VerifyResult::Error { message: e.to_string() },
+            Err(e) => {
+                return VerifyResult::Error {
+                    message: e.to_string(),
+                }
+            }
         };
 
         // Build verification prompt

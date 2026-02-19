@@ -186,7 +186,8 @@ impl GitBlame {
             // Check disk cache first
             {
                 let dc = disk_cache.read().unwrap();
-                let cached = dc.is_valid(file_path, &repo_path)
+                let cached = dc
+                    .is_valid(file_path, &repo_path)
                     .then(|| dc.files.get(file_path))
                     .flatten();
                 if let Some(cached) = cached {
@@ -197,8 +198,12 @@ impl GitBlame {
             }
 
             // Compute fresh blame
-            let Ok(repo) = Repository::discover(&repo_path) else { return };
-            let Ok(entries) = blame_file_with_repo(&repo, file_path) else { return };
+            let Ok(repo) = Repository::discover(&repo_path) else {
+                return;
+            };
+            let Ok(entries) = blame_file_with_repo(&repo, file_path) else {
+                return;
+            };
             mem_cache.insert(file_path.clone(), entries.clone());
             update_disk_cache(&disk_cache, file_path, &repo_path, entries);
             computed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

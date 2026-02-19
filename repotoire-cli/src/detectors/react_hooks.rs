@@ -32,13 +32,15 @@ fn hook_call() -> &'static Regex {
 
 fn conditional() -> &'static Regex {
     CONDITIONAL.get_or_init(|| {
-        Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$)").expect("valid regex")
+        Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$)")
+            .expect("valid regex")
     })
 }
 
 fn loop_pattern() -> &'static Regex {
     LOOP.get_or_init(|| {
-        Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\()").expect("valid regex")
+        Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\()")
+            .expect("valid regex")
     })
 }
 
@@ -252,14 +254,20 @@ impl Detector for ReactHooksDetector {
                     // Track hook call option blocks — anything inside useMutation({...}),
                     // useQuery({...}), useCallback(() => {...}), etc. is NOT a nested function.
                     let is_hook_call_line = hook_call().is_match(line)
-                        && (line.contains("useMutation") || line.contains("useQuery")
-                            || line.contains("useCallback") || line.contains("useMemo")
-                            || line.contains("useEffect") || line.contains("useLayoutEffect")
+                        && (line.contains("useMutation")
+                            || line.contains("useQuery")
+                            || line.contains("useCallback")
+                            || line.contains("useMemo")
+                            || line.contains("useEffect")
+                            || line.contains("useLayoutEffect")
                             || line.contains("useInfiniteQuery"));
 
-                    let is_hook_call_assignment = nested_func().is_match(line) && hook_call().is_match(line);
-                    if nested_func().is_match(line) && component_depth > 0
-                        && !is_hook_call_assignment && !is_hook_call_line
+                    let is_hook_call_assignment =
+                        nested_func().is_match(line) && hook_call().is_match(line);
+                    if nested_func().is_match(line)
+                        && component_depth > 0
+                        && !is_hook_call_assignment
+                        && !is_hook_call_line
                     {
                         in_nested_func = true;
                         nested_depth = line.matches('{').count() as i32;

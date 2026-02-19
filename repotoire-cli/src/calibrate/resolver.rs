@@ -77,14 +77,21 @@ impl ThresholdResolver {
 
     /// Build explainability metadata for a finding.
     /// Returns (threshold_source, metric_value_str, percentile_used) or None if no adaptive data.
-    pub fn explain(&self, kind: MetricKind, actual_value: f64, default_threshold: f64) -> ThresholdExplanation {
+    pub fn explain(
+        &self,
+        kind: MetricKind,
+        actual_value: f64,
+        default_threshold: f64,
+    ) -> ThresholdExplanation {
         let source = self.source(kind);
         let effective = self.warn(kind, default_threshold);
         let percentile = match &self.profile {
-            Some(p) => p.get(kind).map(|d| format!(
-                "p90={:.0}, p95={:.0}, mean={:.1}, n={}",
-                d.p90, d.p95, d.mean, d.count
-            )),
+            Some(p) => p.get(kind).map(|d| {
+                format!(
+                    "p90={:.0}, p95={:.0}, mean={:.1}, n={}",
+                    d.p90, d.p95, d.mean, d.count
+                )
+            }),
             None => None,
         };
         ThresholdExplanation {
@@ -111,7 +118,10 @@ impl ThresholdExplanation {
     /// Format as a human-readable note for finding descriptions
     pub fn to_note(&self) -> String {
         let mut parts = vec![
-            format!("Threshold: {:.0} ({})", self.effective_threshold, self.threshold_source),
+            format!(
+                "Threshold: {:.0} ({})",
+                self.effective_threshold, self.threshold_source
+            ),
             format!("Actual: {:.0}", self.actual_value),
         ];
         if self.threshold_source == "adaptive" {
@@ -126,12 +136,24 @@ impl ThresholdExplanation {
     /// Format as JSON-compatible metadata for SARIF/JSON export
     pub fn to_metadata(&self) -> Vec<(String, String)> {
         let mut meta = vec![
-            ("threshold_source".to_string(), self.threshold_source.to_string()),
-            ("effective_threshold".to_string(), format!("{:.0}", self.effective_threshold)),
-            ("actual_value".to_string(), format!("{:.0}", self.actual_value)),
+            (
+                "threshold_source".to_string(),
+                self.threshold_source.to_string(),
+            ),
+            (
+                "effective_threshold".to_string(),
+                format!("{:.0}", self.effective_threshold),
+            ),
+            (
+                "actual_value".to_string(),
+                format!("{:.0}", self.actual_value),
+            ),
         ];
         if self.threshold_source == "adaptive" {
-            meta.push(("default_threshold".to_string(), format!("{:.0}", self.default_threshold)));
+            meta.push((
+                "default_threshold".to_string(),
+                format!("{:.0}", self.default_threshold),
+            ));
         }
         meta
     }

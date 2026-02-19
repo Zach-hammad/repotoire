@@ -5,7 +5,10 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::{torch_load, torch_load_weights_only, nan_equality, backward_call, zero_grad_call, forward_method, dataloader_shuffle, eval_mode};
+use super::{
+    backward_call, dataloader_shuffle, eval_mode, forward_method, nan_equality, torch_load,
+    torch_load_weights_only, zero_grad_call,
+};
 
 pub struct TorchLoadUnsafeDetector {
     repository_path: PathBuf,
@@ -421,4 +424,3 @@ impl Detector for ForwardMethodDetector {
         Ok(findings)
     }
 }
-

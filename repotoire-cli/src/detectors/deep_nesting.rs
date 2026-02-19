@@ -33,14 +33,18 @@ impl DeepNestingDetector {
     }
 
     /// Create with adaptive threshold resolver
-    pub fn with_resolver(repository_path: impl Into<PathBuf>, resolver: &crate::calibrate::ThresholdResolver) -> Self {
+    pub fn with_resolver(
+        repository_path: impl Into<PathBuf>,
+        resolver: &crate::calibrate::ThresholdResolver,
+    ) -> Self {
         use crate::calibrate::MetricKind;
         let default_threshold = 4usize;
         let threshold = resolver.warn_usize(MetricKind::NestingDepth, default_threshold);
         if threshold != default_threshold {
             tracing::info!(
                 "DeepNesting: adaptive threshold {} (default={})",
-                threshold, default_threshold
+                threshold,
+                default_threshold
             );
         }
         Self {
@@ -279,7 +283,9 @@ impl Detector for DeepNestingDetector {
                         ),
                         description: format!(
                             "{} levels of nesting (threshold: {}).{}\n\n📊 {}",
-                            max_depth, self.threshold, context_notes,
+                            max_depth,
+                            self.threshold,
+                            context_notes,
                             explanation.to_note()
                         ),
                         affected_files: vec![path.to_path_buf()],

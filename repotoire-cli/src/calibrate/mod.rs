@@ -5,10 +5,10 @@
 //! Detectors use the profile to set thresholds based on YOUR patterns,
 //! not arbitrary defaults.
 
-mod profile;
 mod collector;
+mod profile;
 mod resolver;
 
-pub use profile::{StyleProfile, MetricDistribution, MetricKind};
 pub use collector::collect_metrics;
+pub use profile::{MetricDistribution, MetricKind, StyleProfile};
 pub use resolver::ThresholdResolver;

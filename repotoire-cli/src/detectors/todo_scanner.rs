@@ -19,8 +19,10 @@ use tracing::info;
 static TODO_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn get_pattern() -> &'static Regex {
-    TODO_PATTERN
-        .get_or_init(|| Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX)[\s:]+(.{0,80})|\b(BUG)\s*:\s*(.{0,80})").expect("valid regex"))
+    TODO_PATTERN.get_or_init(|| {
+        Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX)[\s:]+(.{0,80})|\b(BUG)\s*:\s*(.{0,80})")
+            .expect("valid regex")
+    })
 }
 
 pub struct TodoScanner {
@@ -166,8 +168,16 @@ impl Detector for TodoScanner {
                     }
 
                     if let Some(caps) = get_pattern().captures(line) {
-                        let tag = caps.get(1).or(caps.get(3)).map(|m| m.as_str()).unwrap_or("TODO");
-                        let msg = caps.get(2).or(caps.get(4)).map(|m| m.as_str().trim()).unwrap_or("");
+                        let tag = caps
+                            .get(1)
+                            .or(caps.get(3))
+                            .map(|m| m.as_str())
+                            .unwrap_or("TODO");
+                        let msg = caps
+                            .get(2)
+                            .or(caps.get(4))
+                            .map(|m| m.as_str().trim())
+                            .unwrap_or("");
                         let line_u32 = (line_num + 1) as u32;
 
                         // Graph-enhanced analysis

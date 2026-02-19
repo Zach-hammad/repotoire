@@ -177,8 +177,10 @@ fn classify_pillar(category: &str, detector: &str, is_security: bool) -> Pillar 
         _ => {
             if detector.contains("dependency") || detector.contains("import") {
                 Pillar::Architecture
-            } else if detector.contains("large") || detector.contains("nesting")
-                || detector.contains("dead") || detector.contains("naming")
+            } else if detector.contains("large")
+                || detector.contains("nesting")
+                || detector.contains("dead")
+                || detector.contains("naming")
             {
                 Pillar::Structure
             } else {
@@ -325,7 +327,10 @@ impl<'a> GraphScorer<'a> {
 
         // Never report 100.0 if there are medium+ findings — cap at 99.9
         let has_medium_plus = findings.iter().any(|f| {
-            matches!(f.severity, Severity::Critical | Severity::High | Severity::Medium)
+            matches!(
+                f.severity,
+                Severity::Critical | Severity::High | Severity::Medium
+            )
         });
         let overall = if has_medium_plus && overall >= 99.95 {
             99.9
@@ -623,13 +628,19 @@ impl<'a> GraphScorer<'a> {
         lines.push("```".to_string());
         lines.push("Overall = Structure × 0.33 + Quality × 0.34 + Architecture × 0.33".to_string());
         lines.push("Pillar  = (100 - penalties) + graph_bonuses".to_string());
-        lines.push(format!("Penalty = severity_weight × 5.0 / kLOC   (kLOC = {:.1})", kloc));
+        lines.push(format!(
+            "Penalty = severity_weight × 5.0 / kLOC   (kLOC = {:.1})",
+            kloc
+        ));
         lines.push("```\n".to_string());
         lines.push("Severity weights: Critical=8.0, High=4.0, Medium=1.0, Low=0.2\n".to_string());
 
         // Graph metrics
         lines.push("## Graph Analysis\n".to_string());
-        lines.push(format!("- **Lines of code**: {} ({:.1} kLOC)", m.total_loc, kloc));
+        lines.push(format!(
+            "- **Lines of code**: {} ({:.1} kLOC)",
+            m.total_loc, kloc
+        ));
         lines.push(format!("- **Modules**: {}", m.module_count));
         lines.push(format!(
             "- **Coupling**: {:.1}% cross-module calls (lower is better)",
@@ -672,14 +683,18 @@ impl<'a> GraphScorer<'a> {
             } else {
                 total_bonus
             };
-            let active_bonuses: Vec<_> = pillar.bonuses.iter().filter(|(_, v)| *v > 0.001).collect();
+            let active_bonuses: Vec<_> =
+                pillar.bonuses.iter().filter(|(_, v)| *v > 0.001).collect();
             if !active_bonuses.is_empty() {
                 lines.push("- Bonuses (additive, capped at 50% of penalty):".to_string());
                 for (name, value) in &active_bonuses {
                     lines.push(format!("  - {}: +{:.1} pts", name, value * 100.0));
                 }
                 if capped < total_bonus {
-                    lines.push(format!("  - *(capped from {:.1} to {:.1} pts)*", total_bonus, capped));
+                    lines.push(format!(
+                        "  - *(capped from {:.1} to {:.1} pts)*",
+                        total_bonus, capped
+                    ));
                 }
             }
             lines.push(format!("- Final: {:.1}", pillar.final_score));

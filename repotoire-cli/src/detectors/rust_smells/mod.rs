@@ -3,19 +3,19 @@
 //! Detectors for Rust-specific patterns that can lead to panics, poor performance,
 //! or suboptimal code quality.
 
-mod unwrap;
-mod unsafe_comment;
+mod box_dyn;
 mod clone_hot_path;
 mod must_use;
-mod box_dyn;
 mod mutex_poisoning;
+mod unsafe_comment;
+mod unwrap;
 
-pub use unwrap::UnwrapWithoutContextDetector;
-pub use unsafe_comment::UnsafeWithoutSafetyCommentDetector;
+pub use box_dyn::BoxDynTraitDetector;
 pub use clone_hot_path::CloneInHotPathDetector;
 pub use must_use::MissingMustUseDetector;
-pub use box_dyn::BoxDynTraitDetector;
 pub use mutex_poisoning::MutexPoisoningRiskDetector;
+pub use unsafe_comment::UnsafeWithoutSafetyCommentDetector;
+pub use unwrap::UnwrapWithoutContextDetector;
 
 use regex::Regex;
 use std::sync::OnceLock;
@@ -45,8 +45,9 @@ pub(crate) fn unsafe_block() -> &'static Regex {
 }
 
 pub(crate) fn safety_comment() -> &'static Regex {
-    SAFETY_COMMENT
-        .get_or_init(|| Regex::new(r"(?i)//\s*SAFETY:|///\s*#\s*Safety|//\s*SAFETY\s*:").expect("valid regex"))
+    SAFETY_COMMENT.get_or_init(|| {
+        Regex::new(r"(?i)//\s*SAFETY:|///\s*#\s*Safety|//\s*SAFETY\s*:").expect("valid regex")
+    })
 }
 
 pub(crate) fn clone_call() -> &'static Regex {
@@ -69,7 +70,8 @@ pub(crate) fn box_dyn_trait() -> &'static Regex {
 }
 
 pub(crate) fn mutex_unwrap() -> &'static Regex {
-    MUTEX_UNWRAP.get_or_init(|| Regex::new(r"\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)").expect("valid regex"))
+    MUTEX_UNWRAP
+        .get_or_init(|| Regex::new(r"\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)").expect("valid regex"))
 }
 
 /// Check if a line is in a test context
@@ -102,10 +104,20 @@ pub(crate) fn is_safe_unwrap_context(line: &str, content: &str, line_idx: usize)
     }
 
     let safe_patterns = [
-        "OnceLock", "OnceCell", "Lazy", "get_or_init",
-        "Query::new", "const ", "static ", "lazy_static!", "once_cell",
-        ".read().unwrap()", ".write().unwrap()", ".lock().unwrap()",
-        ".to_str().unwrap()", ".to_lowercase().next().unwrap()",
+        "OnceLock",
+        "OnceCell",
+        "Lazy",
+        "get_or_init",
+        "Query::new",
+        "const ",
+        "static ",
+        "lazy_static!",
+        "once_cell",
+        ".read().unwrap()",
+        ".write().unwrap()",
+        ".lock().unwrap()",
+        ".to_str().unwrap()",
+        ".to_lowercase().next().unwrap()",
     ];
 
     // Check for Regex::new without triggering self-detection
@@ -241,7 +253,8 @@ mod tests {
 
     #[test]
     fn test_mutex_poisoning_risk() {
-        let content = "fn get_data(mutex: &Mutex<Data>) -> Data {\n    mutex.lock().unwrap().clone()\n}\n";
+        let content =
+            "fn get_data(mutex: &Mutex<Data>) -> Data {\n    mutex.lock().unwrap().clone()\n}\n";
         let (dir, _) = setup_test_file(content);
         let detector = MutexPoisoningRiskDetector::new(dir.path());
         let graph = GraphStore::in_memory();

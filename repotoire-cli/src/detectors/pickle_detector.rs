@@ -88,17 +88,21 @@ impl PickleDeserializationDetector {
 
         let joblib_load_pattern = Regex::new(r"(?i)\bjoblib\.load\s*\(").expect("valid regex");
 
-        let numpy_load_pattern = Regex::new(r"(?i)\b(?:numpy|np)\.load\s*\([^)]*\)").expect("valid regex");
+        let numpy_load_pattern =
+            Regex::new(r"(?i)\b(?:numpy|np)\.load\s*\([^)]*\)").expect("valid regex");
 
         let numpy_pickle_pattern = Regex::new(r"(?i)allow_pickle\s*=\s*True").expect("valid regex");
 
         let yaml_load_pattern =
-            Regex::new(r"(?i)\byaml\.(?:load|unsafe_load|full_load)\s*\([^)]*\)").expect("valid regex");
+            Regex::new(r"(?i)\byaml\.(?:load|unsafe_load|full_load)\s*\([^)]*\)")
+                .expect("valid regex");
 
         let yaml_safe_loaders =
-            Regex::new(r"(?i)Loader\s*=\s*(?:yaml\.)?(?:Safe|CSafe|Base)Loader").expect("valid regex");
+            Regex::new(r"(?i)Loader\s*=\s*(?:yaml\.)?(?:Safe|CSafe|Base)Loader")
+                .expect("valid regex");
 
-        let marshal_load_pattern = Regex::new(r"(?i)\bmarshal\.(?:load|loads)\s*\(").expect("valid regex");
+        let marshal_load_pattern =
+            Regex::new(r"(?i)\bmarshal\.(?:load|loads)\s*\(").expect("valid regex");
 
         let shelve_pattern = Regex::new(r"(?i)\bshelve\.open\s*\(").expect("valid regex");
 
@@ -123,7 +127,11 @@ impl PickleDeserializationDetector {
 
     /// Check if path should be excluded
     fn should_exclude(&self, path: &str) -> bool {
-        crate::detectors::base::should_exclude_path(path, &self.exclude_patterns, &self.compiled_globs)
+        crate::detectors::base::should_exclude_path(
+            path,
+            &self.exclude_patterns,
+            &self.compiled_globs,
+        )
     }
 
     /// Check a line for dangerous deserialization patterns

@@ -67,15 +67,19 @@ pub fn run(path: &Path) -> Result<()> {
             .and_then(|r| r.get("findings").and_then(|f| f.as_array()).cloned());
         if let Some(findings) = findings {
             let total = findings.len();
-            let critical = findings.iter()
+            let critical = findings
+                .iter()
                 .filter(|f| f.get("severity").and_then(|s| s.as_str()) == Some("critical"))
                 .count();
-            let high = findings.iter()
+            let high = findings
+                .iter()
                 .filter(|f| f.get("severity").and_then(|s| s.as_str()) == Some("high"))
                 .count();
             println!(
                 "      {} findings ({} critical, {} high)",
-                style(total).cyan(), style(critical).red(), style(high).yellow()
+                style(total).cyan(),
+                style(critical).red(),
+                style(high).yellow()
             );
         }
     }

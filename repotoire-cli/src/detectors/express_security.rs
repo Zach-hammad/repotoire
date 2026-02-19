@@ -20,12 +20,15 @@ static ROUTE_HANDLER: OnceLock<Regex> = OnceLock::new();
 
 fn express_app() -> &'static Regex {
     EXPRESS_APP.get_or_init(|| {
-        Regex::new(r#"express\(\)|require\(["']express["']\)|from ['"]express['"']"#).expect("valid regex")
+        Regex::new(r#"express\(\)|require\(["']express["']\)|from ['"]express['"']"#)
+            .expect("valid regex")
     })
 }
 
 fn route_handler() -> &'static Regex {
-    ROUTE_HANDLER.get_or_init(|| Regex::new(r"\.(get|post|put|delete|patch|all|use)\s*\(").expect("valid regex"))
+    ROUTE_HANDLER.get_or_init(|| {
+        Regex::new(r"\.(get|post|put|delete|patch|all|use)\s*\(").expect("valid regex")
+    })
 }
 
 /// Security features to check

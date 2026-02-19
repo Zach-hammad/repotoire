@@ -19,8 +19,9 @@ static PROMISE_PATTERN: OnceLock<Regex> = OnceLock::new();
 static ASYNC_FUNC: OnceLock<Regex> = OnceLock::new();
 
 fn promise_pattern() -> &'static Regex {
-    PROMISE_PATTERN
-        .get_or_init(|| Regex::new(r"(new Promise|\.then\(|fetch\(|axios\.|\.json\(\))").expect("valid regex"))
+    PROMISE_PATTERN.get_or_init(|| {
+        Regex::new(r"(new Promise|\.then\(|fetch\(|axios\.|\.json\(\))").expect("valid regex")
+    })
 }
 
 fn async_func() -> &'static Regex {
@@ -178,7 +179,8 @@ impl Detector for UnhandledPromiseDetector {
                     // or deals with promises. Don't flag sync code.
                     if !has_promise && !line.contains("await ") && !line.contains(".then(") {
                         // Check if calling a known async function
-                        let calls_async_fn = async_funcs.iter()
+                        let calls_async_fn = async_funcs
+                            .iter()
                             .any(|f| line.contains(&format!("{}(", f)) && !line.contains("await"));
                         if !calls_async_fn {
                             continue;
@@ -202,15 +204,18 @@ impl Detector for UnhandledPromiseDetector {
                             break;
                         }
                         // Also check for function declaration at same scope level
-                        if depth == 0 && (prev.starts_with("async function ")
-                            || prev.starts_with("export async function ")
-                            || (prev.contains("async ") && prev.contains("=>"))
-                            || prev.starts_with("async ("))
+                        if depth == 0
+                            && (prev.starts_with("async function ")
+                                || prev.starts_with("export async function ")
+                                || (prev.contains("async ") && prev.contains("=>"))
+                                || prev.starts_with("async ("))
                         {
                             is_in_async_context = true;
                             break;
                         }
-                        if depth == 0 && (prev.starts_with("function ") || prev.starts_with("export function "))
+                        if depth == 0
+                            && (prev.starts_with("function ")
+                                || prev.starts_with("export function "))
                             && !prev.contains("async")
                         {
                             break;
@@ -251,7 +256,12 @@ impl Detector for UnhandledPromiseDetector {
 
                         // Only flag .json() if it's clearly promise-chained (e.g. fetch().json())
                         // Standalone .json() calls (like JSON parsing) should not be flagged
-                        if !has_promise || (line.contains(".json()") && !line.contains("fetch(") && !line.contains(".then(") && !line.contains("axios.")) {
+                        if !has_promise
+                            || (line.contains(".json()")
+                                && !line.contains("fetch(")
+                                && !line.contains(".then(")
+                                && !line.contains("axios."))
+                        {
                             if !calls_async {
                                 continue;
                             }

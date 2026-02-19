@@ -138,8 +138,8 @@ impl Detector for CallbackHellDetector {
                     //  - Template literal expressions: `${() => {`  (rare but possible)
 
                     // anonymous functions explicitly passed as arguments
-                    let anon_funcs = line.matches("function(").count()
-                        + line.matches("function (").count();
+                    let anon_funcs =
+                        line.matches("function(").count() + line.matches("function (").count();
 
                     // Arrow functions: only count ones that look like callbacks passed to
                     // functions, NOT JSX event prop assignments (e.g. onClick={() => {}).
@@ -154,8 +154,7 @@ impl Detector for CallbackHellDetector {
                             let is_jsx_prop = before.trim_end().ends_with("={")
                                 || before.trim_end().ends_with("= {");
                             // If it's an object literal method (key: () => {)
-                            let is_object_method = before.contains(": ")
-                                && !before.contains('(');
+                            let is_object_method = before.contains(": ") && !before.contains('(');
                             if !is_jsx_prop && !is_object_method {
                                 count += 1;
                             }

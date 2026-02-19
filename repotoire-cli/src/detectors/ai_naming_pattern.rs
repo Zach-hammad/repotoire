@@ -203,7 +203,9 @@ impl AINamingPatternDetector {
         // Pattern for numbered generics like var1, temp2, data3
         let generic_words_pattern = GENERIC_WORDS.join("|");
         let numbered_generic_pattern = Regex::new(&format!(r"^({})\\d+$", generic_words_pattern))
-            .unwrap_or_else(|_| Regex::new(r"^(result|temp|data|value|var)\d+$").expect("valid regex"));
+            .unwrap_or_else(|_| {
+                Regex::new(r"^(result|temp|data|value|var)\d+$").expect("valid regex")
+            });
 
         // Single letters followed by numbers like x1, y2
         let single_letter_numbered_pattern = Regex::new(r"^[a-z]\d+$").expect("valid regex");

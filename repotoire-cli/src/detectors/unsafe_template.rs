@@ -85,7 +85,8 @@ impl UnsafeTemplateDetector {
         // Compile Python patterns
         let jinja2_env_pattern = Regex::new(r"\bEnvironment\s*\([^)]*\)").expect("valid regex");
         let autoescape_true_pattern =
-            Regex::new(r"(?i)autoescape\s*=\s*(?:True|select_autoescape\s*\()").expect("valid regex");
+            Regex::new(r"(?i)autoescape\s*=\s*(?:True|select_autoescape\s*\()")
+                .expect("valid regex");
         // Simplified: detect render_template_string calls with any content
         // (filtering for variable usage happens in scan logic)
         let render_template_string_pattern =
@@ -96,11 +97,15 @@ impl UnsafeTemplateDetector {
         // Compile JavaScript patterns
         let dangerous_inner_html_pattern =
             Regex::new(r"\bdangerouslySetInnerHTML\s*=\s*\{").expect("valid regex");
-        let vue_vhtml_pattern = Regex::new(r#"\bv-html\s*=\s*["'][^"']+["']"#).expect("valid regex");
+        let vue_vhtml_pattern =
+            Regex::new(r#"\bv-html\s*=\s*["'][^"']+["']"#).expect("valid regex");
         // Use =[^=] to exclude == comparisons (#25)
-        let innerhtml_assign_pattern = Regex::new(r"\.\s*innerHTML\s*=[^=;][^;]*").expect("valid regex");
-        let outerhtml_assign_pattern = Regex::new(r"\.\s*outerHTML\s*=[^=;][^;]*").expect("valid regex");
-        let document_write_pattern = Regex::new(r"\bdocument\s*\.\s*write(?:ln)?\s*\(").expect("valid regex");
+        let innerhtml_assign_pattern =
+            Regex::new(r"\.\s*innerHTML\s*=[^=;][^;]*").expect("valid regex");
+        let outerhtml_assign_pattern =
+            Regex::new(r"\.\s*outerHTML\s*=[^=;][^;]*").expect("valid regex");
+        let document_write_pattern =
+            Regex::new(r"\bdocument\s*\.\s*write(?:ln)?\s*\(").expect("valid regex");
 
         Self {
             config,
@@ -130,7 +135,11 @@ impl UnsafeTemplateDetector {
 
     /// Check if path should be excluded
     fn should_exclude(&self, path: &str) -> bool {
-        crate::detectors::base::should_exclude_path(path, &self.exclude_patterns, &self.compiled_globs)
+        crate::detectors::base::should_exclude_path(
+            path,
+            &self.exclude_patterns,
+            &self.compiled_globs,
+        )
     }
 
     /// Scan Python files for template vulnerabilities

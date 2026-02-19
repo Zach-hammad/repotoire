@@ -157,4 +157,3 @@ impl super::traits::GraphQuery for GraphStore {
         self.get_long_param_functions(min_params)
     }
 }
-

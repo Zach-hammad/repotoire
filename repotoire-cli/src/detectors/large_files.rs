@@ -33,14 +33,18 @@ impl LargeFilesDetector {
     }
 
     /// Create with adaptive threshold resolver
-    pub fn with_resolver(repository_path: impl Into<PathBuf>, resolver: &crate::calibrate::ThresholdResolver) -> Self {
+    pub fn with_resolver(
+        repository_path: impl Into<PathBuf>,
+        resolver: &crate::calibrate::ThresholdResolver,
+    ) -> Self {
         use crate::calibrate::MetricKind;
         let default_threshold = 800usize;
         let threshold = resolver.warn_usize(MetricKind::FileLength, default_threshold);
         if threshold != default_threshold {
             tracing::info!(
                 "LargeFiles: adaptive threshold {} (default={})",
-                threshold, default_threshold
+                threshold,
+                default_threshold
             );
         }
         Self {
@@ -244,7 +248,10 @@ impl Detector for LargeFilesDetector {
                         title: format!("Large file: {} lines", lines),
                         description: format!(
                             "File exceeds recommended size ({} lines > {} threshold).{}\n\n📊 {}",
-                            lines, self.threshold, context_notes, explanation.to_note()
+                            lines,
+                            self.threshold,
+                            context_notes,
+                            explanation.to_note()
                         ),
                         affected_files: vec![path.to_path_buf()],
                         line_start: Some(1),

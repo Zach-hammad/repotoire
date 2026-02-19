@@ -440,16 +440,16 @@ impl IncrementalCache {
     /// Remove cache entries for files that no longer exist in the file list.
     /// Call this periodically to prevent unbounded cache growth.
     pub fn prune_stale_entries(&mut self, current_files: &[PathBuf]) {
-        let current_keys: std::collections::HashSet<String> = current_files
-            .iter()
-            .map(|p| self.path_key(p))
-            .collect();
+        let current_keys: std::collections::HashSet<String> =
+            current_files.iter().map(|p| self.path_key(p)).collect();
 
         let before_files = self.cache.files.len();
         let before_parse = self.cache.parse_cache.len();
 
         self.cache.files.retain(|k, _| current_keys.contains(k));
-        self.cache.parse_cache.retain(|k, _| current_keys.contains(k));
+        self.cache
+            .parse_cache
+            .retain(|k, _| current_keys.contains(k));
 
         let pruned_files = before_files - self.cache.files.len();
         let pruned_parse = before_parse - self.cache.parse_cache.len();
@@ -558,7 +558,9 @@ impl IncrementalCache {
         classes: usize,
         total_loc: usize,
     ) {
-        self.cache_score_with_subscores(score, grade, files, functions, classes, None, None, None, total_loc);
+        self.cache_score_with_subscores(
+            score, grade, files, functions, classes, None, None, None, total_loc,
+        );
     }
 
     /// Cache the score result with sub-scores

@@ -9,8 +9,8 @@
 
 use crate::config::ProjectConfig;
 use crate::detectors::{
-    ConfidenceMethod, DetectorEngine, IncrementalCache,
-    SeverityResolution, VotingEngine, VotingStats, VotingStrategy,
+    ConfidenceMethod, DetectorEngine, IncrementalCache, SeverityResolution, VotingEngine,
+    VotingStats, VotingStrategy,
 };
 use crate::git;
 use crate::graph::GraphStore;
@@ -80,10 +80,8 @@ pub(super) fn finish_git_enrichment(
             ));
         }
         Ok(Ok(_)) => {
-            git_spinner.finish_with_message(format!(
-                "{}No git history to enrich",
-                style("- ").dim(),
-            ));
+            git_spinner
+                .finish_with_message(format!("{}No git history to enrich", style("- ").dim(),));
         }
         Ok(Err(e)) => {
             git_spinner.finish_with_message(format!(
@@ -140,7 +138,9 @@ pub(super) fn run_detectors(
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
     // Register default detectors
-    for detector in crate::detectors::default_detectors_with_profile(repo_path, project_config, style_profile) {
+    for detector in
+        crate::detectors::default_detectors_with_profile(repo_path, project_config, style_profile)
+    {
         let name = detector.name();
         if !skip_set.contains(name) {
             engine.register(detector);

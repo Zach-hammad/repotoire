@@ -132,15 +132,21 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
 /// Compute max nesting depth for each function from source code.
 /// Uses brace counting for C-family languages, indent counting for Python.
 fn enrich_nesting_depths(result: &mut ParseResult, path: &Path) {
-    let Ok(source) = std::fs::read_to_string(path) else { return };
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return;
+    };
     let lines: Vec<&str> = source.lines().collect();
     let is_python = path.extension().map_or(false, |e| e == "py" || e == "pyi");
 
     for func in &mut result.functions {
-        if func.max_nesting.is_some() { continue; }
+        if func.max_nesting.is_some() {
+            continue;
+        }
         let start = func.line_start.saturating_sub(1) as usize;
         let end = (func.line_end as usize).min(lines.len());
-        if start >= end { continue; }
+        if start >= end {
+            continue;
+        }
 
         let max_depth = if is_python {
             compute_nesting_indent(&lines[start..end])
@@ -188,7 +194,9 @@ fn compute_nesting_braces(lines: &[&str]) -> u32 {
 
 /// Indent-based nesting for Python
 fn compute_nesting_indent(lines: &[&str]) -> u32 {
-    if lines.is_empty() { return 0; }
+    if lines.is_empty() {
+        return 0;
+    }
 
     // Find base indentation from the function def line
     let base_indent = lines[0].len() - lines[0].trim_start().len();
@@ -196,7 +204,9 @@ fn compute_nesting_indent(lines: &[&str]) -> u32 {
 
     for line in &lines[1..] {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
         let indent = line.len() - line.trim_start().len();
         if indent > base_indent {
             // Each 4-space (or 1-tab) indent level is ~1 nesting level

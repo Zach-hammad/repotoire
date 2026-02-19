@@ -19,7 +19,8 @@ static VAR_READ: OnceLock<Regex> = OnceLock::new();
 
 fn assignment() -> &'static Regex {
     ASSIGNMENT.get_or_init(|| {
-        Regex::new(r"^\s*(let|var|const|int|float|string|auto|mut)?\s*(\w+)\s*[:=]").expect("valid regex")
+        Regex::new(r"^\s*(let|var|const|int|float|string|auto|mut)?\s*(\w+)\s*[:=]")
+            .expect("valid regex")
     })
 }
 

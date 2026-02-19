@@ -4,7 +4,9 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::{manual_seed, chain_index, pca_svm_call, scaler_call, require_grad_typo, deprecated_torch};
+use super::{
+    chain_index, deprecated_torch, manual_seed, pca_svm_call, require_grad_typo, scaler_call,
+};
 
 pub struct MissingRandomSeedDetector {
     repository_path: PathBuf,
@@ -459,4 +461,3 @@ impl Detector for DeprecatedTorchApiDetector {
 // ============================================================================
 // Tests
 // ============================================================================
-

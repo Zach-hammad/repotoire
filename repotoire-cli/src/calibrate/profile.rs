@@ -75,8 +75,14 @@ impl MetricDistribution {
     pub fn from_values(values: &mut Vec<f64>) -> Self {
         if values.is_empty() {
             return Self {
-                count: 0, mean: 0.0, stddev: 0.0,
-                p50: 0.0, p75: 0.0, p90: 0.0, p95: 0.0, max: 0.0,
+                count: 0,
+                mean: 0.0,
+                stddev: 0.0,
+                p50: 0.0,
+                p75: 0.0,
+                p90: 0.0,
+                p95: 0.0,
+                max: 0.0,
                 confident: false,
             };
         }
@@ -154,7 +160,8 @@ impl StyleProfile {
         if profile.version != Self::VERSION {
             tracing::warn!(
                 "Style profile version mismatch ({} vs {}), ignoring",
-                profile.version, Self::VERSION
+                profile.version,
+                Self::VERSION
             );
             return None;
         }

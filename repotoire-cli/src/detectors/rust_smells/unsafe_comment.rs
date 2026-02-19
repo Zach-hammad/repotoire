@@ -37,17 +37,27 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
             .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
+            if !path.is_file() {
+                continue;
+            }
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "rs" { continue; }
+            if ext != "rs" {
+                continue;
+            }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else { continue };
+            let Some(content) = crate::cache::global_cache().get_content(path) else {
+                continue;
+            };
             let lines: Vec<&str> = content.lines().collect();
 
             for (i, line) in lines.iter().enumerate() {
-                if !unsafe_block().is_match(line) { continue; }
+                if !unsafe_block().is_match(line) {
+                    continue;
+                }
 
                 // Skip string literals
                 let trimmed = line.trim();
@@ -60,7 +70,9 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
                 {
                     continue;
                 }
-                if is_test_context(line, &content, i) { continue; }
+                if is_test_context(line, &content, i) {
+                    continue;
+                }
 
                 let has_safety = (i.saturating_sub(3)..i)
                     .any(|j| lines.get(j).is_some_and(|l| safety_comment().is_match(l)));
@@ -90,7 +102,10 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
             }
         }
 
-        info!("UnsafeWithoutSafetyCommentDetector found {} findings", findings.len());
+        info!(
+            "UnsafeWithoutSafetyCommentDetector found {} findings",
+            findings.len()
+        );
         Ok(findings)
     }
 }

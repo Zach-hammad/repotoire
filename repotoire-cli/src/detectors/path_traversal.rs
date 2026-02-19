@@ -29,14 +29,16 @@ fn path_join() -> &'static Regex {
 fn send_file() -> &'static Regex {
     // Express/Koa sendFile, download patterns
     SEND_FILE.get_or_init(|| {
-        Regex::new(r"(?i)(sendFile|download|serveStatic|send_file|serve_file)\s*\(").expect("valid regex")
+        Regex::new(r"(?i)(sendFile|download|serveStatic|send_file|serve_file)\s*\(")
+            .expect("valid regex")
     })
 }
 
 fn path_resolve() -> &'static Regex {
     // Path resolution/normalization that might be unsafe if done after concatenation
-    PATH_RESOLVE
-        .get_or_init(|| Regex::new(r"(?i)(realpath|abspath|normpath|resolve|Clean)\s*\(").expect("valid regex"))
+    PATH_RESOLVE.get_or_init(|| {
+        Regex::new(r"(?i)(realpath|abspath|normpath|resolve|Clean)\s*\(").expect("valid regex")
+    })
 }
 
 pub struct PathTraversalDetector {

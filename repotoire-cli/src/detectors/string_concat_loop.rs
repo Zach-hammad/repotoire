@@ -22,7 +22,8 @@ static FOR_VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn loop_pattern() -> &'static Regex {
     LOOP_PATTERN.get_or_init(|| {
-        Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each|for\s*\(|while\s*\()").expect("valid regex")
+        Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each|for\s*\(|while\s*\()")
+            .expect("valid regex")
     })
 }
 
@@ -32,7 +33,8 @@ fn for_var_pattern() -> &'static Regex {
 
 fn string_concat() -> &'static Regex {
     STRING_CONCAT.get_or_init(|| {
-        Regex::new(r#"\w+\s*\+=\s*["'`]|\w+\s*=\s*\w+\s*\+\s*["'`]|\w+\s*\+=\s*\w+"#).expect("valid regex")
+        Regex::new(r#"\w+\s*\+=\s*["'`]|\w+\s*=\s*\w+\s*\+\s*["'`]|\w+\s*\+=\s*\w+"#)
+            .expect("valid regex")
     })
 }
 

@@ -19,12 +19,15 @@ static LOOP: OnceLock<Regex> = OnceLock::new();
 static REGEX_NEW: OnceLock<Regex> = OnceLock::new();
 
 fn loop_pattern() -> &'static Regex {
-    LOOP.get_or_init(|| Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|for\s*\(|while\s*\()").expect("valid regex"))
+    LOOP.get_or_init(|| {
+        Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|for\s*\(|while\s*\()").expect("valid regex")
+    })
 }
 
 fn regex_new() -> &'static Regex {
     REGEX_NEW.get_or_init(|| {
-        Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile)").expect("valid regex")
+        Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile)")
+            .expect("valid regex")
     })
 }
 
@@ -198,7 +201,10 @@ impl Detector for RegexInLoopDetector {
 
                         // Direct regex compilation in loop
                         // Skip cached patterns: OnceLock, lazy_static, static, get_or_init
-                        if regex_new().is_match(line) && !is_cached_regex(line) && !is_cached_regex_context(&content, i) {
+                        if regex_new().is_match(line)
+                            && !is_cached_regex(line)
+                            && !is_cached_regex_context(&content, i)
+                        {
                             findings.push(Finding {
                                 id: String::new(),
                                 detector: "RegexInLoopDetector".to_string(),

@@ -26,14 +26,16 @@ fn shell_exec() -> &'static Regex {
 
 fn go_exec() -> &'static Regex {
     // Go exec patterns: exec.Command, exec.CommandContext
-    GO_EXEC.get_or_init(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).expect("valid regex"))
+    GO_EXEC
+        .get_or_init(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).expect("valid regex"))
 }
 
 fn js_exec_direct() -> &'static Regex {
     // Direct exec() call pattern for JavaScript - matches exec( but not .exec( to avoid RegExp.exec
     // This catches: exec(something), execSync(something), execAsync(something)
-    JS_EXEC_DIRECT
-        .get_or_init(|| Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).expect("valid regex"))
+    JS_EXEC_DIRECT.get_or_init(|| {
+        Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).expect("valid regex")
+    })
 }
 
 pub struct CommandInjectionDetector {

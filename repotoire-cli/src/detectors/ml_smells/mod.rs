@@ -7,11 +7,16 @@
 //!
 //! Covers PyTorch, TensorFlow, Scikit-Learn, Pandas, NumPy patterns.
 
-mod training;
 mod data_patterns;
+mod training;
 
-pub use training::{TorchLoadUnsafeDetector, NanEqualityDetector, MissingZeroGradDetector, ForwardMethodDetector};
-pub use data_patterns::{MissingRandomSeedDetector, ChainIndexingDetector, RequireGradTypoDetector, DeprecatedTorchApiDetector};
+pub use data_patterns::{
+    ChainIndexingDetector, DeprecatedTorchApiDetector, MissingRandomSeedDetector,
+    RequireGradTypoDetector,
+};
+pub use training::{
+    ForwardMethodDetector, MissingZeroGradDetector, NanEqualityDetector, TorchLoadUnsafeDetector,
+};
 
 use regex::Regex;
 use std::sync::OnceLock;
@@ -35,7 +40,8 @@ pub(crate) fn torch_load() -> &'static Regex {
     TORCH_LOAD.get_or_init(|| Regex::new(r"torch\.load\s*\(").expect("valid regex"))
 }
 pub(crate) fn torch_load_weights_only() -> &'static Regex {
-    TORCH_LOAD_WEIGHTS_ONLY.get_or_init(|| Regex::new(r"weights_only\s*=\s*True").expect("valid regex"))
+    TORCH_LOAD_WEIGHTS_ONLY
+        .get_or_init(|| Regex::new(r"weights_only\s*=\s*True").expect("valid regex"))
 }
 pub(crate) fn nan_equality() -> &'static Regex {
     NAN_EQUALITY.get_or_init(|| {
@@ -46,7 +52,8 @@ pub(crate) fn backward_call() -> &'static Regex {
     BACKWARD_CALL.get_or_init(|| Regex::new(r"\.backward\s*\(").expect("valid regex"))
 }
 pub(crate) fn zero_grad_call() -> &'static Regex {
-    ZERO_GRAD_CALL.get_or_init(|| Regex::new(r"\.zero_grad\s*\(|optimizer\.zero_grad").expect("valid regex"))
+    ZERO_GRAD_CALL
+        .get_or_init(|| Regex::new(r"\.zero_grad\s*\(|optimizer\.zero_grad").expect("valid regex"))
 }
 pub(crate) fn forward_method() -> &'static Regex {
     FORWARD_METHOD.get_or_init(|| Regex::new(r"\.\s*forward\s*\(").expect("valid regex"))
@@ -57,7 +64,9 @@ pub(crate) fn manual_seed() -> &'static Regex {
     })
 }
 pub(crate) fn chain_index() -> &'static Regex {
-    CHAIN_INDEX.get_or_init(|| Regex::new(r#"\w+\[['"][^'"]+['"]\]\s*\[['"][^'"]+['"]\]"#).expect("valid regex"))
+    CHAIN_INDEX.get_or_init(|| {
+        Regex::new(r#"\w+\[['"][^'"]+['"]\]\s*\[['"][^'"]+['"]\]"#).expect("valid regex")
+    })
 }
 pub(crate) fn pca_svm_call() -> &'static Regex {
     PCA_SVM_CALL.get_or_init(|| {
@@ -66,19 +75,24 @@ pub(crate) fn pca_svm_call() -> &'static Regex {
 }
 pub(crate) fn scaler_call() -> &'static Regex {
     SCALER_CALL.get_or_init(|| {
-        Regex::new(r"(?:StandardScaler|MinMaxScaler|RobustScaler|Normalizer|MaxAbsScaler)\s*\(").expect("valid regex")
+        Regex::new(r"(?:StandardScaler|MinMaxScaler|RobustScaler|Normalizer|MaxAbsScaler)\s*\(")
+            .expect("valid regex")
     })
 }
 pub(crate) fn require_grad_typo() -> &'static Regex {
-    REQUIRE_GRAD_TYPO.get_or_init(|| Regex::new(r"\.require_grad\s*=|require_grad\s*=\s*True").expect("valid regex"))
+    REQUIRE_GRAD_TYPO.get_or_init(|| {
+        Regex::new(r"\.require_grad\s*=|require_grad\s*=\s*True").expect("valid regex")
+    })
 }
 pub(crate) fn deprecated_torch() -> &'static Regex {
     DEPRECATED_TORCH.get_or_init(|| {
-        Regex::new(r"torch\.(?:solve|symeig|qr|cholesky|chain_matmul|range)\s*\(").expect("valid regex")
+        Regex::new(r"torch\.(?:solve|symeig|qr|cholesky|chain_matmul|range)\s*\(")
+            .expect("valid regex")
     })
 }
 pub(crate) fn dataloader_shuffle() -> &'static Regex {
-    DATALOADER_SHUFFLE.get_or_init(|| Regex::new(r"DataLoader\s*\([^)]*shuffle\s*=\s*True").expect("valid regex"))
+    DATALOADER_SHUFFLE
+        .get_or_init(|| Regex::new(r"DataLoader\s*\([^)]*shuffle\s*=\s*True").expect("valid regex"))
 }
 pub(crate) fn eval_mode() -> &'static Regex {
     EVAL_MODE.get_or_init(|| Regex::new(r"\.eval\s*\(").expect("valid regex"))
@@ -87,9 +101,9 @@ pub(crate) fn eval_mode() -> &'static Regex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detectors::base::Detector;
     use crate::graph::GraphStore;
     use crate::models::Severity;
-    use crate::detectors::base::Detector;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;

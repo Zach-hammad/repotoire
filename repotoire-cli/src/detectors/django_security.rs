@@ -30,15 +30,19 @@ fn debug_true() -> &'static Regex {
 }
 
 fn raw_sql() -> &'static Regex {
-    RAW_SQL.get_or_init(|| Regex::new(r"\.raw\(|\.extra\(|RawSQL\(|cursor\.execute").expect("valid regex"))
+    RAW_SQL.get_or_init(|| {
+        Regex::new(r"\.raw\(|\.extra\(|RawSQL\(|cursor\.execute").expect("valid regex")
+    })
 }
 
 fn secret_key() -> &'static Regex {
-    SECRET_KEY.get_or_init(|| Regex::new(r#"SECRET_KEY\s*=\s*['"][^'"]{10,}['"]"#).expect("valid regex"))
+    SECRET_KEY
+        .get_or_init(|| Regex::new(r#"SECRET_KEY\s*=\s*['"][^'"]{10,}['"]"#).expect("valid regex"))
 }
 
 fn allowed_hosts() -> &'static Regex {
-    ALLOWED_HOSTS.get_or_init(|| Regex::new(r#"ALLOWED_HOSTS\s*=\s*\[\s*['"][*]['"]"#).expect("valid regex"))
+    ALLOWED_HOSTS
+        .get_or_init(|| Regex::new(r#"ALLOWED_HOSTS\s*=\s*\[\s*['"][*]['"]"#).expect("valid regex"))
 }
 
 pub struct DjangoSecurityDetector {

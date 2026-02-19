@@ -139,8 +139,11 @@ impl ProjectType {
     }
 }
 
-
-use super::project_type_scoring::{score_framework_markers, score_interpreter_markers, score_compiler_markers, score_kernel_markers, score_game_markers, score_cli_markers, score_library_markers, score_web_markers, score_datascience_markers, score_mobile_markers};
+use super::project_type_scoring::{
+    score_cli_markers, score_compiler_markers, score_datascience_markers, score_framework_markers,
+    score_game_markers, score_interpreter_markers, score_kernel_markers, score_library_markers,
+    score_mobile_markers, score_web_markers,
+};
 
 /// Project-level configuration loaded from repotoire.toml or similar
 #[derive(Debug, Clone, Deserialize, Default)]

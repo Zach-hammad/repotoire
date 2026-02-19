@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-
 /// Node types in the code graph
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum NodeKind {
@@ -164,4 +163,3 @@ impl CodeEdge {
         self
     }
 }
-

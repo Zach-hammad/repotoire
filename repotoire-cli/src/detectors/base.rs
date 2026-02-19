@@ -495,7 +495,11 @@ pub fn compile_glob_patterns(patterns: &[String]) -> Vec<regex::Regex> {
 }
 
 /// Check if a path should be excluded based on patterns and pre-compiled globs
-pub fn should_exclude_path(path: &str, patterns: &[String], compiled_globs: &[regex::Regex]) -> bool {
+pub fn should_exclude_path(
+    path: &str,
+    patterns: &[String],
+    compiled_globs: &[regex::Regex],
+) -> bool {
     for pattern in patterns {
         if pattern.ends_with('/') {
             let dir = pattern.trim_end_matches('/');

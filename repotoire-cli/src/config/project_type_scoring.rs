@@ -529,4 +529,3 @@ pub(super) fn score_mobile_markers(repo_path: &Path) -> u32 {
 
     score
 }
-

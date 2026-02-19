@@ -2,7 +2,6 @@
 
 mod analyze;
 mod clean;
-mod watch;
 mod doctor;
 mod embedded_scripts;
 mod findings;
@@ -12,6 +11,7 @@ mod init;
 mod serve;
 mod status;
 mod tui;
+mod watch;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -604,7 +604,10 @@ fn run_calibrate(path: &std::path::Path) -> anyhow::Result<()> {
     use console::style;
 
     let repo_path = std::fs::canonicalize(path)?;
-    println!("🎯 Calibrating adaptive thresholds for {}\n", repo_path.display());
+    println!(
+        "🎯 Calibrating adaptive thresholds for {}\n",
+        repo_path.display()
+    );
 
     // Collect files using standard walker
     let files = crate::cli::analyze::files::collect_file_list(&repo_path)?;
@@ -635,11 +638,18 @@ fn run_calibrate(path: &std::path::Path) -> anyhow::Result<()> {
 
     // Display results
     println!("\n📊 Style Profile\n");
-    println!("  Functions: {}  Files: {}\n", profile.total_functions, profile.total_files);
+    println!(
+        "  Functions: {}  Files: {}\n",
+        profile.total_functions, profile.total_files
+    );
 
     for kind in MetricKind::all() {
-        let Some(dist) = profile.get(*kind) else { continue };
-        if dist.count == 0 { continue; }
+        let Some(dist) = profile.get(*kind) else {
+            continue;
+        };
+        if dist.count == 0 {
+            continue;
+        }
         let confidence = if dist.confident {
             style("✓").green().to_string()
         } else {
@@ -647,7 +657,14 @@ fn run_calibrate(path: &std::path::Path) -> anyhow::Result<()> {
         };
         println!(
             "  {:<20} mean={:>6.1}  p50={:>5.0}  p90={:>5.0}  p95={:>5.0}  max={:>5.0}  n={:<5} {}",
-            kind.name(), dist.mean, dist.p50, dist.p90, dist.p95, dist.max, dist.count, confidence
+            kind.name(),
+            dist.mean,
+            dist.p50,
+            dist.p90,
+            dist.p95,
+            dist.max,
+            dist.count,
+            confidence
         );
     }
 
@@ -655,7 +672,10 @@ fn run_calibrate(path: &std::path::Path) -> anyhow::Result<()> {
     profile.save(&repo_path)?;
     println!(
         "\n✅ Saved to {}\n",
-        repo_path.join(".repotoire").join(StyleProfile::FILENAME).display()
+        repo_path
+            .join(".repotoire")
+            .join(StyleProfile::FILENAME)
+            .display()
     );
     println!("Detectors will now use adaptive thresholds on next analyze.");
 
@@ -701,10 +721,18 @@ fn show_config() -> anyhow::Result<()> {
     let config = crate::config::UserConfig::load()?;
     println!("📁 Config paths:");
     if let Some(user_path) = crate::config::UserConfig::user_config_path() {
-        let status = if user_path.exists() { "✓" } else { "(not found)" };
+        let status = if user_path.exists() {
+            "✓"
+        } else {
+            "(not found)"
+        };
         println!("  User:    {} {}", user_path.display(), status);
     }
-    let proj_status = if std::path::Path::new("repotoire.toml").exists() { "✓" } else { "(not found)" };
+    let proj_status = if std::path::Path::new("repotoire.toml").exists() {
+        "✓"
+    } else {
+        "(not found)"
+    };
     println!("  Project: ./repotoire.toml {}", proj_status);
     println!();
     println!("🤖 AI Backend: {}", config.ai_backend());
@@ -712,7 +740,11 @@ fn show_config() -> anyhow::Result<()> {
         println!("  Ollama URL:   {}", config.ollama_url());
         println!("  Ollama Model: {}", config.ollama_model());
     } else {
-        let key_status = if config.has_ai_key() { "✓ configured" } else { "✗ not set" };
+        let key_status = if config.has_ai_key() {
+            "✓ configured"
+        } else {
+            "✗ not set"
+        };
         println!("  ANTHROPIC_API_KEY: {}", key_status);
     }
     Ok(())

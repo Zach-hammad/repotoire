@@ -142,12 +142,18 @@ impl InsecureRandomDetector {
             return (SecurityContext::ID, "ID generation".to_string());
         }
         // Security-sensitive ID patterns
-        if (combined.contains("session_id") || combined.contains("sessionid")
-            || combined.contains("user_id") || combined.contains("userid")
-            || combined.contains("auth_id") || combined.contains("api_id"))
-            && !combined.contains("trace") && !combined.contains("metric")
-            && !combined.contains("display") && !combined.contains("record")
-            && !combined.contains("internal") && !combined.contains("log")
+        if (combined.contains("session_id")
+            || combined.contains("sessionid")
+            || combined.contains("user_id")
+            || combined.contains("userid")
+            || combined.contains("auth_id")
+            || combined.contains("api_id"))
+            && !combined.contains("trace")
+            && !combined.contains("metric")
+            && !combined.contains("display")
+            && !combined.contains("record")
+            && !combined.contains("internal")
+            && !combined.contains("log")
         {
             return (SecurityContext::ID, "ID generation".to_string());
         }

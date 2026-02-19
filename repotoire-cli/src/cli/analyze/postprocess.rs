@@ -57,7 +57,9 @@ pub(super) fn postprocess_findings(
     if !project_config.exclude.paths.is_empty() {
         let before = findings.len();
         findings.retain(|f| {
-            !f.affected_files.iter().any(|p| project_config.should_exclude(p))
+            !f.affected_files
+                .iter()
+                .any(|p| project_config.should_exclude(p))
         });
         let removed = before - findings.len();
         if removed > 0 {

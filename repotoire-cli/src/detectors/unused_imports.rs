@@ -20,11 +20,14 @@ static JS_IMPORT: OnceLock<Regex> = OnceLock::new();
 static WORD: OnceLock<Regex> = OnceLock::new();
 
 fn python_import() -> &'static Regex {
-    PYTHON_IMPORT.get_or_init(|| Regex::new(r"(?:from\s+[\w.]+\s+)?import\s+(.+)").expect("valid regex"))
+    PYTHON_IMPORT
+        .get_or_init(|| Regex::new(r"(?:from\s+[\w.]+\s+)?import\s+(.+)").expect("valid regex"))
 }
 
 fn js_import() -> &'static Regex {
-    JS_IMPORT.get_or_init(|| Regex::new(r#"import\s+(?:\{([^}]+)\}|(\w+))\s+from"#).expect("valid regex"))
+    JS_IMPORT.get_or_init(|| {
+        Regex::new(r#"import\s+(?:\{([^}]+)\}|(\w+))\s+from"#).expect("valid regex")
+    })
 }
 
 fn word() -> &'static Regex {

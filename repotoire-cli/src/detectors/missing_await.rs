@@ -20,7 +20,8 @@ static ASYNC_CALL: OnceLock<Regex> = OnceLock::new();
 fn async_call() -> &'static Regex {
     ASYNC_CALL.get_or_init(|| {
         // Only match clearly async I/O patterns — NOT generic method calls
-        Regex::new(r"(?i)\b(fetch\(|axios\.\w+\(|\.\bjson\(\)|\.\btext\(\)|async_\w+\(|aio\w+\.)").expect("valid regex")
+        Regex::new(r"(?i)\b(fetch\(|axios\.\w+\(|\.\bjson\(\)|\.\btext\(\)|async_\w+\(|aio\w+\.)")
+            .expect("valid regex")
     })
 }
 
@@ -76,21 +77,31 @@ impl MissingAwaitDetector {
                 if line.contains('{') || (ext == "py" && line.contains(':')) {
                     found_open = true;
                     // Count all braces on the opening line (e.g. `async function foo() {`)
-                    brace_depth = line.matches('{').count() as i32 - line.matches('}').count() as i32;
-                    if line.contains("await ") { return true; }
+                    brace_depth =
+                        line.matches('{').count() as i32 - line.matches('}').count() as i32;
+                    if line.contains("await ") {
+                        return true;
+                    }
                     continue;
                 }
                 continue;
             }
             brace_depth += line.matches('{').count() as i32;
             brace_depth -= line.matches('}').count() as i32;
-            if line.contains("await ") { return true; }
-            if ext != "py" && brace_depth <= 0 { break; }
+            if line.contains("await ") {
+                return true;
+            }
+            if ext != "py" && brace_depth <= 0 {
+                break;
+            }
             // Python: stop at dedent
             if ext == "py" {
                 let indent = line.len() - line.trim_start().len();
                 let start_indent = lines[start].len() - lines[start].trim_start().len();
-                if !line.trim().is_empty() && indent <= start_indent && !line.trim().starts_with('#') {
+                if !line.trim().is_empty()
+                    && indent <= start_indent
+                    && !line.trim().starts_with('#')
+                {
                     break;
                 }
             }
@@ -121,32 +132,43 @@ impl Detector for MissingAwaitDetector {
                 break;
             }
             let path = entry.path();
-            if !path.is_file() { continue; }
+            if !path.is_file() {
+                continue;
+            }
 
             let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "jsx" | "tsx" | "py") { continue; }
+            if !matches!(ext, "js" | "ts" | "jsx" | "tsx" | "py") {
+                continue;
+            }
 
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;
             }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else { continue };
+            let Some(content) = crate::cache::global_cache().get_content(path) else {
+                continue;
+            };
             let lines: Vec<&str> = content.lines().collect();
 
             // Find async function boundaries using brace counting
             // We need to know: (a) are we inside an async function? (b) which one?
             let mut async_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
-            // Pre-fetch functions for this file to avoid O(n²) graph lookups
-            let file_funcs: Vec<_> = graph.get_functions().into_iter()
+                                                                            // Pre-fetch functions for this file to avoid O(n²) graph lookups
+            let file_funcs: Vec<_> = graph
+                .get_functions()
+                .into_iter()
                 .filter(|f| f.file_path == path_str || path_str.ends_with(&f.file_path))
                 .collect();
 
             for (i, line) in lines.iter().enumerate() {
-                if !Self::is_async_declaration(line) { continue; }
+                if !Self::is_async_declaration(line) {
+                    continue;
+                }
 
                 // Find the function name from pre-fetched list
-                let func_name = file_funcs.iter()
+                let func_name = file_funcs
+                    .iter()
                     .find(|f| f.line_start <= (i + 1) as u32 && f.line_end >= (i + 1) as u32)
                     .map(|f| f.name.clone())
                     .unwrap_or_default();
@@ -168,7 +190,9 @@ impl Detector for MissingAwaitDetector {
                         break;
                     }
                 }
-                if end == i { end = (i + 50).min(lines.len() - 1); } // fallback
+                if end == i {
+                    end = (i + 50).min(lines.len() - 1);
+                } // fallback
 
                 async_ranges.push((i, end, func_name));
             }
@@ -192,34 +216,45 @@ impl Detector for MissingAwaitDetector {
                     // Skip React event handler assignments
                     {
                         let ll = trimmed.to_lowercase();
-                        if ll.contains("onsubmit=") || ll.contains("onclick=")
-                            || ll.contains("onchange=") || ll.contains("onpress=")
-                            || ll.contains("onblur=") || ll.contains("onfocus=")
+                        if ll.contains("onsubmit=")
+                            || ll.contains("onclick=")
+                            || ll.contains("onchange=")
+                            || ll.contains("onpress=")
+                            || ll.contains("onblur=")
+                            || ll.contains("onfocus=")
                         {
                             continue;
                         }
                     }
 
                     // Skip React Query / hook options
-                    if trimmed.contains("useMutation(") || trimmed.contains("useQuery(")
-                        || trimmed.contains("queryFn") || trimmed.contains("mutationFn")
+                    if trimmed.contains("useMutation(")
+                        || trimmed.contains("useQuery(")
+                        || trimmed.contains("queryFn")
+                        || trimmed.contains("mutationFn")
                     {
                         continue;
                     }
 
                     let has_async_call = async_call().is_match(line);
-                    let calls_known_async = known_async_funcs.iter()
-                        .any(|func| {
-                            line.contains(&format!("{}(", func))
+                    let calls_known_async = known_async_funcs.iter().any(|func| {
+                        line.contains(&format!("{}(", func))
                                 && !line.contains(&format!("async {}", func)) // skip declarations
-                                && !line.contains(&format!("function {}", func)) // skip declarations
-                        });
+                                && !line.contains(&format!("function {}", func))
+                        // skip declarations
+                    });
 
-                    if !has_async_call && !calls_known_async { continue; }
+                    if !has_async_call && !calls_known_async {
+                        continue;
+                    }
 
                     // Check if properly awaited
                     let next_line = lines.get(i + 1).map(|l| *l).unwrap_or("");
-                    let prev_line = if i > 0 { lines.get(i - 1).map(|l| *l).unwrap_or("") } else { "" };
+                    let prev_line = if i > 0 {
+                        lines.get(i - 1).map(|l| *l).unwrap_or("")
+                    } else {
+                        ""
+                    };
 
                     let is_awaited = line.contains("await ")
                         || line.contains(".then(")
@@ -242,24 +277,38 @@ impl Detector for MissingAwaitDetector {
                     // Telemetry — inherently fire-and-forget
                     let is_telemetry = {
                         let ll = line.to_lowercase();
-                        ll.contains("track(") || ll.contains("telemetry")
-                            || ll.contains("analytics") || ll.contains("log_event")
-                            || ll.contains("send_event") || ll.contains("metric")
+                        ll.contains("track(")
+                            || ll.contains("telemetry")
+                            || ll.contains("analytics")
+                            || ll.contains("log_event")
+                            || ll.contains("send_event")
+                            || ll.contains("metric")
                     };
 
-                    if is_awaited || is_fire_and_forget || is_telemetry { continue; }
+                    if is_awaited || is_fire_and_forget || is_telemetry {
+                        continue;
+                    }
 
-                    let severity = if calls_known_async { Severity::High } else { Severity::Medium };
+                    let severity = if calls_known_async {
+                        Severity::High
+                    } else {
+                        Severity::Medium
+                    };
 
                     let mut notes = Vec::new();
                     if !func_name.is_empty() {
                         notes.push(format!("📦 In async function: `{}`", func_name));
                     }
                     if calls_known_async {
-                        notes.push("🔍 Calls a function defined as async in this codebase".to_string());
+                        notes.push(
+                            "🔍 Calls a function defined as async in this codebase".to_string(),
+                        );
                     }
-                    let context_notes = if notes.is_empty() { String::new() }
-                    else { format!("\n\n**Analysis:**\n{}", notes.join("\n")) };
+                    let context_notes = if notes.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n\n**Analysis:**\n{}", notes.join("\n"))
+                    };
 
                     findings.push(Finding {
                         id: String::new(),

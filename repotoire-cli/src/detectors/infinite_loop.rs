@@ -27,7 +27,8 @@ fn infinite_while() -> &'static Regex {
 
 fn break_return() -> &'static Regex {
     BREAK_RETURN.get_or_init(|| {
-        Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b").expect("valid regex")
+        Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b")
+            .expect("valid regex")
     })
 }
 

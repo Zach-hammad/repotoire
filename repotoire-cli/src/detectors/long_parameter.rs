@@ -75,10 +75,14 @@ impl LongParameterListDetector {
     pub fn with_config(config: DetectorConfig) -> Self {
         use crate::calibrate::MetricKind;
         let thresholds = LongParameterThresholds {
-            max_params: config.get_option_or("max_params",
-                config.adaptive.warn_usize(MetricKind::ParameterCount, 5)),
-            high_params: config.get_option_or("high_params",
-                config.adaptive.high_usize(MetricKind::ParameterCount, 7)),
+            max_params: config.get_option_or(
+                "max_params",
+                config.adaptive.warn_usize(MetricKind::ParameterCount, 5),
+            ),
+            high_params: config.get_option_or(
+                "high_params",
+                config.adaptive.high_usize(MetricKind::ParameterCount, 7),
+            ),
             critical_params: config.get_option_or("critical_params", 10),
         };
 
@@ -478,7 +482,11 @@ impl Detector for LongParameterListDetector {
                 title: format!("Long parameter list: {}", func.name),
                 description: format!(
                     "Function '{}' has {} parameters (threshold: {}).{}\n\n📊 {}",
-                    func.name, param_count, self.thresholds.max_params, pattern_notes, explanation.to_note()
+                    func.name,
+                    param_count,
+                    self.thresholds.max_params,
+                    pattern_notes,
+                    explanation.to_note()
                 ),
                 affected_files: vec![func.file_path.clone().into()],
                 line_start: Some(func.line_start),

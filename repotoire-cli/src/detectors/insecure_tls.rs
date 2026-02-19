@@ -249,7 +249,12 @@ impl InsecureTlsDetector {
                     }
 
                     // Skip matches inside string literals (e.g., pattern definitions in detector source)
-                    if ext == "rs" && (trimmed.starts_with('"') || trimmed.starts_with("&\"") || trimmed.starts_with("r#\"") || trimmed.starts_with("r\"")) {
+                    if ext == "rs"
+                        && (trimmed.starts_with('"')
+                            || trimmed.starts_with("&\"")
+                            || trimmed.starts_with("r#\"")
+                            || trimmed.starts_with("r\""))
+                    {
                         continue;
                     }
 

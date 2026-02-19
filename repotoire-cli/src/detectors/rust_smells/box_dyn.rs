@@ -21,7 +21,9 @@ impl BoxDynTraitDetector {
 
     fn needs_dynamic_dispatch(content: &str, line_idx: usize) -> bool {
         let lines: Vec<&str> = content.lines().collect();
-        let Some(line) = lines.get(line_idx) else { return false };
+        let Some(line) = lines.get(line_idx) else {
+            return false;
+        };
 
         line.contains("Vec<Box<dyn")
             || line.contains("-> Box<dyn")
@@ -33,31 +35,53 @@ impl BoxDynTraitDetector {
 }
 
 impl Detector for BoxDynTraitDetector {
-    fn name(&self) -> &'static str { "rust-box-dyn-trait" }
-    fn description(&self) -> &'static str { "Detects Box<dyn Trait> that could be replaced with generics" }
+    fn name(&self) -> &'static str {
+        "rust-box-dyn-trait"
+    }
+    fn description(&self) -> &'static str {
+        "Detects Box<dyn Trait> that could be replaced with generics"
+    }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false).git_ignore(true).build();
+            .hidden(false)
+            .git_ignore(true)
+            .build();
 
         for entry in walker.filter_map(|e| e.ok()) {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let path = entry.path();
-            if !path.is_file() { continue; }
-            if path.extension().and_then(|e| e.to_str()) != Some("rs") { continue; }
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else { continue };
+            let Some(content) = crate::cache::global_cache().get_content(path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
                 let trimmed = line.trim();
-                if trimmed.starts_with("//") { continue; }
-                if !box_dyn_trait().is_match(line) { continue; }
-                if Self::needs_dynamic_dispatch(&content, i) { continue; }
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+                if !box_dyn_trait().is_match(line) {
+                    continue;
+                }
+                if Self::needs_dynamic_dispatch(&content, i) {
+                    continue;
+                }
 
                 // Skip function parameter Box<dyn
                 if line.contains("fn ") && line.contains("Box<dyn") {
                     if let (Some(paren), Some(box_pos)) = (line.find('('), line.find("Box<dyn")) {
-                        if box_pos > paren { continue; }
+                        if box_pos > paren {
+                            continue;
+                        }
                     }
                 }
 

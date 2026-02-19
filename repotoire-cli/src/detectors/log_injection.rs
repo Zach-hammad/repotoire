@@ -12,8 +12,9 @@ use std::sync::OnceLock;
 static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn log_pattern() -> &'static Regex {
-    LOG_PATTERN
-        .get_or_init(|| Regex::new(r"(?i)(logger\.|log\.|console\.log|print\(|logging\.)").expect("valid regex"))
+    LOG_PATTERN.get_or_init(|| {
+        Regex::new(r"(?i)(logger\.|log\.|console\.log|print\(|logging\.)").expect("valid regex")
+    })
 }
 
 pub struct LogInjectionDetector {

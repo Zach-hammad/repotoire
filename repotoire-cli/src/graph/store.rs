@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::RwLock;
 
-pub use super::store_models::{NodeKind, CodeNode, CodeEdge, EdgeKind};
+pub use super::store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 
 /// Pure Rust graph store - replaces Kuzu
 pub struct GraphStore {
@@ -656,7 +656,10 @@ impl GraphStore {
 
                 // Skip type-only imports
                 let is_type_only_import = edge_kind == EdgeKind::Imports
-                    && edge.weight().properties.get("is_type_only")
+                    && edge
+                        .weight()
+                        .properties
+                        .get("is_type_only")
                         .map(|v| v.as_bool().unwrap_or(false) || v == "true")
                         .unwrap_or(false);
                 if is_type_only_import {

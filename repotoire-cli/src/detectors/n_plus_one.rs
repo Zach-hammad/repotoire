@@ -21,7 +21,9 @@ static QUERY: OnceLock<Regex> = OnceLock::new();
 static QUERY_FUNC: OnceLock<Regex> = OnceLock::new();
 
 fn loop_pattern() -> &'static Regex {
-    LOOP.get_or_init(|| Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each)").expect("valid regex"))
+    LOOP.get_or_init(|| {
+        Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each)").expect("valid regex")
+    })
 }
 
 fn query_pattern() -> &'static Regex {
@@ -29,7 +31,9 @@ fn query_pattern() -> &'static Regex {
 }
 
 fn query_func_pattern() -> &'static Regex {
-    QUERY_FUNC.get_or_init(|| Regex::new(r"(?i)(get_|find_|fetch_|load_|query_|select_)").expect("valid regex"))
+    QUERY_FUNC.get_or_init(|| {
+        Regex::new(r"(?i)(get_|find_|fetch_|load_|query_|select_)").expect("valid regex")
+    })
 }
 
 pub struct NPlusOneDetector {

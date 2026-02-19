@@ -334,12 +334,20 @@ pub fn default_detectors_with_profile(
     vec![
         // Core detectors (with project config support)
         Arc::new(CircularDependencyDetector::new()),
-        Arc::new(GodClassDetector::with_config(make_config("GodClassDetector"))),
-        Arc::new(LongParameterListDetector::with_config(make_config("LongParameterListDetector"))),
+        Arc::new(GodClassDetector::with_config(make_config(
+            "GodClassDetector",
+        ))),
+        Arc::new(LongParameterListDetector::with_config(make_config(
+            "LongParameterListDetector",
+        ))),
         // Code smell detectors
-        Arc::new(DataClumpsDetector::with_config(make_config("DataClumpsDetector"))),
+        Arc::new(DataClumpsDetector::with_config(make_config(
+            "DataClumpsDetector",
+        ))),
         Arc::new(DeadCodeDetector::new()),
-        Arc::new(FeatureEnvyDetector::with_config(make_config("FeatureEnvyDetector"))),
+        Arc::new(FeatureEnvyDetector::with_config(make_config(
+            "FeatureEnvyDetector",
+        ))),
         Arc::new(InappropriateIntimacyDetector::new()),
         Arc::new(LazyClassDetector::new()),
         Arc::new(MessageChainDetector::new(repository_path)),
@@ -362,12 +370,22 @@ pub fn default_detectors_with_profile(
         Arc::new(RequireGradTypoDetector::new(repository_path)),
         Arc::new(DeprecatedTorchApiDetector::new(repository_path)),
         // Graph/architecture detectors
-        Arc::new(ArchitecturalBottleneckDetector::with_config(make_config("ArchitecturalBottleneckDetector"))),
+        Arc::new(ArchitecturalBottleneckDetector::with_config(make_config(
+            "ArchitecturalBottleneckDetector",
+        ))),
         Arc::new(CoreUtilityDetector::new()),
-        Arc::new(DegreeCentralityDetector::with_config(make_config("DegreeCentralityDetector"))),
-        Arc::new(InfluentialCodeDetector::with_config(make_config("InfluentialCodeDetector"))),
-        Arc::new(ModuleCohesionDetector::with_config(make_config("ModuleCohesionDetector"))),
-        Arc::new(ShotgunSurgeryDetector::with_config(make_config("ShotgunSurgeryDetector"))),
+        Arc::new(DegreeCentralityDetector::with_config(make_config(
+            "DegreeCentralityDetector",
+        ))),
+        Arc::new(InfluentialCodeDetector::with_config(make_config(
+            "InfluentialCodeDetector",
+        ))),
+        Arc::new(ModuleCohesionDetector::with_config(make_config(
+            "ModuleCohesionDetector",
+        ))),
+        Arc::new(ShotgunSurgeryDetector::with_config(make_config(
+            "ShotgunSurgeryDetector",
+        ))),
         // Security detectors (need repository path for file scanning)
         Arc::new(EvalDetector::with_repository_path(
             repository_path.to_path_buf(),
@@ -397,9 +415,15 @@ pub fn default_detectors_with_profile(
         // New code quality detectors
         Arc::new(EmptyCatchDetector::new(repository_path)),
         Arc::new(TodoScanner::new(repository_path)),
-        Arc::new(DeepNestingDetector::with_resolver(repository_path, &resolver)),
+        Arc::new(DeepNestingDetector::with_resolver(
+            repository_path,
+            &resolver,
+        )),
         Arc::new(MagicNumbersDetector::new(repository_path)),
-        Arc::new(LargeFilesDetector::with_resolver(repository_path, &resolver)),
+        Arc::new(LargeFilesDetector::with_resolver(
+            repository_path,
+            &resolver,
+        )),
         Arc::new(MissingDocstringsDetector::new(repository_path)),
         // New performance detectors
         Arc::new(SyncInAsyncDetector::new(repository_path)),

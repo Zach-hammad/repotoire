@@ -27,7 +27,8 @@ fn wildcard_pattern() -> &'static Regex {
 
 fn module_name() -> &'static Regex {
     MODULE_NAME.get_or_init(|| {
-        Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#).expect("valid regex")
+        Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#)
+            .expect("valid regex")
     })
 }
 

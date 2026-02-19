@@ -111,12 +111,18 @@ impl GodClassDetector {
                 .get_option("max_lines")
                 .or_else(|| config.get_option("loc"))
                 .unwrap_or_else(|| config.adaptive.warn_usize(MetricKind::FileLength, 500)),
-            critical_lines: config.get_option_or("critical_lines",
-                config.adaptive.high_usize(MetricKind::FileLength, 1000)),
-            max_complexity: config.get_option_or("max_complexity",
-                config.adaptive.warn_usize(MetricKind::Complexity, 100)),
-            critical_complexity: config.get_option_or("critical_complexity",
-                config.adaptive.high_usize(MetricKind::Complexity, 200)),
+            critical_lines: config.get_option_or(
+                "critical_lines",
+                config.adaptive.high_usize(MetricKind::FileLength, 1000),
+            ),
+            max_complexity: config.get_option_or(
+                "max_complexity",
+                config.adaptive.warn_usize(MetricKind::Complexity, 100),
+            ),
+            critical_complexity: config.get_option_or(
+                "critical_complexity",
+                config.adaptive.high_usize(MetricKind::Complexity, 200),
+            ),
         };
 
         let use_pattern_exclusions = config.get_option_or("use_pattern_exclusions", true);

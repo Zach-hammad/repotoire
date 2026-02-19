@@ -391,10 +391,13 @@ impl FixGenerator {
 
 /// Check if generated code has balanced delimiters for the language
 fn is_syntactically_valid(code: &str, language: &str) -> bool {
-    let balanced = |open: char, close: char| code.matches(open).count() == code.matches(close).count();
+    let balanced =
+        |open: char, close: char| code.matches(open).count() == code.matches(close).count();
     match language {
         "python" => {
-            if code.contains("def ") && !code.contains(':') { return false; }
+            if code.contains("def ") && !code.contains(':') {
+                return false;
+            }
             balanced('(', ')') && balanced('[', ']')
         }
         "javascript" | "typescript" | "rust" | "go" | "java" => balanced('{', '}'),
