@@ -189,6 +189,8 @@ struct SarifResultProperties {
     category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cwe_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    threshold_metadata: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -370,6 +372,11 @@ fn build_result(finding: &Finding, index: usize) -> SarifResult {
             estimated_effort: finding.estimated_effort.clone(),
             category: finding.category.clone(),
             cwe_id: finding.cwe_id.clone(),
+            threshold_metadata: if finding.threshold_metadata.is_empty() {
+                None
+            } else {
+                Some(finding.threshold_metadata.clone())
+            },
         },
         fixes,
         rank,
