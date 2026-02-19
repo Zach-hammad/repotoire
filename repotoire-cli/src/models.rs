@@ -82,6 +82,10 @@ pub struct Finding {
     /// Confidence score from 0.0 to 1.0 (set by voting engine or detector)
     #[serde(default)]
     pub confidence: Option<f64>,
+    /// Threshold metadata for adaptive explainability
+    /// Keys: threshold_source, effective_threshold, actual_value, default_threshold
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub threshold_metadata: std::collections::HashMap<String, String>,
 }
 
 /// Summary of findings by severity

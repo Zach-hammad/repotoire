@@ -433,6 +433,7 @@ mod tests {
             cwe_id: None,
             why_it_matters: None,
             confidence: None,
+            threshold_metadata: Default::default(),
         };
 
         let prompt = FixPromptBuilder::new(finding, FixType::Simplify, "python")

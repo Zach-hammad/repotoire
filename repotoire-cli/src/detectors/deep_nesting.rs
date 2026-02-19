@@ -17,6 +17,8 @@ pub struct DeepNestingDetector {
     repository_path: PathBuf,
     max_findings: usize,
     threshold: usize,
+    default_threshold: usize,
+    resolver: crate::calibrate::ThresholdResolver,
 }
 
 impl DeepNestingDetector {
@@ -25,6 +27,8 @@ impl DeepNestingDetector {
             repository_path: repository_path.into(),
             max_findings: 100,
             threshold: 4,
+            default_threshold: 4,
+            resolver: Default::default(),
         }
     }
 
@@ -43,6 +47,8 @@ impl DeepNestingDetector {
             repository_path: repository_path.into(),
             max_findings: 100,
             threshold,
+            default_threshold,
+            resolver: resolver.clone(),
         }
     }
 
@@ -253,6 +259,15 @@ impl Detector for DeepNestingDetector {
                         "Extract nested logic into functions or use early returns.".to_string()
                     };
 
+                    // Build threshold explainability metadata
+                    let explanation = self.resolver.explain(
+                        crate::calibrate::MetricKind::NestingDepth,
+                        max_depth as f64,
+                        self.default_threshold as f64,
+                    );
+                    let threshold_metadata: std::collections::HashMap<String, String> =
+                        explanation.to_metadata().into_iter().collect();
+
                     findings.push(Finding {
                         id: String::new(),
                         detector: "DeepNestingDetector".to_string(),
@@ -263,8 +278,9 @@ impl Detector for DeepNestingDetector {
                             func_name.map(|n| format!(" in {}", n)).unwrap_or_default()
                         ),
                         description: format!(
-                            "{} levels of nesting (threshold: {}).{}",
-                            max_depth, self.threshold, context_notes
+                            "{} levels of nesting (threshold: {}).{}\n\n📊 {}",
+                            max_depth, self.threshold, context_notes,
+                            explanation.to_note()
                         ),
                         affected_files: vec![path.to_path_buf()],
                         line_start: Some(max_line as u32),
@@ -282,6 +298,7 @@ impl Detector for DeepNestingDetector {
                              Each level increases cognitive load exponentially."
                                 .to_string(),
                         ),
+                        threshold_metadata,
                         ..Default::default()
                     });
                 }

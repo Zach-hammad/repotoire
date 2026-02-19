@@ -3,7 +3,32 @@
 use crate::calibrate::profile::{MetricDistribution, MetricKind, StyleProfile};
 use crate::parsers::ParseResult;
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{debug, info};
+
+/// Paths to exclude from calibration to prevent baseline poisoning.
+/// Tests, generated code, and vendored deps have different coding patterns
+/// that would skew thresholds away from the project's actual style.
+fn should_exclude_from_calibration(file_path: &str) -> bool {
+    let lower = file_path.to_lowercase();
+    // Test files
+    lower.contains("/test/") || lower.contains("/tests/")
+        || lower.contains("_test.") || lower.contains(".test.")
+        || lower.contains("_spec.") || lower.contains(".spec.")
+        || lower.contains("/spec/") || lower.contains("/__tests__/")
+        || lower.contains("/testing/")
+    // Generated code
+        || lower.contains("/generated/") || lower.contains("/gen/")
+        || lower.contains(".generated.") || lower.contains(".gen.")
+        || lower.contains("/auto_generated/") || lower.contains("_generated.")
+        || lower.contains("/build/") || lower.contains("/dist/")
+    // Vendored dependencies
+        || lower.contains("/vendor/") || lower.contains("/vendored/")
+        || lower.contains("/third_party/") || lower.contains("/third-party/")
+        || lower.contains("/node_modules/") || lower.contains("/external/")
+    // Migrations / fixtures
+        || lower.contains("/migrations/") || lower.contains("/fixtures/")
+        || lower.contains("/mock") || lower.contains("/stub")
+}
 
 /// Collect metrics from parsed results (no graph needed).
 pub fn collect_metrics(
@@ -18,8 +43,20 @@ pub fn collect_metrics(
     let mut file_length_values = Vec::new();
     let mut class_method_values = Vec::new();
     let mut total_functions = 0;
+    let mut excluded_files = 0;
 
     for (result, file_loc) in parse_results {
+        // Exclude tests/generated/vendor from calibration to prevent baseline poisoning
+        let file_path = result.functions.first()
+            .map(|f| f.file_path.to_string_lossy().to_string())
+            .or_else(|| result.classes.first().map(|c| c.file_path.to_string_lossy().to_string()))
+            .unwrap_or_default();
+
+        if should_exclude_from_calibration(&file_path) {
+            excluded_files += 1;
+            continue;
+        }
+
         file_length_values.push(*file_loc as f64);
 
         for func in &result.functions {
@@ -40,6 +77,10 @@ pub fn collect_metrics(
         for class in &result.classes {
             class_method_values.push(class.methods.len() as f64);
         }
+    }
+
+    if excluded_files > 0 {
+        debug!("Calibration: excluded {} files (test/generated/vendor)", excluded_files);
     }
 
     let mut metrics = HashMap::new();
