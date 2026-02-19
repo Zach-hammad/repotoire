@@ -1,6 +1,6 @@
 [package]
 name = "repotoire"
-version = "0.3.112"
+version = "0.3.113"
 edition = "2021"
 description = "Graph-powered code analysis CLI. 114 detectors for security, architecture, and code quality."
 license = "MIT"
