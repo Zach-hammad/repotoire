@@ -225,6 +225,31 @@ fn test_json_stdout_clean() {
 }
 
 // ============================================================================
+// P0-9: --max-files
+// ============================================================================
+
+#[test]
+fn test_max_files_limits_analyzed_files() {
+    let dir = setup_test_repo("max_files");
+
+    let (_, full_stdout) = run_analyze(dir.path(), &["--format", "json"]);
+    let full: serde_json::Value = serde_json::from_str(&full_stdout).expect("Invalid full JSON");
+    let full_files = full["total_files"].as_u64().unwrap_or(0);
+
+    let (_, limited_stdout) = run_analyze(dir.path(), &["--max-files", "1", "--format", "json"]);
+    let limited: serde_json::Value =
+        serde_json::from_str(&limited_stdout).expect("Invalid limited JSON");
+    let limited_files = limited["total_files"].as_u64().unwrap_or(0);
+
+    assert!(full_files >= 1, "Expected at least one file in full run");
+    assert!(
+        limited_files <= 1,
+        "Expected <=1 analyzed file with --max-files 1, got {}",
+        limited_files
+    );
+}
+
+// ============================================================================
 // Cache parity: same results fresh vs cached
 // ============================================================================
 

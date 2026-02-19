@@ -150,12 +150,16 @@ pub fn run(
 
     // Auto-calibrate if no style profile exists
     if env.style_profile.is_none() && !file_result.all_files.is_empty() {
-        let parse_pairs: Vec<_> = parse_result.parse_results.iter().map(|(path, pr)| {
-            let loc = std::fs::read_to_string(path)
-                .map(|c| c.lines().count())
-                .unwrap_or(0);
-            (pr.clone(), loc)
-        }).collect();
+        let parse_pairs: Vec<_> = parse_result
+            .parse_results
+            .iter()
+            .map(|(path, pr)| {
+                let loc = std::fs::read_to_string(path)
+                    .map(|c| c.lines().count())
+                    .unwrap_or(0);
+                (pr.clone(), loc)
+            })
+            .collect();
         let commit_sha = std::process::Command::new("git")
             .args(["rev-parse", "HEAD"])
             .current_dir(&env.repo_path)
@@ -163,12 +167,20 @@ pub fn run(
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .map(|s| s.trim().to_string());
-        let profile = crate::calibrate::collect_metrics(&parse_pairs, file_result.all_files.len(), commit_sha);
+        let profile = crate::calibrate::collect_metrics(
+            &parse_pairs,
+            file_result.all_files.len(),
+            commit_sha,
+        );
         let _ = profile.save(&env.repo_path);
         env.style_profile = Some(profile);
         if !env.quiet_mode {
             let icon = if env.config.no_emoji { "" } else { "📐 " };
-            println!("{}Auto-calibrated adaptive thresholds ({} functions)", icon, parse_pairs.len());
+            println!(
+                "{}Auto-calibrated adaptive thresholds ({} functions)",
+                icon,
+                parse_pairs.len()
+            );
         }
     }
 
@@ -244,10 +256,13 @@ pub fn run(
     let _ = cache_results(&env.repotoire_dir, &report.0, &report.2);
 
     // Prune stale entries for deleted/renamed files
-    env.incremental_cache.prune_stale_entries(&file_result.all_files);
+    env.incremental_cache
+        .prune_stale_entries(&file_result.all_files);
 
     // Cache postprocessed findings for both feedback and incremental fast path (#65)
-    let graph_hash = env.incremental_cache.compute_all_files_hash(&file_result.all_files);
+    let graph_hash = env
+        .incremental_cache
+        .compute_all_files_hash(&file_result.all_files);
     env.incremental_cache.update_graph_hash(&graph_hash);
     env.incremental_cache
         .cache_graph_findings("__all__", &report.2);
@@ -280,6 +295,12 @@ fn try_cached_fast_path(
     start_time: Instant,
     explain_score: bool,
 ) -> Result<Option<()>> {
+    // Fast-path is only safe for full-repo analysis. With --max-files we must
+    // run the normal pipeline so file limiting/filtering is applied correctly.
+    if env.config.max_files > 0 {
+        return Ok(None);
+    }
+
     let mut cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
     let all_files = collect_file_list(&env.repo_path)?;
 
@@ -510,7 +531,10 @@ fn generate_reports(
         match format {
             "json" => {
                 let explain_json = build_explain_json(&explanation, &score_result.breakdown);
-                eprintln!("{}", serde_json::to_string_pretty(&explain_json).unwrap_or_default());
+                eprintln!(
+                    "{}",
+                    serde_json::to_string_pretty(&explain_json).unwrap_or_default()
+                );
             }
             _ => {
                 println!("\n{}", style("─".repeat(60)).dim());
