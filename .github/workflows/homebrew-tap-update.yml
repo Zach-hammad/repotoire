@@ -1,0 +1,107 @@
+name: Update Homebrew Tap
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+    env:
+      TAP_REPO: Zach-hammad/homebrew-repotoire
+      FORMULA_PATH: Formula/repotoire.rb
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Resolve release/tag metadata
+        id: meta
+        run: |
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute artifact checksums from GitHub release assets
+        id: sums
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.meta.outputs.tag }}'
+          BASE="https://github.com/Zach-hammad/repotoire/releases/download/${TAG}"
+
+          for f in repotoire-macos-aarch64.tar.gz repotoire-macos-x86_64.tar.gz repotoire-linux-x86_64.tar.gz; do
+            curl -L --fail --retry 5 --retry-all-errors --retry-delay 2 "$BASE/$f" -o "/tmp/$f"
+          done
+
+          echo "macos_arm_sha=$(sha256sum /tmp/repotoire-macos-aarch64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "macos_x64_sha=$(sha256sum /tmp/repotoire-macos-x86_64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "linux_x64_sha=$(sha256sum /tmp/repotoire-linux-x86_64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Clone tap repo
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
+            echo "Missing TAP_GITHUB_TOKEN secret"
+            exit 1
+          fi
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/${TAP_REPO}.git" /tmp/homebrew-repotoire
+
+      - name: Update formula version + checksums
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+import re
+from pathlib import Path
+
+formula = Path('/tmp/homebrew-repotoire/Formula/repotoire.rb')
+text = formula.read_text()
+
+version = '${{ steps.meta.outputs.version }}'
+mac_arm = '${{ steps.sums.outputs.macos_arm_sha }}'
+mac_x64 = '${{ steps.sums.outputs.macos_x64_sha }}'
+linux_x64 = '${{ steps.sums.outputs.linux_x64_sha }}'
+
+text = re.sub(r'version\s+"[^"]+"', f'version "{version}"', text, count=1)
+
+text = re.sub(
+    r'(on_arm do\s+url\s+"[^"]+"\s+sha256\s+")([0-9a-f]+)(")',
+    rf'\g<1>{mac_arm}\g<3>',
+    text,
+    count=1,
+    flags=re.S,
+)
+text = re.sub(
+    r'(on_intel do\s+url\s+"[^"]+repotoire-macos-x86_64\.tar\.gz"\s+sha256\s+")([0-9a-f]+)(")',
+    rf'\g<1>{mac_x64}\g<3>',
+    text,
+    count=1,
+    flags=re.S,
+)
+text = re.sub(
+    r'(on_linux do\s+on_intel do\s+url\s+")([^"]+)("\s+sha256\s+")([0-9a-f]+)(")',
+    rf'\g<1>https://github.com/Zach-hammad/repotoire/releases/download/v#{{version}}/repotoire-linux-x86_64.tar.gz\g<3>{linux_x64}\g<5>',
+    text,
+    count=1,
+    flags=re.S,
+)
+
+formula.write_text(text)
+PY
+
+      - name: Commit and push formula update
+        working-directory: /tmp/homebrew-repotoire
+        run: |
+          set -euo pipefail
+          git config user.name "repotoire-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add "${FORMULA_PATH}"
+          if git diff --cached --quiet; then
+            echo "No formula changes to commit"
+            exit 0
+          fi
+          git commit -m "repotoire ${{ steps.meta.outputs.version }}"
+          git push origin main
