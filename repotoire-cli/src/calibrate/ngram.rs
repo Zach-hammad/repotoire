@@ -102,7 +102,7 @@ impl NgramModel {
 
                 // Numbers → normalize to <NUM>
                 '0'..='9' => {
-                    while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '.' || *c == 'x' || *c == '_') {
+                    while chars.peek().is_some_and(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == 'x' || *c == '_') {
                         chars.next();
                     }
                     tokens.push("<NUM>".to_string());
@@ -111,7 +111,7 @@ impl NgramModel {
                 // Identifiers and keywords
                 'a'..='z' | 'A'..='Z' | '_' => {
                     let mut word = String::new();
-                    while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
+                    while chars.peek().is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_') {
                         if let Some(c) = chars.next() {
                             word.push(c);
                         }

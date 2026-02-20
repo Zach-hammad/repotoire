@@ -166,7 +166,7 @@ impl Detector for LargeFilesDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines = content.lines().count();
                 if lines > self.threshold {
                     let analysis = Self::analyze_file_structure(graph, &path_str);

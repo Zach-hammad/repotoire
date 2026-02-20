@@ -59,6 +59,9 @@ tree-sitter-c-sharp = "0.23"
 tree-sitter-c = "0.24"
 tree-sitter-cpp = "0.23"
 
+# Memory-mapped graph store
+memmap2 = "0.9"
+
 # Graph algorithms (from repotoire-fast)
 rayon = "1.11"
 rustc-hash = "2"

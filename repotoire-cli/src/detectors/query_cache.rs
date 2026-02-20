@@ -73,26 +73,26 @@ impl QueryCache {
         Self::default()
     }
 
-    /// Get fan-in for a function (number of callers)
-    pub fn get_fan_in(&self, qn: &str) -> usize {
+    /// Fan-in for a function (number of callers)
+    pub fn fan_in(&self, qn: &str) -> usize {
         self.callers.get(qn).map(|s| s.len()).unwrap_or(0)
     }
 
-    /// Get fan-out for a function (number of callees)
-    pub fn get_fan_out(&self, qn: &str) -> usize {
+    /// Fan-out for a function (number of callees)
+    pub fn fan_out(&self, qn: &str) -> usize {
         self.calls.get(qn).map(|s| s.len()).unwrap_or(0)
     }
 
-    /// Get all functions in a file
-    pub fn get_functions_in_file(&self, file_path: &str) -> Vec<&FunctionData> {
+    /// All functions in a file
+    pub fn functions_in_file(&self, file_path: &str) -> Vec<&FunctionData> {
         self.functions_by_file
             .get(file_path)
             .map(|qns| qns.iter().filter_map(|qn| self.functions.get(qn)).collect())
             .unwrap_or_default()
     }
 
-    /// Get all classes in a file
-    pub fn get_classes_in_file(&self, file_path: &str) -> Vec<&ClassData> {
+    /// All classes in a file
+    pub fn classes_in_file(&self, file_path: &str) -> Vec<&ClassData> {
         self.classes_by_file
             .get(file_path)
             .map(|qns| qns.iter().filter_map(|qn| self.classes.get(qn)).collect())

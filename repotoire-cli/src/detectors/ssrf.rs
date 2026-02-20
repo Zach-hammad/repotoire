@@ -74,7 +74,7 @@ impl Detector for SsrfDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let file_str = path.to_string_lossy();
                 let lines: Vec<&str> = content.lines().collect();
 

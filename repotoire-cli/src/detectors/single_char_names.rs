@@ -175,7 +175,7 @@ impl Detector for SingleCharNamesDetector {
 
             let path_str = path.to_string_lossy().to_string();
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut in_test_block = false;
 

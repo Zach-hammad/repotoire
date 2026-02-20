@@ -113,7 +113,7 @@ impl Detector for HardcodedIpsDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 for line in content.lines() {
                     if let Some(m) = ip_pattern().find(line) {
                         *ip_occurrences.entry(m.as_str().to_string()).or_default() += 1;
@@ -151,7 +151,7 @@ impl Detector for HardcodedIpsDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let path_str = path.to_string_lossy().to_string();
                 let lines: Vec<&str> = content.lines().collect();
 

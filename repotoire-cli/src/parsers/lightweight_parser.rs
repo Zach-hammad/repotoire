@@ -37,7 +37,7 @@ pub fn parse_file_lightweight(path: &Path) -> Result<LightweightFileInfo> {
 
     // Use actual file line count from cache for accurate LOC (#69)
     let loc = crate::cache::global_cache()
-        .get_lines(path)
+        .lines(path)
         .map(|lines| lines.len() as u32)
         .unwrap_or_else(|| {
             // Fallback: max entity line_end (misses trailing module-level code)

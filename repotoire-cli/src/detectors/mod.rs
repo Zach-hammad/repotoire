@@ -336,7 +336,7 @@ fn default_detectors_full(
     ngram_model: Option<crate::calibrate::NgramModel>,
 ) -> Vec<Arc<dyn Detector>> {
     // Get project type for coupling/complexity multipliers
-    let project_type = project_config.get_project_type(repository_path);
+    let project_type = project_config.project_type(repository_path);
     tracing::info!(
         "Detected project type: {:?} (coupling multiplier: {:.1}x)",
         project_type,
@@ -685,14 +685,13 @@ pub fn is_line_suppressed_for(line: &str, prev_line: Option<&str>, detector_name
     if let Some(prev) = prev_line {
         let trimmed = prev.trim();
         let trimmed_lower = trimmed.to_lowercase();
-        if trimmed_lower.starts_with('#')
+        if (trimmed_lower.starts_with('#')
             || trimmed_lower.starts_with("//")
             || trimmed_lower.starts_with("--")
-            || trimmed_lower.starts_with("/*")
+            || trimmed_lower.starts_with("/*"))
+            && check_suppression(prev, detector_name)
         {
-            if check_suppression(prev, detector_name) {
-                return true;
-            }
+            return true;
         }
     }
 

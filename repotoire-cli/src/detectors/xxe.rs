@@ -248,7 +248,7 @@ impl Detector for XxeDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 // Don't skip entire file — check protection near each parse call (#16)
                 let file_has_any_protection = Self::has_protection(&content, ext);
 

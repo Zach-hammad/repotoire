@@ -49,7 +49,7 @@ impl Detector for TorchLoadUnsafeDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -151,7 +151,7 @@ impl Detector for NanEqualityDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -314,7 +314,7 @@ impl Detector for MissingZeroGradDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 findings.extend(self.analyze_file(&content, path));
             }
         }
@@ -368,7 +368,7 @@ impl Detector for ForwardMethodDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 // Skip files that don't use PyTorch
                 if !content.contains("torch") && !content.contains("nn.Module") {
                     continue;

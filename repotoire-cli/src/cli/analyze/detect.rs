@@ -116,7 +116,7 @@ pub(super) fn run_detectors(
 ) -> Result<Vec<Finding>> {
     // Check if we can use cached detector results
     if cache.can_use_cached_detectors(all_files) {
-        let cached_findings = cache.get_all_cached_graph_findings();
+        let cached_findings = cache.all_cached_graph_findings();
         if !cached_findings.is_empty() && !quiet_mode {
             let icon = if no_emoji { "" } else { "⚡ " };
             println!(

@@ -146,7 +146,7 @@ impl Detector for MissingAwaitDetector {
                 continue;
             }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else {
+            let Some(content) = crate::cache::global_cache().content(path) else {
                 continue;
             };
             let lines: Vec<&str> = content.lines().collect();
@@ -254,9 +254,9 @@ impl Detector for MissingAwaitDetector {
                     }
 
                     // Check if properly awaited
-                    let next_line = lines.get(i + 1).map(|l| *l).unwrap_or("");
+                    let next_line = lines.get(i + 1).copied().unwrap_or("");
                     let prev_line = if i > 0 {
-                        lines.get(i - 1).map(|l| *l).unwrap_or("")
+                        lines.get(i - 1).copied().unwrap_or("")
                     } else {
                         ""
                     };

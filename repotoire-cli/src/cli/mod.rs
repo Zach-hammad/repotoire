@@ -464,7 +464,7 @@ pub fn run(cli: Cli) -> Result<()> {
             use crate::classifier::FeedbackCollector;
 
             // Load findings from last analysis
-            let cache_path = crate::cli::analyze::get_cache_path(&cli.path);
+            let cache_path = crate::cli::analyze::cache_path(&cli.path);
             let findings_path = cache_path.join("findings.json");
 
             if !findings_path.exists() {

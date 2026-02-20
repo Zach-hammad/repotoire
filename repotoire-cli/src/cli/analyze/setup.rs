@@ -110,7 +110,7 @@ pub(super) fn setup_environment(
     );
 
     let quiet_mode = format == "json" || format == "sarif";
-    let detected_type = project_config.get_project_type(&repo_path);
+    let detected_type = project_config.project_type(&repo_path);
     print_header(&repo_path, config.no_emoji, format, &detected_type);
 
     let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)

@@ -153,9 +153,9 @@ impl DetectorEngine {
             return Arc::clone(ctx);
         }
 
-        // Try to load cached HMM+CRF model
-        let cache_path = self.hmm_cache_path.clone();
-        let mut classifier = if let Some(ref path) = cache_path {
+        // Try to load cached HMM+CRF model (borrow, don't clone)
+        let cache_path = self.hmm_cache_path.as_ref();
+        let mut classifier = if let Some(path) = cache_path {
             let model_path = path.join("hmm_model.json");
             if model_path.exists() {
                 info!("Loading cached HMM+CRF model from {:?}", model_path);
@@ -268,7 +268,7 @@ impl DetectorEngine {
         classifier.train(&function_data);
 
         // Save trained model to cache
-        if let Some(ref path) = cache_path {
+        if let Some(path) = cache_path {
             if let Err(e) = std::fs::create_dir_all(path) {
                 warn!("Failed to create HMM cache directory: {}", e);
             } else {

@@ -181,7 +181,7 @@ impl SecretDetector {
         }
 
         // Use global cache for file content
-        let content = match crate::cache::global_cache().get_content(path) {
+        let content = match crate::cache::global_cache().content(path) {
             Some(c) => c,
             None => return findings,
         };

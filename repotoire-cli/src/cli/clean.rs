@@ -9,7 +9,7 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
     let mut to_remove = Vec::new();
 
     // 1. Check central cache directory
-    let cache_dir = crate::cache::get_cache_dir(&repo_path);
+    let cache_dir = crate::cache::cache_dir(&repo_path);
     if cache_dir.exists() {
         to_remove.push(("Central cache".to_string(), cache_dir));
     }
@@ -52,7 +52,7 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
     let mut removed = 0;
     for (kind, dir) in &to_remove {
         // For legacy .repotoire dirs, preserve style-profile.json
-        if kind == &"Legacy" {
+        if kind == "Legacy" {
             let profile = dir.join("style-profile.json");
             let profile_backup = profile
                 .exists()

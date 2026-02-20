@@ -69,7 +69,7 @@ impl Detector for MissingRandomSeedDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 if !self.is_ml_file(&content) || !self.has_training_code(&content) {
                     continue;
                 }
@@ -177,7 +177,7 @@ impl Detector for ChainIndexingDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 // Skip files that don't use pandas
                 if !content.contains("pandas")
                     && !content.contains("import pd")
@@ -286,7 +286,7 @@ impl Detector for RequireGradTypoDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -405,7 +405,7 @@ impl Detector for DeprecatedTorchApiDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 if !content.contains("torch") {
                     continue;
                 }

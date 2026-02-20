@@ -85,7 +85,7 @@ impl RegexInLoopDetector {
         for func in graph.get_functions() {
             // Check if function compiles regex
             if let Some(content) =
-                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
             {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = func.line_start.saturating_sub(1) as usize;
@@ -178,7 +178,7 @@ impl Detector for RegexInLoopDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let _path_str = path.to_string_lossy().to_string();
                 let mut in_loop = false;
                 let mut loop_line = 0;
@@ -265,7 +265,7 @@ impl Detector for RegexInLoopDetector {
 
                 // Check if function contains a loop
                 let has_loop = if let Some(content) =
-                    crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
                 {
                     let lines: Vec<&str> = content.lines().collect();
                     let start = func.line_start.saturating_sub(1) as usize;

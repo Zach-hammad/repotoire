@@ -9,7 +9,7 @@
 //!
 //! ```ignore
 //! let cache = IncrementalCache::new(Path::new("/repo/.repotoire/cache"));
-//! let changed = cache.get_changed_files(&all_files);
+//! let changed = cache.changed_files(&all_files);
 //! for f in changed {
 //!     let findings = run_detector(&f);
 //!     cache.cache_findings(&f, &findings);
@@ -232,10 +232,10 @@ impl IncrementalCache {
         !self.cache.files.is_empty() || !self.cache.parse_cache.is_empty()
     }
 
-    /// Get cached parse result for a file if unchanged
-    pub fn get_cached_parse(&self, path: &Path) -> Option<crate::parsers::ParseResult> {
+    /// Cached parse result for a file if unchanged
+    pub fn cached_parse(&self, path: &Path) -> Option<crate::parsers::ParseResult> {
         let key = path.to_string_lossy().to_string();
-        let hash = self.get_file_hash(path);
+        let hash = self.file_hash(path);
 
         self.cache.parse_cache.get(&key).and_then(|cached| {
             if cached.hash == hash {
@@ -249,7 +249,7 @@ impl IncrementalCache {
     /// Cache a parse result for a file
     pub fn cache_parse_result(&mut self, path: &Path, result: &crate::parsers::ParseResult) {
         let key = path.to_string_lossy().to_string();
-        let hash = self.get_file_hash(path);
+        let hash = self.file_hash(path);
 
         self.cache.parse_cache.insert(
             key,
@@ -262,7 +262,7 @@ impl IncrementalCache {
     }
 
     /// Compute fast content hash of a file
-    pub fn get_file_hash(&self, path: &Path) -> String {
+    pub fn file_hash(&self, path: &Path) -> String {
         match fs::File::open(path) {
             Ok(mut file) => {
                 use std::collections::hash_map::DefaultHasher;
@@ -350,21 +350,21 @@ impl IncrementalCache {
         match self.cache.files.get(&path_key) {
             None => true,
             Some(cached) => {
-                let current_hash = self.get_file_hash(path);
+                let current_hash = self.file_hash(path);
                 cached.hash != current_hash
             }
         }
     }
 
     /// Retrieve cached findings for a file
-    pub fn get_cached_findings(&self, path: &Path) -> Vec<Finding> {
+    pub fn cached_findings(&self, path: &Path) -> Vec<Finding> {
         let path_key = self.path_key(path);
 
         match self.cache.files.get(&path_key) {
             None => vec![],
             Some(cached) => {
                 // Check if file changed - if so, cached findings are stale
-                let current_hash = self.get_file_hash(path);
+                let current_hash = self.file_hash(path);
                 if cached.hash != current_hash {
                     return vec![];
                 }
@@ -377,7 +377,7 @@ impl IncrementalCache {
     /// Store findings for a file in the cache
     pub fn cache_findings(&mut self, path: &Path, findings: &[Finding]) {
         let path_key = self.path_key(path);
-        let file_hash = self.get_file_hash(path);
+        let file_hash = self.file_hash(path);
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -399,7 +399,7 @@ impl IncrementalCache {
     }
 
     /// Filter to only files that have changed since last cache
-    pub fn get_changed_files(&self, all_files: &[PathBuf]) -> Vec<PathBuf> {
+    pub fn changed_files(&self, all_files: &[PathBuf]) -> Vec<PathBuf> {
         let mut changed = Vec::new();
 
         for path in all_files {
@@ -407,7 +407,7 @@ impl IncrementalCache {
             match self.cache.files.get(&path_key) {
                 None => changed.push(path.clone()),
                 Some(cached) => {
-                    let current_hash = self.get_file_hash(path);
+                    let current_hash = self.file_hash(path);
                     if cached.hash != current_hash {
                         changed.push(path.clone());
                     }
@@ -496,7 +496,7 @@ impl IncrementalCache {
         for path in sorted_files {
             // Hash file path and content hash
             path.to_string_lossy().as_bytes().hash(&mut hasher);
-            self.get_file_hash(path).hash(&mut hasher);
+            self.file_hash(path).hash(&mut hasher);
         }
 
         let hash = format!("{:016x}", hasher.finish());
@@ -523,7 +523,7 @@ impl IncrementalCache {
     }
 
     /// Retrieve cached findings for a specific graph detector
-    pub fn get_cached_graph_findings(&self, detector_name: &str) -> Vec<Finding> {
+    pub fn cached_graph_findings(&self, detector_name: &str) -> Vec<Finding> {
         self.cache
             .graph
             .detectors
@@ -533,7 +533,7 @@ impl IncrementalCache {
     }
 
     /// Retrieve all cached findings from all graph detectors
-    pub fn get_all_cached_graph_findings(&self) -> Vec<Finding> {
+    pub fn all_cached_graph_findings(&self) -> Vec<Finding> {
         self.cache
             .graph
             .detectors
@@ -590,8 +590,8 @@ impl IncrementalCache {
         self.dirty = true;
     }
 
-    /// Get cached score if available
-    pub fn get_cached_score(&self) -> Option<&CachedScoreResult> {
+    /// Cached score if available
+    pub fn cached_score(&self) -> Option<&CachedScoreResult> {
         self.cache.graph.score.as_ref()
     }
 
@@ -603,8 +603,8 @@ impl IncrementalCache {
             && self.cache.graph.score.is_some()
     }
 
-    /// Get cache statistics
-    pub fn get_stats(&self) -> CacheStats {
+    /// Cache statistics
+    pub fn stats(&self) -> CacheStats {
         let total_findings: usize = self.cache.files.values().map(|f| f.findings.len()).sum();
         let graph_findings: usize = self.cache.graph.detectors.values().map(|f| f.len()).sum();
 
@@ -685,7 +685,7 @@ mod tests {
     fn test_cache_creation() {
         let tmp = TempDir::new().unwrap();
         let cache = IncrementalCache::new(tmp.path());
-        let stats = cache.get_stats();
+        let stats = cache.stats();
         assert_eq!(stats.cached_files, 0);
         assert_eq!(stats.cache_version, CACHE_VERSION);
     }
@@ -697,15 +697,15 @@ mod tests {
         fs::write(&file_path, "hello world").unwrap();
 
         let cache = IncrementalCache::new(tmp.path());
-        let hash1 = cache.get_file_hash(&file_path);
-        let hash2 = cache.get_file_hash(&file_path);
+        let hash1 = cache.file_hash(&file_path);
+        let hash2 = cache.file_hash(&file_path);
 
         // Same content should have same hash
         assert_eq!(hash1, hash2);
 
         // Different content should have different hash
         fs::write(&file_path, "changed content").unwrap();
-        let hash3 = cache.get_file_hash(&file_path);
+        let hash3 = cache.file_hash(&file_path);
         assert_ne!(hash1, hash3);
     }
 
@@ -722,7 +722,7 @@ mod tests {
         cache.cache_findings(&file_path, std::slice::from_ref(&finding));
 
         // Retrieve cached findings
-        let cached = cache.get_cached_findings(&file_path);
+        let cached = cache.cached_findings(&file_path);
         assert_eq!(cached.len(), 1);
         assert_eq!(cached[0].id, finding.id);
     }
@@ -742,7 +742,7 @@ mod tests {
 
         // Check changed files
         let all_files = vec![file1.clone(), file2.clone()];
-        let changed = cache.get_changed_files(&all_files);
+        let changed = cache.changed_files(&all_files);
 
         // Only file2 should be marked as changed (not in cache)
         assert_eq!(changed.len(), 1);
@@ -763,7 +763,7 @@ mod tests {
         assert!(!cache.is_graph_changed("hash123"));
         assert!(cache.is_graph_changed("different_hash"));
 
-        let cached = cache.get_cached_graph_findings("TestDetector");
+        let cached = cache.cached_graph_findings("TestDetector");
         assert_eq!(cached.len(), 1);
     }
 
@@ -776,14 +776,14 @@ mod tests {
         let mut cache = IncrementalCache::new(tmp.path());
         cache.cache_findings(&file_path, &[create_test_finding("test.py")]);
 
-        assert_eq!(cache.get_stats().cached_files, 1);
+        assert_eq!(cache.stats().cached_files, 1);
 
         cache.invalidate_file(&file_path);
-        assert_eq!(cache.get_stats().cached_files, 0);
+        assert_eq!(cache.stats().cached_files, 0);
 
         cache.cache_findings(&file_path, &[create_test_finding("test.py")]);
         cache.invalidate_all();
-        assert_eq!(cache.get_stats().cached_files, 0);
+        assert_eq!(cache.stats().cached_files, 0);
     }
 
     #[test]
@@ -810,18 +810,18 @@ mod tests {
 
         // Now it should be populated
         assert!(cache.is_populated());
-        assert_eq!(cache.get_stats().cached_files, 2);
+        assert_eq!(cache.stats().cached_files, 2);
 
         // invalidate_files should remove only the specified file
         let path_a_ref: &Path = &file_a;
         cache.invalidate_files(&[path_a_ref]);
-        assert_eq!(cache.get_stats().cached_files, 1);
+        assert_eq!(cache.stats().cached_files, 1);
         // file_b should still be present
         assert!(cache.is_populated());
 
         // invalidate_all should clear everything
         cache.invalidate_all();
         assert!(!cache.is_populated());
-        assert_eq!(cache.get_stats().cached_files, 0);
+        assert_eq!(cache.stats().cached_files, 0);
     }
 }

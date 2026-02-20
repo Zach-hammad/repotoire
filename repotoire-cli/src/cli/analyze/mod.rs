@@ -47,8 +47,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// Get the cache directory for a repository
-pub fn get_cache_path(repo_path: &Path) -> PathBuf {
+/// Cache directory for a repository (legacy .repotoire path)
+pub fn cache_path(repo_path: &Path) -> PathBuf {
     repo_path.join(".repotoire")
 }
 
@@ -338,8 +338,8 @@ fn try_cached_fast_path(
     }
 
     let findings = load_cached_findings(&env.repotoire_dir)
-        .unwrap_or_else(|| cache.get_all_cached_graph_findings());
-    let cached_score = match cache.get_cached_score() {
+        .unwrap_or_else(|| cache.all_cached_graph_findings());
+    let cached_score = match cache.cached_score() {
         Some(s) => s,
         None => return Ok(None),
     };
@@ -753,7 +753,7 @@ fn build_explain_json(explanation: &str, bd: &crate::scoring::ScoreBreakdown) ->
 
 /// Cache findings for the feedback command.
 fn cache_findings(path: &Path, findings: &[Finding]) {
-    let cache_path = get_cache_path(path);
+    let cache_path = cache_path(path);
     if let Err(e) = std::fs::create_dir_all(&cache_path) {
         tracing::warn!(
             "Failed to create cache directory {}: {}",

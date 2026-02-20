@@ -60,7 +60,7 @@ impl UnhandledPromiseDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 for cap in async_func().captures_iter(&content) {
                     if let Some(name) = cap.get(2) {
                         async_funcs.insert(name.as_str().to_string());
@@ -140,7 +140,7 @@ impl Detector for UnhandledPromiseDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -261,15 +261,14 @@ impl Detector for UnhandledPromiseDetector {
 
                         // Only flag .json() if it's clearly promise-chained (e.g. fetch().json())
                         // Standalone .json() calls (like JSON parsing) should not be flagged
-                        if !has_promise
+                        if (!has_promise
                             || (line.contains(".json()")
                                 && !line.contains("fetch(")
                                 && !line.contains(".then(")
-                                && !line.contains("axios."))
+                                && !line.contains("axios.")))
+                            && !calls_async
                         {
-                            if !calls_async {
-                                continue;
-                            }
+                            continue;
                         }
 
                         // Analyze context

@@ -136,7 +136,7 @@ fn enrich_nesting_depths(result: &mut ParseResult, path: &Path) {
         return;
     };
     let lines: Vec<&str> = source.lines().collect();
-    let is_python = path.extension().map_or(false, |e| e == "py" || e == "pyi");
+    let is_python = path.extension().is_some_and(|e| e == "py" || e == "pyi");
 
     for func in &mut result.functions {
         if func.max_nesting.is_some() {

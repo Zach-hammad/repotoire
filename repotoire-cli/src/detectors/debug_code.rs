@@ -128,7 +128,7 @@ impl Detector for DebugCodeDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let mut file_debug_count = 0;
                 let lines: Vec<&str> = content.lines().collect();
 

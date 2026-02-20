@@ -189,7 +189,7 @@ impl Detector for ExpressSecurityDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 // Check if this is an Express app
                 if !express_app().is_match(&content) {
                     continue;

@@ -47,7 +47,7 @@ impl Detector for MutexPoisoningRiskDetector {
                 continue;
             }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else {
+            let Some(content) = crate::cache::global_cache().content(path) else {
                 continue;
             };
             let mut in_test_module = false;

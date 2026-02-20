@@ -132,7 +132,7 @@ impl Detector for DjangoSecurityDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 

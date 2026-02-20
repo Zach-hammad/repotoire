@@ -138,7 +138,7 @@ impl MessageChainDetector {
                 .unwrap_or(path)
                 .to_path_buf();
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
