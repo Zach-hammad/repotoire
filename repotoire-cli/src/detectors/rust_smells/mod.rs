@@ -7,6 +7,7 @@ mod box_dyn;
 mod clone_hot_path;
 mod must_use;
 mod mutex_poisoning;
+mod panic_density;
 mod unsafe_comment;
 mod unwrap;
 
@@ -14,6 +15,7 @@ pub use box_dyn::BoxDynTraitDetector;
 pub use clone_hot_path::CloneInHotPathDetector;
 pub use must_use::MissingMustUseDetector;
 pub use mutex_poisoning::MutexPoisoningRiskDetector;
+pub use panic_density::PanicDensityDetector;
 pub use unsafe_comment::UnsafeWithoutSafetyCommentDetector;
 pub use unwrap::UnwrapWithoutContextDetector;
 

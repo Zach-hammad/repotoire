@@ -186,7 +186,8 @@ pub use ml_smells::{
 // Re-export Rust-specific detectors
 pub use rust_smells::{
     BoxDynTraitDetector, CloneInHotPathDetector, MissingMustUseDetector,
-    MutexPoisoningRiskDetector, UnsafeWithoutSafetyCommentDetector, UnwrapWithoutContextDetector,
+    MutexPoisoningRiskDetector, PanicDensityDetector, UnsafeWithoutSafetyCommentDetector,
+    UnwrapWithoutContextDetector,
 };
 
 // Re-export graph/architecture detectors
@@ -505,6 +506,7 @@ fn default_detectors_full(
         Arc::new(MissingMustUseDetector::new(repository_path)),
         Arc::new(BoxDynTraitDetector::new(repository_path)),
         Arc::new(MutexPoisoningRiskDetector::new(repository_path)),
+        Arc::new(PanicDensityDetector::new(repository_path)),
         // CI/CD security
         Arc::new(GHActionsInjectionDetector::new(repository_path)),
         // TLS/Certificate validation
