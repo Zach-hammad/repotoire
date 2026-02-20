@@ -111,8 +111,6 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
 
                 // Analyze each changed file
                 for file_path in &changed_files {
-                    let rel_path = file_path.strip_prefix(&repo_path).unwrap_or(file_path);
-
                     let findings = analyze_single_file(
                         file_path,
                         &repo_path,
@@ -122,125 +120,9 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
                         relaxed,
                     );
 
-                    let prev = previous_findings
-                        .get(file_path)
-                        .cloned()
-                        .unwrap_or_default();
-
-                    // Find NEW findings (not in previous)
-                    let new_findings: Vec<&Finding> = findings
-                        .iter()
-                        .filter(|f| {
-                            !prev.iter().any(|pf| {
-                                pf.detector == f.detector
-                                    && pf.line_start == f.line_start
-                                    && pf.title == f.title
-                            })
-                        })
-                        .collect();
-
-                    // Find FIXED findings (were in previous, not anymore)
-                    let fixed_findings: Vec<&Finding> = prev
-                        .iter()
-                        .filter(|pf| {
-                            !findings.iter().any(|f| {
-                                f.detector == pf.detector
-                                    && f.line_start == pf.line_start
-                                    && f.title == pf.title
-                            })
-                        })
-                        .collect();
-
-                    if !new_findings.is_empty() || !fixed_findings.is_empty() {
-                        let time = chrono::Local::now().format("%H:%M:%S");
-                        println!(
-                            "{} {} {}",
-                            style(format!("[{}]", time)).dim(),
-                            if no_emoji { "→" } else { "📝" },
-                            style(rel_path.display()).cyan().bold()
-                        );
-
-                        for f in &new_findings {
-                            total_catches += 1;
-                            let sev_icon = match f.severity {
-                                crate::models::Severity::Critical => {
-                                    if no_emoji {
-                                        "CRIT"
-                                    } else {
-                                        "🔴"
-                                    }
-                                }
-                                crate::models::Severity::High => {
-                                    if no_emoji {
-                                        "HIGH"
-                                    } else {
-                                        "🟠"
-                                    }
-                                }
-                                crate::models::Severity::Medium => {
-                                    if no_emoji {
-                                        "MED "
-                                    } else {
-                                        "🟡"
-                                    }
-                                }
-                                crate::models::Severity::Low => {
-                                    if no_emoji {
-                                        "LOW "
-                                    } else {
-                                        "🔵"
-                                    }
-                                }
-                                crate::models::Severity::Info => {
-                                    if no_emoji {
-                                        "INFO"
-                                    } else {
-                                        "⚪"
-                                    }
-                                }
-                            };
-                            let line = f.line_start.map_or(String::new(), |l| format!(":{}", l));
-                            println!(
-                                "  {} {} {} {}",
-                                sev_icon,
-                                style(&f.detector.replace("Detector", "")).yellow(),
-                                style(format!("{}{}", rel_path.display(), line)).dim(),
-                                f.title
-                            );
-                            // Show AI-specific context
-                            if is_ai_detector(&f.detector) {
-                                println!(
-                                    "     {} {}",
-                                    style("⚡").dim(),
-                                    style("Possible AI-generated code issue").dim().italic()
-                                );
-                            }
-                        }
-
-                        for f in &fixed_findings {
-                            let line = f.line_start.map_or(String::new(), |l| format!(":{}", l));
-                            println!(
-                                "  {} {} {} {}",
-                                if no_emoji { "FIX " } else { "✅" },
-                                style(&f.detector.replace("Detector", "")).green(),
-                                style(format!("{}{}", rel_path.display(), line)).dim(),
-                                style(&f.title).strikethrough()
-                            );
-                        }
-
-                        println!();
-                    } else if !quiet && !findings.is_empty() {
-                        // File changed but findings unchanged
-                        let time = chrono::Local::now().format("%H:%M:%S");
-                        println!(
-                            "{} {} {} ({} findings, no changes)",
-                            style(format!("[{}]", time)).dim(),
-                            if no_emoji { "→" } else { "📝" },
-                            style(rel_path.display()).dim(),
-                            findings.len()
-                        );
-                    }
-
+                    let prev = previous_findings.get(file_path).cloned().unwrap_or_default();
+                    let catches = display_file_diff(file_path, &repo_path, &findings, &prev, no_emoji, quiet);
+                    total_catches += catches;
                     previous_findings.insert(file_path.clone(), findings);
                 }
             }
@@ -365,4 +247,98 @@ fn is_ignored_path(path: &Path, repo_path: &Path) -> bool {
         || rel_str.contains("dist/")
         || rel_str.contains("build/")
         || rel_str.starts_with('.')
+}
+
+/// Display diff between previous and current findings for a file. Returns count of new catches.
+fn display_file_diff(
+    file_path: &Path,
+    repo_path: &Path,
+    findings: &[Finding],
+    prev: &[Finding],
+    no_emoji: bool,
+    quiet: bool,
+) -> u32 {
+    let rel_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
+
+    let new_findings: Vec<_> = findings.iter().filter(|f| {
+        !prev.iter().any(|pf| pf.detector == f.detector && pf.line_start == f.line_start && pf.title == f.title)
+    }).collect();
+
+    let fixed_findings: Vec<_> = prev.iter().filter(|pf| {
+        !findings.iter().any(|f| f.detector == pf.detector && f.line_start == pf.line_start && f.title == pf.title)
+    }).collect();
+
+    if new_findings.is_empty() && fixed_findings.is_empty() {
+        if !quiet && !findings.is_empty() {
+            let time = chrono::Local::now().format("%H:%M:%S");
+            println!(
+                "{} {} {} ({} findings, no changes)",
+                style(format!("[{}]", time)).dim(),
+                if no_emoji { "→" } else { "📝" },
+                style(rel_path.display()).dim(),
+                findings.len()
+            );
+        }
+        return 0;
+    }
+
+    let time = chrono::Local::now().format("%H:%M:%S");
+    println!(
+        "{} {} {}",
+        style(format!("[{}]", time)).dim(),
+        if no_emoji { "→" } else { "📝" },
+        style(rel_path.display()).cyan().bold()
+    );
+
+    let mut catches = 0u32;
+    for f in &new_findings {
+        catches += 1;
+        let sev_icon = severity_icon(f.severity, no_emoji);
+        let line = f.line_start.map_or(String::new(), |l| format!(":{}", l));
+        println!(
+            "  {} {} {} {}",
+            sev_icon,
+            style(&f.detector.replace("Detector", "")).yellow(),
+            style(format!("{}{}", rel_path.display(), line)).dim(),
+            f.title
+        );
+        if is_ai_detector(&f.detector) {
+            println!(
+                "     {} {}",
+                style("⚡").dim(),
+                style("Possible AI-generated code issue").dim().italic()
+            );
+        }
+    }
+
+    for f in &fixed_findings {
+        let line = f.line_start.map_or(String::new(), |l| format!(":{}", l));
+        println!(
+            "  {} {} {} {}",
+            if no_emoji { "FIX " } else { "✅" },
+            style(&f.detector.replace("Detector", "")).green(),
+            style(format!("{}{}", rel_path.display(), line)).dim(),
+            style(&f.title).strikethrough()
+        );
+    }
+
+    println!();
+    catches
+}
+
+/// Map severity to display icon
+fn severity_icon(severity: crate::models::Severity, no_emoji: bool) -> &'static str {
+    use crate::models::Severity;
+    match (severity, no_emoji) {
+        (Severity::Critical, true) => "CRIT",
+        (Severity::Critical, false) => "🔴",
+        (Severity::High, true) => "HIGH",
+        (Severity::High, false) => "🟠",
+        (Severity::Medium, true) => "MED ",
+        (Severity::Medium, false) => "🟡",
+        (Severity::Low, true) => "LOW ",
+        (Severity::Low, false) => "🔵",
+        (Severity::Info, true) => "INFO",
+        (Severity::Info, false) => "⚪",
+    }
 }

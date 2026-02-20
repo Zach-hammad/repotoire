@@ -128,27 +128,7 @@ impl NgramModel {
 
                 // Operators and punctuation — keep as-is (they carry structure)
                 _ => {
-                    // Multi-char operators
-                    let mut op = String::new();
-                    op.push(chars.next().unwrap());
-                    // Greedily consume common multi-char operators
-                    if let Some(&next) = chars.peek() {
-                        let two = format!("{}{}", op, next);
-                        if matches!(two.as_str(), "==" | "!=" | ">=" | "<=" | "&&" | "||"
-                            | "->" | "=>" | "::" | "+=" | "-=" | "*=" | "/=" | ".." | "<<" | ">>") {
-                            chars.next();
-                            op = two;
-                            // Triple operators
-                            if let Some(&third) = chars.peek() {
-                                let three = format!("{}{}", op, third);
-                                if matches!(three.as_str(), "===" | "!==" | "..." | ">>>" | "<<=" | ">>=") {
-                                    chars.next();
-                                    op = three;
-                                }
-                            }
-                        }
-                    }
-                    tokens.push(op);
+                    tokens.push(consume_operator(&mut chars));
                 }
             }
         }
@@ -278,6 +258,29 @@ impl Default for NgramModel {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Greedily consume a multi-char operator from the char stream.
+fn consume_operator(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
+    let mut op = String::new();
+    op.push(chars.next().unwrap());
+
+    let Some(&next) = chars.peek() else { return op };
+    let two = format!("{}{}", op, next);
+    if !matches!(two.as_str(), "==" | "!=" | ">=" | "<=" | "&&" | "||"
+        | "->" | "=>" | "::" | "+=" | "-=" | "*=" | "/=" | ".." | "<<" | ">>") {
+        return op;
+    }
+    chars.next();
+    op = two;
+
+    let Some(&third) = chars.peek() else { return op };
+    let three = format!("{}{}", op, third);
+    if matches!(three.as_str(), "===" | "!==" | "..." | ">>>" | "<<=" | ">>=") {
+        chars.next();
+        op = three;
+    }
+    op
 }
 
 /// Check if a token is a language keyword (kept as-is for structural signal).
