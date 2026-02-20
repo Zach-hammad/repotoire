@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::ai::{AiClient, LlmBackend};
-use crate::detectors::{default_detectors, default_detectors_with_ngram, DetectorEngineBuilder};
+use crate::detectors::{default_detectors_with_ngram, DetectorEngineBuilder};
 use crate::graph::GraphStore;
 use crate::models::FindingsSummary;
 

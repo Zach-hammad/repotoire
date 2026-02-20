@@ -1,8 +1,8 @@
 # Repotoire 🎼
 
-**Graph-powered code analysis. 114 detectors. 13 languages. One binary.**
+**Graph-powered code analysis. 115 detectors. 13 languages. One binary.**
 
-Repotoire builds a knowledge graph of your codebase and runs 114 detectors to find security vulnerabilities, architectural issues, and code smells that file-by-file linters miss.
+Repotoire builds a knowledge graph of your codebase and runs 115 detectors to find security vulnerabilities, architectural issues, and code smells that file-by-file linters miss.
 
 [![Crates.io](https://img.shields.io/crates/v/repotoire.svg)](https://crates.io/crates/repotoire)
 [![CI](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml/badge.svg)](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml)
@@ -24,7 +24,7 @@ No API keys. No Docker. No cloud account. **Pure Rust, ~24MB binary.**
 │  Traditional linters see files.  Repotoire sees the graph.  │
 │                                                              │
 │  file1.rs ──┐                                                │
-│  file2.go ──┼── Knowledge Graph ── 114 Detectors             │
+│  file2.go ──┼── Knowledge Graph ── 115 Detectors             │
 │  file3.ts ──┘         │                                      │
 │                  Circular deps? God classes? Dead code?       │
 │                  SQL injection? Taint flow? Bottlenecks?      │
@@ -244,12 +244,12 @@ ollama pull deepseek-coder:6.7b
 repotoire fix <finding-id>
 ```
 
-No API key? No problem. All 114 detectors work fully offline.
+No API key? No problem. All 115 detectors work fully offline.
 
 ## How It Works
 
 ```
-Source Files ──▶ Tree-sitter ──▶ Knowledge Graph ──▶ 114 Detectors
+Source Files ──▶ Tree-sitter ──▶ Knowledge Graph ──▶ 115 Detectors
 (13 languages)    (parallel)     (petgraph + redb)    (parallel)
                                        │
                                  Graph algorithms:

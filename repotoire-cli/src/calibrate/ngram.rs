@@ -8,8 +8,6 @@
 //! Key insight: buggy lines have significantly higher entropy than correct code.
 
 use std::collections::HashMap;
-use std::path::Path;
-use tracing::{debug, info};
 
 /// Order of the n-gram model (trigrams balance precision vs sparsity)
 const DEFAULT_ORDER: usize = 3;
