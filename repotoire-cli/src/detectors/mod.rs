@@ -459,7 +459,7 @@ fn default_detectors_full(
         Arc::new(CommentedCodeDetector::new(repository_path)),
         Arc::new(LongMethodsDetector::with_config(
             repository_path,
-            DetectorConfig::from_project_config("long-methods", project_config),
+            make_config("long-methods"),
         )),
         Arc::new(DuplicateCodeDetector::new(repository_path)),
         Arc::new(UnreachableCodeDetector::new(repository_path)),

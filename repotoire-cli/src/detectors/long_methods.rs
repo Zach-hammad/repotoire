@@ -32,10 +32,14 @@ impl LongMethodsDetector {
         }
     }
 
-    /// Create with custom config (reads max_lines threshold from project config)
-    #[allow(dead_code)] // Builder pattern method
+    /// Create with custom config (reads max_lines threshold from project config,
+    /// falling back to adaptive calibration, then hardcoded default)
     pub fn with_config(repository_path: impl Into<PathBuf>, config: DetectorConfig) -> Self {
-        let threshold = config.get_option_or("max_lines", 50) as u32;
+        use crate::calibrate::MetricKind;
+        let default_threshold = 50usize;
+        let adaptive_threshold =
+            config.adaptive.warn_usize(MetricKind::FunctionLength, default_threshold);
+        let threshold = config.get_option_or("max_lines", adaptive_threshold) as u32;
         Self {
             repository_path: repository_path.into(),
             max_findings: 100,
