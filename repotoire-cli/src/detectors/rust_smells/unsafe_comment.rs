@@ -49,7 +49,7 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
                 continue;
             }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else {
+            let Some(content) = crate::cache::global_cache().content(path) else {
                 continue;
             };
             let lines: Vec<&str> = content.lines().collect();

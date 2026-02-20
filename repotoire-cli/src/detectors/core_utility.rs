@@ -310,7 +310,7 @@ impl Detector for CoreUtilityDetector {
                 continue;
             }
             if let Some(content) =
-                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
             {
                 if crate::detectors::content_classifier::is_bundled_code(&content)
                     || crate::detectors::content_classifier::is_minified_code(&content)

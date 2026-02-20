@@ -190,7 +190,7 @@ impl Detector for NosqlInjectionDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 // Check if file has MongoDB context

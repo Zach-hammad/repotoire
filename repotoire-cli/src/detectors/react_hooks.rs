@@ -195,7 +195,7 @@ impl Detector for ReactHooksDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 // Skip if no React hooks
                 if !hook_call().is_match(&content) {
                     continue;

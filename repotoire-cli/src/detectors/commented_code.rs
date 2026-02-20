@@ -160,7 +160,7 @@ impl Detector for CommentedCodeDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut i = 0;
 

@@ -116,7 +116,7 @@ impl DeadStoreDetector {
 
             let rel_path = path.strip_prefix(&self.repository_path).unwrap_or(path);
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut seen_assignments: HashSet<(String, usize)> = HashSet::new();
 

@@ -13,9 +13,9 @@ pub fn run(path: &Path) -> Result<()> {
     println!("\nRepotoire Status\n");
 
     // Check cache directory
-    let cache_dir = crate::cache::get_cache_dir(&repo_path);
-    let db_path = crate::cache::get_graph_db_path(&repo_path);
-    let findings_path = crate::cache::get_findings_cache_path(&repo_path);
+    let cache_dir = crate::cache::cache_dir(&repo_path);
+    let db_path = crate::cache::graph_db_path(&repo_path);
+    let findings_path = crate::cache::findings_cache_path(&repo_path);
 
     println!("  Repository: {}", style(repo_path.display()).cyan());
     println!("  Cache: {}", style(cache_dir.display()).dim());
@@ -26,7 +26,7 @@ pub fn run(path: &Path) -> Result<()> {
         println!("  {} Graph database exists", style("[OK]").green());
 
         // Try to get stats from cached JSON (faster than loading graph)
-        let stats_path = crate::cache::get_graph_stats_path(&repo_path);
+        let stats_path = crate::cache::graph_stats_path(&repo_path);
         if let Ok(stats_json) = std::fs::read_to_string(&stats_path) {
             if let Ok(stats) = serde_json::from_str::<serde_json::Value>(&stats_json) {
                 let file_count = stats

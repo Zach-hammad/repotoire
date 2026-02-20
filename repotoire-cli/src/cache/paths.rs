@@ -2,9 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-/// Get the cache directory for a repository.
+/// Cache directory for a repository.
 /// Uses ~/.cache/repotoire/<repo-hash>/ on Unix, %LOCALAPPDATA%/repotoire/<repo-hash>/ on Windows.
-pub fn get_cache_dir(repo_path: &Path) -> PathBuf {
+pub fn cache_dir(repo_path: &Path) -> PathBuf {
     let repo_hash = hash_path(repo_path);
 
     let base = if cfg!(windows) {
@@ -23,24 +23,24 @@ pub fn get_cache_dir(repo_path: &Path) -> PathBuf {
     base.join("repotoire").join(&repo_hash)
 }
 
-/// Get the git cache file path for a repository.
-pub fn get_git_cache_path(repo_path: &Path) -> PathBuf {
-    get_cache_dir(repo_path).join("git_cache.json")
+/// Git cache file path for a repository.
+pub fn git_cache_path(repo_path: &Path) -> PathBuf {
+    cache_dir(repo_path).join("git_cache.json")
 }
 
-/// Get the findings cache file path for a repository.
-pub fn get_findings_cache_path(repo_path: &Path) -> PathBuf {
-    get_cache_dir(repo_path).join("last_findings.json")
+/// Findings cache file path for a repository.
+pub fn findings_cache_path(repo_path: &Path) -> PathBuf {
+    cache_dir(repo_path).join("last_findings.json")
 }
 
-/// Get the graph database path for a repository.
-pub fn get_graph_db_path(repo_path: &Path) -> PathBuf {
-    get_cache_dir(repo_path).join("graph_db")
+/// Graph database path for a repository.
+pub fn graph_db_path(repo_path: &Path) -> PathBuf {
+    cache_dir(repo_path).join("graph_db")
 }
 
-/// Get the graph stats cache file path for a repository.
-pub fn get_graph_stats_path(repo_path: &Path) -> PathBuf {
-    get_cache_dir(repo_path).join("graph_stats.json")
+/// Graph stats cache file path for a repository.
+pub fn graph_stats_path(repo_path: &Path) -> PathBuf {
+    cache_dir(repo_path).join("graph_stats.json")
 }
 
 /// Hash a path to create a unique but deterministic directory name.
@@ -71,7 +71,7 @@ fn hash_path(path: &Path) -> String {
 
 /// Ensure the cache directory exists.
 pub fn ensure_cache_dir(repo_path: &Path) -> std::io::Result<PathBuf> {
-    let cache_dir = get_cache_dir(repo_path);
+    let cache_dir = cache_dir(repo_path);
     std::fs::create_dir_all(&cache_dir)?;
     Ok(cache_dir)
 }
@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn test_cache_dir_format() {
         let path = Path::new("/home/user/my-project");
-        let cache = get_cache_dir(path);
+        let cache = cache_dir(path);
         assert!(cache.to_string_lossy().contains("repotoire"));
         assert!(cache.to_string_lossy().contains("my-project"));
     }

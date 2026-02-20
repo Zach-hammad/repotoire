@@ -79,7 +79,7 @@ impl Detector for PanicDensityDetector {
                 continue;
             }
 
-            let Some(content) = crate::cache::global_cache().get_content(path) else {
+            let Some(content) = crate::cache::global_cache().content(path) else {
                 continue;
             };
 

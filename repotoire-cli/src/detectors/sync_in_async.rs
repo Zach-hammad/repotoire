@@ -183,7 +183,7 @@ impl Detector for SyncInAsyncDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut in_async = false;
                 let mut async_indent = 0;

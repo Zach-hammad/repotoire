@@ -94,7 +94,7 @@ impl Detector for CallbackHellDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let mut callback_depth = 0;
                 let mut max_depth = 0;
                 let mut max_line = 0;

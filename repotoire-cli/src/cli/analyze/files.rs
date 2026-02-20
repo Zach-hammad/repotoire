@@ -76,8 +76,8 @@ pub(super) fn collect_files_for_analysis(
         walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
         let all = collect_source_files(repo_path)?;
-        let changed = incremental_cache.get_changed_files(&all);
-        let cache_stats = incremental_cache.get_stats();
+        let changed = incremental_cache.changed_files(&all);
+        let cache_stats = incremental_cache.stats();
 
         walk_spinner.finish_with_message(format!(
             "{}Found {} changed files out of {} total ({} cached)",
@@ -215,7 +215,7 @@ fn get_cached_findings_for_unchanged(
 
     let mut cached = Vec::new();
     for file in unchanged {
-        cached.extend(incremental_cache.get_cached_findings(file));
+        cached.extend(incremental_cache.cached_findings(file));
     }
     cached
 }

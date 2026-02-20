@@ -59,8 +59,8 @@ impl HandlerState {
         }
     }
 
-    /// Get or build the n-gram language model for predictive coding
-    pub fn get_ngram_model(&mut self) -> Option<crate::calibrate::NgramModel> {
+    /// Build or return the cached n-gram language model for predictive coding
+    pub fn ngram_model(&mut self) -> Option<crate::calibrate::NgramModel> {
         if self.ngram_model.is_none() {
             let mut model = crate::calibrate::NgramModel::new();
             let walker = ignore::WalkBuilder::new(&self.repo_path)
@@ -115,8 +115,8 @@ impl HandlerState {
         }
     }
 
-    /// Get or initialize the graph client
-    pub fn get_graph(&mut self) -> Result<Arc<GraphStore>> {
+    /// Initialize or return the cached graph client
+    pub fn graph(&mut self) -> Result<Arc<GraphStore>> {
         if let Some(ref client) = self.graph {
             return Ok(Arc::clone(client));
         }
@@ -148,12 +148,12 @@ pub fn handle_analyze(state: &mut HandlerState, args: &Value) -> Result<Value> {
         .unwrap_or(true);
 
     // Get graph client
-    let graph = state.get_graph()?;
+    let graph = state.graph()?;
 
     // Build detector engine (with predictive coding)
     let project_config = crate::config::load_project_config(&repo_path);
     let style_profile = crate::calibrate::StyleProfile::load(&repo_path);
-    let ngram = state.get_ngram_model();
+    let ngram = state.ngram_model();
     let mut engine = DetectorEngineBuilder::new()
         .workers(4)
         .detectors(default_detectors_with_ngram(&repo_path, &project_config, style_profile.as_ref(), ngram))
@@ -186,7 +186,7 @@ pub fn handle_query_graph(state: &mut HandlerState, args: &Value) -> Result<Valu
         .and_then(|v| v.as_str())
         .unwrap_or("functions");
 
-    let graph = state.get_graph()?;
+    let graph = state.graph()?;
 
     let results: Vec<serde_json::Value> = match query_type {
         "functions" => graph
@@ -293,10 +293,10 @@ pub fn handle_get_findings(state: &mut HandlerState, args: &Value) -> Result<Val
     }
 
     // Fall back to running analysis (with predictive coding)
-    let graph = state.get_graph()?;
+    let graph = state.graph()?;
     let project_config = crate::config::load_project_config(&state.repo_path);
     let style_profile = crate::calibrate::StyleProfile::load(&state.repo_path);
-    let ngram = state.get_ngram_model();
+    let ngram = state.ngram_model();
     let mut engine = DetectorEngineBuilder::new()
         .workers(4)
         .detectors(default_detectors_with_ngram(&state.repo_path, &project_config, style_profile.as_ref(), ngram))
@@ -377,7 +377,7 @@ pub fn handle_get_file(state: &HandlerState, args: &Value) -> Result<Value> {
 
 /// Get codebase architecture overview
 pub fn handle_get_architecture(state: &mut HandlerState, _args: &Value) -> Result<Value> {
-    let graph = state.get_graph()?;
+    let graph = state.graph()?;
 
     // Get node counts
     let stats = graph.stats();

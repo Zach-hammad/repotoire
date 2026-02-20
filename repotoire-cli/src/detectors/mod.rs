@@ -336,7 +336,7 @@ fn default_detectors_full(
     ngram_model: Option<crate::calibrate::NgramModel>,
 ) -> Vec<Arc<dyn Detector>> {
     // Get project type for coupling/complexity multipliers
-    let project_type = project_config.get_project_type(repository_path);
+    let project_type = project_config.project_type(repository_path);
     tracing::info!(
         "Detected project type: {:?} (coupling multiplier: {:.1}x)",
         project_type,

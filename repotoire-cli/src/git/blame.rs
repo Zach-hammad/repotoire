@@ -151,7 +151,7 @@ impl GitBlame {
         let repo_path = repo.workdir().unwrap_or(repo.path()).to_path_buf();
 
         // Load disk cache from ~/.cache/repotoire/<repo>/git_cache.json
-        let cache_path = crate::cache::get_git_cache_path(&repo_path);
+        let cache_path = crate::cache::git_cache_path(&repo_path);
         let disk_cache = GitCache::load(&cache_path);
 
         Ok(Self {

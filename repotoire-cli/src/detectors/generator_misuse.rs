@@ -104,7 +104,7 @@ impl GeneratorMisuseDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 for cap in list_call().captures_iter(&content) {
                     if let Some(func_name) = cap.get(1) {
                         wrapped.insert(func_name.as_str().to_string());
@@ -196,7 +196,7 @@ impl Detector for GeneratorMisuseDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {

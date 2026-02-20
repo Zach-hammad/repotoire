@@ -154,7 +154,7 @@ impl DetectorConfig {
         repo_path: &std::path::Path,
     ) -> Self {
         let mut config = Self::from_project_config(detector_name, project_config);
-        let project_type = project_config.get_project_type(repo_path);
+        let project_type = project_config.project_type(repo_path);
         config.coupling_multiplier = project_type.coupling_multiplier();
         config.complexity_multiplier = project_type.complexity_multiplier();
         config

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use tracing::{debug, error, info};
 
 use super::handlers::HandlerState;
-use super::tools::get_available_tools_full;
+use super::tools::available_tools_full;
 
 /// MCP Server implementation
 pub struct McpServer {
@@ -134,7 +134,7 @@ impl McpServer {
     fn handle_list_tools(&self, _params: &Option<Value>) -> Result<Value> {
         let is_pro = self.state.is_pro() && !self.force_local;
         let has_ai = self.state.has_ai();
-        let tools = get_available_tools_full(is_pro, has_ai);
+        let tools = available_tools_full(is_pro, has_ai);
         Ok(json!({
             "tools": tools
         }))

@@ -271,7 +271,7 @@ impl UnreachableCodeDetector {
         let path = std::path::Path::new(file_path);
         let func_pattern = func_name.split("::").last().unwrap_or(func_name);
 
-        if let Some(content) = crate::cache::global_cache().get_content(path) {
+        if let Some(content) = crate::cache::global_cache().content(path) {
             let lines: Vec<&str> = content.lines().collect();
 
             // Check the function declaration line and a few lines before
@@ -428,7 +428,7 @@ impl UnreachableCodeDetector {
                 continue;
             }
             if let Some(content) =
-                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
             {
                 if crate::detectors::content_classifier::is_bundled_code(&content)
                     || crate::detectors::content_classifier::is_minified_code(&content)
@@ -478,7 +478,7 @@ impl UnreachableCodeDetector {
 
             // Check if method is called via self.method() in same file (Rust parser limitation)
             if let Some(content) =
-                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
             {
                 let self_call = format!("self.{}(", func.name);
                 if content.contains(&self_call) {
@@ -699,7 +699,7 @@ impl UnreachableCodeDetector {
 
             let rel_path = path.strip_prefix(&self.repository_path).unwrap_or(path);
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for i in 0..lines.len().saturating_sub(1) {

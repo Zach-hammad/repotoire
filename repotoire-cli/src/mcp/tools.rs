@@ -214,14 +214,14 @@ pub fn AI_TOOLS() -> Vec<Tool> {
     ]
 }
 
-/// Get all available tools based on mode
+/// All available tools based on mode
 #[allow(dead_code)] // Public API helper
-pub fn get_available_tools(is_pro: bool) -> Vec<Tool> {
-    get_available_tools_full(is_pro, false)
+pub fn available_tools(is_pro: bool) -> Vec<Tool> {
+    available_tools_full(is_pro, false)
 }
 
-/// Get all available tools based on mode and AI availability
-pub fn get_available_tools_full(is_pro: bool, has_ai: bool) -> Vec<Tool> {
+/// All available tools based on mode and AI availability
+pub fn available_tools_full(is_pro: bool, has_ai: bool) -> Vec<Tool> {
     let mut tools = FREE_TOOLS();
 
     // AI tools available with BYOK or PRO

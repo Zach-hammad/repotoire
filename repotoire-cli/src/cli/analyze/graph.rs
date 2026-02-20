@@ -832,7 +832,7 @@ pub(super) fn save_graph_stats(graph: &GraphStore, repo_path: &Path) -> Result<(
         "calls": graph.get_calls().len(),
         "imports": graph.get_imports().len(),
     });
-    let stats_path = crate::cache::get_graph_stats_path(repo_path);
+    let stats_path = crate::cache::graph_stats_path(repo_path);
     std::fs::write(&stats_path, serde_json::to_string_pretty(&graph_stats)?)?;
     Ok(())
 }

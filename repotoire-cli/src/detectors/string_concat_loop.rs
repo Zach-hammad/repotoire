@@ -57,7 +57,7 @@ impl StringConcatLoopDetector {
 
         for func in graph.get_functions() {
             if let Some(content) =
-                crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
             {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = func.line_start.saturating_sub(1) as usize;
@@ -152,7 +152,7 @@ impl Detector for StringConcatLoopDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
@@ -236,7 +236,7 @@ impl Detector for StringConcatLoopDetector {
                 }
 
                 let has_loop = if let Some(content) =
-                    crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path))
+                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
                 {
                     let lines: Vec<&str> = content.lines().collect();
                     let start = func.line_start.saturating_sub(1) as usize;

@@ -454,8 +454,8 @@ fn load_yaml_config(path: &Path) -> anyhow::Result<ProjectConfig> {
 }
 
 impl ProjectConfig {
-    /// Get the effective project type (explicit config > auto-detected > default)
-    pub fn get_project_type(&self, repo_path: &Path) -> ProjectType {
+    /// Effective project type (explicit config > auto-detected > default)
+    pub fn project_type(&self, repo_path: &Path) -> ProjectType {
         if let Some(explicit) = self.project_type {
             debug!("Using explicit project type: {:?}", explicit);
             return explicit;
@@ -470,14 +470,14 @@ impl ProjectConfig {
         detected
     }
 
-    /// Get coupling threshold multiplier based on project type
+    /// Coupling threshold multiplier based on project type
     pub fn coupling_multiplier(&self, repo_path: &Path) -> f64 {
-        self.get_project_type(repo_path).coupling_multiplier()
+        self.project_type(repo_path).coupling_multiplier()
     }
 
-    /// Get complexity threshold multiplier based on project type
+    /// Complexity threshold multiplier based on project type
     pub fn complexity_multiplier(&self, repo_path: &Path) -> f64 {
-        self.get_project_type(repo_path).complexity_multiplier()
+        self.project_type(repo_path).complexity_multiplier()
     }
 
     /// Check if a detector is enabled (defaults to true if not specified)
@@ -492,8 +492,8 @@ impl ProjectConfig {
             .unwrap_or(true)
     }
 
-    /// Get severity override for a detector (if any)
-    pub fn get_severity_override(&self, name: &str) -> Option<&str> {
+    /// Severity override for a detector (if any)
+    pub fn severity_override(&self, name: &str) -> Option<&str> {
         let normalized = normalize_detector_name(name);
 
         self.detectors
@@ -502,8 +502,8 @@ impl ProjectConfig {
             .and_then(|c| c.severity.as_deref())
     }
 
-    /// Get threshold value for a detector
-    pub fn get_threshold(
+    /// Threshold value for a detector
+    pub fn threshold(
         &self,
         detector_name: &str,
         threshold_name: &str,
@@ -516,15 +516,15 @@ impl ProjectConfig {
             .and_then(|c| c.thresholds.get(threshold_name))
     }
 
-    /// Get threshold as i64
-    pub fn get_threshold_i64(&self, detector_name: &str, threshold_name: &str) -> Option<i64> {
-        self.get_threshold(detector_name, threshold_name)
+    /// Threshold as i64
+    pub fn threshold_i64(&self, detector_name: &str, threshold_name: &str) -> Option<i64> {
+        self.threshold(detector_name, threshold_name)
             .and_then(|v| v.as_i64())
     }
 
-    /// Get threshold as f64
-    pub fn get_threshold_f64(&self, detector_name: &str, threshold_name: &str) -> Option<f64> {
-        self.get_threshold(detector_name, threshold_name)
+    /// Threshold as f64
+    pub fn threshold_f64(&self, detector_name: &str, threshold_name: &str) -> Option<f64> {
+        self.threshold(detector_name, threshold_name)
             .and_then(|v| v.as_f64())
     }
 
@@ -542,8 +542,8 @@ impl ProjectConfig {
         false
     }
 
-    /// Get all detector names that should be skipped
-    pub fn get_disabled_detectors(&self) -> Vec<String> {
+    /// All detector names that should be skipped
+    pub fn disabled_detectors(&self) -> Vec<String> {
         let mut disabled = Vec::new();
 
         // From explicit enabled: false
@@ -728,7 +728,7 @@ mod tests {
         assert!(config.is_detector_enabled("unknown-detector"));
 
         // No severity overrides
-        assert!(config.get_severity_override("god-class").is_none());
+        assert!(config.severity_override("god-class").is_none());
 
         // Default scoring
         assert!((config.scoring.security_multiplier - 3.0).abs() < 0.001);
@@ -768,12 +768,12 @@ skip_detectors = ["debug-code"]
         // Check detectors
         assert!(config.is_detector_enabled("god-class"));
         assert!(!config.is_detector_enabled("sql-injection"));
-        assert_eq!(config.get_severity_override("sql-injection"), Some("high"));
+        assert_eq!(config.severity_override("sql-injection"), Some("high"));
         assert_eq!(
-            config.get_threshold_i64("god-class", "method_count"),
+            config.threshold_i64("god-class", "method_count"),
             Some(30)
         );
-        assert_eq!(config.get_threshold_i64("god-class", "loc"), Some(600));
+        assert_eq!(config.threshold_i64("god-class", "loc"), Some(600));
 
         // Check scoring
         assert!((config.scoring.security_multiplier - 5.0).abs() < 0.001);

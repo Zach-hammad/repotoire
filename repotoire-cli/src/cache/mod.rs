@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 pub use paths::{
-    ensure_cache_dir, get_cache_dir, get_findings_cache_path, get_git_cache_path,
-    get_graph_db_path, get_graph_stats_path,
+    cache_dir, ensure_cache_dir, findings_cache_path, git_cache_path, graph_db_path,
+    graph_stats_path,
 };
 
 /// Global file cache instance
@@ -78,8 +78,8 @@ impl FileCache {
         });
     }
 
-    /// Get file content (cached)
-    pub fn get_content(&self, path: &Path) -> Option<Arc<String>> {
+    /// File content (cached, lazy-loading)
+    pub fn content(&self, path: &Path) -> Option<Arc<String>> {
         // Check cache first
         if let Some(content) = self.contents.get(path) {
             return Some(Arc::clone(&content));
@@ -95,15 +95,15 @@ impl FileCache {
         }
     }
 
-    /// Get file lines (cached)
-    pub fn get_lines(&self, path: &Path) -> Option<Arc<Vec<String>>> {
+    /// File lines (cached, lazy-loading)
+    pub fn lines(&self, path: &Path) -> Option<Arc<Vec<String>>> {
         // Check cache first
         if let Some(lines) = self.lines.get(path) {
             return Some(Arc::clone(&lines));
         }
 
         // Get content and split into lines
-        let content = self.get_content(path)?;
+        let content = self.content(path)?;
         let lines: Vec<String> = content.lines().map(String::from).collect();
         let arc = Arc::new(lines);
         self.lines.insert(path.to_path_buf(), Arc::clone(&arc));

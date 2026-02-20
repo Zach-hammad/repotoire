@@ -97,7 +97,7 @@ impl Detector for XssDetector {
             // For HTML files, check if data comes from hardcoded arrays (not user input)
             // If the file contains no form inputs, fetch calls, or URL params, it's static
             if ext == "html" {
-                if let Some(content) = crate::cache::global_cache().get_content(path) {
+                if let Some(content) = crate::cache::global_cache().content(path) {
                     let has_dynamic_input = content.contains("fetch(")
                         || content.contains("XMLHttpRequest")
                         || content.contains("location.search")
@@ -122,7 +122,7 @@ impl Detector for XssDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let file_str = path.to_string_lossy();
                 let lines: Vec<&str> = content.lines().collect();
 

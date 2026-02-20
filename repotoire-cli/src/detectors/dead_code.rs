@@ -746,7 +746,7 @@ impl DeadCodeDetector {
 
             // Check if method is called via self.method() in same file (Rust parser limitation)
             if let Some(content) =
-                crate::cache::global_cache().get_content(std::path::Path::new(file_path))
+                crate::cache::global_cache().content(std::path::Path::new(file_path))
             {
                 let self_call = format!("self.{}(", name);
                 let self_call_alt = format!("self.{},", name); // Passed as closure

@@ -514,13 +514,13 @@ impl RootCauseAnalyzer {
         findings
     }
 
-    /// Get all root cause analyses
-    pub fn get_analyses(&self) -> &[RootCauseAnalysis] {
+    /// All root cause analyses
+    pub fn analyses(&self) -> &[RootCauseAnalysis] {
         &self.analyses
     }
 
-    /// Get summary statistics of root cause analysis
-    pub fn get_summary(&self) -> RootCauseSummary {
+    /// Summary statistics of root cause analysis
+    pub fn summary(&self) -> RootCauseSummary {
         let total_root_causes = self.analyses.len();
         let total_cascading: usize = self
             .analyses
@@ -584,7 +584,7 @@ mod tests {
         let mut analyzer = RootCauseAnalyzer::new();
         let result = analyzer.analyze(vec![]);
         assert!(result.is_empty());
-        assert!(analyzer.get_analyses().is_empty());
+        assert!(analyzer.analyses().is_empty());
     }
 
     #[test]
@@ -598,8 +598,8 @@ mod tests {
 
         let enriched = analyzer.analyze(findings);
 
-        assert_eq!(analyzer.get_analyses().len(), 1);
-        let analysis = &analyzer.get_analyses()[0];
+        assert_eq!(analyzer.analyses().len(), 1);
+        let analysis = &analyzer.analyses()[0];
         assert_eq!(analysis.root_cause_type, "god_class");
         assert_eq!(analysis.cascading_findings.len(), 2);
 
@@ -649,7 +649,7 @@ mod tests {
         ];
 
         analyzer.analyze(findings);
-        let summary = analyzer.get_summary();
+        let summary = analyzer.summary();
 
         assert_eq!(summary.total_root_causes, 1);
         assert!(summary.root_causes_by_type.contains_key("god_class"));

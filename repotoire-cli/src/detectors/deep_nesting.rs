@@ -164,7 +164,7 @@ impl Detector for DeepNestingDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().get_content(path) {
+            if let Some(content) = crate::cache::global_cache().content(path) {
                 let path_str = path.to_string_lossy().to_string();
                 let mut max_depth = 0;
                 let mut current_depth = 0;

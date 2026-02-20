@@ -13,7 +13,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
-    let db_path = crate::cache::get_graph_db_path(&repo_path);
+    let db_path = crate::cache::graph_db_path(&repo_path);
     if !db_path.exists() {
         anyhow::bail!(
             "No analysis found. Run {} first.",
@@ -170,7 +170,7 @@ pub fn stats(path: &Path) -> Result<()> {
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
     // Try to read from cached JSON stats first (avoids redb lock issues)
-    let stats_path = crate::cache::get_graph_stats_path(&repo_path);
+    let stats_path = crate::cache::graph_stats_path(&repo_path);
     if stats_path.exists() {
         let stats_json =
             std::fs::read_to_string(&stats_path).with_context(|| "Failed to read graph stats")?;
@@ -226,7 +226,7 @@ pub fn stats(path: &Path) -> Result<()> {
     }
 
     // Fallback to opening redb database (may fail with lock issues)
-    let db_path = crate::cache::get_graph_db_path(&repo_path);
+    let db_path = crate::cache::graph_db_path(&repo_path);
     if !db_path.exists() {
         anyhow::bail!(
             "No analysis found. Run {} first.",
