@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::ai::{AiClient, LlmBackend};
-use crate::detectors::{default_detectors, DetectorEngineBuilder};
+use crate::detectors::{default_detectors, default_detectors_with_ngram, DetectorEngineBuilder};
 use crate::graph::GraphStore;
 use crate::models::FindingsSummary;
 
@@ -18,6 +18,8 @@ pub struct HandlerState {
     pub repo_path: PathBuf,
     /// Graph client (lazily initialized)
     graph: Option<Arc<GraphStore>>,
+    /// N-gram language model for predictive coding (lazily initialized)
+    ngram_model: Option<crate::calibrate::NgramModel>,
     /// API key for cloud PRO features
     pub api_key: Option<String>,
     /// API base URL
@@ -50,10 +52,47 @@ impl HandlerState {
         Self {
             repo_path,
             graph: None,
+            ngram_model: None,
             api_key,
             api_url,
             ai_backend,
         }
+    }
+
+    /// Get or build the n-gram language model for predictive coding
+    pub fn get_ngram_model(&mut self) -> Option<crate::calibrate::NgramModel> {
+        if self.ngram_model.is_none() {
+            let mut model = crate::calibrate::NgramModel::new();
+            let walker = ignore::WalkBuilder::new(&self.repo_path)
+                .hidden(false)
+                .git_ignore(true)
+                .build();
+            for entry in walker.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if !path.is_file() { continue; }
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if !matches!(ext, "rs" | "py" | "ts" | "tsx" | "js" | "jsx" | "go" | "java"
+                    | "c" | "cpp" | "cc" | "h" | "hpp" | "cs" | "kt") {
+                    continue;
+                }
+                let path_lower = path.to_string_lossy().to_lowercase();
+                if path_lower.contains("/test") || path_lower.contains("/vendor")
+                    || path_lower.contains("/node_modules") || path_lower.contains("/generated")
+                {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
+                    model.train_on_tokens(&tokens);
+                }
+            }
+            if model.is_confident() {
+                tracing::info!("MCP: Learned coding patterns ({} tokens, {} vocabulary)",
+                    model.total_tokens(), model.vocab_size());
+                self.ngram_model = Some(model);
+            }
+        }
+        self.ngram_model.clone()
     }
 
     pub fn is_pro(&self) -> bool {
@@ -111,10 +150,13 @@ pub fn handle_analyze(state: &mut HandlerState, args: &Value) -> Result<Value> {
     // Get graph client
     let graph = state.get_graph()?;
 
-    // Build detector engine
+    // Build detector engine (with predictive coding)
+    let project_config = crate::config::load_project_config(&repo_path);
+    let style_profile = crate::calibrate::StyleProfile::load(&repo_path);
+    let ngram = state.get_ngram_model();
     let mut engine = DetectorEngineBuilder::new()
         .workers(4)
-        .detectors(default_detectors(&repo_path))
+        .detectors(default_detectors_with_ngram(&repo_path, &project_config, style_profile.as_ref(), ngram))
         .build();
 
     // Run analysis - engine.run() returns Vec<Finding> directly
@@ -250,11 +292,14 @@ pub fn handle_get_findings(state: &mut HandlerState, args: &Value) -> Result<Val
         }));
     }
 
-    // Fall back to running analysis
+    // Fall back to running analysis (with predictive coding)
     let graph = state.get_graph()?;
+    let project_config = crate::config::load_project_config(&state.repo_path);
+    let style_profile = crate::calibrate::StyleProfile::load(&state.repo_path);
+    let ngram = state.get_ngram_model();
     let mut engine = DetectorEngineBuilder::new()
         .workers(4)
-        .detectors(default_detectors(&state.repo_path))
+        .detectors(default_detectors_with_ngram(&state.repo_path, &project_config, style_profile.as_ref(), ngram))
         .build();
 
     // engine.run() returns Vec<Finding> directly
@@ -383,7 +428,19 @@ pub fn handle_get_architecture(state: &mut HandlerState, _args: &Value) -> Resul
 pub fn handle_list_detectors(state: &HandlerState, _args: &Value) -> Result<Value> {
     use crate::detectors::Detector;
 
-    let detectors = default_detectors(&state.repo_path);
+    // Use a confident dummy model so SurprisalDetector appears in the list
+    let mut dummy_model = crate::calibrate::NgramModel::new();
+    for _ in 0..800 {
+        dummy_model.train_on_tokens(&vec!["let".into(), "<ID>".into(), "=".into(),
+            "<ID>".into(), ";".into(), "<EOL>".into(), "fn".into(), "<ID>".into(),
+            "(". into(), ")".into()]);
+    }
+    let detectors = default_detectors_with_ngram(
+        &state.repo_path,
+        &crate::config::ProjectConfig::default(),
+        None,
+        Some(dummy_model),
+    );
     let detector_info: Vec<Value> = detectors
         .iter()
         .map(|d| {
