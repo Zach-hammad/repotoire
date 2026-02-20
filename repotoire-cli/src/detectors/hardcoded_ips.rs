@@ -153,8 +153,14 @@ impl Detector for HardcodedIpsDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let path_str = path.to_string_lossy().to_string();
+                let lines: Vec<&str> = content.lines().collect();
 
-                for (i, line) in content.lines().enumerate() {
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     let trimmed = line.trim();
                     if trimmed.starts_with("//") || trimmed.starts_with("#") {
                         continue;

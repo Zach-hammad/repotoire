@@ -144,6 +144,11 @@ impl Detector for UnhandledPromiseDetector {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     // Skip comments
                     let trimmed = line.trim();
                     if trimmed.starts_with("//") || trimmed.starts_with("*") {

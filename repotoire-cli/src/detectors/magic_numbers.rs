@@ -280,7 +280,13 @@ impl MagicNumbersDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (line_num, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (line_num, line) in lines.iter().enumerate() {
+                    let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     let trimmed = line.trim();
                     if trimmed.starts_with("//")
                         || trimmed.starts_with("#")
@@ -383,7 +389,13 @@ impl Detector for MagicNumbersDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (line_num, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (line_num, line) in lines.iter().enumerate() {
+                    let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     let trimmed = line.trim();
                     if trimmed.starts_with("//")
                         || trimmed.starts_with("#")

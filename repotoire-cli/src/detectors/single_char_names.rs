@@ -180,6 +180,11 @@ impl Detector for SingleCharNamesDetector {
                 let mut in_test_block = false;
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     // Skip everything after #[cfg(test)] (Rust test modules)
                     if line.contains("#[cfg(test)]") {
                         in_test_block = true;

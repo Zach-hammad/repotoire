@@ -88,7 +88,13 @@ impl Detector for BooleanTrapDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if bool_args().is_match(line) {
                         if let Some(func_name) = Self::extract_func_name(line) {
                             let bool_count = Self::count_bool_args(line);

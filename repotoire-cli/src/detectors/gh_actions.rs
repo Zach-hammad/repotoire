@@ -111,15 +111,18 @@ impl GHActionsInjectionDetector {
 
                 // Check if run: has dangerous pattern on same line
                 if let Some(caps) = dangerous.captures(line) {
-                    matches.push(InjectionMatch {
-                        file: rel_path.clone(),
-                        line: line_num,
-                        content: line.trim().to_string(),
-                        pattern: caps
-                            .get(1)
-                            .map(|m| m.as_str().to_string())
-                            .unwrap_or_default(),
-                    });
+                    let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                    if !crate::detectors::is_line_suppressed(line, prev_line) {
+                        matches.push(InjectionMatch {
+                            file: rel_path.clone(),
+                            line: line_num,
+                            content: line.trim().to_string(),
+                            pattern: caps
+                                .get(1)
+                                .map(|m| m.as_str().to_string())
+                                .unwrap_or_default(),
+                        });
+                    }
                 }
                 continue;
             }
@@ -142,6 +145,11 @@ impl GHActionsInjectionDetector {
 
                 // Check for dangerous patterns inside the run block
                 if let Some(caps) = dangerous.captures(line) {
+                    let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     matches.push(InjectionMatch {
                         file: rel_path.clone(),
                         line: line_num,

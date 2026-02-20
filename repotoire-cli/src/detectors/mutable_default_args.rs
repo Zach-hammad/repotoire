@@ -154,6 +154,11 @@ impl Detector for MutableDefaultArgsDetector {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if let Some(caps) = mutable_default().captures(line) {
                         let func_name = caps.get(1).map(|m| m.as_str()).unwrap_or("unknown");
                         let param_name = caps.get(2).map(|m| m.as_str()).unwrap_or("arg");

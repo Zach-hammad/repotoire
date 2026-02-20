@@ -191,7 +191,13 @@ impl SecretDetector {
             return findings;
         }
 
-        for (line_num, line) in content.lines().enumerate() {
+        let lines: Vec<&str> = content.lines().collect();
+        for (line_num, line) in lines.iter().enumerate() {
+            let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+            if crate::detectors::is_line_suppressed(line, prev_line) {
+                continue;
+            }
+
             // Skip comments that look like documentation
             let trimmed = line.trim();
             if trimmed.starts_with("//") && trimmed.contains("example") {

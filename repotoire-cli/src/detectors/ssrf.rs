@@ -79,6 +79,11 @@ impl Detector for SsrfDetector {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if http_client().is_match(line) {
                         // Skip relative URLs - they always hit same-origin server
                         // Pattern: fetch('/api/...) or fetch(`/api/...)

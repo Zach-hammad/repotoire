@@ -114,7 +114,13 @@ impl Detector for PathTraversalDetector {
                 || file_str.contains("_spec.");
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     // More specific user input patterns - avoid matching variable names like "input_stream"
                     let has_user_input = line.contains("req.") || line.contains("request.") ||
                         line.contains("params[") || line.contains("params.") ||

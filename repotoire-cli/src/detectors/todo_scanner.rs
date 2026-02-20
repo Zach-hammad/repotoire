@@ -149,8 +149,14 @@ impl Detector for TodoScanner {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let path_str = path.to_string_lossy().to_string();
+                let lines: Vec<&str> = content.lines().collect();
 
-                for (line_num, line) in content.lines().enumerate() {
+                for (line_num, line) in lines.iter().enumerate() {
+                    let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     // Only scan comment lines — skip string literals and code
                     let trimmed = line.trim_start();
                     // Skip doc comments — TODOs in documentation describe behavior, not tasks

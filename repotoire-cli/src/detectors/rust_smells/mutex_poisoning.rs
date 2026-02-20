@@ -51,12 +51,18 @@ impl Detector for MutexPoisoningRiskDetector {
                 continue;
             };
             let mut in_test_module = false;
+            let all_lines: Vec<&str> = content.lines().collect();
 
-            for (i, line) in content.lines().enumerate() {
+            for (i, line) in all_lines.iter().enumerate() {
                 if line.contains("#[cfg(test)]") {
                     in_test_module = true;
                 }
                 if in_test_module {
+                    continue;
+                }
+
+                let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
+                if crate::detectors::is_line_suppressed(line, prev_line) {
                     continue;
                 }
 

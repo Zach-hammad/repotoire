@@ -126,6 +126,11 @@ impl EmptyCatchDetector {
         let lines: Vec<&str> = content.lines().collect();
 
         for (i, line) in lines.iter().enumerate() {
+            let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+            if crate::detectors::is_line_suppressed(line, prev_line) {
+                continue;
+            }
+
             let trimmed = line.trim();
             let mut is_empty_catch = false;
             let catch_line = i;

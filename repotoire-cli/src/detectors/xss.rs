@@ -124,8 +124,14 @@ impl Detector for XssDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let file_str = path.to_string_lossy();
+                let lines: Vec<&str> = content.lines().collect();
 
-                for (i, line) in content.lines().enumerate() {
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if xss_pattern().is_match(line) {
                         // Word-boundary checks to avoid FPs like inputStream, maxInput (#24)
                         let line_lower = line.to_lowercase();

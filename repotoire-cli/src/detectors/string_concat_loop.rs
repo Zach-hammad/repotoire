@@ -157,8 +157,9 @@ impl Detector for StringConcatLoopDetector {
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
                 let mut _loop_var = String::new();
+                let all_lines: Vec<&str> = content.lines().collect();
 
-                for (i, line) in content.lines().enumerate() {
+                for (i, line) in all_lines.iter().enumerate() {
                     if loop_pattern().is_match(line) {
                         in_loop = true;
                         loop_line = i + 1;
@@ -182,6 +183,11 @@ impl Detector for StringConcatLoopDetector {
                         }
 
                         if string_concat().is_match(line) {
+                            let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
+                            if crate::detectors::is_line_suppressed(line, prev_line) {
+                                continue;
+                            }
+
                             let suggestion = Self::get_suggestion(ext);
 
                             findings.push(Finding {

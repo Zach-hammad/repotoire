@@ -50,7 +50,13 @@ impl Detector for TorchLoadUnsafeDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if torch_load().is_match(line) && !torch_load_weights_only().is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;
@@ -146,7 +152,13 @@ impl Detector for NanEqualityDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if nan_equality().is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;
@@ -221,7 +233,13 @@ impl MissingZeroGradDetector {
 
         if has_backward && !has_zero_grad {
             // Find the line with backward()
-            for (i, line) in content.lines().enumerate() {
+            let lines: Vec<&str> = content.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                if crate::detectors::is_line_suppressed(line, prev_line) {
+                    continue;
+                }
+
                 if backward_call().is_match(line) {
                     let file_str = path.to_string_lossy();
                     let line_num = (i + 1) as u32;
@@ -356,7 +374,13 @@ impl Detector for ForwardMethodDetector {
                     continue;
                 }
 
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     // Skip definitions of forward method
                     if line.contains("def forward") {
                         continue;
