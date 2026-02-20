@@ -16,6 +16,8 @@ pub enum ClassRole {
     FrameworkCore,
     /// Facade pattern: large API surface but delegates to helpers
     Facade,
+    /// Orchestrator: router, controller, dispatcher, handler — delegates to services
+    Orchestrator,
     /// Entry point: main app class, CLI handler
     EntryPoint,
     /// Utility class: helpers, shared code
@@ -31,7 +33,10 @@ impl ClassRole {
     pub fn allows_large_size(&self) -> bool {
         matches!(
             self,
-            ClassRole::FrameworkCore | ClassRole::Facade | ClassRole::EntryPoint
+            ClassRole::FrameworkCore
+                | ClassRole::Facade
+                | ClassRole::Orchestrator
+                | ClassRole::EntryPoint
         )
     }
 
@@ -40,6 +45,7 @@ impl ClassRole {
         match self {
             ClassRole::FrameworkCore => 0.0, // Don't flag at all
             ClassRole::Facade => 0.3,        // Greatly reduce
+            ClassRole::Orchestrator => 0.3,  // Greatly reduce — orchestrators delegate by design
             ClassRole::EntryPoint => 0.5,    // Reduce
             ClassRole::Utility => 0.7,       // Slightly reduce
             ClassRole::DataClass => 0.6,     // Data classes can be big
@@ -86,6 +92,44 @@ const FRAMEWORK_CORE_NAMES: &[&str] = &[
 
 /// Patterns that indicate framework-like classes
 const FRAMEWORK_PATTERNS: &[&str] = &["Application", "Framework", "Server", "Gateway", "Router"];
+
+/// Names/suffixes that indicate orchestrator classes (controllers, routers, dispatchers)
+/// These classes delegate to services by design and should not be flagged for god class or feature envy.
+const ORCHESTRATOR_NAME_PATTERNS: &[&str] = &[
+    "Controller",
+    "Router",
+    "Handler",
+    "Dispatcher",
+    "Orchestrator",
+    "Coordinator",
+    "Mediator",
+    "Presenter",
+    "Endpoint",
+    "Resource",    // JAX-RS resource classes
+    "ViewSet",     // Django REST framework
+    "Viewset",
+    "View",        // MVC views that dispatch
+    "Resolver",    // GraphQL resolvers
+    "Middleware",
+];
+
+/// File path patterns that indicate orchestrator/routing code
+const ORCHESTRATOR_PATH_PATTERNS: &[&str] = &[
+    "/controllers/",
+    "/controller/",
+    "/routers/",
+    "/router/",
+    "/handlers/",
+    "/handler/",
+    "/dispatchers/",
+    "/endpoints/",
+    "/resources/",
+    "/views/",
+    "/viewsets/",
+    "/resolvers/",
+    "/middleware/",
+    "/routes/",
+];
 
 /// Rich context for a class computed from graph analysis
 #[derive(Debug, Clone)]
@@ -139,6 +183,7 @@ impl ClassContext {
         match self.role {
             ClassRole::FrameworkCore => (usize::MAX, usize::MAX),
             ClassRole::Facade => (base_methods * 3, base_loc * 3),
+            ClassRole::Orchestrator => (base_methods * 3, base_loc * 3), // Orchestrators can have many short delegate methods
             ClassRole::EntryPoint => (base_methods * 2, base_loc * 2),
             ClassRole::Utility => (
                 (base_methods as f64 * 1.5) as usize,
@@ -317,9 +362,11 @@ impl<'a> ClassContextBuilder<'a> {
             // Infer role
             let (role, role_reason) = self.infer_role(
                 &class.name,
+                &class.file_path,
                 method_count,
                 avg_complexity,
                 delegation_ratio,
+                external_deps.len(),
                 usages,
                 is_test,
                 is_framework_path,
@@ -365,9 +412,11 @@ impl<'a> ClassContextBuilder<'a> {
     fn infer_role(
         &self,
         name: &str,
+        file_path: &str,
         method_count: usize,
         avg_complexity: f64,
         delegation_ratio: f64,
+        external_dependencies: usize,
         usages: usize,
         _is_test: bool,
         is_framework_path: bool,
@@ -392,6 +441,51 @@ impl<'a> ClassContextBuilder<'a> {
             return (
                 ClassRole::FrameworkCore,
                 "In framework/vendor path".to_string(),
+            );
+        }
+
+        // Orchestrator: name-based detection (controllers, routers, handlers, dispatchers)
+        if let Some(pattern) = ORCHESTRATOR_NAME_PATTERNS
+            .iter()
+            .find(|p| name.contains(**p))
+        {
+            return (
+                ClassRole::Orchestrator,
+                format!(
+                    "Orchestrator pattern '{}' in name: {} ({} methods, {:.0}% delegate, {} external deps)",
+                    pattern, name, method_count, delegation_ratio * 100.0, external_dependencies
+                ),
+            );
+        }
+
+        // Orchestrator: path-based detection
+        let path_lower = file_path.to_lowercase();
+        if let Some(pattern) = ORCHESTRATOR_PATH_PATTERNS
+            .iter()
+            .find(|p| path_lower.contains(**p))
+        {
+            return (
+                ClassRole::Orchestrator,
+                format!(
+                    "In orchestrator path '{}': {} ({} methods, {:.0}% delegate)",
+                    pattern, name, method_count, delegation_ratio * 100.0
+                ),
+            );
+        }
+
+        // Orchestrator: metric-based detection
+        // High delegation + many external deps + low complexity = orchestrator
+        if method_count >= 5
+            && delegation_ratio >= 0.6
+            && external_dependencies >= 4
+            && avg_complexity <= self.thin_wrapper_complexity
+        {
+            return (
+                ClassRole::Orchestrator,
+                format!(
+                    "Orchestrator pattern (metrics): {} methods, avg complexity {:.1}, {:.0}% delegate, {} external deps",
+                    method_count, avg_complexity, delegation_ratio * 100.0, external_dependencies
+                ),
             );
         }
 
@@ -480,10 +574,10 @@ mod tests {
         let store = crate::graph::GraphStore::in_memory();
         let builder = ClassContextBuilder::new(&store);
 
-        let (role, _) = builder.infer_role("Flask", 50, 5.0, 0.8, 10, false, false);
+        let (role, _) = builder.infer_role("Flask", "src/app.py", 50, 5.0, 0.8, 3, 10, false, false);
         assert_eq!(role, ClassRole::FrameworkCore);
 
-        let (role, _) = builder.infer_role("MyApplication", 30, 3.0, 0.5, 5, false, false);
+        let (role, _) = builder.infer_role("MyApplication", "src/app.py", 30, 3.0, 0.5, 2, 5, false, false);
         assert_eq!(role, ClassRole::FrameworkCore);
     }
 
@@ -493,7 +587,8 @@ mod tests {
         let builder = ClassContextBuilder::new(&store);
 
         // High method count, low complexity, high delegation
-        let (role, _) = builder.infer_role("ApiClient", 20, 2.0, 0.7, 2, false, false);
+        // Note: name must not match orchestrator patterns, and ext deps < 4 to avoid orchestrator metric match
+        let (role, _) = builder.infer_role("ApiClient", "src/client.py", 20, 2.0, 0.7, 3, 2, false, false);
         assert_eq!(role, ClassRole::Facade);
     }
 
@@ -502,14 +597,88 @@ mod tests {
         let store = crate::graph::GraphStore::in_memory();
         let builder = ClassContextBuilder::new(&store);
 
-        let (role, _) = builder.infer_role("UserDTO", 10, 1.0, 0.1, 2, false, false);
+        let (role, _) = builder.infer_role("UserDTO", "src/models.py", 10, 1.0, 0.1, 0, 2, false, false);
         assert_eq!(role, ClassRole::DataClass);
+    }
+
+    #[test]
+    fn test_orchestrator_detection_by_name() {
+        let store = crate::graph::GraphStore::in_memory();
+        let builder = ClassContextBuilder::new(&store);
+
+        // Controller suffix
+        let (role, reason) = builder.infer_role("UserController", "src/api.py", 15, 2.0, 0.8, 5, 3, false, false);
+        assert_eq!(role, ClassRole::Orchestrator, "Controller should be Orchestrator: {}", reason);
+
+        // Handler suffix
+        let (role, _) = builder.infer_role("RequestHandler", "src/server.py", 10, 1.5, 0.7, 3, 2, false, false);
+        assert_eq!(role, ClassRole::Orchestrator);
+
+        // Dispatcher suffix
+        let (role, _) = builder.infer_role("EventDispatcher", "src/events.py", 8, 2.0, 0.6, 4, 1, false, false);
+        assert_eq!(role, ClassRole::Orchestrator);
+
+        // Orchestrator suffix
+        let (role, _) = builder.infer_role("WorkflowOrchestrator", "src/workflows.py", 12, 1.0, 0.9, 6, 2, false, false);
+        assert_eq!(role, ClassRole::Orchestrator);
+    }
+
+    #[test]
+    fn test_orchestrator_detection_by_path() {
+        let store = crate::graph::GraphStore::in_memory();
+        let builder = ClassContextBuilder::new(&store);
+
+        // File in controllers/ directory
+        let (role, _) = builder.infer_role("Users", "src/controllers/users.py", 10, 2.0, 0.5, 3, 2, false, false);
+        assert_eq!(role, ClassRole::Orchestrator);
+
+        // File in handlers/ directory
+        let (role, _) = builder.infer_role("Auth", "src/handlers/auth.ts", 8, 1.5, 0.4, 2, 1, false, false);
+        assert_eq!(role, ClassRole::Orchestrator);
+    }
+
+    #[test]
+    fn test_orchestrator_detection_by_metrics() {
+        let store = crate::graph::GraphStore::in_memory();
+        let builder = ClassContextBuilder::new(&store);
+
+        // High delegation + many external deps + low complexity = orchestrator
+        // Name and path are generic (not matching name/path patterns)
+        let (role, reason) = builder.infer_role(
+            "OrderService", "src/services/orders.py",
+            8, 2.0, 0.7, 5, 2, false, false,
+        );
+        assert_eq!(role, ClassRole::Orchestrator, "Metric-based orchestrator: {}", reason);
+    }
+
+    #[test]
+    fn test_orchestrator_not_triggered_for_low_delegation() {
+        let store = crate::graph::GraphStore::in_memory();
+        let builder = ClassContextBuilder::new(&store);
+
+        // Low delegation + few external deps = NOT orchestrator (should be data class)
+        let (role, _) = builder.infer_role(
+            "OrderService", "src/services/orders.py",
+            8, 1.0, 0.2, 1, 2, false, false,
+        );
+        assert_ne!(role, ClassRole::Orchestrator);
+    }
+
+    #[test]
+    fn test_orchestrator_severity_multiplier() {
+        assert_eq!(ClassRole::Orchestrator.severity_multiplier(), 0.3);
+    }
+
+    #[test]
+    fn test_orchestrator_allows_large_size() {
+        assert!(ClassRole::Orchestrator.allows_large_size());
     }
 
     #[test]
     fn test_role_severity_multipliers() {
         assert_eq!(ClassRole::FrameworkCore.severity_multiplier(), 0.0);
         assert_eq!(ClassRole::Facade.severity_multiplier(), 0.3);
+        assert_eq!(ClassRole::Orchestrator.severity_multiplier(), 0.3);
         assert_eq!(ClassRole::Application.severity_multiplier(), 1.0);
     }
 }
