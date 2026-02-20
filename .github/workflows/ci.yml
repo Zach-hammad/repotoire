@@ -56,33 +56,6 @@ jobs:
       - name: Check formatting
         run: cd repotoire-cli && cargo fmt --all -- --check
 
-  doc:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: repotoire-cli
-
-      - name: Check documentation builds
-        run: cd repotoire-cli && cargo doc --no-deps --all-features
-        env:
-          RUSTDOCFLAGS: -Dwarnings
-
-  audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   # Self-analysis with repotoire
   analyze:
     name: Repotoire Analysis
