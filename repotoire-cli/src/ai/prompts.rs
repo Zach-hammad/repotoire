@@ -333,9 +333,9 @@ fn sanitize_text(text: &str) -> String {
                 Regex::new(r"(?i)assistant\s*:\s*").expect("valid regex"),
                 Regex::new(r"(?i)human\s*:\s*").expect("valid regex"),
                 Regex::new(r"(?i)output\s+(your\s+)?(api\s*key|secret|password|credential)")
-                    .unwrap(),
+                    .expect("valid regex"),
                 Regex::new(r"(?i)reveal\s+(your\s+)?(api\s*key|secret|password|credential)")
-                    .unwrap(),
+                    .expect("valid regex"),
             ]
         })
     }

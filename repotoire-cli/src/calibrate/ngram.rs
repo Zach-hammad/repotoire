@@ -112,7 +112,9 @@ impl NgramModel {
                 'a'..='z' | 'A'..='Z' | '_' => {
                     let mut word = String::new();
                     while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
-                        word.push(chars.next().unwrap());
+                        if let Some(c) = chars.next() {
+                            word.push(c);
+                        }
                     }
                     // Keep keywords as-is, normalize identifiers by pattern
                     if is_keyword(&word) {
@@ -263,7 +265,10 @@ impl Default for NgramModel {
 /// Greedily consume a multi-char operator from the char stream.
 fn consume_operator(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
     let mut op = String::new();
-    op.push(chars.next().unwrap());
+    let Some(first) = chars.next() else {
+        return op;
+    };
+    op.push(first);
 
     let Some(&next) = chars.peek() else { return op };
     let two = format!("{}{}", op, next);

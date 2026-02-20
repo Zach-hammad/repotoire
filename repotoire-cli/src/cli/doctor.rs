@@ -55,11 +55,10 @@ pub fn run() -> Result<()> {
     ];
     let config_found = config_names.iter().any(|name| cwd.join(name).exists());
     if config_found {
-        let found = config_names
-            .iter()
-            .find(|name| cwd.join(name).exists())
-            .expect("config exists (checked above)");
-        println!("✓ Config: {} found", found);
+        // Safe: config_found is true, so at least one name matches
+        if let Some(found) = config_names.iter().find(|name| cwd.join(name).exists()) {
+            println!("✓ Config: {} found", found);
+        }
     } else {
         println!("○ Config: none (using defaults)");
     }

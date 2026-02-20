@@ -585,7 +585,7 @@ pub fn normalize_detector_name(name: &str) -> String {
             if prev_is_lower || is_acronym_end {
                 result.push('-');
             }
-            result.push(c.to_lowercase().next().unwrap());
+            result.push(c.to_lowercase().next().unwrap_or(*c));
         } else if *c == '_' {
             result.push('-');
         } else {
