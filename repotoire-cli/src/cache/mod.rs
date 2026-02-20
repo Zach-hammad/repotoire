@@ -153,3 +153,109 @@ impl Default for FileCache {
         Self::new()
     }
 }
+
+impl CacheLayer for FileCache {
+    fn name(&self) -> &str {
+        "file-content"
+    }
+
+    fn is_populated(&self) -> bool {
+        !self.contents.is_empty()
+    }
+
+    fn invalidate_files(&mut self, changed_files: &[&Path]) {
+        for path in changed_files {
+            self.contents.remove(*path);
+            self.lines.remove(*path);
+        }
+    }
+
+    fn invalidate_all(&mut self) {
+        self.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_file_cache_implements_cache_layer() {
+        let mut cache = FileCache::new();
+
+        // Verify name
+        assert_eq!(cache.name(), "file-content");
+
+        // Verify is_populated returns false when empty
+        assert!(!cache.is_populated());
+
+        // Insert some content
+        let path_a = PathBuf::from("/tmp/a.rs");
+        let path_b = PathBuf::from("/tmp/b.rs");
+        cache
+            .contents
+            .insert(path_a.clone(), Arc::new("fn main() {}".to_string()));
+        cache
+            .contents
+            .insert(path_b.clone(), Arc::new("fn helper() {}".to_string()));
+        cache.lines.insert(
+            path_a.clone(),
+            Arc::new(vec!["fn main() {}".to_string()]),
+        );
+        cache.lines.insert(
+            path_b.clone(),
+            Arc::new(vec!["fn helper() {}".to_string()]),
+        );
+
+        // Verify is_populated returns true after adding content
+        assert!(cache.is_populated());
+
+        // Invalidate a specific file
+        let path_a_ref: &Path = &path_a;
+        cache.invalidate_files(&[path_a_ref]);
+
+        // path_a should be removed from both contents and lines
+        assert!(cache.contents.get(&path_a).is_none());
+        assert!(cache.lines.get(&path_a).is_none());
+
+        // path_b should still be present
+        assert!(cache.contents.get(&path_b).is_some());
+        assert!(cache.lines.get(&path_b).is_some());
+
+        // Cache should still be populated
+        assert!(cache.is_populated());
+    }
+
+    #[test]
+    fn test_file_cache_invalidate_all() {
+        let mut cache = FileCache::new();
+
+        // Insert content
+        let path_a = PathBuf::from("/tmp/a.rs");
+        let path_b = PathBuf::from("/tmp/b.rs");
+        cache
+            .contents
+            .insert(path_a.clone(), Arc::new("content a".to_string()));
+        cache
+            .contents
+            .insert(path_b.clone(), Arc::new("content b".to_string()));
+        cache
+            .lines
+            .insert(path_a.clone(), Arc::new(vec!["content a".to_string()]));
+        cache
+            .lines
+            .insert(path_b.clone(), Arc::new(vec!["content b".to_string()]));
+
+        assert!(cache.is_populated());
+
+        // Invalidate all
+        cache.invalidate_all();
+
+        // Everything should be gone
+        assert!(!cache.is_populated());
+        assert!(cache.contents.is_empty());
+        assert!(cache.lines.is_empty());
+    }
+}
