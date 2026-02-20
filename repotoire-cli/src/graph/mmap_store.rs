@@ -233,10 +233,12 @@ impl MmapBuilder {
             .with_context(|| format!("Failed to create mmap file: {}", path.display()))?;
         
         file.set_len(total_size as u64)?;
-        
-        // SAFETY: File was just created with correct size, mmap is valid
+
+        // SAFETY: We just created the file and set its length to total_size.
+        // The mutable mapping is the only reference to this file. The mapping
+        // lifetime is tied to this function scope.
         let mut mmap = unsafe { MmapOptions::new().map_mut(&file)? };
-        
+
         // Write header
         mmap[0..8].copy_from_slice(MAGIC);
         mmap[8..12].copy_from_slice(&VERSION.to_le_bytes());
@@ -244,20 +246,30 @@ impl MmapBuilder {
         mmap[16..20].copy_from_slice(&edge_count.to_le_bytes());
         mmap[20..24].copy_from_slice(&(edges_offset as u32).to_le_bytes());
         mmap[24..28].copy_from_slice(&(strings_offset as u32).to_le_bytes());
-        
+
         // Write nodes
-        // SAFETY: Transmuting to bytes from known-sized DiskNode structs we just wrote
-            let nodes_bytes = unsafe {
+        // Validate that nodes_size matches the Vec's actual byte footprint
+        debug_assert_eq!(nodes_size, self.nodes.len() * std::mem::size_of::<DiskNode>());
+        // SAFETY: DiskNode is repr(C, packed) and Copy. The Vec's backing allocation is
+        // contiguous and contains exactly self.nodes.len() elements. nodes_size equals
+        // self.nodes.len() * size_of::<DiskNode>(), so the slice covers valid initialized memory.
+        // The pointer is valid and aligned for u8 reads (u8 has alignment 1).
+        let nodes_bytes = unsafe {
             std::slice::from_raw_parts(
                 self.nodes.as_ptr() as *const u8,
                 nodes_size,
             )
         };
         mmap[HEADER_SIZE..HEADER_SIZE + nodes_size].copy_from_slice(nodes_bytes);
-        
+
         // Write edges
-        // SAFETY: Transmuting to bytes from known-sized DiskEdge structs we just wrote
-            let edges_bytes = unsafe {
+        // Validate that edges_size matches the Vec's actual byte footprint
+        debug_assert_eq!(edges_size, self.edges.len() * std::mem::size_of::<DiskEdge>());
+        // SAFETY: DiskEdge is repr(C, packed) and Copy. The Vec's backing allocation is
+        // contiguous and contains exactly self.edges.len() elements. edges_size equals
+        // self.edges.len() * size_of::<DiskEdge>(), so the slice covers valid initialized memory.
+        // The pointer is valid and aligned for u8 reads (u8 has alignment 1).
+        let edges_bytes = unsafe {
             std::slice::from_raw_parts(
                 self.edges.as_ptr() as *const u8,
                 edges_size,
@@ -306,9 +318,19 @@ impl MmapGraphStore {
         let file = File::open(path)
             .with_context(|| format!("Failed to open mmap file: {}", path.display()))?;
         
-        // SAFETY: File exists and was written by save(), mmap is read-only
+        // SAFETY: We only create a read-only mapping of a file we successfully opened.
+        // The OS manages page faults; the mapping is valid for the file's lifetime.
         let mmap = unsafe { MmapOptions::new().map(&file)? };
-        
+
+        // Validate minimum file size before reading header fields
+        if mmap.len() < HEADER_SIZE {
+            anyhow::bail!(
+                "Corrupt mmap file: size {} is smaller than header size {}",
+                mmap.len(),
+                HEADER_SIZE
+            );
+        }
+
         // Verify header
         if &mmap[0..8] != MAGIC {
             anyhow::bail!("Invalid mmap file: bad magic");
@@ -323,7 +345,49 @@ impl MmapGraphStore {
         let edge_count = u32::from_le_bytes(mmap[16..20].try_into()?);
         let edges_offset = u32::from_le_bytes(mmap[20..24].try_into()?) as usize;
         let strings_offset = u32::from_le_bytes(mmap[24..28].try_into()?) as usize;
-        
+
+        // Validate that the declared section offsets and sizes fit within the file
+        let expected_nodes_end = HEADER_SIZE
+            .checked_add((node_count as usize).checked_mul(DISK_NODE_SIZE).ok_or_else(|| {
+                anyhow::anyhow!("Corrupt mmap file: node region size overflow")
+            })?)
+            .ok_or_else(|| anyhow::anyhow!("Corrupt mmap file: node region offset overflow"))?;
+
+        if expected_nodes_end > mmap.len() {
+            anyhow::bail!(
+                "Corrupt mmap file: node region ends at {} but file size is {}",
+                expected_nodes_end,
+                mmap.len()
+            );
+        }
+        if edges_offset > mmap.len() {
+            anyhow::bail!(
+                "Corrupt mmap file: edges_offset {} exceeds file size {}",
+                edges_offset,
+                mmap.len()
+            );
+        }
+        let expected_edges_end = edges_offset
+            .checked_add((edge_count as usize).checked_mul(DISK_EDGE_SIZE).ok_or_else(|| {
+                anyhow::anyhow!("Corrupt mmap file: edge region size overflow")
+            })?)
+            .ok_or_else(|| anyhow::anyhow!("Corrupt mmap file: edge region offset overflow"))?;
+
+        if expected_edges_end > mmap.len() {
+            anyhow::bail!(
+                "Corrupt mmap file: edge region ends at {} but file size is {}",
+                expected_edges_end,
+                mmap.len()
+            );
+        }
+        if strings_offset > mmap.len() {
+            anyhow::bail!(
+                "Corrupt mmap file: strings_offset {} exceeds file size {}",
+                strings_offset,
+                mmap.len()
+            );
+        }
+
         // Build in-memory indices by scanning nodes
         let mut qn_to_idx = HashMap::with_capacity(node_count as usize);
         let mut file_to_nodes: HashMap<String, Vec<u32>> = HashMap::new();
@@ -337,12 +401,14 @@ impl MmapGraphStore {
                     idx, node_offset, mmap.len()
                 );
             }
-            // SAFETY: Reading fixed-size DiskNode from mmap at verified offset
+            // SAFETY: We just verified node_offset + DISK_NODE_SIZE <= mmap.len(), so the
+            // read is fully within bounds. DiskNode is repr(C, packed) and Copy, so
+            // read_unaligned correctly handles the packed layout without alignment issues.
             let disk_node: DiskNode = unsafe {
                 std::ptr::read_unaligned(mmap[node_offset..].as_ptr() as *const DiskNode)
             };
-            
-            // Read qualified name (with bounds check #12)
+
+            // Read qualified name (with bounds check)
             let qn_start = strings_offset + disk_node.qn_offset as usize;
             let qn_end = qn_start + disk_node.qn_len as usize;
             if qn_end > mmap.len() {
@@ -356,16 +422,26 @@ impl MmapGraphStore {
             if disk_node.kind == 1 || disk_node.kind == 2 {
                 let file_start = strings_offset + disk_node.file_offset as usize;
                 let file_end = file_start + disk_node.file_len as usize;
+                if file_end > mmap.len() {
+                    anyhow::bail!(
+                        "Corrupt mmap store: file path string offset {} exceeds file size {}",
+                        file_end,
+                        mmap.len()
+                    );
+                }
                 let file_path = std::str::from_utf8(&mmap[file_start..file_end])?.to_string();
-                
+
                 file_to_nodes.entry(file_path).or_default().push(idx);
             }
         }
         
         // Drop the read-only mmap, reopen as mutable for potential updates
         drop(mmap);
-        let file = OpenOptions::new().read(true).write(true).open(path)?;
-        // SAFETY: File exists, mmap is writable for appending new data
+        let file = OpenOptions::new().read(true).write(true).open(path)
+            .with_context(|| format!("Failed to reopen mmap file for writing: {}", path.display()))?;
+        // SAFETY: The read-only mapping has been dropped. We reopen the same validated file
+        // as a mutable mapping. The file was fully validated above (header, offsets, sizes).
+        // No other mapping of this file exists at this point.
         let mmap = unsafe { MmapOptions::new().map_mut(&file)? };
         
         Ok(Self {
@@ -413,11 +489,18 @@ impl MmapGraphStore {
         }
         
         let node_offset = HEADER_SIZE + (idx as usize) * DISK_NODE_SIZE;
-        // SAFETY: Reading fixed-size DiskNode from mmap at validated offset
+
+        // Bounds check: ensure the full DiskNode fits within the mmap region
+        if node_offset + DISK_NODE_SIZE > mmap.len() {
+            return None;
+        }
+
+        // SAFETY: We verified idx < node_count and that node_offset + DISK_NODE_SIZE <= mmap.len().
+        // DiskNode is repr(C, packed) and Copy, so read_unaligned is appropriate for packed structs.
         let disk_node: DiskNode = unsafe {
             std::ptr::read_unaligned(mmap[node_offset..].as_ptr() as *const DiskNode)
         };
-        
+
         // Read strings
         let name = self.read_string(disk_node.name_offset, disk_node.name_len)?;
         let qn = self.read_string(disk_node.qn_offset, disk_node.qn_len)?;
@@ -479,7 +562,14 @@ impl MmapGraphStore {
         }
         
         let edge_offset = self.edges_offset + (idx as usize) * DISK_EDGE_SIZE;
-        // SAFETY: Reading fixed-size DiskEdge from mmap at validated offset
+
+        // Bounds check: ensure the full DiskEdge fits within the mmap region
+        if edge_offset + DISK_EDGE_SIZE > mmap.len() {
+            return None;
+        }
+
+        // SAFETY: We verified idx < edge_count and that edge_offset + DISK_EDGE_SIZE <= mmap.len().
+        // DiskEdge is repr(C, packed) and Copy, so read_unaligned is appropriate for packed structs.
         let disk_edge: DiskEdge = unsafe {
             std::ptr::read_unaligned(mmap[edge_offset..].as_ptr() as *const DiskEdge)
         };
@@ -745,11 +835,6 @@ impl GraphQuery for MmapGraphStore {
     fn find_import_cycles(&self) -> Vec<Vec<String>> {
         // For mmap mode, skip cycle detection (expensive full scan)
         // Return empty - caller should use simpler heuristics
-        Vec::new()
-    }
-    
-    fn find_call_cycles(&self) -> Vec<Vec<String>> {
-        // Skip for mmap mode
         Vec::new()
     }
     

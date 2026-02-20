@@ -6,6 +6,7 @@
 pub mod compact_builder;
 pub mod compact_store;
 pub mod interner;
+pub mod mmap_store;
 pub mod store;
 pub mod store_models;
 pub mod store_query;
