@@ -72,7 +72,7 @@ pub struct MetricDistribution {
 
 impl MetricDistribution {
     /// Compute distribution from a sorted list of values.
-    pub fn from_values(values: &mut Vec<f64>) -> Self {
+    pub fn from_values(values: &mut [f64]) -> Self {
         if values.is_empty() {
             return Self {
                 count: 0,

@@ -685,14 +685,13 @@ pub fn is_line_suppressed_for(line: &str, prev_line: Option<&str>, detector_name
     if let Some(prev) = prev_line {
         let trimmed = prev.trim();
         let trimmed_lower = trimmed.to_lowercase();
-        if trimmed_lower.starts_with('#')
+        if (trimmed_lower.starts_with('#')
             || trimmed_lower.starts_with("//")
             || trimmed_lower.starts_with("--")
-            || trimmed_lower.starts_with("/*")
+            || trimmed_lower.starts_with("/*"))
+            && check_suppression(prev, detector_name)
         {
-            if check_suppression(prev, detector_name) {
-                return true;
-            }
+            return true;
         }
     }
 

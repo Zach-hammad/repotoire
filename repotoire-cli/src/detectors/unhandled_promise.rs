@@ -261,15 +261,14 @@ impl Detector for UnhandledPromiseDetector {
 
                         // Only flag .json() if it's clearly promise-chained (e.g. fetch().json())
                         // Standalone .json() calls (like JSON parsing) should not be flagged
-                        if !has_promise
+                        if (!has_promise
                             || (line.contains(".json()")
                                 && !line.contains("fetch(")
                                 && !line.contains(".then(")
-                                && !line.contains("axios."))
+                                && !line.contains("axios.")))
+                            && !calls_async
                         {
-                            if !calls_async {
-                                continue;
-                            }
+                            continue;
                         }
 
                         // Analyze context

@@ -431,7 +431,7 @@ pub fn handle_list_detectors(state: &HandlerState, _args: &Value) -> Result<Valu
     // Use a confident dummy model so SurprisalDetector appears in the list
     let mut dummy_model = crate::calibrate::NgramModel::new();
     for _ in 0..800 {
-        dummy_model.train_on_tokens(&vec!["let".into(), "<ID>".into(), "=".into(),
+        dummy_model.train_on_tokens(&["let".into(), "<ID>".into(), "=".into(),
             "<ID>".into(), ";".into(), "<EOL>".into(), "fn".into(), "<ID>".into(),
             "(". into(), ")".into()]);
     }

@@ -96,49 +96,44 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
     let mut total_catches = 0u32;
 
     // Main event loop
-    loop {
-        match rx.recv() {
-            Ok(events) => {
-                // Collect unique changed source files
-                let changed_files: HashSet<PathBuf> = events
-                    .iter()
-                    .flat_map(|event| event.paths.iter())
-                    .filter(|p| {
-                        p.extension()
-                            .and_then(|e| e.to_str())
-                            .map_or(false, |ext| WATCH_EXTENSIONS.contains(&ext))
-                            && !is_ignored_path(p, &repo_path)
-                    })
-                    .cloned()
-                    .collect();
+    while let Ok(events) = rx.recv() {
+        // Collect unique changed source files
+        let changed_files: HashSet<PathBuf> = events
+            .iter()
+            .flat_map(|event| event.paths.iter())
+            .filter(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|ext| WATCH_EXTENSIONS.contains(&ext))
+                    && !is_ignored_path(p, &repo_path)
+            })
+            .cloned()
+            .collect();
 
-                if changed_files.is_empty() {
-                    continue;
-                }
+        if changed_files.is_empty() {
+            continue;
+        }
 
-                // Invalidate stale cache entries for changed files before re-analyzing
-                let changed_refs: Vec<&Path> =
-                    changed_files.iter().map(|p| p.as_path()).collect();
-                cache_coordinator.invalidate_files(&changed_refs);
+        // Invalidate stale cache entries for changed files before re-analyzing
+        let changed_refs: Vec<&Path> =
+            changed_files.iter().map(|p| p.as_path()).collect();
+        cache_coordinator.invalidate_files(&changed_refs);
 
-                // Analyze each changed file
-                for file_path in &changed_files {
-                    let findings = analyze_single_file(
-                        file_path,
-                        &repo_path,
-                        &project_config,
-                        style_profile.as_ref(),
-                        ngram_model.clone(),
-                        relaxed,
-                    );
+        // Analyze each changed file
+        for file_path in &changed_files {
+            let findings = analyze_single_file(
+                file_path,
+                &repo_path,
+                &project_config,
+                style_profile.as_ref(),
+                ngram_model.clone(),
+                relaxed,
+            );
 
-                    let prev = previous_findings.get(file_path).cloned().unwrap_or_default();
-                    let catches = display_file_diff(file_path, &repo_path, &findings, &prev, no_emoji, quiet);
-                    total_catches += catches;
-                    previous_findings.insert(file_path.clone(), findings);
-                }
-            }
-            Err(_) => break,
+            let prev = previous_findings.get(file_path).cloned().unwrap_or_default();
+            let catches = display_file_diff(file_path, &repo_path, &findings, &prev, no_emoji, quiet);
+            total_catches += catches;
+            previous_findings.insert(file_path.clone(), findings);
         }
     }
 

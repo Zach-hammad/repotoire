@@ -51,7 +51,7 @@ impl ArchitecturalBottleneckDetector {
         let high_complexity_threshold = config.get_option_or(
             "high_complexity_threshold",
             config.adaptive.warn_usize(MetricKind::Complexity, 20) as u32,
-        ) as u32;
+        );
         let min_fan_in = config.get_option_or(
             "min_fan_in",
             config.adaptive.warn_usize(MetricKind::FanIn, 15),

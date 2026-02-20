@@ -14,7 +14,7 @@ const MAX_CEILING_MULTIPLIER: f64 = 5.0;
 
 /// Resolves thresholds from adaptive profile or defaults.
 /// Detectors call `resolve.warn(MetricKind::X, default)` to get the right value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ThresholdResolver {
     profile: Option<StyleProfile>,
 }
@@ -65,7 +65,7 @@ impl ThresholdResolver {
     pub fn source(&self, kind: MetricKind) -> &'static str {
         match &self.profile {
             Some(p) => {
-                if p.get(kind).map_or(false, |d| d.confident) {
+                if p.get(kind).is_some_and(|d| d.confident) {
                     "adaptive"
                 } else {
                     "default"
@@ -159,8 +159,3 @@ impl ThresholdExplanation {
     }
 }
 
-impl Default for ThresholdResolver {
-    fn default() -> Self {
-        Self { profile: None }
-    }
-}
