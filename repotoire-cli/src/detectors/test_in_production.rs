@@ -38,7 +38,7 @@ fn debug_pattern() -> &'static Regex {
         Regex::new(
             r"(?i)(DEBUG\s*=\s*True|if\s+__debug__|if\s+DEBUG|#\s*TODO.*test|#\s*FIXME.*test)",
         )
-        .unwrap()
+        .expect("valid regex")
     })
 }
 

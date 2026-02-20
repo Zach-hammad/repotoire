@@ -33,7 +33,7 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             SecretPattern {
                 name: "AWS Secret Access Key",
                 pattern: Regex::new(r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{40}")
-                    .unwrap(),
+                    .expect("valid regex"),
                 severity: Severity::Critical,
             },
             // GitHub
@@ -52,14 +52,14 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             SecretPattern {
                 name: "Generic Secret",
                 pattern: Regex::new(r"(?i)(secret|password|passwd|pwd)\s*[=:]\s*[^\s]{8,}")
-                    .unwrap(),
+                    .expect("valid regex"),
                 severity: Severity::High,
             },
             // Private keys
             SecretPattern {
                 name: "Private Key",
                 pattern: Regex::new(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")
-                    .unwrap(),
+                    .expect("valid regex"),
                 severity: Severity::Critical,
             },
             // Slack

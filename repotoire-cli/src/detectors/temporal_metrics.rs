@@ -135,10 +135,9 @@ impl<'a> TemporalMetrics<'a> {
 
         // Calculate trend statistics
         let trend_direction = Self::calculate_trend_direction(&values);
-        let change_pct = if values[0] != 0.0 {
-            ((values.last().expect("non-empty values") - values[0]) / values[0]) * 100.0
-        } else {
-            0.0
+        let change_pct = match (values.first(), values.last()) {
+            (Some(&first), Some(&last)) if first != 0.0 => ((last - first) / first) * 100.0,
+            _ => 0.0,
         };
         let velocity = Self::calculate_velocity(&values, &timestamps);
 
@@ -361,12 +360,15 @@ impl<'a> TemporalMetrics<'a> {
     }
 
     fn calculate_velocity(values: &[f64], timestamps: &[i64]) -> f64 {
-        if values.len() < 2 || timestamps.len() < 2 {
+        let (Some(&first_val), Some(&last_val)) = (values.first(), values.last()) else {
             return 0.0;
-        }
+        };
+        let (Some(&first_ts), Some(&last_ts)) = (timestamps.first(), timestamps.last()) else {
+            return 0.0;
+        };
 
-        let total_change = values.last().expect("non-empty values") - values[0];
-        let time_span_days = (*timestamps.last().expect("non-empty timestamps") - timestamps[0]) as f64 / 86400.0;
+        let total_change = last_val - first_val;
+        let time_span_days = (last_ts - first_ts) as f64 / 86400.0;
 
         if time_span_days == 0.0 {
             0.0

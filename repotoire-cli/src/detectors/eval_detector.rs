@@ -107,27 +107,27 @@ impl EvalDetector {
         let variable_arg_pattern = Regex::new(&format!(
             r"({func_names})\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*[,)]"
         ))
-        .expect("Invalid regex");
+        .expect("valid regex: pattern built from hardcoded constants");
 
         let fstring_arg_pattern =
-            Regex::new(&format!(r#"({func_names})\s*\(\s*f["']"#)).expect("Invalid regex");
+            Regex::new(&format!(r#"({func_names})\s*\(\s*f["']"#)).expect("valid regex: pattern built from hardcoded constants");
 
         let concat_arg_pattern =
-            Regex::new(&format!(r"({func_names})\s*\([^)]*\+")).expect("Invalid regex");
+            Regex::new(&format!(r"({func_names})\s*\([^)]*\+")).expect("valid regex: pattern built from hardcoded constants");
 
         let format_arg_pattern =
-            Regex::new(&format!(r"({func_names})\s*\([^)]*\.format\s*\(")).expect("Invalid regex");
+            Regex::new(&format!(r"({func_names})\s*\([^)]*\.format\s*\(")).expect("valid regex: pattern built from hardcoded constants");
 
         let percent_arg_pattern =
-            Regex::new(&format!(r"({func_names})\s*\([^)]*%\s*")).expect("Invalid regex");
+            Regex::new(&format!(r"({func_names})\s*\([^)]*%\s*")).expect("valid regex: pattern built from hardcoded constants");
 
         let shell_true_pattern =
             Regex::new(r"(?i)\b(call|run|Popen|check_output|check_call)\s*\([^)]*shell\s*=\s*True")
-                .expect("Invalid regex");
+                .expect("valid regex: pattern built from hardcoded constants");
 
         let literal_string_pattern =
             Regex::new(&format!(r#"\b({func_names})\s*\(\s*["'][^"']*["']\s*[,)]"#))
-                .expect("Invalid regex");
+                .expect("valid regex: pattern built from hardcoded constants");
 
         let compiled_globs: Vec<Regex> = exclude_patterns
             .iter()

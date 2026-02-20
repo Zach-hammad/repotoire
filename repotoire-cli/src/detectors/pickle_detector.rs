@@ -80,7 +80,7 @@ impl PickleDeserializationDetector {
         // Compile patterns
         let pickle_load_pattern =
             Regex::new(r"(?i)\b(?:pickle|cPickle|_pickle|dill|cloudpickle)\.(?:load|loads)\s*\(")
-                .unwrap();
+                .expect("valid regex");
 
         let torch_load_pattern = Regex::new(r"(?i)\btorch\.load\s*\([^)]*\)").expect("valid regex");
 

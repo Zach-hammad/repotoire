@@ -244,13 +244,13 @@ impl Detector for DeepNestingDetector {
                     };
 
                     // Build smart suggestion
-                    let suggestion = if !extraction_candidates.is_empty() {
+                    let suggestion = if let Some(first_candidate) = extraction_candidates.first() {
                         format!(
                             "This function already has helpers like `{}`. Consider:\n\
                              1. Extract more nested blocks into similar helpers\n\
                              2. Use guard clauses (early returns) to reduce nesting\n\
                              3. Replace nested ifs with switch/match",
-                            extraction_candidates.first().expect("has candidates")
+                            first_candidate
                         )
                     } else if max_depth > 6 {
                         "Severely nested code. Apply multiple techniques:\n\
