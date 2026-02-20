@@ -167,6 +167,11 @@ impl Detector for BroadExceptionDetector {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if broad_except().is_match(line) {
                         // Skip if it's re-raising
                         let next_lines = lines

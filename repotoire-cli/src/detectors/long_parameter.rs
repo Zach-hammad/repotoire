@@ -189,7 +189,7 @@ impl LongParameterListDetector {
 
         // Add parameters as fields (first 6)
         for p in params.iter().take(6) {
-            lines.push(format!("    {}: Any  # TODO: add type", p));
+            lines.push(format!("    {}: Any", p));
         }
         if params.len() > 6 {
             lines.push(format!("    # ... and {} more fields", params.len() - 6));

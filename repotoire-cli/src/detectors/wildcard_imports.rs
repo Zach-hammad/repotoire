@@ -105,7 +105,13 @@ impl Detector for WildcardImportsDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if wildcard_pattern().is_match(line) {
                         // Try to extract module name and find used symbols
                         let module_name = Self::extract_module_name(line);

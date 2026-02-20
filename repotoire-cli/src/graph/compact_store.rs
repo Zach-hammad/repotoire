@@ -127,10 +127,10 @@ impl CompactGraphStore {
         self.nodes.push(node);
 
         // Add to petgraph
-        let mut graph = self.graph.write().unwrap();
+        let mut graph = self.graph.write().expect("compact store lock poisoned");
         let pg_idx = graph.add_node(idx);
-        self.petgraph_to_idx.write().unwrap().insert(pg_idx, idx);
-        self.idx_to_petgraph.write().unwrap().insert(idx, pg_idx);
+        self.petgraph_to_idx.write().expect("compact store lock poisoned").insert(pg_idx, idx);
+        self.idx_to_petgraph.write().expect("compact store lock poisoned").insert(idx, pg_idx);
 
         idx
     }
@@ -159,8 +159,8 @@ impl CompactGraphStore {
             self.qn_to_index.get(&edge.source),
             self.qn_to_index.get(&edge.target),
         ) {
-            let mut graph = self.graph.write().unwrap();
-            let idx_to_pg = self.idx_to_petgraph.read().unwrap();
+            let mut graph = self.graph.write().expect("compact store lock poisoned");
+            let idx_to_pg = self.idx_to_petgraph.read().expect("compact store lock poisoned");
 
             if let (Some(&src_pg), Some(&dst_pg)) =
                 (idx_to_pg.get(&src_idx), idx_to_pg.get(&dst_idx))

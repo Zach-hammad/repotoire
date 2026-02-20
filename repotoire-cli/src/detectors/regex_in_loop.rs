@@ -183,8 +183,9 @@ impl Detector for RegexInLoopDetector {
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
+                let all_lines: Vec<&str> = content.lines().collect();
 
-                for (i, line) in content.lines().enumerate() {
+                for (i, line) in all_lines.iter().enumerate() {
                     if loop_pattern().is_match(line) {
                         in_loop = true;
                         loop_line = i + 1;
@@ -205,6 +206,11 @@ impl Detector for RegexInLoopDetector {
                             && !is_cached_regex(line)
                             && !is_cached_regex_context(&content, i)
                         {
+                            let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
+                            if crate::detectors::is_line_suppressed(line, prev_line) {
+                                continue;
+                            }
+
                             findings.push(Finding {
                                 id: String::new(),
                                 detector: "RegexInLoopDetector".to_string(),

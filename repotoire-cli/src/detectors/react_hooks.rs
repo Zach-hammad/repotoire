@@ -285,6 +285,11 @@ impl Detector for ReactHooksDetector {
 
                     // Check for hooks violations
                     if hook_call().is_match(line) {
+                        let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                        if crate::detectors::is_line_suppressed(line, prev_line) {
+                            continue;
+                        }
+
                         let is_violation = in_conditional || in_loop || in_nested_func;
 
                         if is_violation {

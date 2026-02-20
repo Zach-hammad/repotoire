@@ -162,6 +162,11 @@ impl Detector for MissingAwaitDetector {
                 .collect();
 
             for (i, line) in lines.iter().enumerate() {
+                let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                if crate::detectors::is_line_suppressed(line, prev_line) {
+                    continue;
+                }
+
                 if !Self::is_async_declaration(line) {
                     continue;
                 }

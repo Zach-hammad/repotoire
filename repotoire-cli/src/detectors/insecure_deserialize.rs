@@ -168,6 +168,11 @@ impl Detector for InsecureDeserializeDetector {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if deserialize_pattern().is_match(line) {
                         let has_user_input = line.contains("req.")
                             || line.contains("request")

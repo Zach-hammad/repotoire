@@ -316,16 +316,21 @@ impl App {
             &system_python
         };
 
+        // Convert paths to UTF-8 strings (required for Command args)
+        let ollama_script_str = ollama_script.to_string_lossy().to_string();
+        let claude_script_str = claude_script.to_string_lossy().to_string();
+        let repo_path_str = self.repo_path.to_string_lossy().to_string();
+
         // Choose the right agent based on backend
         let result = if use_ollama {
             // Use Ollama agent (local, free)
             Command::new(python)
                 .args([
-                    ollama_script.to_str().unwrap(),
+                    ollama_script_str.as_str(),
                     "--finding-json",
                     &finding_json.to_string(),
                     "--repo-path",
-                    self.repo_path.to_str().unwrap(),
+                    repo_path_str.as_str(),
                     "--model",
                     self.config.ollama_model(),
                 ])
@@ -338,11 +343,11 @@ impl App {
             // Use Claude Agent SDK script
             Command::new(python)
                 .args([
-                    claude_script.to_str().unwrap(),
+                    claude_script_str.as_str(),
                     "--finding-json",
                     &finding_json.to_string(),
                     "--repo-path",
-                    self.repo_path.to_str().unwrap(),
+                    repo_path_str.as_str(),
                 ])
                 .env("ANTHROPIC_API_KEY", &api_key)
                 .current_dir(&self.repo_path)

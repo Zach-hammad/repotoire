@@ -33,7 +33,7 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             SecretPattern {
                 name: "AWS Secret Access Key",
                 pattern: Regex::new(r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{40}")
-                    .unwrap(),
+                    .expect("valid regex"),
                 severity: Severity::Critical,
             },
             // GitHub
@@ -52,14 +52,14 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             SecretPattern {
                 name: "Generic Secret",
                 pattern: Regex::new(r"(?i)(secret|password|passwd|pwd)\s*[=:]\s*[^\s]{8,}")
-                    .unwrap(),
+                    .expect("valid regex"),
                 severity: Severity::High,
             },
             // Private keys
             SecretPattern {
                 name: "Private Key",
                 pattern: Regex::new(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")
-                    .unwrap(),
+                    .expect("valid regex"),
                 severity: Severity::Critical,
             },
             // Slack
@@ -191,7 +191,13 @@ impl SecretDetector {
             return findings;
         }
 
-        for (line_num, line) in content.lines().enumerate() {
+        let lines: Vec<&str> = content.lines().collect();
+        for (line_num, line) in lines.iter().enumerate() {
+            let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+            if crate::detectors::is_line_suppressed(line, prev_line) {
+                continue;
+            }
+
             // Skip comments that look like documentation
             let trimmed = line.trim();
             if trimmed.starts_with("//") && trimmed.contains("example") {

@@ -1,0 +1,3184 @@
+{
+  "overall_score": 98.9216362173963,
+  "grade": "A+",
+  "structure_score": 98.45455590026427,
+  "quality_score": 98.79351947604275,
+  "architecture_score": 99.67252671492588,
+  "findings": [
+    {
+      "id": "2c498b3cff9c5abf",
+      "detector": "InfluentialCodeDetector",
+      "severity": "high",
+      "title": "Influential Code: detect (architectural hub)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'detect' influences 16 dependents with complexity 26 and 154 LOC. High-impact code.\n\n**Metrics:**\n- Callers (fan-in): 16\n- Complexity: 26\n- Lines of code: 154\n- Betweenness centrality: 0.0793",
+      "affected_files": [
+        "detectors/long_parameter.rs"
+      ],
+      "line_start": 360,
+      "line_end": 513,
+      "suggested_fix": "This is a critical hub. Consider:\n- Ensuring comprehensive test coverage\n- Adding monitoring and observability\n- Documenting thoroughly",
+      "estimated_effort": "Large (4+ hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Changes to influential code have wide-reaching effects across the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "8d92f078409574a2",
+      "detector": "Consensus[ShotgunSurgeryDetector+CoreUtilityDetector]",
+      "severity": "high",
+      "title": "High-Impact Function: find [2 detectors]",
+      "description": "[COMPOUND: 2 co-located issues] Function 'find' is called from 124 places across 8 modules.\n\nChanges will have wide-reaching effects.\n\n**Consensus Analysis**\n- 2 detectors agree on this issue\n- Confidence: 100%\n- Detectors: ShotgunSurgeryDetector, CoreUtilityDetector",
+      "affected_files": [
+        "detectors/ai_boilerplate.rs"
+      ],
+      "line_start": 135,
+      "line_end": 140,
+      "suggested_fix": "[ShotgunSurgeryDetector] Consider creating wrapper functions or using dependency injection\n\n[CoreUtilityDetector] Ensure comprehensive test coverage for this core function",
+      "estimated_effort": "Medium (2-4 hours)",
+      "category": "coupling",
+      "cwe_id": null,
+      "why_it_matters": "High-impact functions require careful change management",
+      "confidence": 1.0
+    },
+    {
+      "id": "be4df5ae1c3fe8ba",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/watch.rs"
+      ],
+      "line_start": 64,
+      "line_end": 64,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "actual_value": "5",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "ad849e5f4b1c86a5",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 7 levels",
+      "description": "7 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 7 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/calibrate/ngram.rs"
+      ],
+      "line_start": 97,
+      "line_end": 97,
+      "suggested_fix": "Severely nested code. Apply multiple techniques:\n1. Guard clauses: `if (!condition) return;`\n2. Extract Method: pull nested blocks into functions\n3. Replace conditionals with polymorphism\n4. Use functional patterns (map/filter instead of nested loops)",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "actual_value": "7"
+      }
+    },
+    {
+      "id": "4e9df37af8d5e6d2",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1101 lines",
+      "description": "File exceeds recommended size (1101 lines > 800 threshold).\n\n**Analysis:**\n📏 1101 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1101 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/ssa_flow.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1101,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "800",
+        "actual_value": "1101",
+        "effective_threshold": "800",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "e5fa51b552dde607",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/config/project_config.rs"
+      ],
+      "line_start": 409,
+      "line_end": 409,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "6",
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "2b0f45956237b6d8",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/analyze/files.rs"
+      ],
+      "line_start": 188,
+      "line_end": 188,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "5",
+        "threshold_source": "adaptive",
+        "default_threshold": "4",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "35de9b2068663427",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/streaming_builder.rs"
+      ],
+      "line_start": 96,
+      "line_end": 96,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "default_threshold": "4",
+        "effective_threshold": "4",
+        "actual_value": "6"
+      }
+    },
+    {
+      "id": "b15936cdfbe41b50",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/unified.rs"
+      ],
+      "line_start": 69,
+      "line_end": 69,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "actual_value": "6",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "e66778c08458f554",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1192 lines",
+      "description": "File exceeds recommended size (1192 lines > 800 threshold).\n\n**Analysis:**\n📏 1192 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1192 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/taint.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1192,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "800",
+        "actual_value": "1192",
+        "default_threshold": "800",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "6dfc28b0f0609c90",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/history.rs"
+      ],
+      "line_start": 247,
+      "line_end": 247,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "4",
+        "actual_value": "6",
+        "threshold_source": "adaptive",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "56d94a0ce85dfc90",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/scoring/graph_scorer.rs"
+      ],
+      "line_start": 55,
+      "line_end": 55,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "actual_value": "6",
+        "default_threshold": "4",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "6737d5507d1f9b11",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 7 levels",
+      "description": "7 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 7 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/analyze/graph.rs"
+      ],
+      "line_start": 486,
+      "line_end": 486,
+      "suggested_fix": "Severely nested code. Apply multiple techniques:\n1. Guard clauses: `if (!condition) return;`\n2. Extract Method: pull nested blocks into functions\n3. Replace conditionals with polymorphism\n4. Use functional patterns (map/filter instead of nested loops)",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "actual_value": "7"
+      }
+    },
+    {
+      "id": "2e4376554e865909",
+      "detector": "SingleCharNamesDetector",
+      "severity": "medium",
+      "title": "Single-character variable: v",
+      "description": "Single-letter names reduce code readability.\n\n⚠️ Module-level single-char variable.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/calibrate/ngram.rs"
+      ],
+      "line_start": 163,
+      "line_end": 163,
+      "suggested_fix": "Consider: `count`, `length`, or `size` instead of `v`",
+      "estimated_effort": "2 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "Single-letter variables make code harder to understand, especially when debugging or reviewing. They force readers to track variable purpose through context.",
+      "confidence": null
+    },
+    {
+      "id": "ee8319d792711935",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/config/user_config.rs"
+      ],
+      "line_start": 48,
+      "line_end": 48,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "5",
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "ad1ea559b4c5dcf8",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 7 levels",
+      "description": "[COMPOUND: 2 co-located issues] 7 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 7 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/ai/prompts.rs"
+      ],
+      "line_start": 259,
+      "line_end": 259,
+      "suggested_fix": "Severely nested code. Apply multiple techniques:\n1. Guard clauses: `if (!condition) return;`\n2. Extract Method: pull nested blocks into functions\n3. Replace conditionals with polymorphism\n4. Use functional patterns (map/filter instead of nested loops)",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "default_threshold": "4",
+        "effective_threshold": "4",
+        "actual_value": "7",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "5383f19a72a7a2b2",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/calibrate/resolver.rs"
+      ],
+      "line_start": 68,
+      "line_end": 68,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "actual_value": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "66c6913c39dc4df2",
+      "detector": "SurprisalDetector",
+      "severity": "medium",
+      "title": "Unusual code pattern in `get_available_tools_full`",
+      "description": "Function `get_available_tools_full` has unusually high surprisal (3.2 bits, project mean: 1.8, z-score: 3.5).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (4.9 bits):\n```\nif has_ai || is_pro {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/mcp/tools.rs"
+      ],
+      "line_start": 224,
+      "line_end": 239,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.0% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_std": "0.40",
+        "threshold_source": "predictive",
+        "z_score": "3.47",
+        "surprisal_bits": "3.18",
+        "baseline_mean": "1.78"
+      }
+    },
+    {
+      "id": "15208ae52e92145f",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 200,
+      "line_end": 200,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "actual_value": "5",
+        "effective_threshold": "4",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "1c06e3b635565d31",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/clean.rs"
+      ],
+      "line_start": 62,
+      "line_end": 62,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "5",
+        "default_threshold": "4",
+        "threshold_source": "adaptive",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "a19e11922f029f84",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/analyze/output.rs"
+      ],
+      "line_start": 345,
+      "line_end": 345,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "actual_value": "5",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "7f528b5252bc906a",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1041 lines",
+      "description": "File exceeds recommended size (1041 lines > 800 threshold).\n\n**Analysis:**\n📏 1041 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1041 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/analyze/graph.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1041,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "800",
+        "threshold_source": "adaptive",
+        "actual_value": "1041",
+        "effective_threshold": "800"
+      }
+    },
+    {
+      "id": "fac2daf223a31270",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/analyze/detect.rs"
+      ],
+      "line_start": 70,
+      "line_end": 70,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "default_threshold": "4",
+        "actual_value": "5"
+      }
+    },
+    {
+      "id": "7aec636fb8a501ad",
+      "detector": "SingleCharNamesDetector",
+      "severity": "medium",
+      "title": "Single-character variable: s",
+      "description": "Single-letter names reduce code readability.\n\n⚠️ Module-level single-char variable.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/calibrate/ngram.rs"
+      ],
+      "line_start": 212,
+      "line_end": 212,
+      "suggested_fix": "Use a descriptive name that explains the variable's purpose instead of `s`.\nGood names answer: What does this represent?",
+      "estimated_effort": "2 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "Single-letter variables make code harder to understand, especially when debugging or reviewing. They force readers to track variable purpose through context.",
+      "confidence": null
+    },
+    {
+      "id": "839f21db1f59eadf",
+      "detector": "InfluentialCodeDetector",
+      "severity": "medium",
+      "title": "Influential Code: analyze_intra_function",
+      "description": "[COMPOUND: 2 co-located issues] Function 'analyze_intra_function' influences 9 dependents with complexity 20 and 158 LOC. High-impact code.\n\n**Metrics:**\n- Callers (fan-in): 9\n- Complexity: 20\n- Lines of code: 158\n- Betweenness centrality: 0.0460",
+      "affected_files": [
+        "detectors/ssa_flow.rs"
+      ],
+      "line_start": 91,
+      "line_end": 248,
+      "suggested_fix": "Consider refactoring to reduce complexity while maintaining interface",
+      "estimated_effort": "Large (4+ hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Changes to influential code have wide-reaching effects across the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "ffcac099126ec7fb",
+      "detector": "SingleCharNamesDetector",
+      "severity": "medium",
+      "title": "Single-character variable: p",
+      "description": "Single-letter names reduce code readability.\n\n⚠️ Module-level single-char variable.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/surprisal.rs"
+      ],
+      "line_start": 268,
+      "line_end": 268,
+      "suggested_fix": "Use a descriptive name that explains the variable's purpose instead of `p`.\nGood names answer: What does this represent?",
+      "estimated_effort": "2 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "Single-letter variables make code harder to understand, especially when debugging or reviewing. They force readers to track variable purpose through context.",
+      "confidence": null
+    },
+    {
+      "id": "8ef75956821c2983",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "[COMPOUND: 2 co-located issues] 5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/reporters/sarif.rs"
+      ],
+      "line_start": 242,
+      "line_end": 242,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "actual_value": "5",
+        "threshold_source": "adaptive",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "a945fe3de9c56848",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/mmap_store.rs"
+      ],
+      "line_start": 769,
+      "line_end": 769,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "default_threshold": "4",
+        "actual_value": "6"
+      }
+    },
+    {
+      "id": "30735605d45d6b03",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Spike: handle_key_event",
+      "description": "Function 'handle_key_event' has complexity 21 (avg: 4.8, z-score: 2.0). Possible AI-generated code.",
+      "affected_files": [
+        "cli/tui.rs"
+      ],
+      "line_start": 492,
+      "line_end": 537,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "ai_watchdog",
+      "cwe_id": null,
+      "why_it_matters": "Complexity spikes often indicate code that needs review",
+      "confidence": null
+    },
+    {
+      "id": "7c74ad642545a839",
+      "detector": "InfluentialCodeDetector",
+      "severity": "medium",
+      "title": "Influential Code: create_finding",
+      "description": "Function 'create_finding' influences 8 dependents with complexity 10 and 100 LOC. High-impact code.\n\n**Metrics:**\n- Callers (fan-in): 8\n- Complexity: 10\n- Lines of code: 100\n- Betweenness centrality: 0.0012",
+      "affected_files": [
+        "detectors/unsafe_template.rs"
+      ],
+      "line_start": 392,
+      "line_end": 491,
+      "suggested_fix": "Consider refactoring to reduce complexity while maintaining interface",
+      "estimated_effort": "Large (4+ hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Changes to influential code have wide-reaching effects across the codebase.",
+      "confidence": null
+    },
+    {
+      "id": "e03df5f038d6ccc5",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 7 levels",
+      "description": "7 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 7 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/mod.rs"
+      ],
+      "line_start": 541,
+      "line_end": 541,
+      "suggested_fix": "Severely nested code. Apply multiple techniques:\n1. Guard clauses: `if (!condition) return;`\n2. Extract Method: pull nested blocks into functions\n3. Replace conditionals with polymorphism\n4. Use functional patterns (map/filter instead of nested loops)",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "7",
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "747b025a8f6854e8",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/ai/fix_generator.rs"
+      ],
+      "line_start": 75,
+      "line_end": 75,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "actual_value": "5",
+        "threshold_source": "adaptive",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "d76fa72412d273bb",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "[COMPOUND: 2 co-located issues] 5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/reporters/text.rs"
+      ],
+      "line_start": 113,
+      "line_end": 113,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "actual_value": "5",
+        "default_threshold": "4",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "ed293caa5f04db2d",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/calibrate/collector.rs"
+      ],
+      "line_start": 135,
+      "line_end": 135,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "actual_value": "5",
+        "default_threshold": "4",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "5e4a6b2b19516d94",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1221 lines",
+      "description": "File exceeds recommended size (1221 lines > 800 threshold).\n\n**Analysis:**\n📏 1221 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1221 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/typescript.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1221,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "1221",
+        "threshold_source": "adaptive",
+        "default_threshold": "800",
+        "effective_threshold": "800"
+      }
+    },
+    {
+      "id": "9e520c00c8621bca",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1408 lines",
+      "description": "File exceeds recommended size (1408 lines > 800 threshold).\n\n**Analysis:**\n📏 1408 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1408 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/sql_injection.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1408,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "default_threshold": "800",
+        "actual_value": "1408",
+        "effective_threshold": "800"
+      }
+    },
+    {
+      "id": "c682f665db7008ee",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/fixes/mod.rs"
+      ],
+      "line_start": 232,
+      "line_end": 232,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "actual_value": "6",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "225acbf5433457de",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/analyze/parse.rs"
+      ],
+      "line_start": 192,
+      "line_end": 192,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "6",
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "dbe01cc21eb607ec",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Dead function: system_prompt",
+      "description": "[COMPOUND: 2 co-located issues] Function 'system_prompt' has **zero callers** in the codebase.\n\nThis function is never called and may be dead code that can be removed.",
+      "affected_files": [
+        "ai/prompts.rs"
+      ],
+      "line_start": 27,
+      "line_end": 55,
+      "suggested_fix": "Options:\n1. Remove the dead function\n2. If it's an entry point, add it to exports or ensure it's registered\n3. If it's a callback, ensure it's passed to the caller",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Dead functions add maintenance burden without providing value. They can confuse developers and increase cognitive load.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "9a534f41fe0423ed",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "[COMPOUND: 2 co-located issues] 5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/graph.rs"
+      ],
+      "line_start": 40,
+      "line_end": 40,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "default_threshold": "4",
+        "effective_threshold": "4",
+        "actual_value": "5"
+      }
+    },
+    {
+      "id": "baa3567d38e6c225",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/config/project_type_scoring.rs"
+      ],
+      "line_start": 367,
+      "line_end": 367,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "6",
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "ac52e498ad75337f",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/tui.rs"
+      ],
+      "line_start": 62,
+      "line_end": 62,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "actual_value": "6",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "43f55f9da1c7a064",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 7 levels",
+      "description": "7 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 7 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/fix.rs"
+      ],
+      "line_start": 715,
+      "line_end": 715,
+      "suggested_fix": "Severely nested code. Apply multiple techniques:\n1. Guard clauses: `if (!condition) return;`\n2. Extract Method: pull nested blocks into functions\n3. Replace conditionals with polymorphism\n4. Use functional patterns (map/filter instead of nested loops)",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "7",
+        "default_threshold": "4",
+        "threshold_source": "adaptive",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "825c309a3894fdeb",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "6 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 2 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/missing_await.rs"
+      ],
+      "line_start": 57,
+      "line_end": 62,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "7972d6d596aba047",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1081 lines",
+      "description": "File exceeds recommended size (1081 lines > 800 threshold).\n\n**Analysis:**\n📏 1081 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1081 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/dead_code.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1081,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "default_threshold": "800",
+        "effective_threshold": "800",
+        "actual_value": "1081"
+      }
+    },
+    {
+      "id": "dc84bd0f756a1629",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1203 lines",
+      "description": "File exceeds recommended size (1203 lines > 800 threshold).\n\n**Analysis:**\n📏 1203 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1203 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/context_hmm.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1203,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "800",
+        "actual_value": "1203",
+        "threshold_source": "adaptive",
+        "default_threshold": "800"
+      }
+    },
+    {
+      "id": "38495ba7eb0ce3b0",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "[COMPOUND: 2 co-located issues] 6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/mcp/server.rs"
+      ],
+      "line_start": 68,
+      "line_end": 68,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "actual_value": "6",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "c6c424d70f9e3e8c",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "[COMPOUND: 2 co-located issues] 5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/ai/verify.rs"
+      ],
+      "line_start": 64,
+      "line_end": 64,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "actual_value": "5",
+        "default_threshold": "4",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "e61177ae2fd24c3c",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/analyze/mod.rs"
+      ],
+      "line_start": 197,
+      "line_end": 197,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "4",
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "actual_value": "5"
+      }
+    },
+    {
+      "id": "342b35bbd61e0d9e",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "[COMPOUND: 2 co-located issues] 5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/classifier/train.rs"
+      ],
+      "line_start": 131,
+      "line_end": 131,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "actual_value": "5",
+        "default_threshold": "4",
+        "threshold_source": "adaptive",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "2d9b5ea8591f4260",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/enrichment.rs"
+      ],
+      "line_start": 156,
+      "line_end": 156,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "6",
+        "threshold_source": "adaptive",
+        "default_threshold": "4",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "22c92fb517cbc1b1",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/classifier/model.rs"
+      ],
+      "line_start": 159,
+      "line_end": 159,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "threshold_source": "adaptive",
+        "actual_value": "6"
+      }
+    },
+    {
+      "id": "994100cb10ed20af",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/status.rs"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "actual_value": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "8730028870abb218",
+      "detector": "SurprisalDetector",
+      "severity": "medium",
+      "title": "Unusual code pattern in `fix_guidance`",
+      "description": "Function `fix_guidance` has unusually high surprisal (2.9 bits, project mean: 1.8, z-score: 2.7).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (5.9 bits):\n```\ndocumentation, return value description, and usage examples where helpful.\"\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/ai/prompts.rs"
+      ],
+      "line_start": 71,
+      "line_end": 126,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.3% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "surprisal_bits": "2.87",
+        "z_score": "2.71",
+        "baseline_std": "0.40",
+        "threshold_source": "predictive",
+        "baseline_mean": "1.78"
+      }
+    },
+    {
+      "id": "c98367931a391f25",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/compact_store.rs"
+      ],
+      "line_start": 179,
+      "line_end": 179,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "4",
+        "actual_value": "5",
+        "threshold_source": "adaptive",
+        "effective_threshold": "4"
+      }
+    },
+    {
+      "id": "4a991b22aad96565",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/mcp/handlers.rs"
+      ],
+      "line_start": 72,
+      "line_end": 72,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "5",
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "960418be22fd3e12",
+      "detector": "InfluentialCodeDetector",
+      "severity": "medium",
+      "title": "Influential Code: scan_files",
+      "description": "[COMPOUND: 2 co-located issues] Function 'scan_files' influences 9 dependents with complexity 49 and 183 LOC. High-impact code.\n\n**Metrics:**\n- Callers (fan-in): 9\n- Complexity: 49\n- Lines of code: 183\n- Betweenness centrality: 0.0248",
+      "affected_files": [
+        "detectors/insecure_tls.rs"
+      ],
+      "line_start": 182,
+      "line_end": 364,
+      "suggested_fix": "Consider refactoring to reduce complexity while maintaining interface",
+      "estimated_effort": "Large (4+ hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Changes to influential code have wide-reaching effects across the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "2f2366c23ee751ad",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "[COMPOUND: 2 co-located issues] 5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/compact_builder.rs"
+      ],
+      "line_start": 92,
+      "line_end": 92,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "actual_value": "5",
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "e075172dc4210430",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1018 lines",
+      "description": "File exceeds recommended size (1018 lines > 800 threshold).\n\n**Analysis:**\n📏 1018 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1018 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/store.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1018,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "1018",
+        "effective_threshold": "800",
+        "default_threshold": "800",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "33bcdc7b4fb5e4cf",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=4, p95=5, mean=1.3, n=2872",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/store.rs"
+      ],
+      "line_start": 598,
+      "line_end": 598,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "actual_value": "6",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "da0ee2ea75c653e4",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 808 lines",
+      "description": "[COMPOUND: 2 co-located issues] File exceeds recommended size (808 lines > 800 threshold).\n\n**Analysis:**\n📏 808 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 808 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/csharp.rs"
+      ],
+      "line_start": 1,
+      "line_end": 808,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "800",
+        "default_threshold": "800",
+        "actual_value": "808"
+      }
+    },
+    {
+      "id": "8e0021cb96848138",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 1000 lines",
+      "description": "File exceeds recommended size (1000 lines > 800 threshold).\n\n**Analysis:**\n📏 1000 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1000 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/framework_detection.rs"
+      ],
+      "line_start": 1,
+      "line_end": 1000,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "800",
+        "actual_value": "1000",
+        "default_threshold": "800"
+      }
+    },
+    {
+      "id": "34a33b7cd04fa53c",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_source`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/go.rs"
+      ],
+      "line_start": 21,
+      "line_end": 21,
+      "suggested_fix": "#[must_use] pub fn parse_source(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "59e675bf93df4463",
+      "detector": "CommentedCodeDetector",
+      "severity": "low",
+      "title": "5 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n📊 3 of 4 referenced functions missing - probably outdated",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/react_hooks.rs"
+      ],
+      "line_start": 248,
+      "line_end": 255,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "be79f0bea757a383",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `find_containing_scope`",
+      "description": "Function `find_containing_scope` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (3.6 bits):\n```\nif (range.1 - range.0) < (best_range.1 - best_range.0) {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/typescript.rs"
+      ],
+      "line_start": 809,
+      "line_end": 826,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_std": "0.40",
+        "threshold_source": "predictive",
+        "surprisal_bits": "2.64",
+        "z_score": "2.12",
+        "baseline_mean": "1.78"
+      }
+    },
+    {
+      "id": "aa56da0afd96382b",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 426,
+      "line_end": 426,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "c8ac4e0f51f308c4",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "[COMPOUND: 2 co-located issues] Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/classifier/train.rs"
+      ],
+      "line_start": 122,
+      "line_end": 122,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "b0b1963f47c018cd",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `find_containing_scope`",
+      "description": "Function `find_containing_scope` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (3.6 bits):\n```\nif (range.1 - range.0) < (best_range.1 - best_range.0) {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/rust.rs"
+      ],
+      "line_start": 512,
+      "line_end": 529,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "z_score": "2.12",
+        "surprisal_bits": "2.64",
+        "baseline_std": "0.40",
+        "baseline_mean": "1.78",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "01f491ec8c02ec2b",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/classifier/train.rs"
+      ],
+      "line_start": 236,
+      "line_end": 236,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "d5485d3d4c69bfec",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 814 lines",
+      "description": "[COMPOUND: 2 co-located issues] File exceeds recommended size (814 lines > 800 threshold).\n\n**Analysis:**\n📏 814 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 814 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/fix.rs"
+      ],
+      "line_start": 1,
+      "line_end": 814,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "actual_value": "814",
+        "threshold_source": "adaptive",
+        "default_threshold": "800",
+        "effective_threshold": "800"
+      }
+    },
+    {
+      "id": "9590453ff832c208",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `get_import_query`",
+      "description": "[COMPOUND: 2 co-located issues] Function `get_import_query` has unusually high surprisal (2.7 bits, project mean: 1.8, z-score: 2.3).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (4.5 bits):\n```\n}),\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/typescript.rs"
+      ],
+      "line_start": 158,
+      "line_end": 171,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.1% most unusual in this project.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "surprisal_bits": "2.71",
+        "z_score": "2.30",
+        "baseline_std": "0.40",
+        "baseline_mean": "1.78",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "ebc0d48dc69bd62d",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 851 lines",
+      "description": "File exceeds recommended size (851 lines > 800 threshold).\n\n**Analysis:**\n📏 851 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 851 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/unreachable_code.rs"
+      ],
+      "line_start": 1,
+      "line_end": 851,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "800",
+        "threshold_source": "adaptive",
+        "default_threshold": "800",
+        "actual_value": "851"
+      }
+    },
+    {
+      "id": "ff67c5d5742ca874",
+      "detector": "CircularDependencyDetector",
+      "severity": "low",
+      "title": "Circular dependency: 2 files",
+      "description": "Mutual dependency between: graph.rs ↔ graph.rs\n\n**Weakest link to break:** `graph.rs` → `graph.rs` (1 import)",
+      "affected_files": [
+        "cli/analyze/graph.rs",
+        "cli/graph.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `graph.rs` → `graph.rs` (weakest coupling: 1 imports)\n\nSince `graph.rs` only imports 1 symbol(s) from `graph.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": null
+    },
+    {
+      "id": "a3f56b1af86cd02c",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_source`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/c.rs"
+      ],
+      "line_start": 21,
+      "line_end": 21,
+      "suggested_fix": "#[must_use] pub fn parse_source(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "027fbc3fee0aa6e5",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/classifier/train.rs"
+      ],
+      "line_start": 237,
+      "line_end": 237,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "aa06dc4731137d32",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "[COMPOUND: 2 co-located issues] Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/enrichment.rs"
+      ],
+      "line_start": 71,
+      "line_end": 71,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "067fd7f80ed7cc81",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `FREE_TOOLS`",
+      "description": "Function `FREE_TOOLS` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (7.1 bits):\n```\n\"default\": true\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/mcp/tools.rs"
+      ],
+      "line_start": 54,
+      "line_end": 148,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "surprisal_bits": "2.64",
+        "baseline_mean": "1.78",
+        "baseline_std": "0.40",
+        "z_score": "2.12",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "18a702a02ffded86",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `handle_message`",
+      "description": "[COMPOUND: 2 co-located issues] Function `handle_message` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (5.2 bits):\n```\n\"code\": -32603,\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/mcp/server.rs"
+      ],
+      "line_start": 81,
+      "line_end": 119,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "surprisal_bits": "2.63",
+        "threshold_source": "predictive",
+        "z_score": "2.11",
+        "baseline_mean": "1.78",
+        "baseline_std": "0.40"
+      }
+    },
+    {
+      "id": "73742319efc20599",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 867 lines",
+      "description": "File exceeds recommended size (867 lines > 800 threshold).\n\n**Analysis:**\n📏 867 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 867 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/mmap_store.rs"
+      ],
+      "line_start": 1,
+      "line_end": 867,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "800",
+        "default_threshold": "800",
+        "actual_value": "867"
+      }
+    },
+    {
+      "id": "e2afa79d1a41dd60",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 419,
+      "line_end": 419,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "ebe4b7f0cd246a2a",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/go.rs"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "#[must_use] pub fn parse(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "a5017eae55d6a24f",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 827 lines",
+      "description": "File exceeds recommended size (827 lines > 800 threshold).\n\n**Analysis:**\n📏 827 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 827 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/incremental_cache.rs"
+      ],
+      "line_start": 1,
+      "line_end": 827,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "800",
+        "actual_value": "827",
+        "threshold_source": "adaptive",
+        "effective_threshold": "800"
+      }
+    },
+    {
+      "id": "a4a9c05bee4884f3",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 917 lines",
+      "description": "[COMPOUND: 2 co-located issues] File exceeds recommended size (917 lines > 800 threshold).\n\n**Analysis:**\n📏 917 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 917 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/python.rs"
+      ],
+      "line_start": 1,
+      "line_end": 917,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "actual_value": "917",
+        "default_threshold": "800",
+        "threshold_source": "adaptive",
+        "effective_threshold": "800"
+      }
+    },
+    {
+      "id": "82510e667ba00e6d",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/store.rs"
+      ],
+      "line_start": 798,
+      "line_end": 798,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "84ccf34f87118ec6",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `render`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/reporters/text.rs"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "#[must_use] pub fn render(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "63cc64a516fed6b5",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "[COMPOUND: 2 co-located issues] Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/enrichment.rs"
+      ],
+      "line_start": 76,
+      "line_end": 76,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "080bcc0044eb321e",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse`",
+      "description": "[COMPOUND: 2 co-located issues] Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/typescript.rs"
+      ],
+      "line_start": 174,
+      "line_end": 174,
+      "suggested_fix": "#[must_use] pub fn parse(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "16a73e07db3b3f37",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `build`",
+      "description": "Function `build` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (5.6 bits):\n```\n}},\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/ai/prompts.rs"
+      ],
+      "line_start": 173,
+      "line_end": 292,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.9% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "z_score": "2.07",
+        "threshold_source": "predictive",
+        "surprisal_bits": "2.61",
+        "baseline_mean": "1.78",
+        "baseline_std": "0.40"
+      }
+    },
+    {
+      "id": "bdafdbd6f1f5eb3c",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 834 lines",
+      "description": "File exceeds recommended size (834 lines > 800 threshold).\n\n**Analysis:**\n📏 834 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 834 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/mod.rs"
+      ],
+      "line_start": 1,
+      "line_end": 834,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "800",
+        "threshold_source": "adaptive",
+        "effective_threshold": "800",
+        "actual_value": "834"
+      }
+    },
+    {
+      "id": "b5f03f23bf45c44a",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse`",
+      "description": "[COMPOUND: 2 co-located issues] Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/python.rs"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "#[must_use] pub fn parse(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "4b4fcb2363b6a6a2",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 906 lines",
+      "description": "File exceeds recommended size (906 lines > 800 threshold).\n\n**Analysis:**\n📏 906 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 906 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/engine.rs"
+      ],
+      "line_start": 1,
+      "line_end": 906,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "800",
+        "default_threshold": "800",
+        "actual_value": "906",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "475e4cd0357509b5",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `find_containing_scope`",
+      "description": "Function `find_containing_scope` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (3.6 bits):\n```\nif (range.1 - range.0) < (best_range.1 - best_range.0) {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/go.rs"
+      ],
+      "line_start": 434,
+      "line_end": 451,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "predictive",
+        "surprisal_bits": "2.64",
+        "baseline_mean": "1.78",
+        "baseline_std": "0.40",
+        "z_score": "2.12"
+      }
+    },
+    {
+      "id": "faf006d7c4c59b3e",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/classifier/feedback.rs"
+      ],
+      "line_start": 149,
+      "line_end": 149,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "f53b9e564df12885",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/streaming_builder.rs"
+      ],
+      "line_start": 315,
+      "line_end": 315,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "64232ac0c825d8bd",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `enrich_all`",
+      "description": "[COMPOUND: 2 co-located issues] Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/enrichment.rs"
+      ],
+      "line_start": 61,
+      "line_end": 61,
+      "suggested_fix": "#[must_use] pub fn enrich_all(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "a9fc14a3ae9ba1f2",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/store.rs"
+      ],
+      "line_start": 360,
+      "line_end": 360,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "5ed74612c323338c",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `find_containing_scope`",
+      "description": "Function `find_containing_scope` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (3.6 bits):\n```\nif (range.1 - range.0) < (best_range.1 - best_range.0) {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/python.rs"
+      ],
+      "line_start": 590,
+      "line_end": 609,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_std": "0.40",
+        "baseline_mean": "1.78",
+        "z_score": "2.12",
+        "threshold_source": "predictive",
+        "surprisal_bits": "2.64"
+      }
+    },
+    {
+      "id": "5ca0164fb8640fce",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/streaming_builder.rs"
+      ],
+      "line_start": 48,
+      "line_end": 48,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "69446a3081012c22",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 429,
+      "line_end": 429,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "cbab96ff2816aba7",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `handle_initialize`",
+      "description": "Function `handle_initialize` has unusually high surprisal (2.7 bits, project mean: 1.8, z-score: 2.3).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (3.9 bits):\n```\n\"capabilities\": {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/mcp/server.rs"
+      ],
+      "line_start": 121,
+      "line_end": 132,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.1% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "predictive",
+        "surprisal_bits": "2.70",
+        "baseline_std": "0.40",
+        "z_score": "2.29",
+        "baseline_mean": "1.78"
+      }
+    },
+    {
+      "id": "b1188abc78d94d21",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/c.rs"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "#[must_use] pub fn parse(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "70b6c87aeceb2d79",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_source`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/cpp.rs"
+      ],
+      "line_start": 20,
+      "line_end": 20,
+      "suggested_fix": "#[must_use] pub fn parse_source(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "082a4266c3334093",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/rust.rs"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "#[must_use] pub fn parse(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "b8b46fad7d3b24a7",
+      "detector": "BoxDynTraitDetector",
+      "severity": "low",
+      "title": "Box<dyn Trait> may be replaceable with generics",
+      "description": "Dynamic dispatch via Box<dyn Trait> has overhead. Consider generics if the type is known at compile time.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/base.rs"
+      ],
+      "line_start": 385,
+      "line_end": 385,
+      "suggested_fix": "Consider `fn process(handler: impl Handler)` instead.",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Generics are monomorphized, avoiding vtable indirection and enabling inlining.",
+      "confidence": null
+    },
+    {
+      "id": "501cb9b44d2572e8",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/streaming_builder.rs"
+      ],
+      "line_start": 300,
+      "line_end": 300,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "796e8320469654d8",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `render_compact`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/reporters/json.rs"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "#[must_use] pub fn render_compact(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "d8c3725ca945a9f1",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `system_prompt`",
+      "description": "Function `system_prompt` has unusually high surprisal (2.7 bits, project mean: 1.8, z-score: 2.3).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (4.5 bits):\n```\nFollow SOLID principles and Java naming conventions. Use modern Java features \\\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/ai/prompts.rs"
+      ],
+      "line_start": 27,
+      "line_end": 55,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.2% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "predictive",
+        "baseline_mean": "1.78",
+        "z_score": "2.26",
+        "baseline_std": "0.40",
+        "surprisal_bits": "2.69"
+      }
+    },
+    {
+      "id": "a33b4b7cb4f7d631",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `render`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/reporters/html.rs"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "#[must_use] pub fn render(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "6bcdb2ef9305435a",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `verify_finding`",
+      "description": "[COMPOUND: 2 co-located issues] Function `verify_finding` has unusually high surprisal (2.8 bits, project mean: 1.8, z-score: 2.5).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (6.7 bits):\n```\nFALSE_POSITIVE: <brief reason>\"#,\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/ai/verify.rs"
+      ],
+      "line_start": 59,
+      "line_end": 109,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.7% most unusual in this project.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "z_score": "2.47",
+        "surprisal_bits": "2.78",
+        "baseline_mean": "1.78",
+        "baseline_std": "0.40",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "05cbecd4a92bc489",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/store.rs"
+      ],
+      "line_start": 231,
+      "line_end": 231,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "43db29a6f94d0b07",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/store.rs"
+      ],
+      "line_start": 171,
+      "line_end": 171,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "4963a5a6fe63ad7e",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/enrichment.rs"
+      ],
+      "line_start": 232,
+      "line_end": 232,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "75713db11aaea170",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_source`",
+      "description": "[COMPOUND: 2 co-located issues] Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/python.rs"
+      ],
+      "line_start": 21,
+      "line_end": 21,
+      "suggested_fix": "#[must_use] pub fn parse_source(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "af6bf11b43bcc9f0",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 833 lines",
+      "description": "File exceeds recommended size (833 lines > 800 threshold).\n\n**Analysis:**\n📏 833 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 833 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/analyze/mod.rs"
+      ],
+      "line_start": 1,
+      "line_end": 833,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "833",
+        "effective_threshold": "800",
+        "default_threshold": "800",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "6c7deaf8898eb1e3",
+      "detector": "BoxDynTraitDetector",
+      "severity": "low",
+      "title": "Box<dyn Trait> may be replaceable with generics",
+      "description": "Dynamic dispatch via Box<dyn Trait> has overhead. Consider generics if the type is known at compile time.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/rust_smells/box_dyn.rs"
+      ],
+      "line_start": 42,
+      "line_end": 42,
+      "suggested_fix": "Consider `fn process(handler: impl Handler)` instead.",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Generics are monomorphized, avoiding vtable indirection and enabling inlining.",
+      "confidence": null
+    },
+    {
+      "id": "f0005225b319afa6",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "[COMPOUND: 2 co-located issues] Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/compact_builder.rs"
+      ],
+      "line_start": 87,
+      "line_end": 87,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "f3f01c1b040f9e01",
+      "detector": "HardcodedIpsDetector",
+      "severity": "low",
+      "title": "Hardcoded IP: \"127.0.0.1\"",
+      "description": "Hardcoded IPs make deployment inflexible and can expose internal network structure.\n\n**Analysis:**\n📍 Context: General usage",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/secrets.rs"
+      ],
+      "line_start": 297,
+      "line_end": 297,
+      "suggested_fix": "Use environment variables or config files.",
+      "estimated_effort": "10 minutes",
+      "category": "configuration",
+      "cwe_id": "CWE-798",
+      "why_it_matters": "Hardcoded IPs break in different environments (dev/staging/prod) and can leak internal network topology.",
+      "confidence": null
+    },
+    {
+      "id": "46a4ae7ccfd88a5d",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "[COMPOUND: 2 co-located issues] Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 381,
+      "line_end": 381,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "553981c2108cb56e",
+      "detector": "ShotgunSurgeryDetector",
+      "severity": "low",
+      "title": "Shotgun Surgery Risk: DataFlowProvider",
+      "description": "[COMPOUND: 3 co-located issues] Class 'DataFlowProvider' is called by **10 functions** across **1 files** in **1 modules**.\n\nAny change to this class requires updates throughout the codebase.\n\n**Affected files (sample):**\n  - detectors/data_flow.rs",
+      "affected_files": [
+        "detectors/data_flow.rs"
+      ],
+      "line_start": 67,
+      "line_end": 78,
+      "suggested_fix": "Options to reduce coupling:\n1. Create a Facade to limit the API surface\n2. Use interfaces/protocols to decouple\n3. Split into smaller, focused classes\n4. Apply Dependency Injection pattern",
+      "estimated_effort": "Medium (2-4 hours)",
+      "category": "coupling",
+      "cwe_id": null,
+      "why_it_matters": "Shotgun surgery means a single change requires editing many files. This increases the chance of missing something and introducing bugs.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "98bca33fc06cf919",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_file`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/mod.rs"
+      ],
+      "line_start": 67,
+      "line_end": 67,
+      "suggested_fix": "#[must_use] pub fn parse_file(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "d9664849c00004f0",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/store.rs"
+      ],
+      "line_start": 708,
+      "line_end": 708,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "bb4d19101f945b95",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 420,
+      "line_end": 420,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "4e4674d559b2cd13",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `find_containing_scope`",
+      "description": "Function `find_containing_scope` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (3.6 bits):\n```\nif (range.1 - range.0) < (best_range.1 - best_range.0) {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/java.rs"
+      ],
+      "line_start": 532,
+      "line_end": 549,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_mean": "1.78",
+        "baseline_std": "0.40",
+        "threshold_source": "predictive",
+        "z_score": "2.12",
+        "surprisal_bits": "2.64"
+      }
+    },
+    {
+      "id": "3c6dbf99b1427c5f",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `get_func_query`",
+      "description": "Function `get_func_query` has unusually high surprisal (2.7 bits, project mean: 1.8, z-score: 2.3).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (4.5 bits):\n```\n}),\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/typescript.rs"
+      ],
+      "line_start": 119,
+      "line_end": 132,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.1% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "z_score": "2.30",
+        "surprisal_bits": "2.71",
+        "baseline_mean": "1.78",
+        "baseline_std": "0.40",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "b7609175ac35bda8",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_source`",
+      "description": "[COMPOUND: 2 co-located issues] Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/csharp.rs"
+      ],
+      "line_start": 21,
+      "line_end": 21,
+      "suggested_fix": "#[must_use] pub fn parse_source(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "830cc1e375138c10",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/java.rs"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "#[must_use] pub fn parse(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "513a639994e86fb8",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 884 lines",
+      "description": "File exceeds recommended size (884 lines > 800 threshold).\n\n**Analysis:**\n📏 884 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 884 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/detectors/data_flow.rs"
+      ],
+      "line_start": 1,
+      "line_end": 884,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "884",
+        "default_threshold": "800",
+        "threshold_source": "adaptive",
+        "effective_threshold": "800"
+      }
+    },
+    {
+      "id": "041d88c3f4b54b31",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/enrichment.rs"
+      ],
+      "line_start": 230,
+      "line_end": 230,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "4de79c035d17738d",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse`",
+      "description": "[COMPOUND: 2 co-located issues] Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/csharp.rs"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "#[must_use] pub fn parse(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "4b4d7c89d13418bb",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/cpp.rs"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "#[must_use] pub fn parse(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "d06d92de3fb3ec21",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `find_containing_scope`",
+      "description": "Function `find_containing_scope` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (3.6 bits):\n```\nif (range.1 - range.0) < (best_range.1 - best_range.0) {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/csharp.rs"
+      ],
+      "line_start": 626,
+      "line_end": 643,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_std": "0.40",
+        "threshold_source": "predictive",
+        "z_score": "2.12",
+        "surprisal_bits": "2.64",
+        "baseline_mean": "1.78"
+      }
+    },
+    {
+      "id": "6ffd108097b04532",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `render`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/reporters/json.rs"
+      ],
+      "line_start": 10,
+      "line_end": 10,
+      "suggested_fix": "#[must_use] pub fn render(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "2559556bbcdd394e",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/store.rs"
+      ],
+      "line_start": 648,
+      "line_end": 648,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "24a001302701ada4",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `PRO_TOOLS`",
+      "description": "Function `PRO_TOOLS` has unusually high surprisal (2.7 bits, project mean: 1.8, z-score: 2.4).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (5.8 bits):\n```\n\"default\": 10\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/mcp/tools.rs"
+      ],
+      "line_start": 151,
+      "line_end": 199,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.8% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "surprisal_bits": "2.74",
+        "threshold_source": "predictive",
+        "baseline_std": "0.40",
+        "baseline_mean": "1.78",
+        "z_score": "2.39"
+      }
+    },
+    {
+      "id": "09d40655c182f7aa",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `render`",
+      "description": "[COMPOUND: 2 co-located issues] Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/reporters/sarif.rs"
+      ],
+      "line_start": 207,
+      "line_end": 207,
+      "suggested_fix": "#[must_use] pub fn render(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "142eb225794ce3d3",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `find_containing_scope`",
+      "description": "Function `find_containing_scope` has unusually high surprisal (2.6 bits, project mean: 1.8, z-score: 2.1).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (3.6 bits):\n```\nif (range.1 - range.0) < (best_range.1 - best_range.0) {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/c.rs"
+      ],
+      "line_start": 335,
+      "line_end": 352,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.7% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_mean": "1.78",
+        "baseline_std": "0.40",
+        "z_score": "2.12",
+        "threshold_source": "predictive",
+        "surprisal_bits": "2.64"
+      }
+    },
+    {
+      "id": "840c0bced88ec9ba",
+      "detector": "LargeFilesDetector",
+      "severity": "low",
+      "title": "Large file: 954 lines",
+      "description": "File exceeds recommended size (954 lines > 800 threshold).\n\n**Analysis:**\n📏 954 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 954 | Default would be: 800 | Profile: p90=797, p95=917, mean=424.5, n=205",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/cli/tui.rs"
+      ],
+      "line_start": 1,
+      "line_end": 954,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "800",
+        "default_threshold": "800",
+        "actual_value": "954",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "a79ea085ca1908a7",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 180,
+      "line_end": 180,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "e150bc01f8dd0318",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 427,
+      "line_end": 427,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "799f3f1ba7c3b5ef",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "[COMPOUND: 2 co-located issues] Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/compact_builder.rs"
+      ],
+      "line_start": 86,
+      "line_end": 86,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "d3875342c8929a2d",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_source`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/java.rs"
+      ],
+      "line_start": 21,
+      "line_end": 21,
+      "suggested_fix": "#[must_use] pub fn parse_source(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "2f0aff20f28fbefc",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 428,
+      "line_end": 428,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "6af07f7b03d8b745",
+      "detector": "HardcodedTimeoutDetector",
+      "severity": "low",
+      "title": "Hardcoded timeout: 3 seconds",
+      "description": "Magic timeout value `3600` makes configuration and tuning difficult.\n\n**Analysis:**\n⏱️ Duration: 3 seconds\n📍 Context: General timeout",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/fixes/mod.rs"
+      ],
+      "line_start": 634,
+      "line_end": 634,
+      "suggested_fix": "Extract to a named constant:\n\n```python\nTIMEOUT_3600MS = 3600  # 3 seconds\n```",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Hardcoded timeouts are hard to find, tune, and change across environments. Network timeouts especially need to be configurable based on deployment.",
+      "confidence": null
+    },
+    {
+      "id": "1261a17d379bd8ab",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `new`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/enrichment.rs"
+      ],
+      "line_start": 49,
+      "line_end": 49,
+      "suggested_fix": "#[must_use] pub fn new(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "6ec3915110b44ae6",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/graph/streaming_builder.rs"
+      ],
+      "line_start": 295,
+      "line_end": 295,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": null
+    },
+    {
+      "id": "0049472e5a60cd13",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_source`",
+      "description": "[COMPOUND: 2 co-located issues] Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/typescript.rs"
+      ],
+      "line_start": 183,
+      "line_end": 183,
+      "suggested_fix": "#[must_use] pub fn parse_source(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "ef52f214e4ed815a",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_file_lightweight`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/lightweight_parser.rs"
+      ],
+      "line_start": 32,
+      "line_end": 32,
+      "suggested_fix": "#[must_use] pub fn parse_file_lightweight(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    },
+    {
+      "id": "ac856d0cb5042404",
+      "detector": "CloneInHotPathDetector",
+      "severity": "low",
+      "title": ".clone() in loop/iterator (performance)",
+      "description": "[COMPOUND: 2 co-located issues] Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/git/blame.rs"
+      ],
+      "line_start": 375,
+      "line_end": 375,
+      "suggested_fix": "Use references, Cow<str>, or Arc instead of clone.",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Cloning inside loops multiplies allocation overhead.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "daf3caf2995f55dd",
+      "detector": "MissingMustUseDetector",
+      "severity": "low",
+      "title": "Missing #[must_use] on Result-returning fn `parse_source`",
+      "description": "Public functions returning Result should have #[must_use].",
+      "affected_files": [
+        "/home/zhammad/personal/repotoire/repotoire-cli/src/parsers/rust.rs"
+      ],
+      "line_start": 21,
+      "line_end": 21,
+      "suggested_fix": "#[must_use] pub fn parse_source(...) -> Result<...>",
+      "estimated_effort": "2 minutes",
+      "category": "correctness",
+      "cwe_id": null,
+      "why_it_matters": "Without #[must_use], callers can silently ignore Results.",
+      "confidence": null
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 2,
+    "medium": 58,
+    "low": 89,
+    "info": 0,
+    "total": 149
+  },
+  "total_files": 205,
+  "total_functions": 2872,
+  "total_classes": 391,
+  "total_loc": 87030
+}

@@ -52,18 +52,28 @@ impl Default for GodClassThresholds {
 
 /// Patterns for legitimate large classes (fallback when graph analysis unavailable)
 const EXCLUDED_PATTERNS: &[&str] = &[
-    r".*Client$",     // Database/API clients
-    r".*Connection$", // Connection managers
-    r".*Session$",    // Session handlers
-    r".*Pipeline$",   // Data pipelines
-    r".*Engine$",     // Workflow engines
-    r".*Generator$",  // Code generators
-    r".*Builder$",    // Builder pattern
-    r".*Factory$",    // Factory pattern
-    r".*Manager$",    // Resource managers
-    r".*Controller$", // MVC controllers
-    r".*Adapter$",    // Adapter pattern
-    r".*Facade$",     // Facade pattern
+    r".*Client$",        // Database/API clients
+    r".*Connection$",    // Connection managers
+    r".*Session$",       // Session handlers
+    r".*Pipeline$",      // Data pipelines
+    r".*Engine$",        // Workflow engines
+    r".*Generator$",     // Code generators
+    r".*Builder$",       // Builder pattern
+    r".*Factory$",       // Factory pattern
+    r".*Manager$",       // Resource managers
+    r".*Controller$",    // MVC controllers
+    r".*Adapter$",       // Adapter pattern
+    r".*Facade$",        // Facade pattern
+    r".*Handler$",       // Request/event handlers
+    r".*Dispatcher$",    // Event/message dispatchers
+    r".*Orchestrator$",  // Workflow orchestrators
+    r".*Coordinator$",   // Coordination classes
+    r".*Router$",        // URL/message routers
+    r".*Middleware$",    // Middleware chains
+    r".*Resolver$",      // GraphQL resolvers
+    r".*Presenter$",     // MVP presenters
+    r".*Mediator$",      // Mediator pattern
+    r".*ViewSet$",       // Django REST viewsets
 ];
 
 /// Detects god classes (classes with too many responsibilities)

@@ -232,8 +232,9 @@ impl Detector for GlobalVariablesDetector {
                 // Track Python function scope with indentation depth
                 let mut py_indent_stack: Vec<usize> = Vec::new(); // indent levels of open def blocks
                 let mut py_in_function = false;
+                let all_lines: Vec<&str> = content.lines().collect();
 
-                for (i, line) in content.lines().enumerate() {
+                for (i, line) in all_lines.iter().enumerate() {
                     let trimmed = line.trim();
 
                     // --- Python scope tracking via indentation ---
@@ -278,6 +279,11 @@ impl Detector for GlobalVariablesDetector {
                     };
 
                     if is_global {
+                        let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
+                        if crate::detectors::is_line_suppressed(line, prev_line) {
+                            continue;
+                        }
+
                         if let Some(var_name) = Self::extract_var_name(trimmed) {
                             let usage_count = self.count_usages(&content, &var_name, i + 1);
                             let is_cross_module =

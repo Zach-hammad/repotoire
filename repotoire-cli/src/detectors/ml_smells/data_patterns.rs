@@ -186,7 +186,13 @@ impl Detector for ChainIndexingDetector {
                     continue;
                 }
 
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if chain_index().is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;
@@ -281,7 +287,13 @@ impl Detector for RequireGradTypoDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if require_grad_typo().is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;
@@ -398,7 +410,13 @@ impl Detector for DeprecatedTorchApiDetector {
                     continue;
                 }
 
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     for api in &deprecated_apis {
                         let pattern = format!("torch.{}", api);
                         if line.contains(&pattern) {

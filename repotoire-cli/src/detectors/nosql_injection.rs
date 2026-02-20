@@ -205,6 +205,11 @@ impl Detector for NosqlInjectionDetector {
                 }
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if !nosql_pattern().is_match(line) {
                         continue;
                     }

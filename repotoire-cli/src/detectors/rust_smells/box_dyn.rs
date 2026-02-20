@@ -64,7 +64,13 @@ impl Detector for BoxDynTraitDetector {
             let Some(content) = crate::cache::global_cache().get_content(path) else {
                 continue;
             };
-            for (i, line) in content.lines().enumerate() {
+            let all_lines: Vec<&str> = content.lines().collect();
+            for (i, line) in all_lines.iter().enumerate() {
+                let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
+                if crate::detectors::is_line_suppressed(line, prev_line) {
+                    continue;
+                }
+
                 let trimmed = line.trim();
                 if trimmed.starts_with("//") {
                     continue;

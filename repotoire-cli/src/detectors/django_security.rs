@@ -137,6 +137,11 @@ impl Detector for DjangoSecurityDetector {
                 let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     let line_num = (i + 1) as u32;
 
                     // Check CSRF exemption

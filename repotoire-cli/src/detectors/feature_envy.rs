@@ -124,6 +124,71 @@ impl FeatureEnvyDetector {
         self
     }
 
+    /// Class name patterns that indicate orchestrator classes.
+    /// Methods inside these classes are expected to call many external services.
+    const ORCHESTRATOR_CLASS_PATTERNS: &'static [&'static str] = &[
+        "controller",
+        "router",
+        "handler",
+        "dispatcher",
+        "orchestrator",
+        "coordinator",
+        "mediator",
+        "presenter",
+        "endpoint",
+        "resolver",
+        "middleware",
+        "viewset",
+    ];
+
+    /// File path patterns indicating orchestrator directories
+    const ORCHESTRATOR_PATH_PATTERNS: &'static [&'static str] = &[
+        "/controllers/",
+        "/controller/",
+        "/routers/",
+        "/router/",
+        "/handlers/",
+        "/handler/",
+        "/dispatchers/",
+        "/endpoints/",
+        "/resolvers/",
+        "/middleware/",
+        "/routes/",
+        "/viewsets/",
+        "/views/",
+    ];
+
+    /// Check if a function belongs to an orchestrator class based on its qualified name or file path.
+    /// Orchestrator classes (controllers, routers, handlers) are expected to call many external services.
+    fn is_in_orchestrator_class(&self, qualified_name: &str, file_path: &str) -> bool {
+        // Check qualified name for orchestrator class patterns
+        // Qualified names look like "module::ClassName::method" or "file::ClassName.method"
+        let qn_lower = qualified_name.to_lowercase();
+        for pattern in Self::ORCHESTRATOR_CLASS_PATTERNS {
+            if qn_lower.contains(pattern) {
+                debug!(
+                    "Skipping method in orchestrator class (name pattern '{}'): {}",
+                    pattern, qualified_name
+                );
+                return true;
+            }
+        }
+
+        // Check file path for orchestrator directory patterns
+        let path_lower = file_path.to_lowercase();
+        for pattern in Self::ORCHESTRATOR_PATH_PATTERNS {
+            if path_lower.contains(pattern) {
+                debug!(
+                    "Skipping method in orchestrator path ('{}'): {}",
+                    pattern, qualified_name
+                );
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Check if function should be skipped based on role
     fn should_skip_by_role(&self, qualified_name: &str) -> bool {
         if let Some(ref contexts) = self.function_contexts {
@@ -415,6 +480,12 @@ impl Detector for FeatureEnvyDetector {
                 continue;
             }
 
+            // Skip methods in orchestrator classes (controllers, routers, handlers, dispatchers)
+            // These classes delegate to services by design — flagging them is a false positive
+            if self.is_in_orchestrator_class(&func.qualified_name, &func.file_path) {
+                continue;
+            }
+
             // Skip orchestrator functions by name (fallback for no context)
             let name_lower = func.name.to_lowercase();
             if ORCHESTRATOR_NAMES
@@ -563,5 +634,36 @@ mod tests {
 
         // Critical (ratio >= 10.0 && uses >= 50)
         assert_eq!(detector.calculate_severity(10.0, 50), Severity::Critical);
+    }
+
+    #[test]
+    fn test_orchestrator_class_detection_by_name() {
+        let detector = FeatureEnvyDetector::new();
+
+        // Methods in controller classes should be detected as orchestrators
+        assert!(detector.is_in_orchestrator_class("app::UserController::get_stats", "src/api.py"));
+        assert!(detector.is_in_orchestrator_class("app::RequestHandler::process", "src/server.py"));
+        assert!(detector.is_in_orchestrator_class("events::EventDispatcher::emit", "src/events.py"));
+        assert!(detector.is_in_orchestrator_class("api::ApiRouter::get_user", "src/routes.py"));
+        assert!(detector.is_in_orchestrator_class("gql::QueryResolver::resolve", "src/graphql.py"));
+
+        // Regular classes should NOT be detected
+        assert!(!detector.is_in_orchestrator_class("app::OrderService::calculate", "src/services/orders.py"));
+        assert!(!detector.is_in_orchestrator_class("models::User::validate", "src/models.py"));
+    }
+
+    #[test]
+    fn test_orchestrator_class_detection_by_path() {
+        let detector = FeatureEnvyDetector::new();
+
+        // Methods in orchestrator directories should be detected
+        assert!(detector.is_in_orchestrator_class("app::Users::index", "src/controllers/users.py"));
+        assert!(detector.is_in_orchestrator_class("app::Auth::login", "src/handlers/auth.ts"));
+        assert!(detector.is_in_orchestrator_class("api::Items::list", "src/endpoints/items.py"));
+        assert!(detector.is_in_orchestrator_class("app::Logging::call", "src/middleware/logging.py"));
+
+        // Non-orchestrator paths should NOT be detected
+        assert!(!detector.is_in_orchestrator_class("app::Order::save", "src/models/order.py"));
+        assert!(!detector.is_in_orchestrator_class("app::Auth::hash", "src/services/auth.py"));
     }
 }

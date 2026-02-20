@@ -190,6 +190,11 @@ impl Detector for SyncInAsyncDetector {
                 let mut current_async_name = String::new();
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
 
                     // Track async function scope

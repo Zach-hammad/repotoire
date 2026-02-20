@@ -198,6 +198,11 @@ impl Detector for UnusedImportsDetector {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (line_num, line) in lines.iter().enumerate() {
+                    let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     let trimmed = line.trim();
 
                     // Skip comments

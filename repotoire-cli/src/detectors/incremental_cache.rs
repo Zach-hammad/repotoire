@@ -785,4 +785,43 @@ mod tests {
         cache.invalidate_all();
         assert_eq!(cache.get_stats().cached_files, 0);
     }
+
+    #[test]
+    fn test_incremental_cache_implements_cache_layer() {
+        use crate::cache::CacheLayer;
+
+        let tmp = TempDir::new().unwrap();
+        let mut cache = IncrementalCache::new(tmp.path());
+
+        // Verify trait name
+        assert_eq!(cache.name(), "incremental-findings");
+
+        // Empty cache should not be populated
+        assert!(!cache.is_populated());
+
+        // Add file-level and parse-level entries to populate the cache
+        let file_a = tmp.path().join("a.py");
+        let file_b = tmp.path().join("b.py");
+        fs::write(&file_a, "def foo(): pass").unwrap();
+        fs::write(&file_b, "def bar(): pass").unwrap();
+
+        cache.cache_findings(&file_a, &[create_test_finding("a.py")]);
+        cache.cache_findings(&file_b, &[create_test_finding("b.py")]);
+
+        // Now it should be populated
+        assert!(cache.is_populated());
+        assert_eq!(cache.get_stats().cached_files, 2);
+
+        // invalidate_files should remove only the specified file
+        let path_a_ref: &Path = &file_a;
+        cache.invalidate_files(&[path_a_ref]);
+        assert_eq!(cache.get_stats().cached_files, 1);
+        // file_b should still be present
+        assert!(cache.is_populated());
+
+        // invalidate_all should clear everything
+        cache.invalidate_all();
+        assert!(!cache.is_populated());
+        assert_eq!(cache.get_stats().cached_files, 0);
+    }
 }

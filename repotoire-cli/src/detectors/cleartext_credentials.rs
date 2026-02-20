@@ -22,7 +22,7 @@ fn log_pattern() -> &'static Regex {
     // Specifically target logging functions, NOT Error/Exception classes
     LOG_PATTERN.get_or_init(|| Regex::new(
         r"(?i)\b(console\.(log|warn|error|info|debug)|print[fl]?n?|logger\.(log|warn|error|info|debug|trace)|logging\.(log|warn|error|info|debug)|log\.(debug|info|warn|error|trace)|System\.out\.print|fmt\.Print|puts|p\s)\s*[\.(]\s*[^;\n]*\b(password|passwd|secret|api_key|apikey|auth_token|access_token|private_key|credentials?)\b"
-    ).unwrap())
+    ).expect("valid regex"))
 }
 
 fn is_false_positive(line: &str) -> bool {
@@ -158,7 +158,13 @@ impl Detector for CleartextCredentialsDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
-                for (i, line) in content.lines().enumerate() {
+                let lines: Vec<&str> = content.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     if log_pattern().is_match(line) && !is_false_positive(line) {
                         let line_num = (i + 1) as u32;
                         let (cred_type, emoji) = categorize_credential(line);

@@ -135,7 +135,7 @@ pub fn run(
     }
 
     // Phase 2: Initialize graph and collect files
-    let (graph, file_result, parse_result) = initialize_graph(&env, &since, &MultiProgress::new())?;
+    let (graph, file_result, parse_result) = initialize_graph(&mut env, &since, &MultiProgress::new())?;
 
     if file_result.all_files.is_empty() {
         if !env.quiet_mode {
@@ -375,7 +375,7 @@ fn try_cached_fast_path(
 
 /// Phase 2: Initialize graph database, collect files, and parse.
 fn initialize_graph(
-    env: &EnvironmentSetup,
+    env: &mut EnvironmentSetup,
     since: &Option<String>,
     multi: &MultiProgress,
 ) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult)> {
@@ -447,8 +447,8 @@ fn initialize_graph(
 
     // Pre-warm file cache (skip for huge repos)
     if file_result.all_files.len() < 20000 {
-        // Clear stale data before re-warming (#13)
-        crate::cache::global_cache().clear();
+        // Clear stale data across all cache layers before re-warming (#13)
+        env.cache_coordinator.invalidate_all();
         crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
     }
 

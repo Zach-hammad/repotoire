@@ -125,6 +125,11 @@ impl DeadStoreDetector {
                 let mut interface_depth = 0i32;
 
                 for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
                     let trimmed = line.trim();
 
                     // Track interface/type blocks for TypeScript
