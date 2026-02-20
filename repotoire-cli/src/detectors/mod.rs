@@ -630,3 +630,205 @@ pub fn is_line_suppressed(line: &str, prev_line: Option<&str>) -> bool {
 
     false
 }
+
+/// Check if a line has a repotoire suppression comment targeting a specific detector.
+///
+/// Supports targeted suppression via bracket syntax:
+/// - `repotoire:ignore[sql-injection]` — suppresses only the named detector
+/// - `repotoire:ignore` (no brackets) — suppresses ALL detectors
+///
+/// Also checks the previous line for standalone suppression comments, using
+/// the same logic as [`is_line_suppressed`].
+///
+/// # Arguments
+/// * `line` - The current line to check
+/// * `prev_line` - Optional previous line (for standalone comments)
+/// * `detector_name` - The detector slug to match against (e.g. `"sql-injection"`)
+///
+/// # Returns
+/// `true` if the line should be suppressed for the given detector
+pub fn is_line_suppressed_for(line: &str, prev_line: Option<&str>, detector_name: &str) -> bool {
+    fn check_suppression(text: &str, detector_name: &str) -> bool {
+        let lower = text.to_lowercase();
+        let det = detector_name.to_lowercase();
+
+        // Look for both "repotoire:ignore" and "repotoire: ignore" variants
+        for prefix in &["repotoire:ignore", "repotoire: ignore"] {
+            if let Some(idx) = lower.find(prefix) {
+                let after = idx + prefix.len();
+                let rest = &lower[after..];
+                if rest.starts_with('[') {
+                    // Targeted suppression: repotoire:ignore[name]
+                    if let Some(end) = rest.find(']') {
+                        let target = &rest[1..end];
+                        if target.trim() == det {
+                            return true;
+                        }
+                    }
+                } else {
+                    // Bare suppression: repotoire:ignore (no brackets) — suppress all
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    // Check current line for inline suppression
+    if check_suppression(line, detector_name) {
+        return true;
+    }
+
+    // Check previous line for standalone suppression comment
+    if let Some(prev) = prev_line {
+        let trimmed = prev.trim();
+        let trimmed_lower = trimmed.to_lowercase();
+        if trimmed_lower.starts_with('#')
+            || trimmed_lower.starts_with("//")
+            || trimmed_lower.starts_with("--")
+            || trimmed_lower.starts_with("/*")
+        {
+            if check_suppression(prev, detector_name) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── is_line_suppressed (existing behaviour) ──────────────────────
+
+    #[test]
+    fn test_inline_suppression() {
+        assert!(is_line_suppressed(
+            "x = 1  // repotoire:ignore",
+            None
+        ));
+        assert!(is_line_suppressed(
+            "x = 1  // repotoire: ignore",
+            None
+        ));
+    }
+
+    #[test]
+    fn test_prev_line_suppression() {
+        assert!(is_line_suppressed(
+            "x = 1",
+            Some("// repotoire:ignore")
+        ));
+    }
+
+    #[test]
+    fn test_no_suppression() {
+        assert!(!is_line_suppressed("x = 1", None));
+        assert!(!is_line_suppressed("x = 1", Some("// normal comment")));
+    }
+
+    // ── is_line_suppressed_for (targeted suppression) ────────────────
+
+    #[test]
+    fn test_targeted_suppression() {
+        // Inline targeted suppression matches correct detector
+        assert!(is_line_suppressed_for(
+            "x = 1  // repotoire:ignore[sql-injection]",
+            None,
+            "sql-injection"
+        ));
+        // Inline targeted suppression does NOT match a different detector
+        assert!(!is_line_suppressed_for(
+            "x = 1  // repotoire:ignore[sql-injection]",
+            None,
+            "xss"
+        ));
+        // Bare ignore suppresses ALL detectors
+        assert!(is_line_suppressed_for(
+            "x = 1  // repotoire:ignore",
+            None,
+            "xss"
+        ));
+        // Previous-line targeted suppression matches
+        assert!(is_line_suppressed_for(
+            "x = 1",
+            Some("// repotoire:ignore[xss]"),
+            "xss"
+        ));
+        // Previous-line targeted suppression does NOT match different detector
+        assert!(!is_line_suppressed_for(
+            "x = 1",
+            Some("// repotoire:ignore[xss]"),
+            "sql-injection"
+        ));
+    }
+
+    #[test]
+    fn test_targeted_suppression_with_space() {
+        // Variant with space: "repotoire: ignore[name]"
+        assert!(is_line_suppressed_for(
+            "x = 1  // repotoire: ignore[sql-injection]",
+            None,
+            "sql-injection"
+        ));
+        assert!(!is_line_suppressed_for(
+            "x = 1  // repotoire: ignore[sql-injection]",
+            None,
+            "xss"
+        ));
+    }
+
+    #[test]
+    fn test_targeted_suppression_case_insensitive() {
+        assert!(is_line_suppressed_for(
+            "x = 1  // Repotoire:Ignore[SQL-Injection]",
+            None,
+            "sql-injection"
+        ));
+    }
+
+    #[test]
+    fn test_targeted_suppression_bare_prev_line() {
+        // Bare ignore on previous line suppresses all detectors
+        assert!(is_line_suppressed_for(
+            "x = 1",
+            Some("// repotoire:ignore"),
+            "any-detector"
+        ));
+    }
+
+    #[test]
+    fn test_targeted_suppression_prev_line_non_comment() {
+        // Previous line that is code (not a comment) should NOT suppress
+        assert!(!is_line_suppressed_for(
+            "x = 1",
+            Some("x = 1 repotoire:ignore[xss]"),
+            "xss"
+        ));
+    }
+
+    #[test]
+    fn test_targeted_suppression_python_comment() {
+        assert!(is_line_suppressed_for(
+            "x = 1  # repotoire:ignore[magic-numbers]",
+            None,
+            "magic-numbers"
+        ));
+    }
+
+    #[test]
+    fn test_targeted_suppression_no_match_no_suppress() {
+        assert!(!is_line_suppressed_for(
+            "x = 1",
+            None,
+            "sql-injection"
+        ));
+        assert!(!is_line_suppressed_for(
+            "x = 1",
+            Some("// normal comment"),
+            "sql-injection"
+        ));
+    }
+}
