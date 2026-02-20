@@ -112,6 +112,7 @@ pub(super) fn run_detectors(
     cache: &mut IncrementalCache,
     all_files: &[std::path::PathBuf],
     style_profile: Option<&crate::calibrate::StyleProfile>,
+    ngram_model: Option<crate::calibrate::NgramModel>,
 ) -> Result<Vec<Finding>> {
     // Check if we can use cached detector results
     if cache.can_use_cached_detectors(all_files) {
@@ -139,7 +140,7 @@ pub(super) fn run_detectors(
 
     // Register default detectors
     for detector in
-        crate::detectors::default_detectors_with_profile(repo_path, project_config, style_profile)
+        crate::detectors::default_detectors_with_ngram(repo_path, project_config, style_profile, ngram_model)
     {
         let name = detector.name();
         if !skip_set.contains(name) {

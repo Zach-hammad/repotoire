@@ -60,6 +60,7 @@ mod shotgun_surgery;
 mod eval_detector;
 mod pickle_detector;
 mod sql_injection;
+mod surprisal;
 mod taint_detector;
 mod unsafe_template;
 
@@ -275,6 +276,7 @@ pub use todo_scanner::TodoScanner;
 pub use unhandled_promise::UnhandledPromiseDetector;
 pub use unreachable_code::UnreachableCodeDetector;
 pub use wildcard_imports::WildcardImportsDetector;
+pub use surprisal::SurprisalDetector;
 pub use xss::XssDetector;
 pub use xxe::XxeDetector;
 
@@ -314,6 +316,24 @@ pub fn default_detectors_with_profile(
     project_config: &ProjectConfig,
     style_profile: Option<&crate::calibrate::StyleProfile>,
 ) -> Vec<Arc<dyn Detector>> {
+    default_detectors_full(repository_path, project_config, style_profile, None)
+}
+
+pub fn default_detectors_with_ngram(
+    repository_path: &Path,
+    project_config: &ProjectConfig,
+    style_profile: Option<&crate::calibrate::StyleProfile>,
+    ngram_model: Option<crate::calibrate::NgramModel>,
+) -> Vec<Arc<dyn Detector>> {
+    default_detectors_full(repository_path, project_config, style_profile, ngram_model)
+}
+
+fn default_detectors_full(
+    repository_path: &Path,
+    project_config: &ProjectConfig,
+    style_profile: Option<&crate::calibrate::StyleProfile>,
+    ngram_model: Option<crate::calibrate::NgramModel>,
+) -> Vec<Arc<dyn Detector>> {
     // Get project type for coupling/complexity multipliers
     let project_type = project_config.get_project_type(repository_path);
     tracing::info!(
@@ -331,7 +351,7 @@ pub fn default_detectors_with_profile(
             .with_adaptive(resolver.clone())
     };
 
-    vec![
+    let mut detectors: Vec<Arc<dyn Detector>> = vec![
         // Core detectors (with project config support)
         Arc::new(CircularDependencyDetector::new()),
         Arc::new(GodClassDetector::with_config(make_config(
@@ -491,7 +511,16 @@ pub fn default_detectors_with_profile(
         Arc::new(InsecureTlsDetector::new(repository_path)),
         // Dependency vulnerability auditing
         Arc::new(DepAuditDetector::new(repository_path)),
-    ]
+    ];
+
+    // Predictive coding: surprisal detector (only when n-gram model is available)
+    if let Some(model) = ngram_model {
+        if model.is_confident() {
+            detectors.push(Arc::new(SurprisalDetector::new(repository_path, model)));
+        }
+    }
+
+    detectors
 }
 
 /// Create a detector engine with all default detectors

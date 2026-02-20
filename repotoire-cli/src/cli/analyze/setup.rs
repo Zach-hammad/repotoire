@@ -56,6 +56,7 @@ pub(super) struct EnvironmentSetup {
     pub incremental_cache: IncrementalCache,
     pub quiet_mode: bool,
     pub style_profile: Option<crate::calibrate::StyleProfile>,
+    pub ngram_model: Option<crate::calibrate::NgramModel>,
 }
 
 /// Result of score calculation phase
@@ -147,6 +148,7 @@ pub(super) fn setup_environment(
         incremental_cache,
         quiet_mode,
         style_profile,
+        ngram_model: None, // Built during analysis after parsing
     })
 }
 
