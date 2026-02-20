@@ -280,37 +280,56 @@ impl Default for NgramModel {
     }
 }
 
-/// Check if a token is a language keyword (kept as-is for structural signal)
+/// Check if a token is a language keyword (kept as-is for structural signal).
+/// Combined set across Rust, Python, JS/TS, Go, Java, C#, Kotlin, C/C++ — deduplicated.
 fn is_keyword(word: &str) -> bool {
     matches!(word,
-        // Rust
-        "fn" | "let" | "mut" | "pub" | "struct" | "enum" | "impl" | "trait" | "use" | "mod"
-        | "match" | "if" | "else" | "for" | "while" | "loop" | "return" | "break" | "continue"
-        | "async" | "await" | "self" | "Self" | "super" | "crate" | "where" | "type" | "const"
-        | "static" | "unsafe" | "extern" | "ref" | "move" | "dyn" | "Box" | "Vec" | "Option"
-        | "Result" | "Some" | "None" | "Ok" | "Err" | "true" | "false"
-        // Python
-        | "def" | "class" | "import" | "from" | "as" | "with" | "try" | "except" | "finally"
-        | "raise" | "yield" | "lambda" | "pass" | "assert" | "global" | "nonlocal"
-        | "and" | "or" | "not" | "is" | "in" | "del" | "elif" | "True" | "False"
-        // JS/TS
-        | "function" | "var" | "const" | "new" | "this" | "delete" | "typeof" | "instanceof"
-        | "void" | "throw" | "catch" | "switch" | "case" | "default" | "do" | "export"
-        | "extends" | "interface" | "abstract" | "private" | "protected" | "public"
-        | "readonly" | "override" | "implements" | "package" | "import"
-        | "null" | "undefined" | "NaN" | "Infinity"
-        // Go
-        | "func" | "package" | "defer" | "go" | "chan" | "select" | "range" | "map"
-        | "make" | "append" | "len" | "cap" | "nil"
-        // Java/C#/Kotlin
-        | "class" | "extends" | "final" | "abstract" | "synchronized" | "volatile"
-        | "transient" | "native" | "throws" | "catch" | "try" | "finally"
-        | "val" | "var" | "when" | "object" | "companion" | "data" | "sealed"
-        // C/C++
-        | "auto" | "register" | "volatile" | "sizeof" | "typedef" | "union"
-        | "goto" | "inline" | "restrict" | "template" | "namespace" | "virtual"
-        | "explicit" | "friend" | "operator" | "noexcept" | "constexpr"
-        | "include" | "define" | "ifdef" | "ifndef" | "endif" | "pragma"
+        // Control flow (shared across languages)
+        "if" | "else" | "elif" | "for" | "while" | "do" | "loop"
+        | "break" | "continue" | "return" | "yield" | "switch" | "case" | "default"
+        | "match" | "when" | "select" | "range"
+        // Error handling
+        | "try" | "catch" | "except" | "finally" | "throw" | "throws" | "raise"
+        // Declarations
+        | "fn" | "func" | "def" | "function" | "let" | "var" | "val" | "const"
+        | "static" | "auto" | "type" | "typedef"
+        // OOP / types
+        | "class" | "struct" | "enum" | "trait" | "interface" | "impl"
+        | "extends" | "implements" | "abstract" | "sealed" | "final"
+        | "override" | "virtual" | "explicit" | "friend" | "operator"
+        | "object" | "companion" | "data"
+        // Visibility
+        | "pub" | "private" | "protected" | "public" | "readonly"
+        // Modules / imports
+        | "use" | "mod" | "import" | "export" | "from" | "package"
+        | "as" | "crate" | "super" | "namespace" | "include"
+        // Memory / ownership (Rust)
+        | "mut" | "ref" | "move" | "dyn" | "unsafe" | "extern"
+        // Async
+        | "async" | "await" | "defer" | "go"
+        // Literals / builtins
+        | "true" | "false" | "True" | "False" | "null" | "nil" | "None"
+        | "undefined" | "NaN" | "Infinity"
+        | "self" | "Self" | "this" | "new" | "delete" | "del"
+        // Rust specific types
+        | "Box" | "Vec" | "Option" | "Result" | "Some" | "Ok" | "Err"
+        // Logic operators (Python)
+        | "and" | "or" | "not" | "is" | "in"
+        // Python specific
+        | "lambda" | "pass" | "assert" | "global" | "nonlocal" | "with"
+        // JS/TS specific
+        | "typeof" | "instanceof" | "void"
+        // Go specific
+        | "chan" | "map" | "make" | "append" | "len" | "cap"
+        // Java/C# specific
+        | "synchronized" | "volatile" | "transient" | "native"
+        // C/C++ specific
+        | "register" | "sizeof" | "union" | "goto" | "inline" | "restrict"
+        | "template" | "noexcept" | "constexpr"
+        // Preprocessor
+        | "define" | "ifdef" | "ifndef" | "endif" | "pragma"
+        // Misc
+        | "where"
     )
 }
 
