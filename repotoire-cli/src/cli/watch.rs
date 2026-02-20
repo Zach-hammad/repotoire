@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use crate::cache::CacheCoordinator;
 use crate::detectors::{default_detectors_with_ngram, DetectorEngine};
 use crate::models::Finding;
 use crate::parsers::parse_file;
@@ -83,6 +84,12 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
 
     debouncer.watch(&repo_path, RecursiveMode::Recursive)?;
 
+    // Build CacheCoordinator for coordinated invalidation on file changes.
+    // The FileCache clone shares the same Arc<DashMap> as the global instance,
+    // so invalidation through the coordinator clears stale entries globally.
+    let mut cache_coordinator = CacheCoordinator::new();
+    cache_coordinator.register(Box::new(crate::cache::global_cache().clone()));
+
     // Track findings per file for diff display
     let mut previous_findings: std::collections::HashMap<PathBuf, Vec<Finding>> =
         std::collections::HashMap::new();
@@ -108,6 +115,11 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
                 if changed_files.is_empty() {
                     continue;
                 }
+
+                // Invalidate stale cache entries for changed files before re-analyzing
+                let changed_refs: Vec<&Path> =
+                    changed_files.iter().map(|p| p.as_path()).collect();
+                cache_coordinator.invalidate_files(&changed_refs);
 
                 // Analyze each changed file
                 for file_path in &changed_files {

@@ -1,5 +1,6 @@
 //! Environment setup, configuration, and UI helpers for the analyze command.
 
+use crate::cache::CacheCoordinator;
 use crate::config::{load_project_config, ProjectConfig};
 use crate::detectors::IncrementalCache;
 use crate::models::Finding;
@@ -54,6 +55,7 @@ pub(super) struct EnvironmentSetup {
     pub config: AnalysisConfig,
     pub repotoire_dir: PathBuf,
     pub incremental_cache: IncrementalCache,
+    pub cache_coordinator: CacheCoordinator,
     pub quiet_mode: bool,
     pub style_profile: Option<crate::calibrate::StyleProfile>,
     pub ngram_model: Option<crate::calibrate::NgramModel>,
@@ -140,12 +142,22 @@ pub(super) fn setup_environment(
         println!("{}Using adaptive thresholds from style profile", icon);
     }
 
+    // Build CacheCoordinator with both cache layers.
+    // FileCache clone shares the same Arc<DashMap> as the global instance,
+    // so invalidation through the coordinator propagates to global_cache().
+    let mut cache_coordinator = CacheCoordinator::new();
+    cache_coordinator.register(Box::new(crate::cache::global_cache().clone()));
+    cache_coordinator.register(Box::new(
+        IncrementalCache::new(&repotoire_dir.join("incremental")),
+    ));
+
     Ok(EnvironmentSetup {
         repo_path,
         project_config,
         config,
         repotoire_dir,
         incremental_cache,
+        cache_coordinator,
         quiet_mode,
         style_profile,
         ngram_model: None, // Built during analysis after parsing
