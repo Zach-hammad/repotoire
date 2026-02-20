@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::detectors::{default_detectors_with_profile, DetectorEngine};
+use crate::detectors::{default_detectors_with_ngram, DetectorEngine};
 use crate::models::Finding;
 use crate::parsers::parse_file;
 
@@ -39,6 +39,34 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
     // Load config and style profile
     let project_config = crate::config::load_project_config(&repo_path);
     let style_profile = crate::calibrate::StyleProfile::load(&repo_path);
+
+    // Build n-gram model from existing source for predictive coding
+    let ngram_model = {
+        let mut model = crate::calibrate::NgramModel::new();
+        let walker = ignore::WalkBuilder::new(&repo_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
+        for entry in walker.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if !path.is_file() { continue; }
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !WATCH_EXTENSIONS.contains(&ext) { continue; }
+            if is_ignored_path(path, &repo_path) { continue; }
+            if let Ok(content) = std::fs::read_to_string(path) {
+                let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
+                model.train_on_tokens(&tokens);
+            }
+        }
+        if model.is_confident() {
+            if !quiet {
+                println!("  {} Learned coding patterns ({} tokens)", style("🧠").dim(), model.total_tokens());
+            }
+            Some(model)
+        } else {
+            None
+        }
+    };
 
     // Set up file watcher with debouncing
     let (tx, rx) = mpsc::channel();
@@ -90,6 +118,7 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
                         &repo_path,
                         &project_config,
                         style_profile.as_ref(),
+                        ngram_model.clone(),
                         relaxed,
                     );
 
@@ -233,6 +262,7 @@ fn analyze_single_file(
     repo_path: &Path,
     project_config: &crate::config::ProjectConfig,
     style_profile: Option<&crate::calibrate::StyleProfile>,
+    ngram_model: Option<crate::calibrate::NgramModel>,
     relaxed: bool,
 ) -> Vec<Finding> {
     let Ok(parse_result) = parse_file(file_path) else {
@@ -276,7 +306,7 @@ fn analyze_single_file(
     // Run detectors
     let mut engine = DetectorEngine::new(1);
     let skip_set: HashSet<&str> = HashSet::new();
-    let detectors = default_detectors_with_profile(repo_path, project_config, style_profile);
+    let detectors = default_detectors_with_ngram(repo_path, project_config, style_profile, ngram_model);
 
     for detector in detectors {
         let name = detector.name();
