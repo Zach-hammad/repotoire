@@ -295,23 +295,25 @@ impl ModuleIndex {
     }
 
     /// Find matching files for an import path
-    pub fn find_matches(&self, import_path: &str) -> Vec<String> {
+    ///
+    /// Returns a slice into the internal storage, avoiding allocation.
+    pub fn find_matches(&self, import_path: &str) -> &[String] {
         let clean = clean_import_path(import_path);
 
         // Try pattern match first
         if let Some(matches) = self.by_pattern.get(&clean) {
-            return matches.clone();
+            return matches;
         }
 
         // Try stem match
         let parts: Vec<&str> = clean.split("::").collect();
         if let Some(first) = parts.first() {
             if let Some(matches) = self.by_stem.get(*first) {
-                return matches.clone();
+                return matches;
             }
         }
 
-        Vec::new()
+        &[]
     }
 
     /// Merge another index
