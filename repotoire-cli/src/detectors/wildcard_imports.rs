@@ -106,11 +106,9 @@ impl Detector for WildcardImportsDetector {
                             .map(|n| n == "__init__.py")
                             .unwrap_or(false);
                         if is_init_py {
-                            let import_trimmed = line.trim();
-                            // Relative imports start with "from ." or "from .."
-                            if import_trimmed.starts_with("from .") {
-                                continue;
-                            }
+                            // ALL wildcard imports in __init__.py are re-exports
+                            // This is the standard Python convention for package namespaces
+                            continue;
                         }
 
                         // Try to extract module name and find used symbols
@@ -252,16 +250,17 @@ mod tests {
     }
 
     #[test]
-    fn test_still_detects_absolute_import_in_init_py() {
+    fn test_no_finding_for_absolute_import_in_init_py() {
         let store = GraphStore::in_memory();
         let detector = WildcardImportsDetector::new("/mock/repo");
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
-            ("__init__.py", "from os.path import *\n"),
+            ("__init__.py", "from django.db.models.fields import *\nfrom os.path import *\n"),
         ]);
         let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
-            !findings.is_empty(),
-            "Should still detect absolute wildcard imports in __init__.py"
+            findings.is_empty(),
+            "Should not flag ANY wildcard imports in __init__.py (all are re-exports). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 
