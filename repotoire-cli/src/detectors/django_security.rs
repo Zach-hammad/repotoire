@@ -133,6 +133,15 @@ impl Detector for DjangoSecurityDetector {
 
                     // Check CSRF exemption
                     if csrf_exempt().is_match(line) {
+                        // Skip decorator definition modules (e.g. django/views/decorators/csrf.py)
+                        if path_str.contains("decorators/csrf") {
+                            continue;
+                        }
+                        // Skip comments mentioning csrf_exempt
+                        let trimmed = line.trim();
+                        if trimmed.starts_with('#') || trimmed.starts_with("//") {
+                            continue;
+                        }
                         let func_context =
                             Self::find_containing_function(graph, &path_str, line_num);
                         let has_auth = Self::has_auth_decorator(&lines, i);
@@ -329,6 +338,8 @@ impl Detector for DjangoSecurityDetector {
                             || lower_path.contains("core/cache/backends/")
                             || lower_path.contains("/migrations/")
                             || lower_path.contains("contrib/postgres/")
+                            || lower_path.contains("management/commands/")
+                            || lower_path.ends_with("management.py")
                         {
                             continue;
                         }
@@ -611,6 +622,55 @@ mod tests {
             raw_sql_findings.is_empty(),
             "Should not flag raw SQL in ORM internals. Found: {:?}",
             raw_sql_findings.iter().map(|f| (&f.title, &f.affected_files)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_csrf_finding_for_decorator_definition_module() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views/decorators/csrf.py", "from functools import wraps\n\ndef csrf_exempt(view_func):\n    @wraps(view_func)\n    def wrapper(*args, **kwargs):\n        return view_func(*args, **kwargs)\n    wrapper.csrf_exempt = True\n    return wrapper\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        let csrf_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("CSRF")).collect();
+        assert!(
+            csrf_findings.is_empty(),
+            "Should not flag CSRF in decorator definition module. Found: {:?}",
+            csrf_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_csrf_finding_for_comment() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views/base.py", "class View:\n    # Copy possible attributes set by decorators, e.g. @csrf_exempt\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        let csrf_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("CSRF")).collect();
+        assert!(
+            csrf_findings.is_empty(),
+            "Should not flag CSRF mentioned in comments. Found: {:?}",
+            csrf_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_raw_sql_finding_for_management_command() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("management/commands/loaddata.py", "class Command(BaseCommand):\n    def handle(self):\n        cursor.execute(line)\n"),
+            ("contrib/sites/management.py", "def create_default_site(app_config):\n    cursor.execute(command)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
+        assert!(
+            raw_sql_findings.is_empty(),
+            "Should not flag raw SQL in management commands. Found: {:?}",
+            raw_sql_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 }
