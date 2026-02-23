@@ -248,3 +248,69 @@ impl Detector for InconsistentReturnsDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{CodeNode, GraphStore};
+
+    #[test]
+    fn test_detects_inconsistent_returns() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("logic.py");
+        // Function that has both `return item` (value) and `return None` (none)
+        let code = r#"def find_item(items, target):
+    for item in items:
+        if item.name == target:
+            return item
+    return None
+"#;
+        std::fs::write(&file, code).unwrap();
+
+        let store = GraphStore::in_memory();
+        let file_path = file.to_string_lossy().to_string();
+        let func = CodeNode::function("find_item", &file_path)
+            .with_qualified_name("logic::find_item")
+            .with_lines(1, 5);
+        store.add_node(func);
+
+        let detector = InconsistentReturnsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect function with mixed return (value + implicit None)"
+        );
+        assert!(
+            findings[0].title.contains("find_item"),
+            "Title should mention function name, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_consistent_returns() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("logic.py");
+        let code = r#"def add(a, b):
+    result = a + b
+    return result
+    return 0
+"#;
+        std::fs::write(&file, code).unwrap();
+
+        let store = GraphStore::in_memory();
+        let file_path = file.to_string_lossy().to_string();
+        let func = CodeNode::function("add", &file_path)
+            .with_qualified_name("logic::add")
+            .with_lines(1, 4);
+        store.add_node(func);
+
+        let detector = InconsistentReturnsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag function with consistent return values, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

@@ -508,3 +508,56 @@ impl Detector for MagicNumbersDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_magic_number() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("logic.py");
+        // 42 is a 2+ digit number NOT in the acceptable set.
+        // The line avoids all acceptable-context checks (no brackets, no format, etc.)
+        std::fs::write(
+            &file,
+            "def check(x):\n    if x > 42:\n        return True\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = MagicNumbersDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect magic number 42"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("42")),
+            "Finding should mention 42. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_acceptable_numbers() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("clean.py");
+        // 100 and 10 are in the acceptable set
+        std::fs::write(
+            &file,
+            "def check(x):\n    if x > 100:\n        return True\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = MagicNumbersDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag acceptable number 100, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

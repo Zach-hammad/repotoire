@@ -304,3 +304,83 @@ impl Detector for DuplicateCodeDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_duplicate_code_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        // Two files with identical code blocks. Need >6 lines so the sliding window
+        // of min_lines=6 can form at least one block (loop range: 0..lines.len()-6).
+        let block = r#"def calculate_total(items):
+    total = 0
+    for item in items:
+        price = item.get_price()
+        total += price * item.quantity
+    return total
+
+def wrapper():
+    pass
+"#;
+        let file_a = dir.path().join("billing.py");
+        std::fs::write(&file_a, block).unwrap();
+
+        let file_b = dir.path().join("reporting.py");
+        std::fs::write(&file_b, block).unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DuplicateCodeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect duplicate code blocks across two files"
+        );
+        assert!(
+            findings[0].title.contains("Duplicate"),
+            "Title should mention duplicate, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_unique_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_a = dir.path().join("module_a.py");
+        std::fs::write(
+            &file_a,
+            r#"def alpha():
+    x = 1
+    y = 2
+    z = 3
+    w = 4
+    return x + y + z + w
+"#,
+        )
+        .unwrap();
+
+        let file_b = dir.path().join("module_b.py");
+        std::fs::write(
+            &file_b,
+            r#"def beta():
+    a = 10
+    b = 20
+    c = 30
+    d = 40
+    return a * b * c * d
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DuplicateCodeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag unique code blocks, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

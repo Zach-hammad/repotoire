@@ -224,3 +224,58 @@ impl Detector for BooleanTrapDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_boolean_trap() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("caller.py");
+        std::fs::write(
+            &file,
+            r#"def main():
+    process(data, True, False)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = BooleanTrapDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect boolean trap with True, False arguments"
+        );
+        assert!(
+            findings[0].title.contains("Boolean trap"),
+            "Title should mention boolean trap, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_without_multiple_booleans() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("caller.py");
+        // Only one boolean argument - no trap
+        std::fs::write(
+            &file,
+            r#"def main():
+    process(data, True)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = BooleanTrapDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag single boolean argument, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

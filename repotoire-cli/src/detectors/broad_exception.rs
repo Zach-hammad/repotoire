@@ -256,3 +256,63 @@ impl Detector for BroadExceptionDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_bare_except() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("handler.py");
+        std::fs::write(
+            &file,
+            r#"def process():
+    try:
+        do_work()
+    except:
+        log("something failed")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = BroadExceptionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect bare except:"
+        );
+        assert!(
+            findings[0].title.contains("Broad exception"),
+            "Title should mention broad exception, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_specific_exception() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("handler.py");
+        std::fs::write(
+            &file,
+            r#"def process():
+    try:
+        do_work()
+    except ValueError as e:
+        log(f"bad value: {e}")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = BroadExceptionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag specific except ValueError, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

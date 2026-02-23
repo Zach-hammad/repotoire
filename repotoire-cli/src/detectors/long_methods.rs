@@ -257,3 +257,53 @@ impl Detector for LongMethodsDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{CodeNode, GraphStore, NodeKind};
+
+    #[test]
+    fn test_detects_long_method() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = GraphStore::in_memory();
+
+        // Add a function node with line_end - line_start = 120 (> threshold 50)
+        let func = CodeNode::function("big_function", "/src/app.py")
+            .with_qualified_name("app::big_function")
+            .with_lines(1, 121);
+        store.add_node(func);
+
+        let detector = LongMethodsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect function with 120 lines (threshold 50)"
+        );
+        assert!(
+            findings[0].title.contains("big_function"),
+            "Title should mention function name, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_short_method() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = GraphStore::in_memory();
+
+        // Add a function with only 20 lines (< threshold 50)
+        let func = CodeNode::function("small_func", "/src/app.py")
+            .with_qualified_name("app::small_func")
+            .with_lines(1, 21);
+        store.add_node(func);
+
+        let detector = LongMethodsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag a 20-line function, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
