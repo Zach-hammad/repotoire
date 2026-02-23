@@ -16,6 +16,7 @@
 pub mod base;
 pub mod content_classifier;
 mod engine;
+pub mod file_provider;
 pub mod streaming_engine;
 
 // Context classification using HMM
@@ -149,6 +150,9 @@ mod xxe;
 pub use base::{
     DetectionSummary, Detector, DetectorConfig, DetectorResult, DetectorScope, ProgressCallback,
 };
+
+// Re-export file provider
+pub use file_provider::{FileProvider, SourceFiles};
 
 // Re-export engine
 pub use engine::{DetectorEngine, DetectorEngineBuilder};
