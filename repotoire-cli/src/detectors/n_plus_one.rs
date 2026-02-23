@@ -420,3 +420,63 @@ impl Detector for NPlusOneDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_query_in_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("views.py");
+        std::fs::write(
+            &file,
+            r#"def list_orders(user_ids):
+    results = []
+    for uid in user_ids:
+        order = Order.objects.filter(user_id=uid)
+        results.append(order)
+    return results
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = NPlusOneDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect database query (.filter) inside a for loop"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("N+1")),
+            "Finding title should mention N+1"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_bulk_query() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("views_good.py");
+        std::fs::write(
+            &file,
+            r#"def list_orders(user_ids):
+    orders = Order.objects.filter(user_id__in=user_ids)
+    for order in orders:
+        print(order.total)
+    return orders
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = NPlusOneDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag bulk query before loop (no query inside the loop), got: {:?}",
+            findings
+        );
+    }
+}

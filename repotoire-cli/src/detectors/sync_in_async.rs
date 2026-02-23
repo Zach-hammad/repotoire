@@ -312,3 +312,66 @@ impl Detector for SyncInAsyncDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_time_sleep_in_async_def() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("server.py");
+        std::fs::write(
+            &file,
+            r#"import asyncio
+import time
+
+async def handle_request():
+    data = await fetch_data()
+    time.sleep(1)
+    return data
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = SyncInAsyncDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect time.sleep() inside async def"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("time.sleep")),
+            "Finding should mention time.sleep"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_sync_function() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("utils.py");
+        std::fs::write(
+            &file,
+            r#"import time
+
+def slow_function():
+    time.sleep(1)
+    return 42
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = SyncInAsyncDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag time.sleep() in a regular (non-async) function, got: {:?}",
+            findings
+        );
+    }
+}
