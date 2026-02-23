@@ -160,16 +160,17 @@ impl EmptyCatchDetector {
                         } else {
                             is_empty_catch = true;
 
-                            // Downgrade common specific-exception idioms to Low severity
-                            let common_idioms = [
-                                "KeyError", "AttributeError", "StopIteration",
-                                "FileNotFoundError", "NotImplementedError",
-                                "OSError", "PermissionError", "FileExistsError",
-                                "ProcessLookupError", "TypeError", "ValueError",
+                            // Broad catch patterns that deserve higher severity
+                            let broad_catches = [
+                                "except:", "except Exception:", "except BaseException:",
+                                "except Exception as", "except BaseException as",
                             ];
-                            if !except_body.is_empty()
-                                && common_idioms.iter().any(|e| except_body.contains(e))
-                            {
+                            // Check if this is a broad catch (no specific exception named)
+                            let is_broad_catch = except_body.is_empty()
+                                || broad_catches.iter().any(|b| trimmed.contains(b));
+
+                            if !is_broad_catch {
+                                // Specific named exception — always downgrade to Low
                                 is_common_idiom = true;
                             }
                         }
@@ -402,5 +403,33 @@ mod tests {
             Severity::Low,
             "except Exception: pass should NOT be Low severity"
         );
+    }
+
+    #[test]
+    fn test_specific_exception_gets_low_severity() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.py", "def get_user(pk):\n    try:\n        return User.objects.get(pk=pk)\n    except User.DoesNotExist:\n        pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(!findings.is_empty(), "Should still detect empty catch");
+        assert!(findings.iter().all(|f| f.severity == Severity::Low),
+            "Specific named exception should be Low severity. Got: {:?}",
+            findings.iter().map(|f| (&f.title, &f.severity)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_broad_except_gets_higher_severity() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handler.py", "def process():\n    try:\n        do_something()\n    except Exception:\n        pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(!findings.is_empty(), "Should detect broad except");
+        assert!(findings.iter().any(|f| f.severity != Severity::Low),
+            "Broad 'except Exception:' should NOT be Low severity. Got: {:?}",
+            findings.iter().map(|f| (&f.title, &f.severity)).collect::<Vec<_>>());
     }
 }
