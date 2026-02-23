@@ -195,6 +195,7 @@ impl Detector for GlobalVariablesDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
+        let mut seen_globals: HashSet<(PathBuf, String)> = HashSet::new();
 
         for path in files.files_with_extensions(&["py", "js", "ts"]) {
             if findings.len() >= self.max_findings {
@@ -221,10 +222,24 @@ impl Detector for GlobalVariablesDetector {
                 // Track Python function scope with indentation depth
                 let mut py_indent_stack: Vec<usize> = Vec::new(); // indent levels of open def blocks
                 let mut py_in_function = false;
+                let mut in_docstring = false;
                 let all_lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in all_lines.iter().enumerate() {
                     let trimmed = line.trim();
+
+                    // Track Python triple-quoted strings (docstrings)
+                    if ext == "py" {
+                        let triple_double = trimmed.matches("\"\"\"").count();
+                        let triple_single = trimmed.matches("'''").count();
+                        let triple_count = triple_double + triple_single;
+                        if triple_count % 2 != 0 {
+                            in_docstring = !in_docstring;
+                        }
+                        if in_docstring {
+                            continue;
+                        }
+                    }
 
                     // --- Python scope tracking via indentation ---
                     if ext == "py" {
@@ -274,6 +289,12 @@ impl Detector for GlobalVariablesDetector {
                         }
 
                         if let Some(var_name) = Self::extract_var_name(trimmed) {
+                            let key = (path.to_path_buf(), var_name.clone());
+                            if seen_globals.contains(&key) {
+                                continue;
+                            }
+                            seen_globals.insert(key);
+
                             let usage_count = self.count_usages(&content, &var_name, i + 1);
                             let is_cross_module =
                                 self.check_cross_module_usage(graph, &path_str, &var_name);
@@ -322,6 +343,29 @@ mod tests {
             "Title should mention variable name, got: {}",
             findings[0].title
         );
+    }
+
+    #[test]
+    fn test_no_finding_for_global_in_docstring() {
+        let store = GraphStore::in_memory();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("widgets.py", "class Widget:\n    def merge(self):\n        \"\"\"\n        global or in CSS you might want to override a style.\n        \"\"\"\n        pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag 'global' in docstring. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_dedup_same_variable_across_functions() {
+        let store = GraphStore::in_memory();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("trans.py", "def func_a():\n    global _default\n    _default = get_default()\n\ndef func_b():\n    global _default\n    return _default\n\ndef func_c():\n    global _default\n    _default = None\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert_eq!(findings.len(), 1, "Should deduplicate same variable across functions. Found {} findings", findings.len());
     }
 
     #[test]
