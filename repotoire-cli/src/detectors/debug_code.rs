@@ -128,7 +128,7 @@ impl Detector for DebugCodeDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 let mut file_debug_count = 0;
                 let lines: Vec<&str> = content.lines().collect();
 
@@ -301,6 +301,46 @@ def process(data):
         assert!(
             findings.is_empty(),
             "Should not flag proper logging. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_debug_in_docstring() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            "def run_server():\n    \"\"\"\n    Start the server.\n    Use debug = True for development.\n    The debugger provides interactive tracing.\n    \"\"\"\n    app.run()\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag debug/debugger inside docstrings. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_debug_in_string_literal() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("cli.py");
+        std::fs::write(
+            &file,
+            "import click\n\n@click.option(\"--debug\", is_flag=True, help=\"Enable debug mode\")\ndef main(debug):\n    pass\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag debug in CLI option strings. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
