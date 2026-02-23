@@ -153,6 +153,18 @@ impl SQLInjectionDetector {
 
         // Check excluded directories
         let path_str = path.to_string_lossy();
+
+        // Skip ORM/database internal paths — these files ARE the database layer
+        let db_internal_patterns = [
+            "db/backends/",
+            "db/models/sql/",
+            "db/models/expressions",
+            "core/cache/backends/",
+        ];
+        if db_internal_patterns.iter().any(|p| path_str.contains(p)) {
+            return true;
+        }
+
         for dir in &self.exclude_dirs {
             // Match as path component (not substring)
             if path_str.split('/').any(|p| p == dir) {
@@ -328,6 +340,15 @@ impl SQLInjectionDetector {
         }
 
         false
+    }
+
+    /// Check if the line contains sanitized SQL values (e.g., quote_name())
+    fn is_sanitized_value(&self, line: &str) -> bool {
+        let line_lower = line.to_lowercase();
+        line_lower.contains("quote_name(")
+            || line_lower.contains("escape_name(")
+            || line_lower.contains("quote_ident(")
+            || line_lower.contains("quotename(")
     }
 
     /// Check a line for dangerous SQL patterns
@@ -605,6 +626,12 @@ impl SQLInjectionDetector {
                     // is_safe_orm_pattern checks for unsafe raw SQL patterns first, then safe patterns
                     if is_safe_orm_pattern(line, &detected_frameworks) {
                         debug!("Skipping safe ORM pattern at {}:{}", rel_path, line_num);
+                        continue;
+                    }
+
+                    // Skip lines with sanitized SQL identifiers (quote_name, etc.)
+                    if self.is_sanitized_value(&check_line) {
+                        debug!("Skipping sanitized SQL value at {}:{}", rel_path, line_num);
                         continue;
                     }
 
@@ -1404,5 +1431,30 @@ mod tests {
         // These use static SQL with prepare(), no interpolation, so our pattern won't match
         assert!(detector.check_line_for_patterns(line1).is_none());
         assert!(detector.check_line_for_patterns(line2).is_none());
+    }
+
+    #[test]
+    fn test_no_finding_for_quote_name_sanitized() {
+        let detector = SQLInjectionDetector::new();
+        // quote_name() is a SQL identifier sanitizer — should not be flagged
+        assert!(detector.is_sanitized_value(
+            r#"cursor.execute("SELECT * FROM %s" % connection.ops.quote_name(table_name))"#
+        ));
+    }
+
+    #[test]
+    fn test_excludes_db_backend_paths() {
+        let detector = SQLInjectionDetector::new();
+        assert!(detector.should_exclude(std::path::Path::new(
+            "django/db/backends/postgresql/introspection.py"
+        )));
+        assert!(detector.should_exclude(std::path::Path::new(
+            "django/db/models/sql/compiler.py"
+        )));
+        assert!(detector.should_exclude(std::path::Path::new(
+            "django/core/cache/backends/db.py"
+        )));
+        // Should NOT exclude application code
+        assert!(!detector.should_exclude(std::path::Path::new("myapp/views.py")));
     }
 }
