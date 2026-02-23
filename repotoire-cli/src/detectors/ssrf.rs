@@ -219,3 +219,69 @@ impl Detector for SsrfDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detectors::base::Detector;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_requests_get_with_user_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("vuln.py");
+        std::fs::write(
+            &file,
+            r#"import requests
+
+def fetch_url(req):
+    url = req.body.get("url")
+    response = requests.get(req.body["url"])
+    return response.text
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = SsrfDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect requests.get with user-controlled URL from req.body"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("SSRF")),
+            "Finding should mention SSRF. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-918")),
+            "Finding should have CWE-918"
+        );
+    }
+
+    #[test]
+    fn test_no_findings_for_hardcoded_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("safe.py");
+        std::fs::write(
+            &file,
+            r#"import requests
+
+def fetch_data():
+    response = requests.get("https://api.example.com/data")
+    return response.json()
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = SsrfDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Hardcoded URL should have no SSRF findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

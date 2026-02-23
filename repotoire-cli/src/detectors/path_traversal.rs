@@ -297,3 +297,65 @@ impl Detector for PathTraversalDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detectors::base::Detector;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_open_with_user_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("vuln.py");
+        std::fs::write(
+            &file,
+            r#"def download(request):
+    filename = request.GET.get("file")
+    f = open(request.GET["file"], "r")
+    return f.read()
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect open() with user-controlled path from request"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("path traversal")),
+            "Finding should mention path traversal. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-22")),
+            "Finding should have CWE-22"
+        );
+    }
+
+    #[test]
+    fn test_no_findings_for_hardcoded_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("safe.py");
+        std::fs::write(
+            &file,
+            r#"def read_config():
+    with open("config/settings.json", "r") as f:
+        return json.load(f)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Hardcoded path should have no path traversal findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

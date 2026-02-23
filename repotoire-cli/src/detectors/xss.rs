@@ -223,3 +223,64 @@ impl Detector for XssDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detectors::base::Detector;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_innerhtml_with_user_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("vuln.js");
+        std::fs::write(
+            &file,
+            r#"function renderContent(user_input) {
+    document.getElementById("output").innerHTML = user_input;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = XssDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect innerHTML assignment with user input"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("XSS")),
+            "Finding should mention XSS. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-79")),
+            "Finding should have CWE-79"
+        );
+    }
+
+    #[test]
+    fn test_no_findings_for_textcontent() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("safe.js");
+        std::fs::write(
+            &file,
+            r#"function renderContent(data) {
+    document.getElementById("output").textContent = data;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = XssDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Using textContent should have no XSS findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
