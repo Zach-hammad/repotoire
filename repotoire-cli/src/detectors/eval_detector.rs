@@ -55,6 +55,7 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     "node_modules/",
     "venv/",
     ".venv/",
+    "management/commands/",
 ];
 
 /// Detects dangerous code execution patterns (eval, exec, etc.)
@@ -160,7 +161,12 @@ impl EvalDetector {
         for pattern in &self.exclude_patterns {
             if pattern.ends_with('/') {
                 let dir = pattern.trim_end_matches('/');
-                if path.split('/').any(|p| p == dir) {
+                // Handle multi-segment directory patterns (e.g. "management/commands")
+                if dir.contains('/') {
+                    if path.contains(pattern.as_str()) || path.contains(dir) {
+                        return true;
+                    }
+                } else if path.split('/').any(|p| p == dir) {
                     return true;
                 }
             } else if pattern.contains('*') {
@@ -645,6 +651,28 @@ def process(user_input):
             "Should detect eval() with variable argument"
         );
         assert!(findings.iter().any(|f| f.detector == "EvalDetector"));
+    }
+
+    #[test]
+    fn test_no_finding_for_management_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgmt_dir = dir.path().join("management").join("commands");
+        std::fs::create_dir_all(&mgmt_dir).unwrap();
+        let file = mgmt_dir.join("shell.py");
+        std::fs::write(
+            &file,
+            "def handle(self, **options):\n    code = compile(source, '<shell>', 'exec')\n    exec(code)\n",
+        ).unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag exec() in management/commands/. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
