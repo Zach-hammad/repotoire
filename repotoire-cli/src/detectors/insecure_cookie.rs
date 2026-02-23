@@ -19,7 +19,7 @@ static COOKIE_PATTERN: OnceLock<Regex> = OnceLock::new();
 fn cookie_pattern() -> &'static Regex {
     COOKIE_PATTERN.get_or_init(|| {
         Regex::new(
-            r"(?i)(\.set_cookie\s*\(|response\.set_cookie\s*\(|res\.cookie\s*\(|response\.cookie\s*\(|setcookie\s*\(|\.cookies\[)",
+            r"(?i)(\.set_cookie\s*\(|response\.set_cookie\s*\(|res\.cookie\s*\(|response\.cookie\s*\(|setcookie\s*\()",
         )
         .expect("valid regex")
     })
@@ -66,8 +66,8 @@ impl InsecureCookieDetector {
 
     /// Check cookie flags in surrounding context
     fn check_cookie_flags(lines: &[&str], cookie_line: usize) -> CookieFlags {
-        let start = cookie_line.saturating_sub(2);
-        let end = (cookie_line + 5).min(lines.len());
+        let start = cookie_line.saturating_sub(3);
+        let end = (cookie_line + 15).min(lines.len());
         let context = lines[start..end].join(" ").to_lowercase();
 
         CookieFlags {
@@ -335,5 +335,29 @@ mod tests {
             "Should not flag class field assignments. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_no_finding_for_cookie_attribute_access() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("response.py", "def set_cookie(self, key, value):\n    self.cookies[key] = value\n    self.cookies[key][\"secure\"] = True\n    self.cookies[key][\"httponly\"] = True\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag self.cookies[] attribute access. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_multiline_set_cookie_with_flags() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("middleware.py", "def process_response(self, request, response):\n    response.set_cookie(\n        settings.SESSION_COOKIE_NAME,\n        request.session.session_key,\n        max_age=max_age,\n        expires=expires,\n        domain=settings.SESSION_COOKIE_DOMAIN,\n        path=settings.SESSION_COOKIE_PATH,\n        secure=settings.SESSION_COOKIE_SECURE or None,\n        httponly=settings.SESSION_COOKIE_HTTPONLY or None,\n        samesite=settings.SESSION_COOKIE_SAMESITE,\n    )\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should detect flags in multi-line set_cookie() call. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
 }
