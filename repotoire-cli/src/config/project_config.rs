@@ -654,9 +654,26 @@ pub fn glob_match(pattern: &str, path: &str) -> bool {
                 return false;
             }
 
-            // Check suffix
-            if !suffix.is_empty() && !path.ends_with(suffix) {
-                return false;
+            // Check suffix (handle * wildcard within suffix, e.g. **/*.min.js)
+            if !suffix.is_empty() {
+                if suffix.contains('*') {
+                    let star_parts: Vec<&str> = suffix.split('*').collect();
+                    if star_parts.len() == 2 {
+                        let before = star_parts[0];
+                        let after = star_parts[1];
+                        let matches = if before.is_empty() {
+                            path.ends_with(after)
+                        } else {
+                            // e.g. suffix = "src/*.js" — find `before` then check `after`
+                            path.contains(before) && path.ends_with(after)
+                        };
+                        if !matches {
+                            return false;
+                        }
+                    }
+                } else if !path.ends_with(suffix) {
+                    return false;
+                }
             }
 
             return true;
@@ -877,6 +894,9 @@ skip_detectors = ["debug-code"]
         assert!(config.should_exclude(std::path::Path::new("src/vendor/jquery.js")));
         assert!(config.should_exclude(std::path::Path::new("node_modules/react/index.js")));
         assert!(config.should_exclude(std::path::Path::new("deep/path/dist/bundle.js")));
+        assert!(config.should_exclude(std::path::Path::new("assets/lib.min.js")));
+        assert!(config.should_exclude(std::path::Path::new("css/styles.min.css")));
+        assert!(config.should_exclude(std::path::Path::new("js/app.bundle.js")));
         assert!(!config.should_exclude(std::path::Path::new("src/main.py")));
     }
 }
