@@ -1,5 +1,14 @@
 //! Taint tracking detector for security vulnerability detection
 //!
+//! **Status: Disabled in default detector set.** This pattern-based taint detector
+//! has been superseded by the dedicated graph-based security detectors:
+//! `PathTraversalDetector`, `CommandInjectionDetector`, `SqlInjectionDetector`,
+//! `SsrfDetector`, `XssDetector`, `LogInjectionDetector`, etc.
+//!
+//! Retained as a public API type and reference implementation for:
+//! - Projects that want a single detector covering all taint categories
+//! - Future reimplementation with improved intra-function SSA-based data flow
+//!
 //! Uses data flow analysis to trace potentially malicious data from
 //! untrusted sources (user input, network, files) to dangerous sinks.
 //!
@@ -13,17 +22,14 @@
 //! - Log injection (user input in log messages)
 //!
 //! This detector uses pattern-based detection when the Rust taint analyzer
-
-#![allow(dead_code)] // Module under development - structs/helpers used in tests only
 //! is not available, providing similar coverage through regex matching.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::{debug, info};
 
 /// Taint source patterns (user input, network, etc.)

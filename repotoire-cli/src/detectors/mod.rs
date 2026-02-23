@@ -516,9 +516,20 @@ fn default_detectors_full(
     ];
 
     // Predictive coding: surprisal detector (only when n-gram model is available)
-    if let Some(model) = ngram_model {
-        if model.is_confident() {
+    match ngram_model {
+        Some(model) if model.is_confident() => {
+            tracing::debug!("SurprisalDetector enabled (n-gram model is confident)");
             detectors.push(Arc::new(SurprisalDetector::new(repository_path, model)));
+        }
+        Some(_) => {
+            tracing::debug!(
+                "SurprisalDetector skipped: n-gram model not confident (insufficient training data)"
+            );
+        }
+        None => {
+            tracing::debug!(
+                "SurprisalDetector skipped: no n-gram model available (run `repotoire calibrate` first)"
+            );
         }
     }
 

@@ -160,6 +160,10 @@ impl Detector for SurprisalDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
         if !self.model.is_confident() {
+            info!(
+                "SurprisalDetector: skipping analysis — n-gram model is not confident \
+                 (insufficient training data). Run calibration on a larger codebase to enable."
+            );
             return Ok(vec![]);
         }
 
