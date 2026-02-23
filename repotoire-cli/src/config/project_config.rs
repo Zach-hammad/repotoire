@@ -826,4 +826,57 @@ skip_detectors = ["debug-code"]
             .skip_detectors
             .contains(&"debug-code".to_string()));
     }
+
+    #[test]
+    fn test_default_exclude_patterns_applied() {
+        let config = ExcludeConfig::default();
+        let patterns = config.effective_patterns();
+        assert!(patterns.contains(&"**/vendor/**".to_string()));
+        assert!(patterns.contains(&"**/node_modules/**".to_string()));
+        assert!(patterns.contains(&"**/*.min.js".to_string()));
+        assert_eq!(patterns.len(), DEFAULT_EXCLUDE_PATTERNS.len());
+    }
+
+    #[test]
+    fn test_skip_defaults_disables_builtin_patterns() {
+        let config = ExcludeConfig {
+            paths: vec!["custom/".to_string()],
+            skip_defaults: true,
+        };
+        let patterns = config.effective_patterns();
+        assert_eq!(patterns, vec!["custom/"]);
+        assert!(!patterns.contains(&"**/vendor/**".to_string()));
+    }
+
+    #[test]
+    fn test_user_patterns_merged_with_defaults() {
+        let config = ExcludeConfig {
+            paths: vec!["generated/".to_string()],
+            skip_defaults: false,
+        };
+        let patterns = config.effective_patterns();
+        assert!(patterns.contains(&"**/vendor/**".to_string()));
+        assert!(patterns.contains(&"generated/".to_string()));
+        assert_eq!(patterns.len(), DEFAULT_EXCLUDE_PATTERNS.len() + 1);
+    }
+
+    #[test]
+    fn test_effective_patterns_deduplication() {
+        let config = ExcludeConfig {
+            paths: vec!["**/vendor/**".to_string()],
+            skip_defaults: false,
+        };
+        let patterns = config.effective_patterns();
+        let vendor_count = patterns.iter().filter(|p| *p == "**/vendor/**").count();
+        assert_eq!(vendor_count, 1);
+    }
+
+    #[test]
+    fn test_should_exclude_vendor_by_default() {
+        let config = ProjectConfig::default();
+        assert!(config.should_exclude(std::path::Path::new("src/vendor/jquery.js")));
+        assert!(config.should_exclude(std::path::Path::new("node_modules/react/index.js")));
+        assert!(config.should_exclude(std::path::Path::new("deep/path/dist/bundle.js")));
+        assert!(!config.should_exclude(std::path::Path::new("src/main.py")));
+    }
 }
