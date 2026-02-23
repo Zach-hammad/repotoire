@@ -381,3 +381,68 @@ impl Detector for NosqlInjectionDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_where_with_user_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("routes.js");
+        std::fs::write(
+            &file,
+            r#"const mongoose = require('mongoose');
+const User = mongoose.model('User');
+
+async function findUser(req, res) {
+    const name = req.body.name;
+    const result = await User.find({ $where: `this.name == '${name}'` });
+    res.json(result);
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = NosqlInjectionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect $where with user input from req.body"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("$where")),
+            "Finding should mention $where. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_safe_query() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("routes.js");
+        std::fs::write(
+            &file,
+            r#"const mongoose = require('mongoose');
+const User = mongoose.model('User');
+
+async function findUser() {
+    const result = await User.find({ active: true });
+    return result;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = NosqlInjectionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Safe MongoDB query without user input should produce no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

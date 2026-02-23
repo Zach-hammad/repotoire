@@ -265,3 +265,65 @@ impl Detector for HardcodedIpsDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_hardcoded_ip_in_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("database.py");
+        std::fs::write(
+            &file,
+            r#"import psycopg2
+
+def connect():
+    conn = psycopg2.connect(host="192.168.1.100", database="mydb")
+    return conn
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = HardcodedIpsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect hardcoded IP 192.168.1.100 in database connection"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("192.168.1.100")),
+            "Finding should mention the IP. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_clean_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("database.py");
+        std::fs::write(
+            &file,
+            r#"import os
+import psycopg2
+
+def connect():
+    host = os.environ.get("DB_HOST")
+    conn = psycopg2.connect(host=host, database="mydb")
+    return conn
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = HardcodedIpsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Code using env vars should produce no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

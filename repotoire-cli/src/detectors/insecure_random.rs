@@ -417,3 +417,62 @@ impl Detector for InsecureRandomDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_insecure_random_in_security_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("auth.py");
+        std::fs::write(
+            &file,
+            r#"import random
+
+def generate_token():
+    token = random.random()
+    return str(token)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureRandomDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect random.random() used for token generation"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("random.random()")),
+            "Finding should mention random.random(). Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_non_security_random() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("simulation.py");
+        std::fs::write(
+            &file,
+            r#"import random
+
+def roll_dice():
+    return random.randint(1, 6)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureRandomDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag random used in non-security context, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
