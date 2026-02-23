@@ -521,6 +521,9 @@ impl Detector for GodClassDetector {
                 if lower_path.contains("/test/") || lower_path.contains("/tests/")
                     || lower_path.contains("/__tests__/") || lower_path.contains("/spec/")
                     || lower_path.contains("test_") || lower_path.contains("_test.")
+                    // Handle relative paths
+                    || lower_path.starts_with("tests/")
+                    || lower_path.starts_with("test/")
                 {
                     debug!("Skipping test class: {}", class.name);
                     continue;

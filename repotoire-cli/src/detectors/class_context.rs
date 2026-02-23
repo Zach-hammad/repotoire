@@ -565,6 +565,11 @@ impl<'a> ClassContextBuilder<'a> {
             || lower.ends_with(".test.js")
             || lower.ends_with(".spec.ts")
             || lower.ends_with(".spec.js")
+            // Handle relative paths starting with test directories
+            || lower.starts_with("tests/")
+            || lower.starts_with("test/")
+            || lower.starts_with("__tests__/")
+            || lower.starts_with("spec/")
     }
 
     /// Check if path is in a framework/vendor directory

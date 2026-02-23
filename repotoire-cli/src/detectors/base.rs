@@ -247,6 +247,11 @@ pub fn is_test_path(path_str: &str) -> bool {
         || lower.contains(".test.")
         || lower.contains(".spec.")
         || lower.contains("_spec.")
+        // Handle relative paths starting with test directories
+        || lower.starts_with("tests/")
+        || lower.starts_with("test/")
+        || lower.starts_with("__tests__/")
+        || lower.starts_with("spec/")
 }
 
 /// Trait for all code smell detectors
