@@ -11,7 +11,7 @@ use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
@@ -19,6 +19,7 @@ use tracing::info;
 static LOOP_PATTERN: OnceLock<Regex> = OnceLock::new();
 static STRING_CONCAT: OnceLock<Regex> = OnceLock::new();
 static FOR_VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
+static CONCAT_VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn loop_pattern() -> &'static Regex {
     LOOP_PATTERN.get_or_init(|| {
@@ -38,6 +39,11 @@ fn string_concat() -> &'static Regex {
         Regex::new(r#"\w+\s*\+=\s*(?:["'`]|f["'])"#)
             .expect("valid regex")
     })
+}
+
+/// Extract the variable name from a `+=` line (the identifier before `+=`)
+fn concat_var_pattern() -> &'static Regex {
+    CONCAT_VAR_PATTERN.get_or_init(|| Regex::new(r"(\w+)\s*\+=").expect("valid regex"))
 }
 
 pub struct StringConcatLoopDetector {
@@ -146,18 +152,73 @@ impl Detector for StringConcatLoopDetector {
             if let Some(content) = files.content(path) {
                 let is_python = ext == "py";
                 let mut in_loop = false;
-                let mut loop_line = 0;
+                let mut loop_line: usize = 0;
                 let mut brace_depth = 0;
                 let mut loop_indent: usize = 0;
                 let mut loop_line_idx: usize = 0;
                 let mut _loop_var = String::new();
                 let all_lines: Vec<&str> = content.lines().collect();
 
+                // Track per-variable concat counts within the current loop.
+                // Maps variable_name -> (first_line_number_1based, count)
+                let mut loop_concats: HashMap<String, (usize, u32)> = HashMap::new();
+
+                // Helper closure: flush accumulated concats, creating findings
+                // only for variables with 2+ concatenations in the same loop.
+                let flush_loop_concats = |concats: &mut HashMap<String, (usize, u32)>,
+                                               findings: &mut Vec<Finding>,
+                                               loop_start_line: usize,
+                                               file_path: &std::path::Path,
+                                               extension: &str| {
+                    for (var_name, (first_line, count)) in concats.drain() {
+                        if count >= 2 {
+                            let suggestion = Self::get_suggestion(extension);
+                            findings.push(Finding {
+                                id: String::new(),
+                                detector: "StringConcatLoopDetector".to_string(),
+                                severity: Severity::Medium,
+                                title: "String concatenation in loop".to_string(),
+                                description: format!(
+                                    "Variable '{}' concatenated {} times inside loop (started line {}).\n\n\
+                                     **Performance:** O(n²) time complexity. Each concatenation \
+                                     creates a new string and copies all previous characters.\n\n\
+                                     For 1000 iterations, this copies ~500,000 characters instead of 1000.",
+                                    var_name, count, loop_start_line
+                                ),
+                                affected_files: vec![file_path.to_path_buf()],
+                                line_start: Some(first_line as u32),
+                                line_end: Some(first_line as u32),
+                                suggested_fix: Some(suggestion),
+                                estimated_effort: Some("15 minutes".to_string()),
+                                category: Some("performance".to_string()),
+                                cwe_id: None,
+                                why_it_matters: Some(
+                                    "String concatenation in loops creates O(n²) time complexity \
+                                     due to immutable string copying.".to_string()
+                                ),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                };
+
                 for (i, line) in all_lines.iter().enumerate() {
                     if loop_pattern().is_match(line) {
+                        // If we were already in a loop, flush any accumulated concats
+                        if in_loop {
+                            flush_loop_concats(
+                                &mut loop_concats,
+                                &mut findings,
+                                loop_line,
+                                path,
+                                ext,
+                            );
+                        }
+
                         in_loop = true;
                         loop_line = i + 1;
                         loop_line_idx = i;
+                        loop_concats.clear();
                         if is_python {
                             loop_indent = line.len() - line.trim_start().len();
                         } else {
@@ -179,6 +240,14 @@ impl Detector for StringConcatLoopDetector {
                             if !trimmed.is_empty() && i > loop_line_idx {
                                 let current_indent = line.len() - line.trim_start().len();
                                 if current_indent <= loop_indent {
+                                    // Loop ended — flush concats and check for accumulation
+                                    flush_loop_concats(
+                                        &mut loop_concats,
+                                        &mut findings,
+                                        loop_line,
+                                        path,
+                                        ext,
+                                    );
                                     in_loop = false;
                                     continue;
                                 }
@@ -187,6 +256,14 @@ impl Detector for StringConcatLoopDetector {
                             brace_depth += line.matches('{').count() as i32;
                             brace_depth -= line.matches('}').count() as i32;
                             if brace_depth < 0 {
+                                // Loop ended — flush concats and check for accumulation
+                                flush_loop_concats(
+                                    &mut loop_concats,
+                                    &mut findings,
+                                    loop_line,
+                                    path,
+                                    ext,
+                                );
                                 in_loop = false;
                                 continue;
                             }
@@ -198,36 +275,30 @@ impl Detector for StringConcatLoopDetector {
                                 continue;
                             }
 
-                            let suggestion = Self::get_suggestion(ext);
-
-                            findings.push(Finding {
-                                id: String::new(),
-                                detector: "StringConcatLoopDetector".to_string(),
-                                severity: Severity::Medium,
-                                title: "String concatenation in loop".to_string(),
-                                description: format!(
-                                    "String concatenation inside loop (started line {}).\n\n\
-                                     **Performance:** O(n²) time complexity. Each concatenation \
-                                     creates a new string and copies all previous characters.\n\n\
-                                     For 1000 iterations, this copies ~500,000 characters instead of 1000.",
-                                    loop_line
-                                ),
-                                affected_files: vec![path.to_path_buf()],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
-                                suggested_fix: Some(suggestion),
-                                estimated_effort: Some("15 minutes".to_string()),
-                                category: Some("performance".to_string()),
-                                cwe_id: None,
-                                why_it_matters: Some(
-                                    "String concatenation in loops creates O(n²) time complexity \
-                                     due to immutable string copying.".to_string()
-                                ),
-                                ..Default::default()
-                            });
-                            in_loop = false;
+                            // Extract variable name (text before +=)
+                            if let Some(caps) = concat_var_pattern().captures(line) {
+                                let var_name = caps
+                                    .get(1)
+                                    .map(|m| m.as_str().to_string())
+                                    .unwrap_or_default();
+                                let entry = loop_concats
+                                    .entry(var_name)
+                                    .or_insert((i + 1, 0));
+                                entry.1 += 1;
+                            }
                         }
                     }
+                }
+
+                // End of file — flush any remaining loop concats
+                if in_loop {
+                    flush_loop_concats(
+                        &mut loop_concats,
+                        &mut findings,
+                        loop_line,
+                        path,
+                        ext,
+                    );
                 }
             }
         }
@@ -317,12 +388,12 @@ mod tests {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
-            ("builder.py", "def build_output(items):\n    result = \"\"\n    for item in items:\n        result += \"value\"\n    return result\n"),
+            ("builder.py", "def build_output(items):\n    result = \"\"\n    for item in items:\n        result += \"key: \"\n        result += \"value\"\n    return result\n"),
         ]);
         let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
-            "Should detect string concatenation in loop. Found: {:?}",
+            "Should detect string concatenation in loop (2+ concats to same var). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
@@ -377,12 +448,12 @@ mod tests {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
-            ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result += \"prefix_\"\n    return result\n"),
+            ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result += \"prefix_\"\n        result += \"suffix_\"\n    return result\n"),
         ]);
         let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
-            "Should still detect string literal concat in loop"
+            "Should still detect string literal concat in loop (2+ concats)"
         );
     }
 
@@ -437,12 +508,41 @@ mod tests {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
-            ("slow.py", "result = \"\"\nfor item in items:\n    result += \"item: \" + str(item)\n"),
+            ("slow.py", "result = \"\"\nfor item in items:\n    result += \"item: \"\n    result += \"value\"\n"),
         ]);
         let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
-            "Should still detect string concat inside loop"
+            "Should still detect string concat inside loop (2+ concats)"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_single_concat_per_iteration() {
+        let store = GraphStore::in_memory();
+        let detector = StringConcatLoopDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.py", "for item in items:\n    url += \"/\"\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag single concat per iteration. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_still_detects_multiple_concats_in_loop() {
+        let store = GraphStore::in_memory();
+        let detector = StringConcatLoopDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("builder.py", "for field in fields:\n    definition += \" \" + check\n    definition += \" \" + suffix\n    definition += \" \" + fk\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect multiple concats to same variable in loop"
         );
     }
 }
