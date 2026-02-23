@@ -52,6 +52,13 @@ fn is_hash_mention_not_usage(line: &str) -> bool {
         return true;
     }
 
+    // Skip non-cryptographic hashing contexts (cache keys, template hashing)
+    if lower.contains("generate_hash") || lower.contains("hexdigest") {
+        if lower.contains("cache") || lower.contains("template") || lower.contains("loader") || lower.contains("join") || lower.contains("values") {
+            return true;
+        }
+    }
+
     // Skip regex pattern definitions
     if line.contains("Regex::new")
         || line.contains("regex::Regex")
@@ -354,6 +361,11 @@ impl Detector for InsecureCryptoDetector {
                 continue;
             }
 
+            // Skip scripts/build/release tooling (checksums for file integrity, not security)
+            if path_str.contains("scripts/") || path_str.contains("/script/") {
+                continue;
+            }
+
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut in_non_crypto_func = false;
@@ -371,7 +383,7 @@ impl Detector for InsecureCryptoDetector {
                     // e.g., _sqlite_md5, make_cache_key, compute_checksum, etag
                     if trimmed.starts_with("def ") || trimmed.starts_with("fn ") {
                         let lower_trimmed = trimmed.to_lowercase();
-                        if lower_trimmed.contains("_sqlite_") || lower_trimmed.contains("checksum") || lower_trimmed.contains("etag") || lower_trimmed.contains("cache_key") {
+                        if lower_trimmed.contains("_sqlite_") || lower_trimmed.contains("checksum") || lower_trimmed.contains("etag") || lower_trimmed.contains("cache_key") || lower_trimmed.contains("generate_hash") {
                             in_non_crypto_func = true;
                             func_indent = indent;
                         } else {
@@ -596,5 +608,35 @@ mod tests {
         ]);
         let findings = detector.detect(&store, &files).unwrap();
         assert!(!findings.is_empty(), "Should still detect real md5 password hashing");
+    }
+
+    #[test]
+    fn test_no_finding_for_cache_key_hash() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("template/loaders/cached.py", "def generate_hash(self, values):\n    return hashlib.sha1(\"|\".join(values).encode()).hexdigest()\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag SHA1 used for cache key generation. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_release_checksums() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("scripts/do_release.py", "checksums = [\n    (\"md5\", hashlib.md5),\n    (\"sha1\", hashlib.sha1),\n    (\"sha256\", hashlib.sha256),\n]\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag hashes in release/build scripts. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
