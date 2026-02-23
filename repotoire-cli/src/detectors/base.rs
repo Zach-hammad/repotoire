@@ -167,21 +167,18 @@ impl DetectorConfig {
     }
 
     /// Set the repository ID
-    #[allow(dead_code)] // Builder pattern method for future use
     pub fn with_repo_id(mut self, repo_id: impl Into<String>) -> Self {
         self.repo_id = Some(repo_id.into());
         self
     }
 
     /// Set maximum findings
-    #[allow(dead_code)] // Builder pattern method for future use
     pub fn with_max_findings(mut self, max: usize) -> Self {
         self.max_findings = Some(max);
         self
     }
 
     /// Set a custom option
-    #[allow(dead_code)] // Builder pattern method for future use
     pub fn with_option(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.options.insert(key.into(), value);
         self

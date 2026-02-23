@@ -92,7 +92,6 @@ impl FeatureEnvyDetector {
     }
 
     /// Create with custom config
-    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         // Apply coupling multiplier to thresholds (higher multiplier = more lenient)
         let multiplier = config.coupling_multiplier;

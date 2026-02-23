@@ -46,7 +46,6 @@ impl ModuleCohesionDetector {
     }
 
     /// Create with custom config
-    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         Self {
             modularity_poor: config.get_option_or("modularity_poor", 0.3),
