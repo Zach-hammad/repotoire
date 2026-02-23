@@ -19,7 +19,7 @@ use tracing::info;
 static DEBUG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn debug_pattern() -> &'static Regex {
-    DEBUG_PATTERN.get_or_init(|| Regex::new(r"(?i)(console\.(log|debug|info|warn)|print\(|debugger;?|debug\s*=\s*True|DEBUG\s*=\s*true|binding\.pry|byebug|import\s+pdb|pdb\.set_trace)").expect("valid regex"))
+    DEBUG_PATTERN.get_or_init(|| Regex::new(r"(?i)(console\.(log|debug|info|warn)|\bprint\(|debugger;?|binding\.pry|byebug|import\s+pdb|pdb\.set_trace)").expect("valid regex"))
 }
 
 pub struct DebugCodeDetector {
@@ -39,6 +39,7 @@ impl DebugCodeDetector {
     fn is_logging_utility(func_name: &str) -> bool {
         let logging_patterns = [
             "log", "debug", "trace", "print", "dump", "inspect", "show", "display",
+            "info", "output", "report",
         ];
         let name_lower = func_name.to_lowercase();
         logging_patterns.iter().any(|p| name_lower.contains(p))
@@ -54,6 +55,10 @@ impl DebugCodeDetector {
             "debug_",
             "_debug.",
             "/logging/",
+            "/management/commands/",
+            "/management/",
+            "/cli/",
+            "/cmd/",
         ];
         dev_patterns.iter().any(|p| path.contains(p))
     }
@@ -128,6 +133,16 @@ impl Detector for DebugCodeDetector {
                     let trimmed = line.trim();
                     if trimmed.starts_with("//") || trimmed.starts_with("#") {
                         continue;
+                    }
+
+                    // Skip verbosity-guarded prints (CLI command output)
+                    if trimmed.starts_with("print(") || trimmed.starts_with("print (") {
+                        if let Some(prev) = prev_line {
+                            let prev_trimmed = prev.trim();
+                            if prev_trimmed.contains("verbosity") || prev_trimmed.contains("verbose") {
+                                continue;
+                            }
+                        }
                     }
 
                     if debug_pattern().is_match(line) {
@@ -300,5 +315,53 @@ mod tests {
             "Should not flag debug in CLI option strings. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_no_finding_for_pprint() {
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("filters.py", "def pprint(value):\n    return str(value)\n\nresult = pprint(data)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag pprint(). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_verbosity_guarded_print() {
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("mgmt.py", "def handle(self):\n    if verbosity >= 2:\n        print(\"Processing...\")\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag verbosity-guarded print(). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_management_command_path() {
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("management/commands/migrate.py", "def handle(self):\n    print(\"Running migrations...\")\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag print() in management commands. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_debug_kwarg() {
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.py", "from django.template import Engine\n\nDEBUG_ENGINE = Engine(\n    debug=True,\n    libraries={},\n)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag debug=True as keyword argument. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
 }
