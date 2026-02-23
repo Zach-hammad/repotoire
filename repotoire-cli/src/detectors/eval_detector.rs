@@ -216,6 +216,28 @@ impl EvalDetector {
 
         // Check if line contains a code exec function
         let has_simple_exec = CODE_EXEC_FUNCTIONS.iter().any(|f| line.contains(f));
+
+        // Filter out method calls like node.eval(context) and method definitions like def eval(self)
+        // — these are NOT Python's builtin eval()
+        let has_simple_exec = if has_simple_exec && line.contains("eval(") {
+            // Check if eval( is preceded by a dot (method call like obj.eval(...))
+            let eval_preceded_by_dot = line.find("eval(").map(|pos| {
+                pos > 0 && line[..pos].trim_end().ends_with('.')
+            }).unwrap_or(false);
+            // Check if eval( is preceded by 'def' (method definition like def eval(self))
+            let eval_preceded_by_def = line.find("eval(").map(|pos| {
+                pos > 0 && line[..pos].trim_end().ends_with("def")
+            }).unwrap_or(false);
+            if eval_preceded_by_dot || eval_preceded_by_def {
+                // Remove "eval" from consideration, check if other exec functions remain
+                CODE_EXEC_FUNCTIONS.iter().any(|f| *f != "eval" && line.contains(f))
+            } else {
+                true
+            }
+        } else {
+            has_simple_exec
+        };
+
         let has_shell_exec = SHELL_EXEC_PREFIXES.iter().any(|f| {
             // Remove regex escapes for simple contains check
             let plain = f.replace(r"\.", ".");
@@ -243,6 +265,16 @@ impl EvalDetector {
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default(),
             });
+        }
+
+        // Skip subprocess.run/Popen/call WITHOUT shell=True — list args are safe
+        if has_shell_exec && !line.contains("shell=True") && !line.contains("shell = True") {
+            let is_subprocess = lower.contains("subprocess.run") || lower.contains("subprocess.popen")
+                || lower.contains("subprocess.call") || lower.contains("subprocess.check_call")
+                || lower.contains("subprocess.check_output");
+            if is_subprocess {
+                return None;
+            }
         }
 
         // Check f-string pattern (high risk)
@@ -447,6 +479,11 @@ impl EvalDetector {
                 || file_lower.contains("/werkzeug/")
                 || file_lower.contains("/celery/")
                 || file_lower.contains("/fastapi/")
+                || file_lower.starts_with("django/")  // relative paths
+                || file_lower.starts_with("flask/")    // relative paths
+                || file_lower.starts_with("fastapi/")  // relative paths
+                || file_lower.starts_with("werkzeug/") // relative paths
+                || file_lower.starts_with("celery/")   // relative paths
                 || file_lower.contains("helpers.py")
                 || file_lower.contains("loader")
                 || file_lower.contains("importer")
@@ -673,6 +710,46 @@ def process(user_input):
             "Should not flag exec() in management/commands/. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_no_finding_for_method_eval() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("smartif.py");
+        std::fs::write(
+            &file,
+            "class Operator:\n    def eval(self, context):\n        return self.value\n\nresult = op.eval(context)\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
+        let eval_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("eval")).collect();
+        assert!(eval_findings.is_empty(), "Should not flag .eval() method call. Found: {:?}",
+            eval_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_safe_subprocess() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("runner.py");
+        std::fs::write(
+            &file,
+            "import subprocess\n\ndef run_command(args):\n    result = subprocess.run(args, capture_output=True)\n    return result.stdout\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
+        let subprocess_findings: Vec<_> = findings.iter().filter(|f| {
+            f.title.contains("subprocess") || f.title.contains("command") || f.title.contains("Shell") || f.title.contains("shell")
+        }).collect();
+        assert!(subprocess_findings.is_empty(), "Should not flag subprocess.run without shell=True. Found: {:?}",
+            subprocess_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
 
     #[test]
