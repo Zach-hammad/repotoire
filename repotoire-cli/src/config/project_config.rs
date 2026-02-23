@@ -33,6 +33,20 @@ use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, warn};
 
+/// Built-in default exclusion patterns for vendored/third-party code.
+/// These are applied automatically unless `skip_defaults = true` in config.
+pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
+    "**/vendor/**",
+    "**/node_modules/**",
+    "**/third_party/**",
+    "**/third-party/**",
+    "**/bower_components/**",
+    "**/dist/**",
+    "**/*.min.js",
+    "**/*.min.css",
+    "**/*.bundle.js",
+];
+
 /// Project type affects detector thresholds and scoring
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -321,6 +335,30 @@ pub struct ExcludeConfig {
     /// Paths/patterns to exclude from analysis
     #[serde(default)]
     pub paths: Vec<String>,
+
+    /// If true, disable built-in default exclusion patterns
+    #[serde(default)]
+    pub skip_defaults: bool,
+}
+
+impl ExcludeConfig {
+    /// Returns effective exclusion patterns (defaults + user patterns).
+    /// If `skip_defaults` is true, only user patterns are returned.
+    pub fn effective_patterns(&self) -> Vec<String> {
+        let mut patterns = Vec::new();
+
+        if !self.skip_defaults {
+            patterns.extend(DEFAULT_EXCLUDE_PATTERNS.iter().map(|s| s.to_string()));
+        }
+
+        for p in &self.paths {
+            if !patterns.contains(p) {
+                patterns.push(p.clone());
+            }
+        }
+
+        patterns
+    }
 }
 
 /// Default CLI flags that can be set in project config
@@ -531,14 +569,11 @@ impl ProjectConfig {
     /// Check if a path should be excluded
     pub fn should_exclude(&self, path: &Path) -> bool {
         let path_str = path.to_string_lossy();
-
-        for pattern in &self.exclude.paths {
-            // Simple glob matching (supports * and **)
+        for pattern in &self.exclude.effective_patterns() {
             if glob_match(pattern, &path_str) {
                 return true;
             }
         }
-
         false
     }
 
@@ -598,7 +633,7 @@ pub fn normalize_detector_name(name: &str) -> String {
 }
 
 /// Simple glob pattern matching
-fn glob_match(pattern: &str, path: &str) -> bool {
+pub fn glob_match(pattern: &str, path: &str) -> bool {
     // Handle **/X/** patterns (match if path contains X as a directory)
     if pattern.starts_with("**/") && pattern.ends_with("/**") {
         let middle = pattern.trim_start_matches("**/").trim_end_matches("/**");

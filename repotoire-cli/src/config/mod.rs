@@ -12,8 +12,9 @@ mod project_type_scoring;
 mod user_config;
 
 pub use project_config::{
-    load_project_config, normalize_detector_name, CliDefaults, DetectorConfigOverride,
-    ExcludeConfig, PillarWeights, ProjectConfig, ProjectType, ScoringConfig, ThresholdValue,
+    glob_match, load_project_config, normalize_detector_name, CliDefaults,
+    DetectorConfigOverride, ExcludeConfig, PillarWeights, ProjectConfig, ProjectType,
+    ScoringConfig, ThresholdValue, DEFAULT_EXCLUDE_PATTERNS,
 };
 
 pub use user_config::UserConfig;

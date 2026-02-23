@@ -331,7 +331,7 @@ fn try_cached_fast_path(
     }
 
     let mut cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
-    let all_files = collect_file_list(&env.repo_path)?;
+    let all_files = collect_file_list(&env.repo_path, &env.project_config.exclude)?;
 
     if !cache.has_complete_cache(&all_files) {
         return Ok(None);
@@ -391,6 +391,7 @@ fn initialize_graph(
         &mut cache_clone,
         multi,
         &spinner_style,
+        &env.project_config.exclude,
     )?;
 
     // Apply max_files limit

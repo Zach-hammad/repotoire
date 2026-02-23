@@ -4,6 +4,7 @@
 //! including cached finding retrieval for unchanged files.
 
 use super::setup::{FileCollectionResult, SUPPORTED_EXTENSIONS};
+use crate::config::{glob_match, ExcludeConfig};
 use crate::detectors::IncrementalCache;
 use crate::models::Finding;
 
@@ -14,7 +15,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 
 /// Quick file list collection (no git, no incremental checking) for cache validation
-pub(crate) fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn collect_file_list(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
+    let effective = exclude.effective_patterns();
     let mut files = Vec::new();
 
     let walker = WalkBuilder::new(repo_path)
@@ -33,6 +35,13 @@ pub(crate) fn collect_file_list(repo_path: &Path) -> Result<Vec<PathBuf>> {
             continue;
         };
         if SUPPORTED_EXTENSIONS.contains(&ext) {
+            // Skip files matching exclusion patterns
+            if let Ok(rel) = path.strip_prefix(repo_path) {
+                let rel_str = rel.to_string_lossy();
+                if effective.iter().any(|p| glob_match(p, &rel_str)) {
+                    continue;
+                }
+            }
             files.push(path.to_path_buf());
         }
     }
@@ -48,6 +57,7 @@ pub(super) fn collect_files_for_analysis(
     incremental_cache: &mut IncrementalCache,
     multi: &indicatif::MultiProgress,
     spinner_style: &ProgressStyle,
+    exclude: &ExcludeConfig,
 ) -> Result<FileCollectionResult> {
     let walk_spinner = multi.add(ProgressBar::new_spinner());
     walk_spinner.set_style(spinner_style.clone());
@@ -58,7 +68,7 @@ pub(super) fn collect_files_for_analysis(
         walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
         let changed = get_changed_files_since(repo_path, commit)?;
-        let all = collect_source_files(repo_path)?;
+        let all = collect_source_files(repo_path, exclude)?;
 
         walk_spinner.finish_with_message(format!(
             "{}Found {} changed files (since {}) out of {} total",
@@ -75,7 +85,7 @@ pub(super) fn collect_files_for_analysis(
         walk_spinner.set_message("Discovering source files (incremental mode)...");
         walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
-        let all = collect_source_files(repo_path)?;
+        let all = collect_source_files(repo_path, exclude)?;
         let changed = incremental_cache.changed_files(&all);
         let cache_stats = incremental_cache.stats();
 
@@ -94,7 +104,7 @@ pub(super) fn collect_files_for_analysis(
         walk_spinner.set_message("Discovering source files...");
         walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
-        let files = collect_source_files(repo_path)?;
+        let files = collect_source_files(repo_path, exclude)?;
         walk_spinner.finish_with_message(format!(
             "{}Found {} source files",
             style("✓ ").green(),
@@ -112,7 +122,8 @@ pub(super) fn collect_files_for_analysis(
 }
 
 /// Collect all source files in the repository, respecting .gitignore
-fn collect_source_files(repo_path: &Path) -> Result<Vec<PathBuf>> {
+fn collect_source_files(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
+    let effective = exclude.effective_patterns();
     let mut files = Vec::new();
 
     let mut builder = WalkBuilder::new(repo_path);
@@ -135,6 +146,13 @@ fn collect_source_files(repo_path: &Path) -> Result<Vec<PathBuf>> {
 
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             if SUPPORTED_EXTENSIONS.contains(&ext) {
+                // Skip files matching exclusion patterns
+                if let Ok(rel) = path.strip_prefix(repo_path) {
+                    let rel_str = rel.to_string_lossy();
+                    if effective.iter().any(|p| glob_match(p, &rel_str)) {
+                        continue;
+                    }
+                }
                 files.push(path.to_path_buf());
             }
         }

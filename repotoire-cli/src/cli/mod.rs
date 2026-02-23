@@ -610,7 +610,10 @@ fn run_calibrate(path: &std::path::Path) -> anyhow::Result<()> {
     );
 
     // Collect files using standard walker
-    let files = crate::cli::analyze::files::collect_file_list(&repo_path)?;
+    let files = crate::cli::analyze::files::collect_file_list(
+        &repo_path,
+        &crate::config::ExcludeConfig::default(),
+    )?;
     println!("  Scanning {} files...", files.len());
 
     // Parse all files and collect (ParseResult, file_loc) pairs
