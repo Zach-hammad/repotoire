@@ -419,3 +419,176 @@ impl Detector for DjangoSecurityDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_csrf_exempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("views.py");
+        std::fs::write(
+            &file,
+            r#"from django.views.decorators.csrf import csrf_exempt
+
+@csrf_exempt
+def webhook(request):
+    return JsonResponse({"ok": True})
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect @csrf_exempt usage");
+        assert!(
+            findings.iter().any(|f| f.title.contains("CSRF")),
+            "Finding should mention CSRF. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-352")),
+            "Finding should have CWE-352"
+        );
+    }
+
+    #[test]
+    fn test_detects_debug_true() {
+        let dir = tempfile::tempdir().unwrap();
+        // File name must contain "settings" but not "dev" or "local"
+        let file = dir.path().join("settings.py");
+        std::fs::write(
+            &file,
+            r#"import os
+
+DEBUG = True
+ALLOWED_HOSTS = []
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.iter().any(|f| f.title.contains("DEBUG")),
+            "Should detect DEBUG = True in settings.py. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("DEBUG") && f.severity == Severity::Critical),
+            "DEBUG = True should be Critical severity"
+        );
+    }
+
+    #[test]
+    fn test_detects_raw_sql() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("queries.py");
+        std::fs::write(
+            &file,
+            r#"from django.db import connection
+
+def get_users(name):
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM users WHERE name = %s", [name])
+    return cursor.fetchall()
+
+def get_posts():
+    return Post.objects.raw("SELECT * FROM posts")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        let raw_sql_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("Raw SQL"))
+            .collect();
+        assert!(
+            raw_sql_findings.len() >= 2,
+            "Should detect both cursor.execute and .raw() usage, found {}",
+            raw_sql_findings.len()
+        );
+        assert!(
+            raw_sql_findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-89")),
+            "Raw SQL findings should have CWE-89"
+        );
+    }
+
+    #[test]
+    fn test_detects_wildcard_allowed_hosts() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.py");
+        std::fs::write(
+            &file,
+            r#"import os
+
+SECRET_KEY = os.environ['SECRET_KEY']
+DEBUG = False
+ALLOWED_HOSTS = ['*']
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("ALLOWED_HOSTS")),
+            "Should detect ALLOWED_HOSTS = ['*']. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("ALLOWED_HOSTS") && f.severity == Severity::High),
+            "Wildcard ALLOWED_HOSTS should be High severity"
+        );
+    }
+
+    #[test]
+    fn test_clean_django_no_findings() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("views.py");
+        std::fs::write(
+            &file,
+            r#"from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required
+
+@login_required
+@require_POST
+def create_item(request):
+    name = request.POST.get('name')
+    item = Item.objects.create(name=name)
+    return JsonResponse({"id": item.id})
+
+def list_items(request):
+    items = Item.objects.filter(active=True).values('id', 'name')
+    return JsonResponse({"items": list(items)})
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Clean Django view code should produce no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
