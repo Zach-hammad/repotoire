@@ -256,6 +256,15 @@ impl Detector for UnusedImportsDetector {
 
                     let imports = if ext == "py" {
                         if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
+                            // Skip function-scoped imports (indented imports inside function bodies)
+                            // These exist to avoid circular imports or lazy-load modules and are
+                            // always intentional. Check if the line has leading whitespace.
+                            let leading_spaces = line.len() - line.trim_start().len();
+                            if leading_spaces >= 4 {
+                                // Indented import — inside a function/method body, skip it
+                                continue;
+                            }
+
                             // Handle multi-line imports: from X import (\n    A,\n    B,\n)
                             let effective_line = if trimmed.contains("(") && !trimmed.contains(")") {
                                 let mut accumulated = trimmed.to_string();
@@ -482,6 +491,36 @@ mod tests {
         assert!(
             !findings.is_empty(),
             "Should still detect unused import (os)"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_function_scoped_import() {
+        let store = GraphStore::in_memory();
+        let detector = UnusedImportsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("lookups.py", "def get_prep_lookup(self):\n    from django.db.models.sql.query import Query\n    if isinstance(self.rhs, Query):\n        return self.rhs\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag function-scoped imports (used to avoid circular imports). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_deeply_indented_import() {
+        let store = GraphStore::in_memory();
+        let detector = UnusedImportsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("base.py", "class DatabaseWrapper:\n    def connect(self):\n        from .psycopg_any import IsolationLevel, is_psycopg3\n        if is_psycopg3:\n            conn.isolation_level = IsolationLevel.READ_COMMITTED\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag indented imports inside methods. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 }
