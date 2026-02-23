@@ -15,7 +15,7 @@ static SEND_FILE: OnceLock<Regex> = OnceLock::new();
 static PATH_RESOLVE: OnceLock<Regex> = OnceLock::new();
 
 fn file_op() -> &'static Regex {
-    FILE_OP.get_or_init(|| Regex::new(r"(?i)(open|read|write|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|unlink|unlinkSync|remove|rmdir|mkdir|stat|statSync|access|accessSync|copyFile|rename)\s*\(").expect("valid regex"))
+    FILE_OP.get_or_init(|| Regex::new(r"(?i)(?:^|[^.\w])(open|unlink|unlinkSync|rmdir|mkdir|copyFile|rename)\s*\(|(?:os\.remove|os\.unlink|shutil\.copy|shutil\.move|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|statSync|accessSync)\s*\(").expect("valid regex"))
 }
 
 fn path_join() -> &'static Regex {
@@ -23,7 +23,7 @@ fn path_join() -> &'static Regex {
     // Python: os.path.join, pathlib.Path
     // Node.js: path.join, path.resolve
     // Go: filepath.Join, path.Join
-    PATH_JOIN.get_or_init(|| Regex::new(r"(?i)(os\.path\.join|path\.join|path\.resolve|filepath\.Join|filepath\.Clean|Path\s*\()").expect("valid regex"))
+    PATH_JOIN.get_or_init(|| Regex::new(r"os\.path\.join|(?:^|[^.\w])path\.join|(?:^|[^.\w])path\.resolve|filepath\.Join|filepath\.Clean|(?:pathlib\.)?Path\s*\(").expect("valid regex"))
 }
 
 fn send_file() -> &'static Regex {
@@ -108,10 +108,21 @@ impl Detector for PathTraversalDetector {
                         continue;
                     }
 
+                    // Skip comments and docstrings
+                    let trimmed_line = line.trim();
+                    if trimmed_line.starts_with('#') || trimmed_line.starts_with("//") || trimmed_line.starts_with('*') || trimmed_line.starts_with("/*") {
+                        continue;
+                    }
+
                     // More specific user input patterns - avoid matching variable names like "input_stream"
-                    let has_user_input = line.contains("req.") || line.contains("request.") ||
-                        line.contains("params[") || line.contains("params.") ||
-                        line.contains("input(") ||  // Python input() function, not "input_stream"
+                    let has_user_input = line.contains("req.params") || line.contains("req.query") ||
+                        line.contains("req.body") || line.contains("req.file") ||
+                        line.contains("request.GET") || line.contains("request.POST") ||
+                        line.contains("request.FILES") || line.contains("request.args") ||
+                        line.contains("request.form") || line.contains("request.data") ||
+                        line.contains("request.values") ||
+                        line.contains("params[") ||
+                        line.contains("input(") ||
                         line.contains("sys.argv") || line.contains("process.argv") ||
                         line.contains("r.URL") || line.contains("c.Param") || line.contains("c.Query") ||
                         line.contains("FormValue") || line.contains("r.Form") ||
@@ -327,5 +338,40 @@ mod tests {
             "Hardcoded path should have no path traversal findings, but got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_no_finding_for_get_full_path() {
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.py", "from django.http import HttpResponseRedirect\n\ndef my_view(request):\n    return HttpResponseRedirect(request.get_full_path())\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(findings.is_empty(), "Should not flag request.get_full_path() as path traversal. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_list_remove() {
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("library.py", "def process(request):\n    params = list(request.GET.keys())\n    params.remove('page')\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(findings.is_empty(), "Should not flag list.remove() as file operation. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_still_detects_real_path_traversal() {
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("download.py", "import os\n\ndef download(request):\n    filepath = os.path.join('/uploads', request.GET.get('file'))\n    return open(filepath, 'r').read()\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(!findings.is_empty(), "Should still detect real path traversal with request.GET");
     }
 }
