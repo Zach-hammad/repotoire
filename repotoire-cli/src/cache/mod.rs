@@ -5,6 +5,7 @@
 //! Cache layers (FileCache, IncrementalCache) implement the `CacheLayer` trait
 //! and are coordinated via `CacheCoordinator` for consistent invalidation.
 
+pub mod masking;
 pub mod paths;
 pub mod traits;
 
@@ -40,6 +41,8 @@ pub struct FileCache {
     contents: Arc<DashMap<PathBuf, Arc<String>>>,
     /// Cached file lines: path -> lines
     lines: Arc<DashMap<PathBuf, Arc<Vec<String>>>>,
+    /// Cached masked content (comments/strings replaced with spaces): path -> masked
+    masked: Arc<DashMap<PathBuf, Arc<String>>>,
 }
 
 impl FileCache {
@@ -47,6 +50,7 @@ impl FileCache {
         Self {
             contents: Arc::new(DashMap::new()),
             lines: Arc::new(DashMap::new()),
+            masked: Arc::new(DashMap::new()),
         }
     }
 
@@ -110,6 +114,24 @@ impl FileCache {
         Some(arc)
     }
 
+    /// Masked file content with comments, strings, and docstrings replaced by spaces.
+    ///
+    /// Returns cached masked content, or computes it on first access by parsing
+    /// the file with tree-sitter and replacing non-code regions with spaces
+    /// (preserving newlines for stable line numbers).
+    pub fn masked_content(&self, path: &Path) -> Option<Arc<String>> {
+        if let Some(masked) = self.masked.get(path) {
+            return Some(Arc::clone(&masked));
+        }
+
+        let content = self.content(path)?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let masked = masking::mask_non_code(&content, ext);
+        let arc = Arc::new(masked);
+        self.masked.insert(path.to_path_buf(), Arc::clone(&arc));
+        Some(arc)
+    }
+
     /// Get list of cached file paths
     pub fn cached_paths(&self) -> Vec<PathBuf> {
         self.contents.iter().map(|r| r.key().clone()).collect()
@@ -139,6 +161,7 @@ impl FileCache {
     pub fn clear(&self) {
         self.contents.clear();
         self.lines.clear();
+        self.masked.clear();
     }
 }
 
@@ -161,6 +184,7 @@ impl CacheLayer for FileCache {
         for path in changed_files {
             self.contents.remove(*path);
             self.lines.remove(*path);
+            self.masked.remove(*path);
         }
     }
 
