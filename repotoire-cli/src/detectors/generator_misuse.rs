@@ -17,6 +17,7 @@ use tracing::info;
 
 static GENERATOR_DEF: OnceLock<Regex> = OnceLock::new();
 static YIELD_STMT: OnceLock<Regex> = OnceLock::new();
+static YIELD_FROM: OnceLock<Regex> = OnceLock::new();
 static LIST_CALL: OnceLock<Regex> = OnceLock::new();
 
 fn generator_def() -> &'static Regex {
@@ -25,6 +26,10 @@ fn generator_def() -> &'static Regex {
 
 fn yield_stmt() -> &'static Regex {
     YIELD_STMT.get_or_init(|| Regex::new(r"\byield\b").expect("valid regex"))
+}
+
+fn yield_from_stmt() -> &'static Regex {
+    YIELD_FROM.get_or_init(|| Regex::new(r"\byield\s+from\b").expect("valid regex"))
 }
 
 fn list_call() -> &'static Regex {
@@ -55,6 +60,16 @@ impl GeneratorMisuseDetector {
         }
     }
 
+    /// Check if 'yield' at a given byte position in a line is inside a string literal.
+    /// Heuristic: count quote characters (single and double) before the position;
+    /// if the number is odd for either type, the position is inside a string.
+    fn yield_is_in_string(line: &str, yield_byte_offset: usize) -> bool {
+        let prefix = &line[..yield_byte_offset];
+        let single_quotes = prefix.chars().filter(|&c| c == '\'').count();
+        let double_quotes = prefix.chars().filter(|&c| c == '"').count();
+        single_quotes % 2 == 1 || double_quotes % 2 == 1
+    }
+
     /// Count yield statements in a function
     fn count_yields(lines: &[&str], func_start: usize, indent: usize) -> (usize, bool) {
         let mut count = 0;
@@ -68,12 +83,26 @@ impl GeneratorMisuseDetector {
                 break;
             }
 
+            // Skip comment lines
+            if line.trim().starts_with('#') {
+                continue;
+            }
+
             // Track if yield is inside a loop
             if line.contains("for ") || line.contains("while ") {
                 in_loop = true;
             }
 
-            if yield_stmt().is_match(line) {
+            // `yield from` delegates to a sub-iterator — treat as multi-yield
+            if yield_from_stmt().is_match(line) {
+                return (2, in_loop);
+            }
+
+            if let Some(m) = yield_stmt().find(line) {
+                // Skip yield that appears inside a string literal
+                if Self::yield_is_in_string(line, m.start()) {
+                    continue;
+                }
                 count += 1;
             }
         }
@@ -136,7 +165,17 @@ impl GeneratorMisuseDetector {
             if let Some(content) = files.content(path) {
                 for cap in list_call().captures_iter(&content) {
                     if let Some(func_name) = cap.get(1) {
-                        wrapped.insert(func_name.as_str().to_string());
+                        let name = func_name.as_str();
+                        // Exclude Python builtins — list(x.list(...)) is not wrapping a generator
+                        const BUILTINS: &[&str] = &[
+                            "list", "dict", "set", "tuple", "str", "int", "float",
+                            "bool", "map", "filter", "range", "zip", "sorted", "reversed",
+                            "enumerate", "iter", "next", "type", "super", "print", "len",
+                            "max", "min", "sum", "any", "all",
+                        ];
+                        if !BUILTINS.contains(&name) {
+                            wrapped.insert(name.to_string());
+                        }
                     }
                 }
             }
@@ -232,10 +271,14 @@ impl Detector for GeneratorMisuseDetector {
 
                         // Single yield outside loop = probably should be a simple return
                         if yield_count == 1 && !yield_in_loop {
+                            // Skip @contextmanager decorated functions — always intentional
+                            if Self::has_contextmanager_decorator(&lines, i) {
+                                continue;
+                            }
+
                             // Skip resource management patterns (try/yield/finally)
                             if Self::is_resource_management_yield(&lines, i, indent)
-                                && (Self::has_framework_yield_import(&content)
-                                    || Self::has_contextmanager_decorator(&lines, i))
+                                && Self::has_framework_yield_import(&content)
                             {
                                 continue;
                             }
@@ -398,5 +441,41 @@ mod tests {
             "Should not flag contextmanager try/yield/finally. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_no_finding_for_yield_from() {
+        let store = GraphStore::in_memory();
+        let detector = GeneratorMisuseDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("iterators.py", "def __iter__(self):\n    yield from self.items\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag yield from as single-yield. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_yield_in_string() {
+        let store = GraphStore::in_memory();
+        let detector = GeneratorMisuseDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("paginator.py", "def _check(self):\n    warnings.warn(\"Pagination may yield inconsistent results\")\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag 'yield' inside string literal. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_contextmanager_without_finally() {
+        let store = GraphStore::in_memory();
+        let detector = GeneratorMisuseDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("errors.py", "from contextlib import contextmanager\n\n@contextmanager\ndef wrap_errors():\n    try:\n        yield\n    except DatabaseError:\n        raise\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag @contextmanager even without finally. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
 }
