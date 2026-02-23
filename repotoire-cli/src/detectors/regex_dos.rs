@@ -359,3 +359,57 @@ impl Detector for RegexDosDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_redos_nested_quantifier() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("validate.py");
+        std::fs::write(
+            &file,
+            r#"
+import re
+user_input = input("Enter data: ")
+pattern = re.compile(r'(a+)+$')
+pattern.match(user_input)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = RegexDosDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect catastrophic backtracking regex (a+)+"
+        );
+        assert!(findings.iter().any(|f| f.detector == "RegexDosDetector"));
+    }
+
+    #[test]
+    fn test_no_finding_for_safe_regex() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("utils.py");
+        std::fs::write(
+            &file,
+            r#"
+import re
+pattern = re.compile(r'^[a-zA-Z0-9]+$')
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = RegexDosDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag safe regex without nested quantifiers, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

@@ -375,3 +375,55 @@ impl Detector for PrototypePollutionDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_proto_pollution_with_user_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("server.js");
+        std::fs::write(
+            &file,
+            r#"
+const data = req.body;
+Object.assign(config, data);
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = PrototypePollutionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect Object.assign with user input from req.body"
+        );
+        assert!(findings.iter().any(|f| f.detector == "PrototypePollutionDetector"));
+    }
+
+    #[test]
+    fn test_no_finding_without_user_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("utils.js");
+        std::fs::write(
+            &file,
+            r#"
+const defaults = { color: "blue" };
+const merged = Object.assign({}, defaults);
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = PrototypePollutionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag Object.assign without user input, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

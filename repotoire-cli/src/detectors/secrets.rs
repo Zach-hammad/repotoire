@@ -496,3 +496,55 @@ impl Detector for SecretDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_hardcoded_aws_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.py");
+        std::fs::write(
+            &file,
+            r#"
+AWS_ACCESS_KEY = "AKIAIOSFODNN7ABCDEFG"
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect hardcoded AWS access key"
+        );
+        assert!(findings.iter().any(|f| f.title.contains("AWS Access Key")));
+    }
+
+    #[test]
+    fn test_no_finding_for_env_variable_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.py");
+        std::fs::write(
+            &file,
+            r#"
+import os
+AWS_KEY = os.environ.get("AWS_ACCESS_KEY_ID")
+SECRET = os.getenv("AWS_SECRET_ACCESS_KEY")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag secrets read from environment variables, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
