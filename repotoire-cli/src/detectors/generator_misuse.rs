@@ -210,6 +210,28 @@ impl GeneratorMisuseDetector {
 
         false
     }
+
+    /// Check if generator is consumed lazily in any file (via file provider)
+    fn is_consumed_lazily_in_files(
+        func_name: &str,
+        files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> bool {
+        let call_pattern = format!("{}(", func_name);
+        for path in files.files_with_extension("py") {
+            if let Some(content) = files.content(path) {
+                if content.contains(&call_pattern) {
+                    // Check for for-loop consumption pattern
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("for ") && trimmed.contains(&call_pattern) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 impl Default for GeneratorMisuseDetector {
@@ -283,6 +305,18 @@ impl Detector for GeneratorMisuseDetector {
                                 continue;
                             }
 
+                            // Skip known polymorphic interface methods — these implement a
+                            // protocol where other implementations yield many items
+                            let polymorphic_methods = [
+                                "get_template_sources", "subwidgets", "chunks",
+                                "__iter__", "__aiter__", "__next__", "__anext__",
+                            ];
+                            if polymorphic_methods.iter().any(|m| func_name == *m)
+                                || func_name.starts_with("iter_")
+                            {
+                                continue;
+                            }
+
                             findings.push(Finding {
                                 id: String::new(),
                                 detector: "GeneratorMisuseDetector".to_string(),
@@ -325,6 +359,7 @@ impl Detector for GeneratorMisuseDetector {
                         // Generator always wrapped in list() = defeats the purpose
                         if list_wrapped.contains(func_name)
                             && !self.is_consumed_lazily(func_name, graph)
+                            && !Self::is_consumed_lazily_in_files(func_name, files)
                         {
                             findings.push(Finding {
                                 id: String::new(),
@@ -477,5 +512,22 @@ mod tests {
         let findings = detector.detect(&store, &files).unwrap();
         assert!(findings.is_empty(), "Should not flag @contextmanager even without finally. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_polymorphic_single_yield() {
+        let store = GraphStore::in_memory();
+        let detector = GeneratorMisuseDetector::with_path("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("loaders/locmem.py", "class Loader(BaseLoader):\n    def get_template_sources(self, template_name):\n        yield Origin(name=template_name, loader=self)\n"),
+            ("widgets.py", "class Widget:\n    def subwidgets(self, name, value):\n        yield self.get_context(name, value)\n"),
+            ("files/uploadedfile.py", "class InMemoryUploadedFile(UploadedFile):\n    def chunks(self, chunk_size=None):\n        yield self.read()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag polymorphic interface methods. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
