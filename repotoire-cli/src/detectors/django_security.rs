@@ -213,7 +213,7 @@ impl Detector for DjangoSecurityDetector {
                         && fname.contains("settings")
                         && !fname.contains("dev")
                         && !fname.contains("local")
-                        && !crate::detectors::base::is_test_path(fname)
+                        && !crate::detectors::base::is_test_path(&path_str)
                     {
                         findings.push(Finding {
                             id: String::new(),
@@ -262,6 +262,7 @@ impl Detector for DjangoSecurityDetector {
                         && fname.contains("settings")
                         && !fname.contains("dev")
                         && !fname.contains("local")
+                        && !crate::detectors::base::is_test_path(&path_str)
                     {
                         findings.push(Finding {
                             id: String::new(),
@@ -320,10 +321,10 @@ impl Detector for DjangoSecurityDetector {
                             Self::find_containing_function(graph, &path_str, line_num);
 
                         // Check for user input
+                        // Removed: || line.contains("+ ") -- too broad, triggers on safe concatenation
                         let has_user_input = line.contains("request.")
                             || line.contains("f\"")
                             || line.contains("f'")
-                            || line.contains("+ ")
                             || line.contains(".format(");
 
                         let severity = if has_user_input {
@@ -514,6 +515,55 @@ mod tests {
             findings.is_empty(),
             "Clean Django view code should produce no findings, but got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_debug_in_test_settings() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("tests/settings.py", "DEBUG = True\nSECRET_KEY = 'test-secret-key-for-testing'\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag DEBUG=True or SECRET_KEY in test settings. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_raw_sql_concat_not_critical_without_user_input() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("queries.py", "def get_table_data(table_name):\n    return Model.objects.raw(\"SELECT * FROM \" + table_name)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        let raw_sql: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
+        assert!(
+            !raw_sql.is_empty(),
+            "Should still detect raw SQL usage"
+        );
+        assert!(
+            !raw_sql.iter().any(|f| f.severity == Severity::Critical),
+            "Raw SQL with '+ ' alone (no request./f-string) should not be Critical. Got: {:?}",
+            raw_sql.iter().map(|f| (&f.title, &f.severity)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_still_detects_debug_in_production_settings() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.iter().any(|f| f.title.contains("DEBUG")),
+            "Should still detect DEBUG = True in production settings"
         );
     }
 }
