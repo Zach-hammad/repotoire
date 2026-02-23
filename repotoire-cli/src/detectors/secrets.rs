@@ -268,6 +268,31 @@ impl SecretDetector {
                         continue;
                     }
 
+                    // Value-type filtering for Generic Secret pattern:
+                    // Skip when the value is clearly not a secret (function call or collection literal)
+                    if pattern.name == "Generic Secret" {
+                        // Extract the value part after = or :
+                        let value_part = if let Some(eq_pos) = line.find('=') {
+                            line[eq_pos + 1..].trim()
+                        } else if let Some(colon_pos) = line.find(':') {
+                            line[colon_pos + 1..].trim()
+                        } else {
+                            ""
+                        };
+
+                        if !value_part.is_empty() {
+                            // Skip function/class calls: CharField(...), Signal(), SecretManager.from_config()
+                            if value_part.contains('(') {
+                                continue;
+                            }
+                            // Skip collection literals: [...], {...}
+                            let first_char = value_part.chars().next().unwrap_or(' ');
+                            if matches!(first_char, '[' | '{') {
+                                continue;
+                            }
+                        }
+                    }
+
                     // Determine effective severity based on context
                     let line_lower = line.to_lowercase();
                     let mut effective_severity = pattern.severity;
@@ -515,6 +540,67 @@ mod tests {
             findings.is_empty(),
             "Should not flag password type annotations. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_password_field_definition() {
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new("/mock/repo");
+        // Use .rb -- no tree-sitter masking, content passes through
+        // Use `password = CharField(...)` (keyword directly before =) so the regex matches
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("models.rb", "password = CharField(max_length=128)\nsecret = SecretManager.from_config(settings)\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag function/class calls as secrets. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_password_list_assignment() {
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new("/mock/repo");
+        // Use `password = [...]` (keyword directly before =) so the regex matches
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("config.rb", "password = [\"django.contrib.auth.hashers.PBKDF2PasswordHasher\"]\nsecret = {\"key\": \"value\", \"other\": \"data\"}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag list/dict literal assignments as secrets. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_still_detects_real_hardcoded_password() {
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("config.rb", "password = \"super_secret_password_123\"\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still detect real hardcoded password"
+        );
+    }
+
+    #[test]
+    fn test_still_detects_uppercase_constant_password() {
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("config.rb", "password = HARDCODED_SECRET_VALUE\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still detect password assigned to uppercase constant"
         );
     }
 }
