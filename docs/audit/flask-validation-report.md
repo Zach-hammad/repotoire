@@ -2,10 +2,11 @@
 
 **Date**: 2026-02-23
 **Target**: Flask web framework (Pallets project)
+
+## Round 1 (Before FP Reduction)
+
 **Overall Score**: 78.7 / 100 (C+)
 **Total Findings**: 63
-
-## Score Breakdown
 
 | Metric | Value |
 |--------|-------|
@@ -14,7 +15,7 @@
 | Architecture Score | 99.8 |
 | Files: 83 | Functions: 525 | Classes: 64 | LOC: 18,399 |
 
-## Findings by Severity
+### Findings by Severity
 
 | Severity | Count |
 |----------|-------|
@@ -23,19 +24,7 @@
 | Medium | 9 |
 | Low | 24 |
 
-## Top Detectors by Finding Count
-
-| Detector | Count |
-|----------|-------|
-| DebugCodeDetector | 20 |
-| UnusedImportsDetector | 6 |
-| InsecureCookieDetector | 5 |
-| HardcodedIpsDetector | 4 |
-| InsecureCryptoDetector | 3 |
-| UnsafeTemplateDetector | 3 |
-| LargeFilesDetector | 3 |
-
-## Per-Detector FP Rates (34 findings sampled)
+### Per-Detector FP Rates (34 findings sampled)
 
 | Detector | Sampled | TP | FP | Debatable | FP Rate |
 |----------|---------|----|----|-----------|---------|
@@ -47,18 +36,44 @@
 | InsecureCryptoDetector | 3 | 0 | 0 | 3 | 0% (debatable) |
 | LargeFilesDetector | 3 | 3 | 0 | 0 | **0%** |
 
-## Overall Sample Statistics
+**Estimated FP rate: 74-91%**
 
-- True Positive: 3 (8.8%)
-- False Positive: 25 (73.5%)
-- Debatable: 6 (17.6%)
-- **Estimated FP rate: 74-91%**
+---
 
-## Root Causes of False Positives
+## Round 2 (After FP Reduction)
 
-1. **DebugCodeDetector**: Flags "debugger"/"debug" in docstrings and CLI options (Flask's debugger is a core feature)
-2. **InsecureCookieDetector**: Flags lines near cookie code without verifying actual set_cookie() parameters
-3. **UnusedImportsDetector**: No `# noqa` support, doesn't recognize re-exports or TYPE_CHECKING
-4. **HardcodedIpsDetector**: Flags IPs in docstrings and framework defaults
-5. **SecretDetector**: Flags variable names containing "password" regardless of whether value is hardcoded
-6. **UnsafeTemplateDetector**: Flags framework API definitions rather than dangerous usages
+**Overall Score**: 89.4 / 100 (B+) — **+10.7 improvement**
+**Total Findings**: 37 — **-41% reduction**
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Structure Score | 99.4 | 99 | -0.4 |
+| Quality Score | 30.0 | 66 | **+36** |
+| Architecture Score | 99.8 | 100 | +0.2 |
+
+### Findings by Severity
+
+| Severity | Count |
+|----------|-------|
+| High | 11 |
+| Medium | 8 |
+| Low | 18 |
+
+### Key Reductions
+
+| Detector | Before | After | Eliminated |
+|----------|--------|-------|------------|
+| DebugCodeDetector | 20 | 4 | 16 FPs (docstrings/strings) |
+| InsecureCookieDetector | 5 | 1 | 4 FPs (enum/class values) |
+| UnusedImportsDetector | 6 | 0 | 6 FPs (noqa support) |
+| HardcodedIpsDetector | 4 | 0 | 4 FPs (docstrings/comments) |
+
+### Root Causes Fixed
+
+1. **DebugCodeDetector**: Now uses tree-sitter masked content — docstrings/strings masked before regex scan
+2. **InsecureCookieDetector**: Tightened regex to only match `set_cookie()` API calls
+3. **UnusedImportsDetector**: Added `# noqa` and `__all__` re-export support
+4. **HardcodedIpsDetector**: Now uses tree-sitter masked content
+5. **SecretDetector**: Now uses tree-sitter masked content — docstrings masked
+6. **UnsafeTemplateDetector**: Skips static innerHTML string assignments
+7. **GeneratorMisuseDetector**: Recognizes try/yield/finally DI patterns
