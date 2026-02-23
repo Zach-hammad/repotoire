@@ -322,8 +322,13 @@ impl Detector for DjangoSecurityDetector {
                         if lower_path.contains("db/backends/")
                             || lower_path.contains("db/models/sql/")
                             || lower_path.contains("db/models/expressions")
+                            || lower_path.contains("db/models/constraints")
+                            || lower_path.contains("db/models/fields/")
+                            || lower_path.contains("db/models/query")
+                            || lower_path.contains("db/migrations/")
                             || lower_path.contains("core/cache/backends/")
                             || lower_path.contains("/migrations/")
+                            || lower_path.contains("contrib/postgres/")
                         {
                             continue;
                         }
@@ -588,6 +593,24 @@ mod tests {
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
             "Should still detect DEBUG = True in production settings"
+        );
+    }
+
+    #[test]
+    fn test_no_raw_sql_finding_for_orm_internals() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("db/models/constraints.py", "def as_sql(self, compiler, connection):\n    return cursor.execute(sql)\n"),
+            ("db/models/query.py", "class QuerySet:\n    def raw(self, raw_query):\n        return RawSQL(raw_query)\n"),
+            ("contrib/postgres/operations.py", "def database_forwards(self):\n    cursor.execute(\"CREATE EXTENSION\")\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
+        assert!(
+            raw_sql_findings.is_empty(),
+            "Should not flag raw SQL in ORM internals. Found: {:?}",
+            raw_sql_findings.iter().map(|f| (&f.title, &f.affected_files)).collect::<Vec<_>>()
         );
     }
 }
