@@ -616,3 +616,56 @@ struct PatternMatch {
     pattern_type: String,
     function: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_eval_with_variable() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("handler.py");
+        std::fs::write(
+            &file,
+            r#"
+def process(user_input):
+    result = eval(user_input)
+    return result
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect eval() with variable argument"
+        );
+        assert!(findings.iter().any(|f| f.detector == "EvalDetector"));
+    }
+
+    #[test]
+    fn test_no_finding_for_literal_eval() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("safe.py");
+        std::fs::write(
+            &file,
+            r#"
+import ast
+data = ast.literal_eval("[1, 2, 3]")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag ast.literal_eval (safe), but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

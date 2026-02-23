@@ -344,3 +344,59 @@ impl Detector for MissingAwaitDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_fetch_without_await() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("api.js");
+        std::fs::write(
+            &file,
+            r#"async function loadData() {
+  const config = "default";
+  fetch("/api/data");
+  const result = await process(config);
+  return result;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = MissingAwaitDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect fetch() without await in async function"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_when_awaited() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("api_good.js");
+        std::fs::write(
+            &file,
+            r#"async function loadData() {
+  const res = await fetch("/api/data");
+  const data = await res.json();
+  return data;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = MissingAwaitDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag properly awaited calls, got: {:?}",
+            findings
+        );
+    }
+}

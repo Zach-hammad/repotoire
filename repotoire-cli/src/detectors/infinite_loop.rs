@@ -453,3 +453,60 @@ impl Detector for InfiniteLoopDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_while_true_without_break() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("processor.py");
+        std::fs::write(
+            &file,
+            r#"
+def process():
+    while True:
+        do_something()
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InfiniteLoopDetector::with_path(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect while True without break"
+        );
+        assert!(findings.iter().any(|f| f.title.contains("infinite loop")));
+    }
+
+    #[test]
+    fn test_no_finding_for_while_true_with_break() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("processor.py");
+        std::fs::write(
+            &file,
+            r#"
+def process():
+    while True:
+        data = get_data()
+        if data is None:
+            break
+        handle(data)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InfiniteLoopDetector::with_path(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag while True that has a break, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

@@ -318,3 +318,72 @@ impl Detector for DeepNestingDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_deep_nesting() {
+        let dir = tempfile::tempdir().unwrap();
+        // The detector counts { and } characters, threshold is 4, so >4 means 5+ levels.
+        let file = dir.path().join("nested.py");
+        std::fs::write(
+            &file,
+            r#"def process(data):
+    if True {
+        if True {
+            if True {
+                if True {
+                    if True {
+                        print("deeply nested")
+                    }
+                }
+            }
+        }
+    }
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DeepNestingDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect deep nesting with 5 levels of braces"
+        );
+        assert!(
+            findings[0].title.contains("nesting"),
+            "Title should mention nesting, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_shallow_nesting() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("shallow.py");
+        // Only 2 levels of braces - well below threshold of 4
+        std::fs::write(
+            &file,
+            r#"def process(data):
+    result = {"key": "value"}
+    if True {
+        print("ok")
+    }
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DeepNestingDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not detect deep nesting for shallow code, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

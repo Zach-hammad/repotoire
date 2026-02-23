@@ -19,7 +19,7 @@ static COOKIE_PATTERN: OnceLock<Regex> = OnceLock::new();
 fn cookie_pattern() -> &'static Regex {
     COOKIE_PATTERN.get_or_init(|| {
         Regex::new(
-            r"(?i)(set.cookie|cookie\s*=|res\.cookie|response\.set_cookie|setcookie|\.cookies\[)",
+            r"(?i)(\.set_cookie\s*\(|response\.set_cookie\s*\(|res\.cookie\s*\(|response\.cookie\s*\(|setcookie\s*\(|\.cookies\[)",
         )
         .expect("valid regex")
     })
@@ -282,5 +282,101 @@ impl Detector for InsecureCookieDetector {
             findings.len()
         );
         Ok(findings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_insecure_cookie() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"from flask import make_response
+
+def set_session(user_id):
+    resp = make_response("OK")
+    resp.set_cookie('session_id', user_id)
+    return resp
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureCookieDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect cookie without security flags");
+        assert!(
+            findings.iter().any(|f| f.title.contains("HttpOnly") || f.title.contains("Secure") || f.title.contains("SameSite")),
+            "Finding should mention missing flag. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_secure_cookie() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"from flask import make_response
+
+def set_session(user_id):
+    resp = make_response("OK")
+    resp.set_cookie('session_id', user_id, httponly=True, secure=True, samesite='Lax')
+    return resp
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureCookieDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(findings.is_empty(), "Should not detect anything for secure cookie. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_enum_cookie_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("params.py");
+        std::fs::write(
+            &file,
+            "from enum import Enum\n\nclass ParamTypes(Enum):\n    query = \"query\"\n    header = \"header\"\n    cookie = \"cookie\"\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureCookieDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag enum values containing 'cookie'. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_cookie_class_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("models.py");
+        std::fs::write(
+            &file,
+            "class SecurityScheme:\n    cookie = \"apiKeyCookie\"\n    header = \"apiKeyHeader\"\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureCookieDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag class field assignments. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

@@ -200,3 +200,55 @@ impl Detector for WildcardImportsDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_wildcard_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"from os.path import *
+
+result = join("/tmp", "file.txt")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = WildcardImportsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect wildcard import. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_explicit_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"from os.path import join, exists
+
+result = join("/tmp", "file.txt")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = WildcardImportsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag explicit imports. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

@@ -315,3 +315,63 @@ impl Detector for TestInProductionDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_mock_in_production_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("service.py");
+        std::fs::write(
+            &file,
+            r#"
+from unittest.mock import Mock
+
+def get_client():
+    client = Mock()
+    return client
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = TestInProductionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect test code (Mock) in production file"
+        );
+        assert!(findings.iter().any(|f| f.detector == "TestInProductionDetector"));
+    }
+
+    #[test]
+    fn test_no_finding_for_clean_production_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("service.py");
+        std::fs::write(
+            &file,
+            r#"
+import os
+
+def get_config():
+    return os.environ.get("APP_CONFIG", "default")
+
+def process_data(data):
+    return [item.strip() for item in data]
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = TestInProductionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag clean production code, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

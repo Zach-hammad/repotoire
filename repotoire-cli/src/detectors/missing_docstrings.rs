@@ -253,3 +253,80 @@ impl Detector for MissingDocstringsDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{CodeNode, GraphStore};
+
+    #[test]
+    fn test_detects_missing_docstring() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("module.py");
+        std::fs::write(
+            &file,
+            r#"def calculate_score(data, weights, threshold):
+    total = 0
+    for item in data:
+        total += item * weights
+    if total > threshold:
+        return total
+    return 0
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let file_path_str = file.to_string_lossy().to_string();
+        // Add a function node matching the file (line_end - line_start >= 5)
+        store.add_node(
+            CodeNode::function("calculate_score", &file_path_str)
+                .with_qualified_name("module::calculate_score")
+                .with_lines(1, 8),
+        );
+
+        let detector = MissingDocstringsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect missing docstring. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(findings[0].title.contains("calculate_score"));
+    }
+
+    #[test]
+    fn test_no_finding_when_docstring_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("module.py");
+        std::fs::write(
+            &file,
+            r#"def calculate_score(data, weights, threshold):
+    """Calculate score from data using given weights and threshold."""
+    total = 0
+    for item in data:
+        total += item * weights
+    if total > threshold:
+        return total
+    return 0
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let file_path_str = file.to_string_lossy().to_string();
+        store.add_node(
+            CodeNode::function("calculate_score", &file_path_str)
+                .with_qualified_name("module::calculate_score")
+                .with_lines(1, 9),
+        );
+
+        let detector = MissingDocstringsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag function with docstring. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

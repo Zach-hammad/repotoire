@@ -279,3 +279,64 @@ impl Detector for CallbackHellDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_deeply_nested_callbacks() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("nested.js");
+        std::fs::write(
+            &file,
+            r#"getData(function(a) {
+  process(a, function(b) {
+    transform(b, function(c) {
+      save(c, function(d) {
+        done(d);
+      });
+    });
+  });
+});
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CallbackHellDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect deeply nested callbacks (4 levels)"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("Callback hell")),
+            "Finding title should mention callback hell"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_shallow_callbacks() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("shallow.js");
+        std::fs::write(
+            &file,
+            r#"getData(function(a) {
+  process(a);
+});
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CallbackHellDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag shallow (1 level) callbacks, got: {:?}",
+            findings
+        );
+    }
+}

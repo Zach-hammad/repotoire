@@ -112,6 +112,30 @@ impl UnusedImportsDetector {
         symbols
     }
 
+    /// Extract symbols listed in __all__ = [...]
+    fn extract_all_exports(content: &str) -> HashSet<String> {
+        static ALL_PATTERN: OnceLock<Regex> = OnceLock::new();
+        let pattern = ALL_PATTERN.get_or_init(|| {
+            Regex::new(r#"__all__\s*=\s*\[([^\]]+)\]"#).expect("valid regex")
+        });
+
+        let mut exports = HashSet::new();
+        if let Some(caps) = pattern.captures(content) {
+            if let Some(items) = caps.get(1) {
+                static ITEM_PATTERN: OnceLock<Regex> = OnceLock::new();
+                let item_re = ITEM_PATTERN.get_or_init(|| {
+                    Regex::new(r#"["'](\w+)["']"#).expect("valid regex")
+                });
+                for m in item_re.captures_iter(items.as_str()) {
+                    if let Some(name) = m.get(1) {
+                        exports.insert(name.as_str().to_string());
+                    }
+                }
+            }
+        }
+        exports
+    }
+
     /// Check if a symbol is used in the content after the import
     fn is_symbol_used(content: &str, symbol: &str, import_line: usize) -> bool {
         let lines: Vec<&str> = content.lines().collect();
@@ -195,6 +219,7 @@ impl Detector for UnusedImportsDetector {
             }
 
             if let Some(content) = crate::cache::global_cache().content(path) {
+                let all_exports = Self::extract_all_exports(&content);
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (line_num, line) in lines.iter().enumerate() {
@@ -204,6 +229,15 @@ impl Detector for UnusedImportsDetector {
                     }
 
                     let trimmed = line.trim();
+
+                    // Skip imports with # noqa suppression
+                    if trimmed.contains("# noqa") {
+                        continue;
+                    }
+                    // Skip imports with eslint-disable
+                    if trimmed.contains("// eslint-disable") {
+                        continue;
+                    }
 
                     // Skip comments
                     if trimmed.starts_with("#") || trimmed.starts_with("//") {
@@ -243,6 +277,9 @@ impl Detector for UnusedImportsDetector {
                     };
 
                     for (symbol, _alias) in imports {
+                        if all_exports.contains(&symbol) {
+                            continue;
+                        }
                         if !Self::is_symbol_used(&content, &symbol, line_num) {
                             unused_per_file
                                 .entry(path.to_path_buf())
@@ -325,5 +362,51 @@ impl Detector for UnusedImportsDetector {
 
         info!("UnusedImportsDetector found {} findings", findings.len());
         Ok(findings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_no_finding_for_noqa_suppressed_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("module.py");
+        std::fs::write(
+            &file,
+            "from flask import Flask  # noqa: F401\nfrom utils import helper  # noqa\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = UnusedImportsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag imports with # noqa suppression. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_all_re_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("api.py");
+        std::fs::write(
+            &file,
+            "from .models import User, Post\nfrom .views import ListView\n\n__all__ = [\"User\", \"Post\", \"ListView\"]\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = UnusedImportsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag imports listed in __all__. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

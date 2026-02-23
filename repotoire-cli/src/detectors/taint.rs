@@ -18,8 +18,6 @@
 //! │                    trace_taint()                            │
 //! │  - BFS through call graph from source functions             │
 //! │  - Track path through function calls                        │
-
-#![allow(dead_code)] // Module under development - structs/helpers used in tests only
 //! │  - Identify when tainted data reaches a sink                │
 //! └─────────────────────────────────────────────────────────────┘
 //!                              │
@@ -218,6 +216,7 @@ impl TaintAnalyzer {
     }
 
     /// Create with custom max depth
+    #[allow(dead_code)] // Public API builder method
     pub fn with_max_depth(mut self, depth: usize) -> Self {
         self.max_depth = depth;
         self
@@ -911,6 +910,7 @@ impl TaintAnalyzer {
     ///
     /// This combines graph-based call chain analysis with local pattern matching
     /// for more comprehensive coverage.
+    #[allow(dead_code)] // Public API method for targeted analysis
     pub fn analyze_function(
         &self,
         graph: &dyn crate::graph::GraphQuery,
@@ -999,31 +999,37 @@ impl TaintAnalyzer {
     }
 
     /// Get all sink patterns for a category (useful for regex-based detection)
+    #[allow(dead_code)] // Public API accessor
     pub fn get_sinks(&self, category: TaintCategory) -> Option<&HashSet<String>> {
         self.sinks.get(&category)
     }
 
     /// Get all source patterns for a category
+    #[allow(dead_code)] // Public API accessor
     pub fn get_sources(&self, category: TaintCategory) -> Option<&HashSet<String>> {
         self.sources.get(&category)
     }
 
     /// Get all sanitizer patterns for a category
+    #[allow(dead_code)] // Public API accessor
     pub fn get_sanitizers(&self, category: TaintCategory) -> Option<&HashSet<String>> {
         self.sanitizers.get(&category)
     }
 
     /// Add a custom source pattern
+    #[allow(dead_code)] // Public API for custom taint rules
     pub fn add_source(&mut self, category: TaintCategory, pattern: String) {
         self.sources.entry(category).or_default().insert(pattern);
     }
 
     /// Add a custom sink pattern
+    #[allow(dead_code)] // Public API for custom taint rules
     pub fn add_sink(&mut self, category: TaintCategory, pattern: String) {
         self.sinks.entry(category).or_default().insert(pattern);
     }
 
     /// Add a custom sanitizer pattern
+    #[allow(dead_code)] // Public API for custom taint rules
     pub fn add_sanitizer(&mut self, category: TaintCategory, pattern: String) {
         self.sanitizers.entry(category).or_default().insert(pattern);
     }
@@ -1059,6 +1065,7 @@ impl TaintAnalysisResult {
     }
 
     /// Check if there are any vulnerabilities
+    #[allow(dead_code)] // Public API method, used in tests
     pub fn has_vulnerabilities(&self) -> bool {
         self.vulnerable_count > 0
     }

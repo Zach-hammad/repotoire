@@ -364,3 +364,58 @@ impl Detector for UnhandledPromiseDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_promise_without_catch() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("service.js");
+        std::fs::write(
+            &file,
+            r#"async function handleRequest() {
+  const x = 1;
+  fetch("/api/data").then(res => res.json());
+  return x;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = UnhandledPromiseDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect promise .then() without .catch()"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_when_catch_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("service_good.js");
+        std::fs::write(
+            &file,
+            r#"async function handleRequest() {
+  fetch("/api/data")
+    .then(res => res.json())
+    .catch(err => console.error(err));
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = UnhandledPromiseDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag promise with .catch(), got: {:?}",
+            findings
+        );
+    }
+}

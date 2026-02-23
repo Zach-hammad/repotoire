@@ -98,7 +98,6 @@ impl DataClumpsDetector {
         }
     }
 
-    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = DataClumpsThresholds {
             min_params: config.get_option_or("min_params", 3),

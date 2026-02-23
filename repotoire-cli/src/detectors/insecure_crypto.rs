@@ -495,3 +495,55 @@ fn test_self_flagging_line_215() {
         "Line 215 should be skipped"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_md5_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("crypto_util.py");
+        std::fs::write(
+            &file,
+            r#"import hashlib
+
+def compute_hash(data):
+    return hashlib.md5(data).hexdigest()
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect hashlib.md5 usage");
+        assert!(
+            findings.iter().any(|f| f.title.contains("MD5") || f.title.contains("SHA1")),
+            "Finding should mention weak hash. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_sha256() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("crypto_util.py");
+        std::fs::write(
+            &file,
+            r#"import hashlib
+
+def compute_hash(data):
+    return hashlib.sha256(data).hexdigest()
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(findings.is_empty(), "Should not detect sha256 as insecure. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+}

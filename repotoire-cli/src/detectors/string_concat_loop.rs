@@ -296,3 +296,59 @@ impl Detector for StringConcatLoopDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_string_concat_in_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("builder.py");
+        std::fs::write(
+            &file,
+            r#"def build_output(items):
+    result = ""
+    for item in items:
+        result += "value"
+    return result
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = StringConcatLoopDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect string concatenation in loop. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_join() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("builder.py");
+        std::fs::write(
+            &file,
+            r#"def build_output(items):
+    parts = []
+    for item in items:
+        parts.append(str(item))
+    return ''.join(parts)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = StringConcatLoopDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag list.append + join pattern. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

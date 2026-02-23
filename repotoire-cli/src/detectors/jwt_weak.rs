@@ -367,3 +367,67 @@ impl Detector for JwtWeakDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_none_algorithm() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("auth.py");
+        std::fs::write(
+            &file,
+            r#"import jwt
+
+def decode_token(token):
+    payload = jwt.decode(token, algorithm="none")
+    return payload
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = JwtWeakDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect JWT algorithm='none'"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("none")),
+            "Finding should mention 'none' algorithm. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings.iter().any(|f| f.severity == Severity::Critical),
+            "JWT none algorithm should be Critical severity"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_secure_jwt() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("auth.py");
+        std::fs::write(
+            &file,
+            r#"import jwt
+
+def decode_token(token, public_key):
+    payload = jwt.decode(token, public_key, algorithms=["RS256"])
+    return payload
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = JwtWeakDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Secure JWT with RS256 should produce no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

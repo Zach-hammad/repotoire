@@ -319,3 +319,61 @@ impl Detector for HardcodedTimeoutDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_hardcoded_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("client.py");
+        // Regex requires 4+ digit number
+        std::fs::write(
+            &file,
+            r#"import time
+
+def wait_for_response():
+    time.sleep(30000)
+    return get_data()
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = HardcodedTimeoutDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect hardcoded timeout value. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_no_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("client.py");
+        std::fs::write(
+            &file,
+            r#"import os
+
+TIMEOUT = int(os.environ.get('REQUEST_TIMEOUT', '5000'))
+
+def fetch_data():
+    return request(url, timeout=TIMEOUT)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = HardcodedTimeoutDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag configurable timeout. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

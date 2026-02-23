@@ -454,3 +454,118 @@ impl Detector for ExpressSecurityDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_missing_helmet() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.js");
+        std::fs::write(
+            &file,
+            r#"const express = require('express');
+const app = express();
+
+app.get('/api/users', (req, res) => {
+  res.json({ users: [] });
+});
+
+app.post('/api/users', (req, res) => {
+  res.json({ created: true });
+});
+
+app.listen(3000);
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ExpressSecurityDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+
+        assert!(!findings.is_empty(), "Should detect security issues");
+        assert!(
+            findings.iter().any(|f| f.title.contains("helmet")),
+            "Should detect missing helmet. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_secure_express_fewer_findings() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("server.js");
+        std::fs::write(
+            &file,
+            r#"const express = require('express');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+app.use(helmet());
+app.use(cors());
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
+app.use(express.json({ limit: '10kb' }));
+
+app.get('/api/data', (req, res) => {
+  res.json({ ok: true });
+});
+
+app.listen(3000);
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ExpressSecurityDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+
+        // Should NOT flag helmet, cors, rate-limit, or body-parser-limit
+        assert!(
+            !findings.iter().any(|f| f.title.contains("helmet")),
+            "Should not flag helmet when present"
+        );
+        assert!(
+            !findings.iter().any(|f| f.title.contains("rate limiting")),
+            "Should not flag rate limiting when present"
+        );
+        assert!(
+            !findings.iter().any(|f| f.title.contains("body size limit")),
+            "Should not flag body size limit when present"
+        );
+    }
+
+    #[test]
+    fn test_non_express_file_no_findings() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("utils.js");
+        std::fs::write(
+            &file,
+            r#"function add(a, b) {
+  return a + b;
+}
+
+function multiply(a, b) {
+  return a * b;
+}
+
+module.exports = { add, multiply };
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ExpressSecurityDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "Non-Express file should produce no findings, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

@@ -258,3 +258,58 @@ impl Detector for MutableDefaultArgsDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_mutable_default_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("service.py");
+        std::fs::write(
+            &file,
+            r#"def collect_items(items=[]):
+    items.append("new")
+    return items
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = MutableDefaultArgsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect mutable default argument []. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings[0].title.contains("[]"),
+            "Title should mention the mutable default type"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_immutable_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("service.py");
+        std::fs::write(
+            &file,
+            r#"def process(count=0, name="default", flag=True):
+    return count + len(name)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = MutableDefaultArgsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag immutable defaults. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

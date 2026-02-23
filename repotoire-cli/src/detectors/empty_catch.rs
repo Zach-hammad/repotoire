@@ -258,3 +258,63 @@ impl Detector for EmptyCatchDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_empty_except_pass_in_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("handler.py");
+        std::fs::write(
+            &file,
+            r#"def process():
+    try:
+        do_something()
+    except:
+        pass
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect empty except: pass block"
+        );
+        assert!(
+            findings[0].title.contains("Empty catch"),
+            "Title should mention empty catch, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_handled_exception() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("handler.py");
+        std::fs::write(
+            &file,
+            r#"def process():
+    try:
+        do_something()
+    except ValueError as e:
+        logger.error(e)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag exception that is properly handled, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

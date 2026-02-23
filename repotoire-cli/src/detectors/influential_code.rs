@@ -43,7 +43,6 @@ impl InfluentialCodeDetector {
     }
 
     /// Create with custom config
-    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         let min_fan_in = config.get_option_or("min_fan_in", 8);
         Self {

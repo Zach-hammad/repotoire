@@ -292,22 +292,45 @@ impl UnsafeTemplateDetector {
 
                 // Check for innerHTML assignment
                 if self.innerhtml_assign_pattern.is_match(line) {
-                    findings.push(self.create_finding(
-                        &rel_path,
-                        line_num,
-                        "innerhtml_assignment",
-                        stripped,
-                    ));
+                    // Skip static string assignments: innerHTML = "" or innerHTML = "literal"
+                    let is_static = {
+                        use std::sync::OnceLock;
+                        static STATIC_INNERHTML: OnceLock<Regex> = OnceLock::new();
+                        let pat = STATIC_INNERHTML.get_or_init(|| {
+                            Regex::new(r#"\.\s*innerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
+                                .expect("valid regex")
+                        });
+                        pat.is_match(stripped)
+                    };
+                    if !is_static {
+                        findings.push(self.create_finding(
+                            &rel_path,
+                            line_num,
+                            "innerhtml_assignment",
+                            stripped,
+                        ));
+                    }
                 }
 
                 // Check for outerHTML assignment
                 if self.outerhtml_assign_pattern.is_match(line) {
-                    findings.push(self.create_finding(
-                        &rel_path,
-                        line_num,
-                        "outerhtml_assignment",
-                        stripped,
-                    ));
+                    let is_static = {
+                        use std::sync::OnceLock;
+                        static STATIC_OUTERHTML: OnceLock<Regex> = OnceLock::new();
+                        let pat = STATIC_OUTERHTML.get_or_init(|| {
+                            Regex::new(r#"\.\s*outerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
+                                .expect("valid regex")
+                        });
+                        pat.is_match(stripped)
+                    };
+                    if !is_static {
+                        findings.push(self.create_finding(
+                            &rel_path,
+                            line_num,
+                            "outerhtml_assignment",
+                            stripped,
+                        ));
+                    }
                 }
 
                 // Check for document.write
@@ -766,5 +789,31 @@ mod tests {
         assert!(detector
             .document_write_pattern
             .is_match("document.writeln(html)"));
+    }
+
+    #[test]
+    fn test_no_finding_for_static_innerhtml() {
+        use crate::graph::GraphStore;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.js");
+        std::fs::write(
+            &file,
+            "function clearContent(el) {\n    el.innerHTML = \"\";\n}\nfunction setLoading(el) {\n    el.innerHTML = \"<div>Loading...</div>\";\n}\n",
+        )
+        .unwrap();
+
+        let detector = UnsafeTemplateDetector::with_repository_path(dir.path().to_path_buf());
+        let store = GraphStore::in_memory();
+        let findings = detector.detect(&store).unwrap();
+        let innerhtml_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("innerHTML"))
+            .collect();
+        assert!(
+            innerhtml_findings.is_empty(),
+            "Should not flag static string innerHTML assignments. Found: {:?}",
+            innerhtml_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

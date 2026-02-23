@@ -443,3 +443,67 @@ impl Detector for CommandInjectionDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detectors::base::Detector;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_os_system_with_user_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("vuln.py");
+        std::fs::write(
+            &file,
+            r#"import os
+
+def run_command(user_input):
+    os.system("ls " + user_input)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CommandInjectionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect os.system with user input concatenation"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("command injection")),
+            "Finding should mention command injection. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-78")),
+            "Finding should have CWE-78"
+        );
+    }
+
+    #[test]
+    fn test_no_findings_for_safe_subprocess() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("safe.py");
+        std::fs::write(
+            &file,
+            r#"import subprocess
+
+def list_files():
+    result = subprocess.run(["ls", "-la"], capture_output=True)
+    return result.stdout
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CommandInjectionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Safe subprocess usage with list args should have no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

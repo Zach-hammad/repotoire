@@ -230,3 +230,63 @@ impl Detector for ImplicitCoercionDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_loose_equality() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("check.js");
+        std::fs::write(
+            &file,
+            r#"function check(value) {
+    if (value == 'hello') {
+        return true;
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ImplicitCoercionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect == instead of ==="
+        );
+        assert!(
+            findings[0].title.contains("Loose equality"),
+            "Title should mention loose equality, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_strict_equality() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("check.js");
+        std::fs::write(
+            &file,
+            r#"function check(value) {
+    if (value === 'hello') {
+        return true;
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ImplicitCoercionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag strict equality ===, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

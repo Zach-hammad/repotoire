@@ -150,3 +150,62 @@ impl Detector for LogInjectionDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_user_input_in_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"import logging
+
+def handle_request(request):
+    username = request.get("user")
+    logging.info(f"Login attempt for user: {username}")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = LogInjectionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect user input in log statement with f-string"
+        );
+        assert!(
+            findings.iter().any(|f| f.detector == "LogInjectionDetector"),
+            "Finding should come from LogInjectionDetector"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_static_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"import logging
+
+def startup():
+    logging.info("Application started successfully")
+    logging.debug("Debug mode enabled")
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = LogInjectionDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Static log messages should produce no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

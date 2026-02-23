@@ -45,7 +45,6 @@ impl ArchitecturalBottleneckDetector {
     }
 
     /// Create with custom config
-    #[allow(dead_code)] // Builder pattern method
     pub fn with_config(config: DetectorConfig) -> Self {
         use crate::calibrate::MetricKind;
         let high_complexity_threshold = config.get_option_or(

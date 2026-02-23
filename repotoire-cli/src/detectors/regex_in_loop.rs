@@ -335,3 +335,68 @@ impl Detector for RegexInLoopDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_re_compile_in_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("parser.py");
+        std::fs::write(
+            &file,
+            r#"import re
+
+def process_lines(lines):
+    for line in lines:
+        pattern = re.compile(r'\d+')
+        match = pattern.match(line)
+        if match:
+            print(match.group())
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = RegexInLoopDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect re.compile() inside a for loop"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("Regex compiled inside loop")),
+            "Finding title should mention regex compiled inside loop"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_when_regex_outside_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("parser_good.py");
+        std::fs::write(
+            &file,
+            r#"import re
+
+def process_lines(lines):
+    pattern = re.compile(r'\d+')
+    for line in lines:
+        match = pattern.match(line)
+        if match:
+            print(match.group())
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = RegexInLoopDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag re.compile() outside a loop, got: {:?}",
+            findings
+        );
+    }
+}

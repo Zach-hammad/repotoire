@@ -272,3 +272,54 @@ impl Detector for CleartextCredentialsDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_password_in_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"def login(user, password):
+    logger.info(f"Authenticating with password: {password}")
+    return authenticate(user, password)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CleartextCredentialsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect password logged in cleartext");
+        assert!(
+            findings.iter().any(|f| f.title.contains("Password")),
+            "Finding should mention Password. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_safe_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"def login(user, password):
+    result = authenticate(user, password)
+    logger.info(f"User {user} logged in successfully")
+    return result
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CleartextCredentialsDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(findings.is_empty(), "Should not detect anything in safe code. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+}

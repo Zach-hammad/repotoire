@@ -373,3 +373,55 @@ impl Detector for XxeDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_xxe_without_protection() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("parser.py");
+        std::fs::write(
+            &file,
+            r#"
+from lxml import etree
+tree = etree.parse(xml_file)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = XxeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect XML parsing without XXE protection"
+        );
+        assert!(findings.iter().any(|f| f.detector == "XxeDetector"));
+    }
+
+    #[test]
+    fn test_no_finding_with_defusedxml() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("safe_parser.py");
+        std::fs::write(
+            &file,
+            r#"
+import defusedxml.ElementTree as ET
+tree = ET.parse(xml_file)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = XxeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag XML parsing with defusedxml protection, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

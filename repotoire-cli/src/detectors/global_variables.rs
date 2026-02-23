@@ -309,3 +309,63 @@ impl Detector for GlobalVariablesDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_global_statement_in_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("state.py");
+        // Python: `global counter` inside a function body triggers detection
+        std::fs::write(
+            &file,
+            r#"counter = 0
+
+def increment():
+    global counter
+    counter += 1
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = GlobalVariablesDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect 'global counter' inside function"
+        );
+        assert!(
+            findings[0].title.contains("counter"),
+            "Title should mention variable name, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_local_variables() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("clean.py");
+        // No `global` statement, no module-level mutable var
+        std::fs::write(
+            &file,
+            r#"def compute(x):
+    result = x * 2
+    return result
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = GlobalVariablesDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag local variables in functions, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

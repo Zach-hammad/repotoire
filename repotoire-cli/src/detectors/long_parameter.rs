@@ -71,7 +71,6 @@ impl LongParameterListDetector {
     }
 
     /// Create with custom config
-    #[allow(dead_code)] // Builder pattern method for configuration
     pub fn with_config(config: DetectorConfig) -> Self {
         use crate::calibrate::MetricKind;
         let thresholds = LongParameterThresholds {
@@ -514,7 +513,6 @@ impl Detector for LongParameterListDetector {
 }
 
 /// Convert snake_case to PascalCase
-#[allow(dead_code)] // Utility function for future use
 fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .map(|word| {
