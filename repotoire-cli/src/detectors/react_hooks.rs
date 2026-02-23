@@ -419,3 +419,128 @@ impl Detector for ReactHooksDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_hook_in_conditional() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("Component.tsx");
+        std::fs::write(
+            &file,
+            r#"function MyComponent({ show }) {
+  if (show) {
+    const [val, setVal] = useState(0);
+  }
+  return <div />;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ReactHooksDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect hook in conditional");
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("conditionally") && f.title.contains("useState")),
+            "Finding should mention conditional useState violation. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_hook_in_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("LoopComponent.tsx");
+        std::fs::write(
+            &file,
+            r#"function ListComponent({ items }) {
+  for (let i = 0; i < items.length; i++) {
+    const [val, setVal] = useState(items[i]);
+  }
+  return <div />;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ReactHooksDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect hook in loop");
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("loop") && f.title.contains("useState")),
+            "Finding should mention loop useState violation. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_correct_hook_usage_no_findings() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("GoodComponent.tsx");
+        std::fs::write(
+            &file,
+            r#"function GoodComponent({ items }) {
+  const [count, setCount] = useState(0);
+  const [name, setName] = useState("");
+  useEffect(() => {
+    console.log(count);
+  }, [count]);
+  return <div>{count} {name}</div>;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ReactHooksDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Correct hook usage should produce no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_hook_in_nested_function() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("NestedComponent.tsx");
+        std::fs::write(
+            &file,
+            r#"function ParentComponent() {
+  function helperFunc() {
+    const [state, setState] = useState(0);
+    return state;
+  }
+  return <div />;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = ReactHooksDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect hook in nested function"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("nested") && f.title.contains("useState")),
+            "Finding should mention nested function useState violation. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
