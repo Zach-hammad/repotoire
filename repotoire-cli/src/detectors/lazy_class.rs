@@ -250,6 +250,10 @@ impl Detector for LazyClassDetector {
                     || lower_path.contains("/__tests__/") || lower_path.contains("/spec/")
                     || lower_path.contains("/fixtures/")
                     || lower_path.contains("test_") || lower_path.contains("_test.")
+                    // Handle relative paths (no leading slash)
+                    || lower_path.starts_with("tests/")
+                    || lower_path.starts_with("test/")
+                    || lower_path.starts_with("__tests__/")
                 {
                     continue;
                 }
