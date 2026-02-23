@@ -33,7 +33,9 @@ fn for_var_pattern() -> &'static Regex {
 
 fn string_concat() -> &'static Regex {
     STRING_CONCAT.get_or_init(|| {
-        Regex::new(r#"\w+\s*\+=\s*["'`]|\w+\s*=\s*\w+\s*\+\s*["'`]|\w+\s*\+=\s*\w+"#)
+        // Only match when RHS starts with a string literal quote or f-string
+        // Removed: \w+\s*\+=\s*\w+ (matched ALL += including count += 1)
+        Regex::new(r#"\w+\s*\+=\s*["'`f]|\w+\s*=\s*\w+\s*\+\s*["'`f]"#)
             .expect("valid regex")
     })
 }
@@ -318,6 +320,64 @@ mod tests {
             findings.is_empty(),
             "Should not flag list.append + join pattern. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_numeric_accumulation() {
+        let store = GraphStore::in_memory();
+        let detector = StringConcatLoopDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("calc.py", "def total_price(items):\n    total = 0\n    for item in items:\n        total += item.price\n    return total\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag numeric accumulation (total += item.price). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_counter_increment() {
+        let store = GraphStore::in_memory();
+        let detector = StringConcatLoopDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("count.py", "def count_active(users):\n    count = 0\n    for user in users:\n        count += 1\n    return count\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag counter increment (count += 1). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_still_detects_string_literal_concat_in_loop() {
+        let store = GraphStore::in_memory();
+        let detector = StringConcatLoopDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result += \"prefix_\"\n    return result\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still detect string literal concat in loop"
+        );
+    }
+
+    #[test]
+    fn test_still_detects_string_concat_with_plus() {
+        let store = GraphStore::in_memory();
+        let detector = StringConcatLoopDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result = result + \"value\"\n    return result\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still detect result = result + 'value' in loop"
         );
     }
 }
