@@ -299,3 +299,71 @@ impl Detector for CommentedCodeDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_commented_code_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("example.py");
+        // Write a file with 6 lines of commented-out code (min_lines default = 5)
+        std::fs::write(
+            &file,
+            r#"def active():
+    pass
+
+# if condition:
+#     x = 1
+#     y = x + 2
+#     result = process(x, y)
+#     return result
+#     foo = bar()
+
+def another():
+    pass
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CommentedCodeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect commented code block. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_normal_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("clean.py");
+        // Write a file with regular comments (not code-like)
+        std::fs::write(
+            &file,
+            r#"# This module handles user authentication.
+# It provides login and logout functionality.
+# See the docs for more information.
+# Created by the team in 2024.
+# Licensed under MIT.
+
+def login(user, password):
+    return authenticate(user, password)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CommentedCodeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag normal comments. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

@@ -371,4 +371,54 @@ mod tests {
         assert!(SKIP_VARS.contains(&"_"));
         assert!(SKIP_VARS.contains(&"err"));
     }
+
+    #[test]
+    fn test_detects_dead_store_in_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("unused.py");
+        std::fs::write(
+            &file,
+            r#"def compute():
+    unused_var = expensive_calculation()
+    return 42
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DeadStoreDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.iter().any(|f| f.title.contains("unused_var")),
+            "Should detect dead store 'unused_var'. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_when_variable_is_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("used.py");
+        std::fs::write(
+            &file,
+            r#"def compute():
+    value = expensive_calculation()
+    return value + 1
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DeadStoreDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        let dead_store_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("value"))
+            .collect();
+        assert!(
+            dead_store_findings.is_empty(),
+            "Should not flag variable that is used. Found: {:?}",
+            dead_store_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
 }

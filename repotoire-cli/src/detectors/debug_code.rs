@@ -249,3 +249,59 @@ impl Detector for DebugCodeDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_print_statement() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"def process(data):
+    print(data)
+    return data + 1
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect print() statement. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_clean_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"import logging
+
+logger = logging.getLogger(__name__)
+
+def process(data):
+    logger.info("Processing data")
+    return data + 1
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag proper logging. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

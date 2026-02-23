@@ -301,3 +301,59 @@ impl Detector for TodoScanner {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_todo_fixme_hack() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tasks.py");
+        std::fs::write(
+            &file,
+            r#"def process():
+    # TODO: refactor this function
+    # FIXME: handle edge case
+    # HACK: workaround for upstream bug
+    return 42
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = TodoScanner::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.len() >= 3,
+            "Should detect TODO, FIXME, and HACK. Found {} findings: {:?}",
+            findings.len(),
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_clean_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("clean.py");
+        std::fs::write(
+            &file,
+            r#"# This function processes data.
+# It handles all edge cases properly.
+def process():
+    return 42
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = TodoScanner::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag normal comments. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

@@ -286,3 +286,52 @@ impl Detector for LargeFilesDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_large_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("big_module.py");
+        // Default threshold is 800 lines; write 850
+        let content: String = (0..850)
+            .map(|i| format!("x_{} = {}\n", i, i))
+            .collect();
+        std::fs::write(&file, &content).unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = LargeFilesDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect file with 850 lines (threshold 800). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings[0].title.contains("850"),
+            "Title should mention line count"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_small_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("small_module.py");
+        let content: String = (0..100)
+            .map(|i| format!("x_{} = {}\n", i, i))
+            .collect();
+        std::fs::write(&file, &content).unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = LargeFilesDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag file with 100 lines. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
