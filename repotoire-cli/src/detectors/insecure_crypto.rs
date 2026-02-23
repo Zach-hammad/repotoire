@@ -12,7 +12,7 @@ static WEAK_HASH: OnceLock<Regex> = OnceLock::new();
 static WEAK_CIPHER: OnceLock<Regex> = OnceLock::new();
 
 fn weak_hash() -> &'static Regex {
-    WEAK_HASH.get_or_init(|| Regex::new(r#"(?i)(md5|sha1|sha-1)\s*\(|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex"))
+    WEAK_HASH.get_or_init(|| Regex::new(r#"(?i)(?:^|[^_\w])(md5|sha1|sha-1)\s*\(|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex"))
 }
 
 /// Check if a line is merely mentioning a weak hash (in comments, strings, etc.)
@@ -41,18 +41,22 @@ fn is_hash_mention_not_usage(line: &str) -> bool {
         return true;
     }
 
+    // Skip Python hashlib calls with usedforsecurity=False
+    // This is Python's official way to signal non-cryptographic usage
+    if lower.contains("usedforsecurity=false") || lower.contains("usedforsecurity = false") {
+        return true;
+    }
+
+    // Skip database function implementations and non-security contexts
+    if lower.contains("_sqlite_") || lower.contains("checksum") || lower.contains("etag") || lower.contains("cache_key") {
+        return true;
+    }
+
     // Skip regex pattern definitions
     if line.contains("Regex::new")
         || line.contains("regex::Regex")
         || line.contains("r\"")
         || line.contains("r#\"")
-    {
-        return true;
-    }
-
-    // Skip test files and test functions
-    if crate::detectors::base::is_test_path(&lower)
-        && (lower.contains("fn ") || lower.contains("def ") || lower.contains("function "))
     {
         return true;
     }
@@ -333,8 +337,13 @@ impl Detector for InsecureCryptoDetector {
                 break;
             }
 
-            // Skip translation/localization files (French "des" = "of the", not DES cipher)
+            // Skip test files - hash usage in tests is for test fixtures
             let path_str = path.to_string_lossy().to_lowercase();
+            if crate::detectors::base::is_test_path(&path_str) {
+                continue;
+            }
+
+            // Skip translation/localization files (French "des" = "of the", not DES cipher)
             if path_str.contains("/lang/")
                 || path_str.contains("/locale")
                 || path_str.contains("/i18n/")
@@ -347,6 +356,8 @@ impl Detector for InsecureCryptoDetector {
 
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
+                let mut in_non_crypto_func = false;
+                let mut func_indent: usize = 0;
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
                     if crate::detectors::is_line_suppressed(line, prev_line) {
@@ -354,6 +365,27 @@ impl Detector for InsecureCryptoDetector {
                     }
 
                     let trimmed = line.trim();
+                    let indent = line.len() - line.trim_start().len();
+
+                    // Track whether we're inside a non-cryptographic function
+                    // e.g., _sqlite_md5, make_cache_key, compute_checksum, etag
+                    if trimmed.starts_with("def ") || trimmed.starts_with("fn ") {
+                        let lower_trimmed = trimmed.to_lowercase();
+                        if lower_trimmed.contains("_sqlite_") || lower_trimmed.contains("checksum") || lower_trimmed.contains("etag") || lower_trimmed.contains("cache_key") {
+                            in_non_crypto_func = true;
+                            func_indent = indent;
+                        } else {
+                            in_non_crypto_func = false;
+                        }
+                    } else if in_non_crypto_func && !trimmed.is_empty() && indent <= func_indent {
+                        // Left the function body (dedented to same or less than def line)
+                        in_non_crypto_func = false;
+                    }
+
+                    // Skip lines inside non-cryptographic functions
+                    if in_non_crypto_func {
+                        continue;
+                    }
                     // Skip comments
                     if trimmed.starts_with("//")
                         || trimmed.starts_with("#")
@@ -376,6 +408,12 @@ impl Detector for InsecureCryptoDetector {
 
                     // Skip enum declarations
                     if trimmed.starts_with("enum ") || trimmed.starts_with("export enum ") {
+                        continue;
+                    }
+
+                    // Skip class/function definitions where MD5/SHA1 is just a name
+                    // e.g., "class MD5(Transform):" or "def _sqlite_md5(text):"
+                    if trimmed.starts_with("class ") || trimmed.starts_with("def ") || trimmed.starts_with("fn ") {
                         continue;
                     }
 
@@ -511,5 +549,52 @@ mod tests {
         let findings = detector.detect(&store, &files).unwrap();
         assert!(findings.is_empty(), "Should not detect sha256 as insecure. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_usedforsecurity_false() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("cache.py", "import hashlib\n\ndef make_cache_key(data):\n    return hashlib.md5(data.encode(), usedforsecurity=False).hexdigest()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag md5 with usedforsecurity=False. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_class_definition() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("text.py", "from django.db.models import Transform\n\nclass MD5(Transform):\n    function = 'MD5'\n    lookup_name = 'md5'\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag class MD5() definition. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_sqlite_shim() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("_functions.py", "import hashlib\n\ndef _sqlite_md5(text):\n    return hashlib.md5(text.encode()).hexdigest()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should not flag _sqlite_md5 shim function. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_still_detects_real_md5_usage() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("auth.py", "import hashlib\n\ndef hash_password(password, salt):\n    return hashlib.md5((salt + password).encode()).hexdigest()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(!findings.is_empty(), "Should still detect real md5 password hashing");
     }
 }
