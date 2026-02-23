@@ -274,3 +274,63 @@ fn erf(x: f64) -> f64 {
 
     sign * y
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::calibrate::NgramModel;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_normal_cdf_known_values() {
+        // CDF(0) should be 0.5 (symmetry of normal distribution)
+        let cdf_zero = normal_cdf(0.0);
+        assert!(
+            (cdf_zero - 0.5).abs() < 1e-6,
+            "normal_cdf(0) should be 0.5, got {}",
+            cdf_zero
+        );
+
+        // CDF(large positive) should approach 1.0
+        let cdf_large = normal_cdf(4.0);
+        assert!(
+            cdf_large > 0.99,
+            "normal_cdf(4.0) should be > 0.99, got {}",
+            cdf_large
+        );
+
+        // CDF(large negative) should approach 0.0
+        let cdf_neg = normal_cdf(-4.0);
+        assert!(
+            cdf_neg < 0.01,
+            "normal_cdf(-4.0) should be < 0.01, got {}",
+            cdf_neg
+        );
+    }
+
+    #[test]
+    fn test_non_confident_model_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("module.py");
+        std::fs::write(
+            &file,
+            r#"
+def foo():
+    return 42
+"#,
+        )
+        .unwrap();
+
+        let model = NgramModel::new(); // Empty model, not confident
+        assert!(!model.is_confident());
+
+        let store = GraphStore::in_memory();
+        let detector = SurprisalDetector::new(dir.path(), model);
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Non-confident model should produce no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}

@@ -312,3 +312,56 @@ impl Detector for GeneratorMisuseDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_single_yield_generator() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("utils.py");
+        std::fs::write(
+            &file,
+            r#"
+def single_value():
+    yield 42
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = GeneratorMisuseDetector::with_path(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect single-yield generator"
+        );
+        assert!(findings.iter().any(|f| f.title.contains("Single-yield generator")));
+    }
+
+    #[test]
+    fn test_no_finding_for_generator_with_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("utils.py");
+        std::fs::write(
+            &file,
+            r#"
+def multi_yield(items):
+    for item in items:
+        yield item * 2
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = GeneratorMisuseDetector::with_path(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag generator with yield inside a loop, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
