@@ -317,6 +317,17 @@ impl Detector for DjangoSecurityDetector {
 
                     // Check raw SQL
                     if raw_sql().is_match(line) {
+                        // Skip ORM/database-internal paths — these files ARE the database layer
+                        let lower_path = path_str.to_lowercase();
+                        if lower_path.contains("db/backends/")
+                            || lower_path.contains("db/models/sql/")
+                            || lower_path.contains("db/models/expressions")
+                            || lower_path.contains("core/cache/backends/")
+                            || lower_path.contains("/migrations/")
+                        {
+                            continue;
+                        }
+
                         let func_context =
                             Self::find_containing_function(graph, &path_str, line_num);
 
@@ -551,6 +562,19 @@ mod tests {
             "Raw SQL with '+ ' alone (no request./f-string) should not be Critical. Got: {:?}",
             raw_sql.iter().map(|f| (&f.title, &f.severity)).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_no_raw_sql_finding_for_db_backend() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("db/backends/postgresql/introspection.py", "def get_table_list(self, cursor):\n    cursor.execute(\"SELECT c.relname FROM pg_catalog.pg_class c\")\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
+        assert!(raw_sql_findings.is_empty(), "Should not flag raw SQL in db/backends/. Found: {:?}",
+            raw_sql_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
 
     #[test]
