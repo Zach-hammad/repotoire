@@ -59,6 +59,9 @@ impl DebugCodeDetector {
             "/management/",
             "/cli/",
             "/cmd/",
+            // Info/inspection utilities where print IS the feature
+            "ogrinfo",
+            "ogrinspect",
         ];
         dev_patterns.iter().any(|p| path.contains(p))
     }
@@ -142,6 +145,28 @@ impl Detector for DebugCodeDetector {
                             if prev_trimmed.contains("verbosity") || prev_trimmed.contains("verbose") {
                                 continue;
                             }
+                        }
+                    }
+
+                    // Skip print() in except/catch blocks (error reporting, not debug)
+                    let trimmed_check = line.trim();
+                    if trimmed_check.starts_with("print(") || trimmed_check.starts_with("print (") {
+                        let current_indent = line.len() - trimmed_check.len();
+                        let mut in_except = false;
+                        for prev_idx in (0..i).rev() {
+                            let prev_trimmed = lines[prev_idx].trim();
+                            if prev_trimmed.is_empty() { continue; }
+                            let prev_indent = lines[prev_idx].len() - prev_trimmed.len();
+                            if prev_indent < current_indent && (prev_trimmed.starts_with("except") || prev_trimmed.starts_with("except:")) {
+                                in_except = true;
+                                break;
+                            }
+                            if prev_indent <= current_indent {
+                                break;
+                            }
+                        }
+                        if in_except {
+                            continue;
                         }
                     }
 
@@ -363,5 +388,35 @@ mod tests {
         let findings = detector.detect(&store, &files).unwrap();
         assert!(findings.is_empty(), "Should not flag debug=True as keyword argument. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_info_utility() {
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils/ogrinfo.py", "def ogrinfo(data_source):\n    \"\"\"Walk the available layers.\"\"\"\n    print(data_source.name)\n    print(layer.num_feat)\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag print() in info utilities. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_print_in_except_block() {
+        let store = GraphStore::in_memory();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils/archive.py", "def extract(self):\n    try:\n        do_something()\n    except Exception as exc:\n        print(\"Invalid member: %s\" % exc)\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag print() in except blocks. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
