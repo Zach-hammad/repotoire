@@ -82,7 +82,9 @@ impl Detector for CallbackHellDetector {
             }
 
             if let Some(content) = files.content(path) {
-                let mut callback_depth = 0;
+                let mut callback_depth: usize = 0;
+                let mut brace_depth: i32 = 0;
+                let mut callback_brace_depths: Vec<i32> = Vec::new();
                 let mut max_depth = 0;
                 let mut max_line = 0;
                 let mut then_count = 0;
@@ -118,6 +120,11 @@ impl Detector for CallbackHellDetector {
                         continue;
                     }
 
+                    // Track brace depth
+                    let open_braces = line.matches('{').count() as i32;
+                    let close_braces = line.matches('}').count() as i32;
+                    brace_depth += open_braces;
+
                     // Count actual function/callback nesting patterns only.
                     // Exclude:
                     //  - JSX prop callbacks: onClick={() => {  (preceded by "={")
@@ -125,8 +132,22 @@ impl Detector for CallbackHellDetector {
                     //  - Template literal expressions: `${() => {`  (rare but possible)
 
                     // anonymous functions explicitly passed as arguments
-                    let anon_funcs =
-                        line.matches("function(").count() + line.matches("function (").count();
+                    let anon_funcs = {
+                        let mut count = 0usize;
+                        for m in line.match_indices("function(").chain(line.match_indices("function (")) {
+                            let before = line[..m.0].trim_end();
+                            // Skip object methods: key: function(
+                            let is_object_method = before.ends_with(':');
+                            // Skip prototype assigns: Foo.prototype.bar = function(
+                            let is_prototype = before.contains(".prototype.");
+                            // Skip variable declarations: var/let/const foo = function(
+                            let is_var_decl = before.ends_with('=') && (before.contains("var ") || before.contains("let ") || before.contains("const "));
+                            if !is_object_method && !is_prototype && !is_var_decl {
+                                count += 1;
+                            }
+                        }
+                        count
+                    };
 
                     // Arrow functions: only count ones that look like callbacks passed to
                     // functions, NOT JSX event prop assignments (e.g. onClick={() => {}).
@@ -152,13 +173,25 @@ impl Detector for CallbackHellDetector {
                     // .then() chains are genuine callback hell indicators
                     let thens = line.matches(".then(").count();
 
+                    let new_callbacks = anon_funcs + arrows + thens;
                     anonymous_count += anon_funcs + arrows;
                     then_count += thens;
-                    callback_depth += anon_funcs + arrows + thens;
 
-                    // Track closings
-                    if line.contains("});") || line.contains("})") {
-                        callback_depth = callback_depth.saturating_sub(1);
+                    // Push brace depth for each new callback
+                    for _ in 0..new_callbacks {
+                        callback_brace_depths.push(brace_depth);
+                        callback_depth += 1;
+                    }
+
+                    // Process closing braces — pop callbacks when we exit their scope
+                    brace_depth -= close_braces;
+                    while let Some(&cb_depth) = callback_brace_depths.last() {
+                        if brace_depth < cb_depth {
+                            callback_brace_depths.pop();
+                            callback_depth = callback_depth.saturating_sub(1);
+                        } else {
+                            break;
+                        }
                     }
 
                     if callback_depth > max_depth {
@@ -303,5 +336,17 @@ mod tests {
             "Should not flag shallow (1 level) callbacks, got: {:?}",
             findings
         );
+    }
+
+    #[test]
+    fn test_no_finding_for_object_methods() {
+        let store = GraphStore::in_memory();
+        let detector = CallbackHellDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("admin.js", "var DateTimeShortcuts = {\n    init: function() {\n        this.setup();\n    },\n    setup: function() {\n        this.render();\n    },\n    render: function() {\n        this.draw();\n    },\n    draw: function() {\n        console.log('done');\n    }\n};\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Object methods should not be counted as callback nesting. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
 }
