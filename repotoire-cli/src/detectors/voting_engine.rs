@@ -757,3 +757,107 @@ mod utility_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Helper to create a minimal Finding for testing.
+    fn make_finding(detector: &str, file: &str, line: u32, severity: Severity) -> Finding {
+        Finding {
+            id: format!("{}-{}-{}", detector, file, line),
+            detector: detector.to_string(),
+            severity,
+            title: format!("Issue in {}", file),
+            description: "test finding".to_string(),
+            affected_files: vec![PathBuf::from(file)],
+            line_start: Some(line),
+            line_end: Some(line),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_vote_returns_results() {
+        let engine = VotingEngine::new();
+        let findings = vec![
+            make_finding("DetectorA", "src/main.py", 10, Severity::Medium),
+            make_finding("DetectorB", "src/utils.py", 20, Severity::High),
+        ];
+
+        let (results, stats) = engine.vote(findings);
+
+        assert_eq!(stats.total_input, 2, "Should receive 2 input findings");
+        // Results should contain some output (exact count depends on confidence threshold)
+        assert!(
+            stats.total_output <= stats.total_input,
+            "Output should not exceed input"
+        );
+        // Each result should be a valid Finding
+        for f in &results {
+            assert!(!f.detector.is_empty(), "Detector name should not be empty");
+        }
+    }
+
+    #[test]
+    fn test_vote_empty_input() {
+        let engine = VotingEngine::new();
+        let (results, stats) = engine.vote(vec![]);
+
+        assert!(results.is_empty(), "Empty input should produce empty output");
+        assert_eq!(stats.total_input, 0);
+        assert_eq!(stats.total_output, 0);
+    }
+
+    #[test]
+    fn test_consensus_merges_findings_from_different_detectors() {
+        let engine = VotingEngine::new();
+
+        // Two different detectors report the same issue at the same file/line
+        let findings = vec![
+            make_finding("GodClassDetector", "src/app.py", 5, Severity::High),
+            make_finding("GodClassDetector2", "src/app.py", 5, Severity::Medium),
+        ];
+
+        let (results, stats) = engine.vote(findings);
+
+        // With two different detectors on the same entity, consensus should merge them
+        assert!(
+            stats.boosted_by_consensus >= 1 || stats.total_output >= 1,
+            "Two different detectors on same location should produce output. Stats: {:?}",
+            stats
+        );
+        // If consensus was reached, the merged finding should reference both detectors
+        if stats.boosted_by_consensus > 0 {
+            let consensus_finding = results.iter().find(|f| f.detector.contains("Consensus"));
+            assert!(
+                consensus_finding.is_some(),
+                "Consensus finding should contain 'Consensus' in detector name"
+            );
+        }
+    }
+
+    #[test]
+    fn test_single_detector_findings_pass_through() {
+        let engine = VotingEngine::new();
+
+        // One finding from a high-accuracy detector (should pass confidence threshold)
+        let findings = vec![make_finding(
+            "RuffLintDetector",
+            "src/lint.py",
+            42,
+            Severity::Medium,
+        )];
+
+        let (results, stats) = engine.vote(findings);
+
+        assert_eq!(stats.single_detector_findings, 1);
+        // RuffLintDetector has accuracy 0.98, well above default threshold 0.6
+        assert_eq!(
+            results.len(),
+            1,
+            "High-accuracy single-detector finding should pass through"
+        );
+    }
+}

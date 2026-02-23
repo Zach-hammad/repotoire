@@ -301,3 +301,46 @@ impl Detector for SingleCharNamesDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_single_char_variable() {
+        let dir = tempfile::tempdir().unwrap();
+        // Use JS syntax so the regex `\b(let|var|const|...)\s+([a-zA-Z])\s*[=:]` matches
+        let file = dir.path().join("utils.js");
+        std::fs::write(
+            &file,
+            "function process() {\n    let q = getData();\n    return q;\n}\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = SingleCharNamesDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.iter().any(|f| f.title.to_lowercase().contains("q")),
+            "Should detect single-char variable 'q'. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_loop_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("utils.py");
+        std::fs::write(&file, "for i in range(10):\n    print(i)\n").unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = SingleCharNamesDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag loop index 'i'. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+}
