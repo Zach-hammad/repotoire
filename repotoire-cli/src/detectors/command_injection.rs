@@ -106,7 +106,7 @@ impl Detector for CommandInjectionDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let file_str = path.to_string_lossy();
 

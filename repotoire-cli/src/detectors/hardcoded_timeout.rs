@@ -131,7 +131,7 @@ impl HardcodedTimeoutDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 for line in content.lines() {
                     if let Some(caps) = timeout_pattern().captures(line) {
                         if let Some(val) = caps.get(2) {
@@ -204,7 +204,7 @@ impl Detector for HardcodedTimeoutDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };

@@ -145,7 +145,7 @@ impl Detector for InsecureCookieDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {

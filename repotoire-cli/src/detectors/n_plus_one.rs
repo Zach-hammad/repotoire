@@ -62,7 +62,7 @@ impl NPlusOneDetector {
 
             // Check function content for query patterns
             if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                crate::cache::global_cache().masked_content(std::path::Path::new(&func.file_path))
             {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = func.line_start.saturating_sub(1) as usize;
@@ -202,7 +202,7 @@ impl NPlusOneDetector {
 
             // Check if this function contains a loop
             let has_loop = if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                crate::cache::global_cache().masked_content(std::path::Path::new(&func.file_path))
             {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = func.line_start.saturating_sub(1) as usize;
@@ -328,7 +328,7 @@ impl Detector for NPlusOneDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;

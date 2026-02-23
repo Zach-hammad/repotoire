@@ -279,7 +279,7 @@ impl MagicNumbersDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (line_num, line) in lines.iter().enumerate() {
                     let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
@@ -388,7 +388,7 @@ impl Detector for MagicNumbersDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (line_num, line) in lines.iter().enumerate() {
                     let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };

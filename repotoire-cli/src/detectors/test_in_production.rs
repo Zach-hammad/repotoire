@@ -161,7 +161,7 @@ impl Detector for TestInProductionDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = crate::cache::global_cache().masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut file_issues = Vec::new();
 
