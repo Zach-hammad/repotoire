@@ -134,6 +134,7 @@ impl EmptyCatchDetector {
 
             let trimmed = line.trim();
             let mut is_empty_catch = false;
+            let mut is_common_idiom = false;
             let catch_line = i;
 
             // Python: except: followed by pass
@@ -141,7 +142,37 @@ impl EmptyCatchDetector {
                 if let Some(next) = lines.get(i + 1) {
                     let next_trimmed = next.trim();
                     if next_trimmed == "pass" || next_trimmed == "..." {
-                        is_empty_catch = true;
+                        // Extract exception type from "except SomeError:" or "except (A, B):"
+                        let except_body = trimmed
+                            .strip_prefix("except")
+                            .unwrap_or("")
+                            .strip_suffix(":")
+                            .unwrap_or("")
+                            .trim();
+
+                        // Fully skip optional import idioms -- these are NEVER bugs
+                        let skip_entirely = ["ImportError", "ModuleNotFoundError"];
+                        let should_skip = !except_body.is_empty()
+                            && skip_entirely.iter().any(|e| except_body.contains(e));
+
+                        if should_skip {
+                            // Don't flag at all
+                        } else {
+                            is_empty_catch = true;
+
+                            // Downgrade common specific-exception idioms to Low severity
+                            let common_idioms = [
+                                "KeyError", "AttributeError", "StopIteration",
+                                "FileNotFoundError", "NotImplementedError",
+                                "OSError", "PermissionError", "FileExistsError",
+                                "ProcessLookupError", "TypeError", "ValueError",
+                            ];
+                            if !except_body.is_empty()
+                                && common_idioms.iter().any(|e| except_body.contains(e))
+                            {
+                                is_common_idiom = true;
+                            }
+                        }
                     }
                 }
             }
@@ -171,6 +202,18 @@ impl EmptyCatchDetector {
                     } else {
                         (Severity::Medium, vec![])
                     };
+
+                // Override severity for common exception idioms.
+                // Common idioms (KeyError, AttributeError, etc.) get Low severity.
+                // Everything else (bare except, except Exception, etc.) should be
+                // at least Medium -- swallowing broad exceptions is always risky.
+                let severity = if is_common_idiom {
+                    Severity::Low
+                } else if severity == Severity::Low {
+                    Severity::Medium
+                } else {
+                    severity
+                };
 
                 let context_notes = if risk_notes.is_empty() {
                     String::new()
@@ -286,6 +329,78 @@ mod tests {
             findings.is_empty(),
             "Should not flag exception that is properly handled, but got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_except_importerror_pass() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("optional.py", "try:\n    import yaml\nexcept ImportError:\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag except ImportError: pass (optional import idiom). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_low_severity_for_except_keyerror_pass() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("lookup.py", "try:\n    value = cache[key]\nexcept KeyError:\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still flag except KeyError: pass (can hide bugs)"
+        );
+        assert_eq!(
+            findings[0].severity,
+            Severity::Low,
+            "except KeyError: pass should be Low severity (common idiom)"
+        );
+    }
+
+    #[test]
+    fn test_still_detects_bare_except_pass() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("bad.py", "try:\n    do_something()\nexcept:\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still detect bare except: pass"
+        );
+        assert_ne!(
+            findings[0].severity,
+            Severity::Low,
+            "Bare except: pass should NOT be Low severity"
+        );
+    }
+
+    #[test]
+    fn test_still_detects_except_exception_pass() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("bad.py", "try:\n    do_something()\nexcept Exception:\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still detect except Exception: pass (too broad)"
+        );
+        assert_ne!(
+            findings[0].severity,
+            Severity::Low,
+            "except Exception: pass should NOT be Low severity"
         );
     }
 }
