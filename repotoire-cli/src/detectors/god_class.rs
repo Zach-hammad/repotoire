@@ -500,7 +500,7 @@ impl Detector for GodClassDetector {
 
             // Check if we should skip this class entirely based on graph analysis
             if let Some(ctx) = ctx {
-                if ctx.skip_god_class() {
+                if ctx.skip_god_class() || ctx.is_test {
                     debug!(
                         "Skipping {} ({:?}): {}",
                         class.name, ctx.role, ctx.role_reason
@@ -513,6 +513,18 @@ impl Detector for GodClassDetector {
             if ctx.is_none() && self.is_excluded_pattern(&class.name) {
                 debug!("Skipping excluded pattern: {}", class.name);
                 continue;
+            }
+
+            // Fall back to test path check if no graph context
+            if ctx.is_none() {
+                let lower_path = class.file_path.to_lowercase();
+                if lower_path.contains("/test/") || lower_path.contains("/tests/")
+                    || lower_path.contains("/__tests__/") || lower_path.contains("/spec/")
+                    || lower_path.contains("test_") || lower_path.contains("_test.")
+                {
+                    debug!("Skipping test class: {}", class.name);
+                    continue;
+                }
             }
 
             // Get adjusted thresholds based on role

@@ -93,6 +93,12 @@ const FRAMEWORK_CORE_NAMES: &[&str] = &[
 /// Patterns that indicate framework-like classes
 const FRAMEWORK_PATTERNS: &[&str] = &["Application", "Framework", "Server", "Gateway", "Router"];
 
+/// Suffixes that indicate framework core classes (e.g., Django internals)
+const FRAMEWORK_CORE_SUFFIXES: &[&str] = &[
+    "SchemaEditor", "Autodetector", "Compiler", "Admin",
+    "Manager", "Registry", "Dispatcher",
+];
+
 /// Names/suffixes that indicate orchestrator classes (controllers, routers, dispatchers)
 /// These classes delegate to services by design and should not be flagged for god class or feature envy.
 const ORCHESTRATOR_NAME_PATTERNS: &[&str] = &[
@@ -455,6 +461,14 @@ impl<'a> ClassContextBuilder<'a> {
                     "Orchestrator pattern '{}' in name: {} ({} methods, {:.0}% delegate, {} external deps)",
                     pattern, name, method_count, delegation_ratio * 100.0, external_dependencies
                 ),
+            );
+        }
+
+        // Check framework core suffixes (after orchestrator name check to avoid conflicts)
+        if FRAMEWORK_CORE_SUFFIXES.iter().any(|s| name.ends_with(s)) {
+            return (
+                ClassRole::FrameworkCore,
+                format!("Name ends with framework suffix"),
             );
         }
 
