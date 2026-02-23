@@ -86,6 +86,19 @@ const EXCLUDE_PATTERNS: &[&str] = &[
     "Builder",
     "Provider",
     "Service",
+    // ORM patterns (intentionally small - Strategy pattern)
+    "Lookup",
+    "Transform",
+    "Descriptor",
+    "Attribute",
+    "Field",
+    "Constraint",
+    "Index",
+    "Expression",
+    "Widget",
+    "Migration",
+    "Command",
+    "Middleware",
 ];
 
 /// Detects classes that do minimal work and aren't used much
@@ -228,6 +241,18 @@ impl Detector for LazyClassDetector {
                 || class.qualified_name.contains("::type::")
             {
                 continue;
+            }
+
+            // Skip test fixture/model classes
+            {
+                let lower_path = class.file_path.to_lowercase();
+                if lower_path.contains("/test/") || lower_path.contains("/tests/")
+                    || lower_path.contains("/__tests__/") || lower_path.contains("/spec/")
+                    || lower_path.contains("/fixtures/")
+                    || lower_path.contains("test_") || lower_path.contains("_test.")
+                {
+                    continue;
+                }
             }
 
             // Skip excluded patterns
