@@ -290,6 +290,19 @@ impl SecretDetector {
                             if matches!(first_char, '[' | '{') {
                                 continue;
                             }
+                            // Skip variable references — a hardcoded secret MUST be a string literal
+                            // Variables, attribute accesses, settings reads are NOT hardcoded
+                            if !matches!(first_char, '"' | '\'' | '`' | 'b') {
+                                // Not a string literal (b"..." for bytes is also a literal)
+                                continue;
+                            }
+                            // If starts with b, check it's b"..." not a variable like `base64...`
+                            if first_char == 'b' {
+                                let second_char = value_part.chars().nth(1).unwrap_or(' ');
+                                if !matches!(second_char, '"' | '\'') {
+                                    continue;
+                                }
+                            }
                         }
                     }
 
@@ -591,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn test_still_detects_uppercase_constant_password() {
+    fn test_skips_uppercase_constant_reference() {
         let store = GraphStore::in_memory();
         let detector = SecretDetector::new("/mock/repo");
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
@@ -599,8 +612,54 @@ mod tests {
         ]);
         let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
-            !findings.is_empty(),
-            "Should still detect password assigned to uppercase constant"
+            findings.is_empty(),
+            "Should not flag variable/constant references as secrets. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_password_variable_reference() {
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.rb", "password=auth_password,\nsecret = settings.SECRET_KEY\nself._password = raw_password\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag variable references as secrets. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_settings_read() {
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("config.rb", "self.password = settings.EMAIL_HOST_PASSWORD if password is None else password\npassword=self.settings_dict[\"PASSWORD\"],\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag settings reads as secrets. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_request_data_read() {
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.rb", "csrf_secret = request.META[\"CSRF_COOKIE\"]\nold_password = self.cleaned_data[\"old_password\"]\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag request/form data reads as secrets. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 }
