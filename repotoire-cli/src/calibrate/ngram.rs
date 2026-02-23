@@ -369,7 +369,7 @@ mod tests {
 
         // Train on repetitive code (need 5000+ tokens for confidence)
         for _ in 0..800 {
-            model.train_on_tokens(&vec![
+            model.train_on_tokens(&[
                 "let".to_string(), "mut".to_string(), "<ID>".to_string(),
                 "=".to_string(), "<NUM>".to_string(), ";".to_string(), "<EOL>".to_string(),
             ]);
@@ -385,7 +385,7 @@ mod tests {
 
         // Train on a pattern
         for _ in 0..500 {
-            model.train_on_tokens(&vec![
+            model.train_on_tokens(&[
                 "let".to_string(), "<ID>".to_string(), "=".to_string(),
                 "<ID>".to_string(), ".".to_string(), "<ID>".to_string(),
                 "(". to_string(), ")".to_string(), ";".to_string(), "<EOL>".to_string(),

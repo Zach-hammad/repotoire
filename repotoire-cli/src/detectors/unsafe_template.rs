@@ -240,6 +240,19 @@ impl UnsafeTemplateDetector {
 
         let mut findings = Vec::new();
 
+        // Pre-compile static-assignment regexes outside the file loop
+        use std::sync::OnceLock;
+        static STATIC_INNERHTML: OnceLock<Regex> = OnceLock::new();
+        let static_innerhtml_pat = STATIC_INNERHTML.get_or_init(|| {
+            Regex::new(r#"\.\s*innerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
+                .expect("valid regex")
+        });
+        static STATIC_OUTERHTML: OnceLock<Regex> = OnceLock::new();
+        let static_outerhtml_pat = STATIC_OUTERHTML.get_or_init(|| {
+            Regex::new(r#"\.\s*outerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
+                .expect("valid regex")
+        });
+
         // Walk through JS/TS files (respects .gitignore and .repotoireignore)
         for path in walk_source_files(&self.repository_path, Some(&["js", "jsx", "ts", "tsx"])) {
             let rel_path = path
@@ -262,6 +275,7 @@ impl UnsafeTemplateDetector {
             }
 
             let lines: Vec<&str> = content.lines().collect();
+
             for (line_no, line) in lines.iter().enumerate() {
                 let line_num = (line_no + 1) as u32;
                 let stripped = line.trim();
@@ -293,16 +307,7 @@ impl UnsafeTemplateDetector {
                 // Check for innerHTML assignment
                 if self.innerhtml_assign_pattern.is_match(line) {
                     // Skip static string assignments: innerHTML = "" or innerHTML = "literal"
-                    let is_static = {
-                        use std::sync::OnceLock;
-                        static STATIC_INNERHTML: OnceLock<Regex> = OnceLock::new();
-                        let pat = STATIC_INNERHTML.get_or_init(|| {
-                            Regex::new(r#"\.\s*innerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
-                                .expect("valid regex")
-                        });
-                        pat.is_match(stripped)
-                    };
-                    if !is_static {
+                    if !static_innerhtml_pat.is_match(stripped) {
                         findings.push(self.create_finding(
                             &rel_path,
                             line_num,
@@ -313,24 +318,15 @@ impl UnsafeTemplateDetector {
                 }
 
                 // Check for outerHTML assignment
-                if self.outerhtml_assign_pattern.is_match(line) {
-                    let is_static = {
-                        use std::sync::OnceLock;
-                        static STATIC_OUTERHTML: OnceLock<Regex> = OnceLock::new();
-                        let pat = STATIC_OUTERHTML.get_or_init(|| {
-                            Regex::new(r#"\.\s*outerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
-                                .expect("valid regex")
-                        });
-                        pat.is_match(stripped)
-                    };
-                    if !is_static {
-                        findings.push(self.create_finding(
-                            &rel_path,
-                            line_num,
-                            "outerhtml_assignment",
-                            stripped,
-                        ));
-                    }
+                if self.outerhtml_assign_pattern.is_match(line)
+                    && !static_outerhtml_pat.is_match(stripped)
+                {
+                    findings.push(self.create_finding(
+                        &rel_path,
+                        line_num,
+                        "outerhtml_assignment",
+                        stripped,
+                    ));
                 }
 
                 // Check for document.write

@@ -377,7 +377,7 @@ y = 2
     #[test]
     fn test_mask_ranges_basic() {
         let source = "hello world";
-        let ranges = vec![6..11]; // "world"
+        let ranges = [6..11]; // "world"
         let result = mask_ranges(source, &ranges);
         assert_eq!(result, "hello      ");
     }
@@ -385,7 +385,7 @@ y = 2
     #[test]
     fn test_mask_ranges_preserves_newlines() {
         let source = "hello\nworld\nagain";
-        let ranges = vec![0..17]; // entire string
+        let ranges = [0..17]; // entire string
         let result = mask_ranges(source, &ranges);
         assert_eq!(result, "     \n     \n     ");
     }

@@ -166,7 +166,7 @@ mod tests {
     use std::collections::HashMap;
 
     /// Build a StyleProfile with a single metric from the given values.
-    fn profile_with_metric(kind: MetricKind, values: &mut Vec<f64>) -> StyleProfile {
+    fn profile_with_metric(kind: MetricKind, values: &mut [f64]) -> StyleProfile {
         let dist = MetricDistribution::from_values(values);
         let mut metrics = HashMap::new();
         metrics.insert(kind, dist);
