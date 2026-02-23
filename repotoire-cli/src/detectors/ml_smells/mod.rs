@@ -104,70 +104,60 @@ mod tests {
     use crate::detectors::base::Detector;
     use crate::graph::GraphStore;
     use crate::models::Severity;
-    use std::fs;
-    use std::path::PathBuf;
-    use tempfile::TempDir;
-
-    fn setup_test_file(content: &str) -> (TempDir, PathBuf) {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("test.py");
-        fs::write(&path, content).unwrap();
-        (dir, path)
-    }
 
     #[test]
     fn test_torch_load_unsafe() {
-        let content = "import torch\nmodel = torch.load('model.pth')\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = TorchLoadUnsafeDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = TorchLoadUnsafeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.py", "import torch\nmodel = torch.load('model.pth')\n"),
+        ]);
+        let findings = detector.detect(&graph, &mock_files).unwrap();
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
     }
 
     #[test]
     fn test_torch_load_safe() {
-        let content = "import torch\nmodel = torch.load('model.pth', weights_only=True)\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = TorchLoadUnsafeDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = TorchLoadUnsafeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.py", "import torch\nmodel = torch.load('model.pth', weights_only=True)\n"),
+        ]);
+        let findings = detector.detect(&graph, &mock_files).unwrap();
         assert!(findings.is_empty());
     }
 
     #[test]
     fn test_nan_equality() {
-        let content = "import numpy as np\nif x == np.nan:\n    pass\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = NanEqualityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = NanEqualityDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.py", "import numpy as np\nif x == np.nan:\n    pass\n"),
+        ]);
+        let findings = detector.detect(&graph, &mock_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn test_require_grad_typo() {
-        let content = "tensor.require_grad = True\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = RequireGradTypoDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = RequireGradTypoDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.py", "tensor.require_grad = True\n"),
+        ]);
+        let findings = detector.detect(&graph, &mock_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn test_chain_indexing() {
-        let content = "import pandas as pd\ndf['col1']['col2'] = value\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = ChainIndexingDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = ChainIndexingDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.py", "import pandas as pd\ndf['col1']['col2'] = value\n"),
+        ]);
+        let findings = detector.detect(&graph, &mock_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 }

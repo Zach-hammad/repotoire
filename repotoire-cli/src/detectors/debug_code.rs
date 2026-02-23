@@ -80,21 +80,13 @@ impl Detector for DebugCodeDetector {
         "Detects debug statements left in code"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut debug_per_file: HashMap<String, usize> = HashMap::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rb", "java"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -123,12 +115,7 @@ impl Detector for DebugCodeDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx" | "rb" | "java") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let mut file_debug_count = 0;
                 let lines: Vec<&str> = content.lines().collect();
 
@@ -257,21 +244,12 @@ mod tests {
 
     #[test]
     fn test_detects_print_statement() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("app.py");
-        std::fs::write(
-            &file,
-            r#"def process(data):
-    print(data)
-    return data + 1
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DebugCodeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("app.py", "def process(data):\n    print(data)\n    return data + 1\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect print() statement. Found: {:?}",
@@ -281,25 +259,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_clean_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("app.py");
-        std::fs::write(
-            &file,
-            r#"import logging
-
-logger = logging.getLogger(__name__)
-
-def process(data):
-    logger.info("Processing data")
-    return data + 1
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DebugCodeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("app.py", "import logging\n\nlogger = logging.getLogger(__name__)\n\ndef process(data):\n    logger.info(\"Processing data\")\n    return data + 1\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag proper logging. Found: {:?}",
@@ -309,18 +274,12 @@ def process(data):
 
     #[test]
     fn test_no_finding_for_debug_in_docstring() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("app.py");
-        std::fs::write(
-            &file,
-            "def run_server():\n    \"\"\"\n    Start the server.\n    Use debug = True for development.\n    The debugger provides interactive tracing.\n    \"\"\"\n    app.run()\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DebugCodeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("app.py", "def run_server():\n    \"\"\"\n    Start the server.\n    Use debug = True for development.\n    The debugger provides interactive tracing.\n    \"\"\"\n    app.run()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag debug/debugger inside docstrings. Found: {:?}",
@@ -330,18 +289,12 @@ def process(data):
 
     #[test]
     fn test_no_finding_for_debug_in_string_literal() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("cli.py");
-        std::fs::write(
-            &file,
-            "import click\n\n@click.option(\"--debug\", is_flag=True, help=\"Enable debug mode\")\ndef main(debug):\n    pass\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DebugCodeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DebugCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("cli.py", "import click\n\n@click.option(\"--debug\", is_flag=True, help=\"Enable debug mode\")\ndef main(debug):\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag debug in CLI option strings. Found: {:?}",

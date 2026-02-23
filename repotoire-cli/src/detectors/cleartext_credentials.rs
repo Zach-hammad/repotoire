@@ -126,20 +126,12 @@ impl Detector for CleartextCredentialsDetector {
         "Detects credentials in logs"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "cs"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -150,14 +142,8 @@ impl Detector for CleartextCredentialsDetector {
             }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "java" | "go" | "rb" | "php" | "cs"
-            ) {
-                continue;
-            }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -280,21 +266,12 @@ mod tests {
 
     #[test]
     fn test_detects_password_in_log() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("app.py");
-        std::fs::write(
-            &file,
-            r#"def login(user, password):
-    logger.info(f"Authenticating with password: {password}")
-    return authenticate(user, password)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = CleartextCredentialsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = CleartextCredentialsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("app.py", "def login(user, password):\n    logger.info(f\"Authenticating with password: {password}\")\n    return authenticate(user, password)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(!findings.is_empty(), "Should detect password logged in cleartext");
         assert!(
             findings.iter().any(|f| f.title.contains("Password")),
@@ -305,22 +282,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_safe_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("app.py");
-        std::fs::write(
-            &file,
-            r#"def login(user, password):
-    result = authenticate(user, password)
-    logger.info(f"User {user} logged in successfully")
-    return result
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = CleartextCredentialsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = CleartextCredentialsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("app.py", "def login(user, password):\n    result = authenticate(user, password)\n    logger.info(f\"User {user} logged in successfully\")\n    return result\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(findings.is_empty(), "Should not detect anything in safe code. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

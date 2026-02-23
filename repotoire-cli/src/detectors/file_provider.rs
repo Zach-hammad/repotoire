@@ -124,6 +124,59 @@ impl MockFileProvider {
 }
 
 #[cfg(test)]
+impl MockFileProvider {
+    /// Simple Python string masking: replace content inside triple-quoted strings
+    /// and single-line string literals with placeholder text.
+    /// This is a rough approximation of what the real masking does via tree-sitter.
+    fn mask_python_strings(content: &str) -> String {
+        let mut result = String::with_capacity(content.len());
+        let chars: Vec<char> = content.chars().collect();
+        let len = chars.len();
+        let mut i = 0;
+
+        while i < len {
+            // Check for triple-quoted strings (""" or ''')
+            if i + 2 < len
+                && ((chars[i] == '"' && chars[i + 1] == '"' && chars[i + 2] == '"')
+                    || (chars[i] == '\'' && chars[i + 1] == '\'' && chars[i + 2] == '\''))
+            {
+                let quote = chars[i];
+                // Keep the opening quotes
+                result.push(quote);
+                result.push(quote);
+                result.push(quote);
+                i += 3;
+                // Replace content until closing triple-quote, preserving newlines
+                while i < len {
+                    if i + 2 < len
+                        && chars[i] == quote
+                        && chars[i + 1] == quote
+                        && chars[i + 2] == quote
+                    {
+                        result.push(quote);
+                        result.push(quote);
+                        result.push(quote);
+                        i += 3;
+                        break;
+                    }
+                    if chars[i] == '\n' {
+                        result.push('\n');
+                    } else {
+                        result.push(' ');
+                    }
+                    i += 1;
+                }
+                continue;
+            }
+            result.push(chars[i]);
+            i += 1;
+        }
+
+        result
+    }
+}
+
+#[cfg(test)]
 impl FileProvider for MockFileProvider {
     fn files(&self) -> &[PathBuf] {
         &self.files
@@ -160,8 +213,17 @@ impl FileProvider for MockFileProvider {
     }
 
     fn masked_content(&self, path: &Path) -> Option<Arc<String>> {
-        // In tests we skip masking — return raw content.
-        self.content(path)
+        // Basic masking for tests: replace content inside Python triple-quoted
+        // strings with placeholder text so detectors that rely on masking
+        // (debug_code, hardcoded_ips, secrets) work correctly.
+        self.content(path).map(|content| {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if matches!(ext, "py" | "pyi") {
+                Arc::new(Self::mask_python_strings(&content))
+            } else {
+                content
+            }
+        })
     }
 
     fn repo_path(&self) -> &Path {

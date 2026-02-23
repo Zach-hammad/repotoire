@@ -117,20 +117,12 @@ impl Detector for InsecureCookieDetector {
         "Detects cookies without security flags"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "php", "rb", "java", "go"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -141,11 +133,8 @@ impl Detector for InsecureCookieDetector {
             }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "php" | "rb" | "java" | "go") {
-                continue;
-            }
 
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -292,24 +281,12 @@ mod tests {
 
     #[test]
     fn test_detects_insecure_cookie() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("app.py");
-        std::fs::write(
-            &file,
-            r#"from flask import make_response
-
-def set_session(user_id):
-    resp = make_response("OK")
-    resp.set_cookie('session_id', user_id)
-    return resp
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = InsecureCookieDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id)\n    return resp\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(!findings.is_empty(), "Should detect cookie without security flags");
         assert!(
             findings.iter().any(|f| f.title.contains("HttpOnly") || f.title.contains("Secure") || f.title.contains("SameSite")),
@@ -320,42 +297,24 @@ def set_session(user_id):
 
     #[test]
     fn test_no_finding_for_secure_cookie() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("app.py");
-        std::fs::write(
-            &file,
-            r#"from flask import make_response
-
-def set_session(user_id):
-    resp = make_response("OK")
-    resp.set_cookie('session_id', user_id, httponly=True, secure=True, samesite='Lax')
-    return resp
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = InsecureCookieDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id, httponly=True, secure=True, samesite='Lax')\n    return resp\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(findings.is_empty(), "Should not detect anything for secure cookie. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
 
     #[test]
     fn test_no_finding_for_enum_cookie_value() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("params.py");
-        std::fs::write(
-            &file,
-            "from enum import Enum\n\nclass ParamTypes(Enum):\n    query = \"query\"\n    header = \"header\"\n    cookie = \"cookie\"\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = InsecureCookieDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("params.py", "from enum import Enum\n\nclass ParamTypes(Enum):\n    query = \"query\"\n    header = \"header\"\n    cookie = \"cookie\"\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag enum values containing 'cookie'. Found: {:?}",
@@ -365,18 +324,12 @@ def set_session(user_id):
 
     #[test]
     fn test_no_finding_for_cookie_class_field() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("models.py");
-        std::fs::write(
-            &file,
-            "class SecurityScheme:\n    cookie = \"apiKeyCookie\"\n    header = \"apiKeyHeader\"\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = InsecureCookieDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("models.py", "class SecurityScheme:\n    cookie = \"apiKeyCookie\"\n    header = \"apiKeyHeader\"\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag class field assignments. Found: {:?}",

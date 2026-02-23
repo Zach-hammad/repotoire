@@ -172,19 +172,13 @@ impl SecretDetector {
         has_fallback_helper || (has_empty_check && has_if_statement)
     }
 
-    fn scan_file(&self, path: &Path) -> Vec<Finding> {
+    fn scan_file(&self, path: &Path, content: &str) -> Vec<Finding> {
         let mut findings = vec![];
 
         // Skip test files - they often contain test certificates/keys
         if is_test_file(path) {
             return findings;
         }
-
-        // Use global cache for file content
-        let content = match crate::cache::global_cache().masked_content(path) {
-            Some(c) => c,
-            None => return findings,
-        };
 
         // Skip binary files
         if content.contains('\0') {
@@ -382,22 +376,16 @@ impl Detector for SecretDetector {
         "Detects hardcoded secrets, API keys, and passwords"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&[
+            "py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "rb", "php",
+            "cs", "cpp", "c", "h", "hpp", "yaml", "yml", "json", "toml", "env",
+            "conf", "config", "sh", "bash", "zsh", "properties", "xml",
+        ]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             // Skip certain directories
@@ -415,44 +403,10 @@ impl Detector for SecretDetector {
                 continue;
             }
 
-            // Only scan text files
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let scannable = matches!(
-                ext,
-                "py" | "js"
-                    | "ts"
-                    | "jsx"
-                    | "tsx"
-                    | "rs"
-                    | "go"
-                    | "java"
-                    | "rb"
-                    | "php"
-                    | "cs"
-                    | "cpp"
-                    | "c"
-                    | "h"
-                    | "hpp"
-                    | "yaml"
-                    | "yml"
-                    | "json"
-                    | "toml"
-                    | "env"
-                    | "conf"
-                    | "config"
-                    | "sh"
-                    | "bash"
-                    | "zsh"
-                    | "properties"
-                    | "xml"
-            );
-
-            if !scannable {
-                continue;
-            }
-
             debug!("Scanning for secrets: {}", path.display());
-            findings.extend(self.scan_file(path));
+            if let Some(content) = files.masked_content(path) {
+                findings.extend(self.scan_file(path, &content));
+            }
         }
 
         // Enrich findings with graph context
@@ -504,22 +458,14 @@ mod tests {
 
     #[test]
     fn test_detects_hardcoded_aws_key() {
-        let dir = tempfile::tempdir().unwrap();
+        let store = GraphStore::in_memory();
+        let detector = SecretDetector::new("/mock/repo");
         // Use .rb extension: masking has no tree-sitter grammar for Ruby,
         // so the content is returned unchanged and the key stays visible.
-        let file = dir.path().join("config.rb");
-        std::fs::write(
-            &file,
-            r#"
-AWS_ACCESS_KEY = "AKIAIOSFODNN7ABCDEFG"
-"#,
-        )
-        .unwrap();
-
-        let store = GraphStore::in_memory();
-        let detector = SecretDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("config.rb", "\nAWS_ACCESS_KEY = \"AKIAIOSFODNN7ABCDEFG\"\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded AWS access key"
@@ -529,22 +475,12 @@ AWS_ACCESS_KEY = "AKIAIOSFODNN7ABCDEFG"
 
     #[test]
     fn test_no_finding_for_env_variable_usage() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("config.py");
-        std::fs::write(
-            &file,
-            r#"
-import os
-AWS_KEY = os.environ.get("AWS_ACCESS_KEY_ID")
-SECRET = os.getenv("AWS_SECRET_ACCESS_KEY")
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = SecretDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = SecretDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("config.py", "\nimport os\nAWS_KEY = os.environ.get(\"AWS_ACCESS_KEY_ID\")\nSECRET = os.getenv(\"AWS_SECRET_ACCESS_KEY\")\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag secrets read from environment variables, but got: {:?}",
@@ -554,18 +490,12 @@ SECRET = os.getenv("AWS_SECRET_ACCESS_KEY")
 
     #[test]
     fn test_no_finding_for_password_in_docstring() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("auth.py");
-        std::fs::write(
-            &file,
-            "def authenticate(username, password):\n    \"\"\"\n    Authenticate user with password.\n    password = hashlib.sha256(raw).hexdigest()\n    \"\"\"\n    return check_password(username, password)\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = SecretDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = SecretDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("auth.py", "def authenticate(username, password):\n    \"\"\"\n    Authenticate user with password.\n    password = hashlib.sha256(raw).hexdigest()\n    \"\"\"\n    return check_password(username, password)\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag 'password' references in docstrings. Found: {:?}",
@@ -575,18 +505,12 @@ SECRET = os.getenv("AWS_SECRET_ACCESS_KEY")
 
     #[test]
     fn test_no_finding_for_password_type_annotation() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("models.py");
-        std::fs::write(
-            &file,
-            "from pydantic import BaseModel\n\nclass LoginRequest(BaseModel):\n    username: str\n    password: str\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = SecretDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = SecretDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("models.py", "from pydantic import BaseModel\n\nclass LoginRequest(BaseModel):\n    username: str\n    password: str\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag password type annotations. Found: {:?}",

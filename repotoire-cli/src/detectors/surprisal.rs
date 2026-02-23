@@ -158,7 +158,7 @@ impl Detector for SurprisalDetector {
         "Detects statistically unusual code patterns using predictive coding"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         if !self.model.is_confident() {
             info!(
                 "SurprisalDetector: skipping analysis — n-gram model is not confident \
@@ -171,28 +171,15 @@ impl Detector for SurprisalDetector {
         let mut file_data: Vec<(PathBuf, String)> = Vec::new();
 
         // First pass: compute per-function surprisal to build baseline
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() { continue; }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "rs" | "py" | "ts" | "tsx" | "js" | "jsx" | "go" | "java"
-                | "c" | "cpp" | "cc" | "h" | "hpp" | "cs" | "kt") {
-                continue;
-            }
-
+        for path in files.files_with_extensions(&["rs", "py", "ts", "tsx", "js", "jsx", "go", "java",
+                "c", "cpp", "cc", "h", "hpp", "cs", "kt"]) {
             if crate::detectors::content_classifier::is_non_production_path(
                 &path.to_string_lossy()
             ) {
                 continue;
             }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let rel_path = path.strip_prefix(&self.repository_path).unwrap_or(path);
                 let rel_str = rel_path.to_string_lossy();
@@ -213,7 +200,7 @@ impl Detector for SurprisalDetector {
                     }
                 }
 
-                file_data.push((path.to_path_buf(), content));
+                file_data.push((path.to_path_buf(), content.to_string()));
             }
         }
 

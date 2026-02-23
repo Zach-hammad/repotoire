@@ -45,31 +45,17 @@ impl Detector for MissingRandomSeedDetector {
         "Detects ML training without random seed"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" {
-                continue;
-            }
-
+        for path in files.files_with_extension("py") {
             // Skip test files - they often don't need seeds
             let path_str = path.to_string_lossy().to_lowercase();
             if crate::detectors::base::is_test_path(&path_str) {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 if !self.is_ml_file(&content) || !self.has_training_code(&content) {
                     continue;
                 }
@@ -159,25 +145,11 @@ impl Detector for ChainIndexingDetector {
         "Detects pandas chain indexing df['a']['b']"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+        for path in files.files_with_extension("py") {
+            if let Some(content) = files.content(path) {
                 // Skip files that don't use pandas
                 if !content.contains("pandas")
                     && !content.contains("import pd")
@@ -268,25 +240,11 @@ impl Detector for RequireGradTypoDetector {
         "Detects require_grad typo (should be requires_grad)"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+        for path in files.files_with_extension("py") {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -385,27 +343,13 @@ impl Detector for DeprecatedTorchApiDetector {
         "Detects deprecated PyTorch API usage"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
         let deprecated_apis = ["solve", "symeig", "qr", "cholesky", "chain_matmul", "range"];
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+        for path in files.files_with_extension("py") {
+            if let Some(content) = files.content(path) {
                 if !content.contains("torch") {
                     continue;
                 }

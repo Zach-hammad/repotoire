@@ -118,35 +118,23 @@ impl Detector for MissingAwaitDetector {
         "Detects async calls without await"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let known_async_funcs = Self::find_async_functions(graph);
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx", "py"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "jsx" | "tsx" | "py") {
-                continue;
-            }
 
             if crate::detectors::content_classifier::is_non_production_path(&path_str) {
                 continue;
             }
 
-            let Some(content) = crate::cache::global_cache().content(path) else {
+            let Some(content) = files.content(path) else {
                 continue;
             };
             let lines: Vec<&str> = content.lines().collect();
@@ -352,24 +340,12 @@ mod tests {
 
     #[test]
     fn test_detects_fetch_without_await() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("api.js");
-        std::fs::write(
-            &file,
-            r#"async function loadData() {
-  const config = "default";
-  fetch("/api/data");
-  const result = await process(config);
-  return result;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = MissingAwaitDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = MissingAwaitDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("api.js", "async function loadData() {\n  const config = \"default\";\n  fetch(\"/api/data\");\n  const result = await process(config);\n  return result;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect fetch() without await in async function"
@@ -378,23 +354,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_when_awaited() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("api_good.js");
-        std::fs::write(
-            &file,
-            r#"async function loadData() {
-  const res = await fetch("/api/data");
-  const data = await res.json();
-  return data;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = MissingAwaitDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = MissingAwaitDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("api_good.js", "async function loadData() {\n  const res = await fetch(\"/api/data\");\n  const data = await res.json();\n  return data;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag properly awaited calls, got: {:?}",

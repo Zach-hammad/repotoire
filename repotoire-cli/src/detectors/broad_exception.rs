@@ -142,28 +142,17 @@ impl Detector for BroadExceptionDetector {
         "Detects overly broad exception catching"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "cs", "rb", "go"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "java" | "cs" | "rb" | "go") {
-                continue;
-            }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -264,23 +253,12 @@ mod tests {
 
     #[test]
     fn test_detects_bare_except() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("handler.py");
-        std::fs::write(
-            &file,
-            r#"def process():
-    try:
-        do_work()
-    except:
-        log("something failed")
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = BroadExceptionDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = BroadExceptionDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handler.py", "def process():\n    try:\n        do_work()\n    except:\n        log(\"something failed\")\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect bare except:"
@@ -294,23 +272,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_specific_exception() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("handler.py");
-        std::fs::write(
-            &file,
-            r#"def process():
-    try:
-        do_work()
-    except ValueError as e:
-        log(f"bad value: {e}")
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = BroadExceptionDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = BroadExceptionDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handler.py", "def process():\n    try:\n        do_work()\n    except ValueError as e:\n        log(f\"bad value: {e}\")\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag specific except ValueError, but got: {:?}",

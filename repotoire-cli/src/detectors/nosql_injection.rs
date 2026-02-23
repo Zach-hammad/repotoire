@@ -162,20 +162,12 @@ impl Detector for NosqlInjectionDetector {
         "Detects NoSQL injection risks"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["js", "ts", "py", "rb", "php"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -185,12 +177,7 @@ impl Detector for NosqlInjectionDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "py" | "rb" | "php") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 // Check if file has MongoDB context
@@ -389,26 +376,12 @@ mod tests {
 
     #[test]
     fn test_detects_where_with_user_input() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("routes.js");
-        std::fs::write(
-            &file,
-            r#"const mongoose = require('mongoose');
-const User = mongoose.model('User');
-
-async function findUser(req, res) {
-    const name = req.body.name;
-    const result = await User.find({ $where: `this.name == '${name}'` });
-    res.json(result);
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = NosqlInjectionDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = NosqlInjectionDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("routes.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function findUser(req, res) {\n    const name = req.body.name;\n    const result = await User.find({ $where: `this.name == '${name}'` });\n    res.json(result);\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect $where with user input from req.body"
@@ -422,25 +395,12 @@ async function findUser(req, res) {
 
     #[test]
     fn test_no_finding_for_safe_query() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("routes.js");
-        std::fs::write(
-            &file,
-            r#"const mongoose = require('mongoose');
-const User = mongoose.model('User');
-
-async function findUser() {
-    const result = await User.find({ active: true });
-    return result;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = NosqlInjectionDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = NosqlInjectionDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("routes.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function findUser() {\n    const result = await User.find({ active: true });\n    return result;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Safe MongoDB query without user input should produce no findings, but got: {:?}",

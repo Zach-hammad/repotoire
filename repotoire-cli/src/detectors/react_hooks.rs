@@ -144,20 +144,12 @@ impl Detector for ReactHooksDetector {
         "Detects React hooks rules violations"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["js", "jsx", "ts", "tsx"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -190,12 +182,7 @@ impl Detector for ReactHooksDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "jsx" | "ts" | "tsx") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 // Skip if no React hooks
                 if !hook_call().is_match(&content) {
                     continue;
@@ -427,24 +414,12 @@ mod tests {
 
     #[test]
     fn test_hook_in_conditional() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("Component.tsx");
-        std::fs::write(
-            &file,
-            r#"function MyComponent({ show }) {
-  if (show) {
-    const [val, setVal] = useState(0);
-  }
-  return <div />;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ReactHooksDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ReactHooksDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("Component.tsx", "function MyComponent({ show }) {\n  if (show) {\n    const [val, setVal] = useState(0);\n  }\n  return <div />;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(!findings.is_empty(), "Should detect hook in conditional");
         assert!(
             findings
@@ -457,24 +432,12 @@ mod tests {
 
     #[test]
     fn test_hook_in_loop() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("LoopComponent.tsx");
-        std::fs::write(
-            &file,
-            r#"function ListComponent({ items }) {
-  for (let i = 0; i < items.length; i++) {
-    const [val, setVal] = useState(items[i]);
-  }
-  return <div />;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ReactHooksDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ReactHooksDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("LoopComponent.tsx", "function ListComponent({ items }) {\n  for (let i = 0; i < items.length; i++) {\n    const [val, setVal] = useState(items[i]);\n  }\n  return <div />;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(!findings.is_empty(), "Should detect hook in loop");
         assert!(
             findings
@@ -487,26 +450,12 @@ mod tests {
 
     #[test]
     fn test_correct_hook_usage_no_findings() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("GoodComponent.tsx");
-        std::fs::write(
-            &file,
-            r#"function GoodComponent({ items }) {
-  const [count, setCount] = useState(0);
-  const [name, setName] = useState("");
-  useEffect(() => {
-    console.log(count);
-  }, [count]);
-  return <div>{count} {name}</div>;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ReactHooksDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ReactHooksDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("GoodComponent.tsx", "function GoodComponent({ items }) {\n  const [count, setCount] = useState(0);\n  const [name, setName] = useState(\"\");\n  useEffect(() => {\n    console.log(count);\n  }, [count]);\n  return <div>{count} {name}</div>;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Correct hook usage should produce no findings, but got: {:?}",
@@ -516,25 +465,12 @@ mod tests {
 
     #[test]
     fn test_hook_in_nested_function() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("NestedComponent.tsx");
-        std::fs::write(
-            &file,
-            r#"function ParentComponent() {
-  function helperFunc() {
-    const [state, setState] = useState(0);
-    return state;
-  }
-  return <div />;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ReactHooksDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ReactHooksDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("NestedComponent.tsx", "function ParentComponent() {\n  function helperFunc() {\n    const [state, setState] = useState(0);\n    return state;\n  }\n  return <div />;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect hook in nested function"

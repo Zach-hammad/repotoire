@@ -73,28 +73,15 @@ impl Detector for CallbackHellDetector {
         "Detects deeply nested callbacks"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "jsx" | "tsx") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let mut callback_depth = 0;
                 let mut max_depth = 0;
                 let mut max_line = 0;
@@ -287,27 +274,12 @@ mod tests {
 
     #[test]
     fn test_detects_deeply_nested_callbacks() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("nested.js");
-        std::fs::write(
-            &file,
-            r#"getData(function(a) {
-  process(a, function(b) {
-    transform(b, function(c) {
-      save(c, function(d) {
-        done(d);
-      });
-    });
-  });
-});
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = CallbackHellDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = CallbackHellDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("nested.js", "getData(function(a) {\n  process(a, function(b) {\n    transform(b, function(c) {\n      save(c, function(d) {\n        done(d);\n      });\n    });\n  });\n});\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect deeply nested callbacks (4 levels)"
@@ -320,21 +292,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_shallow_callbacks() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("shallow.js");
-        std::fs::write(
-            &file,
-            r#"getData(function(a) {
-  process(a);
-});
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = CallbackHellDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = CallbackHellDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("shallow.js", "getData(function(a) {\n  process(a);\n});\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag shallow (1 level) callbacks, got: {:?}",

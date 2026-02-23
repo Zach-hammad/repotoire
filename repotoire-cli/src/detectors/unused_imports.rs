@@ -181,28 +181,16 @@ impl Detector for UnusedImportsDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut unused_per_file: HashMap<PathBuf, Vec<(String, u32)>> = HashMap::new();
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx") {
-                continue;
-            }
 
             // Skip __init__.py (often re-exports)
             if path
@@ -218,7 +206,7 @@ impl Detector for UnusedImportsDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let all_exports = Self::extract_all_exports(&content);
                 let lines: Vec<&str> = content.lines().collect();
 

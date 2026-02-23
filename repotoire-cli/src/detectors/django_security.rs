@@ -109,30 +109,17 @@ impl Detector for DjangoSecurityDetector {
         "Detects Django security issues"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extension("py") {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
@@ -427,23 +414,12 @@ mod tests {
 
     #[test]
     fn test_detects_csrf_exempt() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("views.py");
-        std::fs::write(
-            &file,
-            r#"from django.views.decorators.csrf import csrf_exempt
-
-@csrf_exempt
-def webhook(request):
-    return JsonResponse({"ok": True})
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DjangoSecurityDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.py", "from django.views.decorators.csrf import csrf_exempt\n\n@csrf_exempt\ndef webhook(request):\n    return JsonResponse({\"ok\": True})\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(!findings.is_empty(), "Should detect @csrf_exempt usage");
         assert!(
             findings.iter().any(|f| f.title.contains("CSRF")),
@@ -458,23 +434,13 @@ def webhook(request):
 
     #[test]
     fn test_detects_debug_true() {
-        let dir = tempfile::tempdir().unwrap();
         // File name must contain "settings" but not "dev" or "local"
-        let file = dir.path().join("settings.py");
-        std::fs::write(
-            &file,
-            r#"import os
-
-DEBUG = True
-ALLOWED_HOSTS = []
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DjangoSecurityDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
             "Should detect DEBUG = True in settings.py. Titles: {:?}",
@@ -490,27 +456,12 @@ ALLOWED_HOSTS = []
 
     #[test]
     fn test_detects_raw_sql() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("queries.py");
-        std::fs::write(
-            &file,
-            r#"from django.db import connection
-
-def get_users(name):
-    cursor = connection.cursor()
-    cursor.execute("SELECT * FROM users WHERE name = %s", [name])
-    return cursor.fetchall()
-
-def get_posts():
-    return Post.objects.raw("SELECT * FROM posts")
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DjangoSecurityDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("queries.py", "from django.db import connection\n\ndef get_users(name):\n    cursor = connection.cursor()\n    cursor.execute(\"SELECT * FROM users WHERE name = %s\", [name])\n    return cursor.fetchall()\n\ndef get_posts():\n    return Post.objects.raw(\"SELECT * FROM posts\")\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         let raw_sql_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("Raw SQL"))
@@ -530,23 +481,12 @@ def get_posts():
 
     #[test]
     fn test_detects_wildcard_allowed_hosts() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("settings.py");
-        std::fs::write(
-            &file,
-            r#"import os
-
-SECRET_KEY = os.environ['SECRET_KEY']
-DEBUG = False
-ALLOWED_HOSTS = ['*']
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DjangoSecurityDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("settings.py", "import os\n\nSECRET_KEY = os.environ['SECRET_KEY']\nDEBUG = False\nALLOWED_HOSTS = ['*']\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings
                 .iter()
@@ -564,32 +504,12 @@ ALLOWED_HOSTS = ['*']
 
     #[test]
     fn test_clean_django_no_findings() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("views.py");
-        std::fs::write(
-            &file,
-            r#"from django.http import JsonResponse
-from django.views.decorators.http import require_POST
-from django.contrib.auth.decorators import login_required
-
-@login_required
-@require_POST
-def create_item(request):
-    name = request.POST.get('name')
-    item = Item.objects.create(name=name)
-    return JsonResponse({"id": item.id})
-
-def list_items(request):
-    items = Item.objects.filter(active=True).values('id', 'name')
-    return JsonResponse({"items": list(items)})
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DjangoSecurityDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.py", "from django.http import JsonResponse\nfrom django.views.decorators.http import require_POST\nfrom django.contrib.auth.decorators import login_required\n\n@login_required\n@require_POST\ndef create_item(request):\n    name = request.POST.get('name')\n    item = Item.objects.create(name=name)\n    return JsonResponse({\"id\": item.id})\n\ndef list_items(request):\n    items = Item.objects.filter(active=True).values('id', 'name')\n    return JsonResponse({\"items\": list(items)})\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Clean Django view code should produce no findings, but got: {:?}",

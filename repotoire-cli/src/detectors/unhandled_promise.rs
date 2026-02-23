@@ -42,25 +42,11 @@ impl UnhandledPromiseDetector {
     }
 
     /// Find all async functions in the codebase
-    fn find_async_functions(&self) -> HashSet<String> {
+    fn find_async_functions(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> HashSet<String> {
         let mut async_funcs = HashSet::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "jsx" | "tsx") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+        for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx"]) {
+            if let Some(content) = files.content(path) {
                 for cap in async_func().captures_iter(&content) {
                     if let Some(name) = cap.get(2) {
                         async_funcs.insert(name.as_str().to_string());
@@ -110,22 +96,13 @@ impl Detector for UnhandledPromiseDetector {
         "Detects promises without error handling"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let async_funcs = self.find_async_functions();
+        let async_funcs = self.find_async_functions(files);
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -135,12 +112,7 @@ impl Detector for UnhandledPromiseDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "jsx" | "tsx") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -372,23 +344,12 @@ mod tests {
 
     #[test]
     fn test_detects_promise_without_catch() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("service.js");
-        std::fs::write(
-            &file,
-            r#"async function handleRequest() {
-  const x = 1;
-  fetch("/api/data").then(res => res.json());
-  return x;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = UnhandledPromiseDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("service.js", "async function handleRequest() {\n  const x = 1;\n  fetch(\"/api/data\").then(res => res.json());\n  return x;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect promise .then() without .catch()"
@@ -397,23 +358,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_when_catch_present() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("service_good.js");
-        std::fs::write(
-            &file,
-            r#"async function handleRequest() {
-  fetch("/api/data")
-    .then(res => res.json())
-    .catch(err => console.error(err));
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = UnhandledPromiseDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("service_good.js", "async function handleRequest() {\n  fetch(\"/api/data\")\n    .then(res => res.json())\n    .catch(err => console.error(err));\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag promise with .catch(), got: {:?}",

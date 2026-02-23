@@ -29,27 +29,15 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
         "Detects unsafe blocks without SAFETY comments"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extension("rs") {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "rs" {
-                continue;
-            }
 
-            let Some(content) = crate::cache::global_cache().content(path) else {
+            let Some(content) = files.content(path) else {
                 continue;
             };
             let lines: Vec<&str> = content.lines().collect();

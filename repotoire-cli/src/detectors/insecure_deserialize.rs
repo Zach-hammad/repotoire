@@ -136,20 +136,12 @@ impl Detector for InsecureDeserializeDetector {
         "Detects insecure deserialization"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "php", "rb"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -159,12 +151,7 @@ impl Detector for InsecureDeserializeDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "java" | "php" | "rb") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -356,23 +343,12 @@ mod tests {
 
     #[test]
     fn test_detects_unsafe_yaml_load() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("config_loader.py");
-        std::fs::write(
-            &file,
-            r#"import yaml
-
-def load_config(data):
-    config = yaml.load(data)
-    return config
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = InsecureDeserializeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = InsecureDeserializeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("config_loader.py", "import yaml\n\ndef load_config(data):\n    config = yaml.load(data)\n    return config\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(!findings.is_empty(), "Should detect yaml.load without SafeLoader");
         assert!(
             findings.iter().any(|f| f.title.contains("YAML") || f.title.contains("yaml")),
@@ -383,24 +359,12 @@ def load_config(data):
 
     #[test]
     fn test_no_finding_for_json_dumps() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("config_loader.py");
-        std::fs::write(
-            &file,
-            r#"import json
-
-def save_config(config):
-    output = json.dumps(config, indent=2)
-    with open("config.json", "w") as f:
-        f.write(output)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = InsecureDeserializeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = InsecureDeserializeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("config_loader.py", "import json\n\ndef save_config(config):\n    output = json.dumps(config, indent=2)\n    with open(\"config.json\", \"w\") as f:\n        f.write(output)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(findings.is_empty(), "Should not detect json.dumps (serialization, not deserialization). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

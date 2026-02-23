@@ -93,27 +93,13 @@ impl Detector for HardcodedIpsDetector {
         "Detects hardcoded IPs and localhost"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut ip_occurrences: HashMap<String, usize> = HashMap::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
         // First pass: count IP occurrences
-        for entry in ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build()
-            .filter_map(|e| e.ok())
-        {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "php", "cs"]) {
+            if let Some(content) = files.masked_content(path) {
                 for line in content.lines() {
                     if let Some(m) = ip_pattern().find(line) {
                         *ip_occurrences.entry(m.as_str().to_string()).or_default() += 1;
@@ -122,13 +108,9 @@ impl Detector for HardcodedIpsDetector {
             }
         }
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "php", "cs"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             // Skip config files where this is expected
@@ -143,15 +125,7 @@ impl Detector for HardcodedIpsDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "java" | "go" | "rs" | "rb" | "php" | "cs"
-            ) {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let path_str = path.to_string_lossy().to_string();
                 let lines: Vec<&str> = content.lines().collect();
 
@@ -273,26 +247,14 @@ mod tests {
 
     #[test]
     fn test_detects_hardcoded_ip_in_connection() {
-        let dir = tempfile::tempdir().unwrap();
         // Use .rb extension: masking has no tree-sitter grammar for Ruby,
         // so the content is returned unchanged and the IP stays visible.
-        let file = dir.path().join("database.rb");
-        std::fs::write(
-            &file,
-            r#"require 'pg'
-
-def connect
-  conn = PG.connect(host: "192.168.1.100", dbname: "mydb")
-  conn
-end
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = HardcodedIpsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = HardcodedIpsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("database.rb", "require 'pg'\n\ndef connect\n  conn = PG.connect(host: \"192.168.1.100\", dbname: \"mydb\")\n  conn\nend\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded IP 192.168.1.100 in database connection"
@@ -306,25 +268,12 @@ end
 
     #[test]
     fn test_no_finding_for_clean_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("database.py");
-        std::fs::write(
-            &file,
-            r#"import os
-import psycopg2
-
-def connect():
-    host = os.environ.get("DB_HOST")
-    conn = psycopg2.connect(host=host, database="mydb")
-    return conn
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = HardcodedIpsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = HardcodedIpsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("database.py", "import os\nimport psycopg2\n\ndef connect():\n    host = os.environ.get(\"DB_HOST\")\n    conn = psycopg2.connect(host=host, database=\"mydb\")\n    return conn\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Code using env vars should produce no findings, but got: {:?}",
@@ -334,18 +283,12 @@ def connect():
 
     #[test]
     fn test_no_finding_for_ip_in_docstring() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("network.py");
-        std::fs::write(
-            &file,
-            "def connect_to_db():\n    \"\"\"\n    Connect to the database at 192.168.1.100.\n    \"\"\"\n    return create_connection()\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = HardcodedIpsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = HardcodedIpsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("network.py", "def connect_to_db():\n    \"\"\"\n    Connect to the database at 192.168.1.100.\n    \"\"\"\n    return create_connection()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag IP addresses inside docstrings. Found: {:?}",
@@ -355,18 +298,12 @@ def connect():
 
     #[test]
     fn test_no_finding_for_ip_in_comment() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("server.py");
-        std::fs::write(
-            &file,
-            "# Default: connect to 192.168.1.50 for staging\ndef get_host():\n    return os.environ.get('HOST')\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = HardcodedIpsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = HardcodedIpsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("server.py", "# Default: connect to 192.168.1.50 for staging\ndef get_host():\n    return os.environ.get('HOST')\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag IP addresses inside comments. Found: {:?}",

@@ -124,28 +124,12 @@ impl Detector for DeepNestingDetector {
         "Detects excessive nesting depth"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "jsx" | "tsx" | "rs" | "go" | "java" | "cs" | "cpp" | "c"
-            ) {
-                continue;
             }
 
             // Skip detector files (they have inherently complex parsing logic)
@@ -164,7 +148,7 @@ impl Detector for DeepNestingDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let path_str = path.to_string_lossy().to_string();
                 let mut max_depth = 0;
                 let mut current_depth = 0;
@@ -326,31 +310,13 @@ mod tests {
 
     #[test]
     fn test_detects_deep_nesting() {
-        let dir = tempfile::tempdir().unwrap();
         // The detector counts { and } characters, threshold is 4, so >4 means 5+ levels.
-        let file = dir.path().join("nested.py");
-        std::fs::write(
-            &file,
-            r#"def process(data):
-    if True {
-        if True {
-            if True {
-                if True {
-                    if True {
-                        print("deeply nested")
-                    }
-                }
-            }
-        }
-    }
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DeepNestingDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DeepNestingDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("nested.py", "def process(data):\n    if True {\n        if True {\n            if True {\n                if True {\n                    if True {\n                        print(\"deeply nested\")\n                    }\n                }\n            }\n        }\n    }\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect deep nesting with 5 levels of braces"
@@ -364,24 +330,13 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_shallow_nesting() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("shallow.py");
         // Only 2 levels of braces - well below threshold of 4
-        std::fs::write(
-            &file,
-            r#"def process(data):
-    result = {"key": "value"}
-    if True {
-        print("ok")
-    }
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DeepNestingDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DeepNestingDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("shallow.py", "def process(data):\n    result = {\"key\": \"value\"}\n    if True {\n        print(\"ok\")\n    }\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not detect deep nesting for shallow code, but got: {:?}",

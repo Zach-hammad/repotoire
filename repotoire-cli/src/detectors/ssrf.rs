@@ -39,12 +39,8 @@ impl Detector for SsrfDetector {
         "Detects SSRF vulnerabilities"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
         // Run taint analysis for SSRF
         let mut taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::Ssrf);
@@ -57,24 +53,12 @@ impl Detector for SsrfDetector {
         taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "jsx" | "tsx" | "rb" | "php" | "java" | "go"
-            ) {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let file_str = path.to_string_lossy();
                 let lines: Vec<&str> = content.lines().collect();
 
@@ -228,24 +212,12 @@ mod tests {
 
     #[test]
     fn test_detects_requests_get_with_user_input() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("vuln.py");
-        std::fs::write(
-            &file,
-            r#"import requests
-
-def fetch_url(req):
-    url = req.body.get("url")
-    response = requests.get(req.body["url"])
-    return response.text
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = SsrfDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = SsrfDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("vuln.py", "import requests\n\ndef fetch_url(req):\n    url = req.body.get(\"url\")\n    response = requests.get(req.body[\"url\"])\n    return response.text\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect requests.get with user-controlled URL from req.body"
@@ -263,23 +235,12 @@ def fetch_url(req):
 
     #[test]
     fn test_no_findings_for_hardcoded_url() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("safe.py");
-        std::fs::write(
-            &file,
-            r#"import requests
-
-def fetch_data():
-    response = requests.get("https://api.example.com/data")
-    return response.json()
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = SsrfDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = SsrfDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("safe.py", "import requests\n\ndef fetch_data():\n    response = requests.get(\"https://api.example.com/data\")\n    return response.json()\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Hardcoded URL should have no SSRF findings, but got: {:?}",

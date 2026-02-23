@@ -247,39 +247,11 @@ impl MagicNumbersDetector {
     }
 
     /// First pass: count occurrences of each magic number across files
-    fn count_occurrences(&self) -> HashMap<i64, Vec<(PathBuf, u32)>> {
+    fn count_occurrences(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> HashMap<i64, Vec<(PathBuf, u32)>> {
         let mut occurrences: HashMap<i64, Vec<(PathBuf, u32)>> = HashMap::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js"
-                    | "ts"
-                    | "jsx"
-                    | "tsx"
-                    | "rs"
-                    | "go"
-                    | "java"
-                    | "cs"
-                    | "cpp"
-                    | "c"
-                    | "rb"
-                    | "php"
-            ) {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c", "rb", "php"]) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (line_num, line) in lines.iter().enumerate() {
                     let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
@@ -326,11 +298,11 @@ impl Detector for MagicNumbersDetector {
         "Detects unexplained numeric literals"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // First pass: count all occurrences
-        let occurrences = self.count_occurrences();
+        let occurrences = self.count_occurrences(files);
 
         // Find numbers used in multiple files (definite refactor targets)
         let multi_file_numbers: HashSet<i64> = occurrences
@@ -343,18 +315,9 @@ impl Detector for MagicNumbersDetector {
             .collect();
 
         // Second pass: create findings with context
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c", "rb", "php"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -369,26 +332,7 @@ impl Detector for MagicNumbersDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js"
-                    | "ts"
-                    | "jsx"
-                    | "tsx"
-                    | "rs"
-                    | "go"
-                    | "java"
-                    | "cs"
-                    | "cpp"
-                    | "c"
-                    | "rb"
-                    | "php"
-            ) {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (line_num, line) in lines.iter().enumerate() {
                     let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
@@ -516,20 +460,14 @@ mod tests {
 
     #[test]
     fn test_detects_magic_number() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("logic.py");
+        let store = GraphStore::in_memory();
+        let detector = MagicNumbersDetector::new("/mock/repo");
         // 42 is a 2+ digit number NOT in the acceptable set.
         // The line avoids all acceptable-context checks (no brackets, no format, etc.)
-        std::fs::write(
-            &file,
-            "def check(x):\n    if x > 42:\n        return True\n",
-        )
-        .unwrap();
-
-        let store = GraphStore::in_memory();
-        let detector = MagicNumbersDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("logic.py", "def check(x):\n    if x > 42:\n        return True\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect magic number 42"
@@ -543,19 +481,13 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_acceptable_numbers() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("clean.py");
-        // 100 and 10 are in the acceptable set
-        std::fs::write(
-            &file,
-            "def check(x):\n    if x > 100:\n        return True\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = MagicNumbersDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = MagicNumbersDetector::new("/mock/repo");
+        // 100 and 10 are in the acceptable set
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("clean.py", "def check(x):\n    if x > 100:\n        return True\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag acceptable number 100, but got: {:?}",

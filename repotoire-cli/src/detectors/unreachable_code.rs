@@ -668,38 +668,17 @@ impl UnreachableCodeDetector {
     }
 
     /// Find code after return/throw statements using source scanning
-    fn find_code_after_return(&self) -> Vec<Finding> {
+    fn find_code_after_return(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rb", "php"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
 
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            // Skip Rust - compiler catches this
-            if ext == "rs" {
-                continue;
-            }
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "jsx" | "tsx" | "java" | "go" | "rb" | "php"
-            ) {
-                continue;
-            }
-
             let rel_path = path.strip_prefix(&self.repository_path).unwrap_or(path);
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for i in 0..lines.len().saturating_sub(1) {
@@ -788,14 +767,14 @@ impl Detector for UnreachableCodeDetector {
         "dead-code"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Graph-based: find functions with zero callers
         findings.extend(self.find_dead_functions(graph));
 
         // Source-based: find code after return/throw
-        findings.extend(self.find_code_after_return());
+        findings.extend(self.find_code_after_return(files));
 
         info!("UnreachableCodeDetector found {} findings", findings.len());
         Ok(findings)

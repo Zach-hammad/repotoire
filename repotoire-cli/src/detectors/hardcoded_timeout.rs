@@ -118,20 +118,11 @@ impl HardcodedTimeoutDetector {
     }
 
     /// Count occurrences of the same timeout value
-    fn count_occurrences(&self) -> HashMap<u64, usize> {
+    fn count_occurrences(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> HashMap<u64, usize> {
         let mut counts: HashMap<u64, usize> = HashMap::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+        for path in files.files() {
+            if let Some(content) = files.masked_content(path) {
                 for line in content.lines() {
                     if let Some(caps) = timeout_pattern().captures(line) {
                         if let Some(val) = caps.get(2) {
@@ -169,24 +160,15 @@ impl Detector for HardcodedTimeoutDetector {
         "Detects hardcoded timeout values"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // Count occurrences for context
-        let occurrence_counts = self.count_occurrences();
+        let occurrence_counts = self.count_occurrences(files);
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "jsx", "tsx"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -196,15 +178,7 @@ impl Detector for HardcodedTimeoutDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "java" | "go" | "rs" | "rb" | "jsx" | "tsx"
-            ) {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -327,24 +301,13 @@ mod tests {
 
     #[test]
     fn test_detects_hardcoded_timeout() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("client.py");
         // Regex requires 4+ digit number
-        std::fs::write(
-            &file,
-            r#"import time
-
-def wait_for_response():
-    time.sleep(30000)
-    return get_data()
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = HardcodedTimeoutDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = HardcodedTimeoutDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("client.py", "import time\n\ndef wait_for_response():\n    time.sleep(30000)\n    return get_data()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded timeout value. Found: {:?}",
@@ -354,24 +317,12 @@ def wait_for_response():
 
     #[test]
     fn test_no_finding_for_no_timeout() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("client.py");
-        std::fs::write(
-            &file,
-            r#"import os
-
-TIMEOUT = int(os.environ.get('REQUEST_TIMEOUT', '5000'))
-
-def fetch_data():
-    return request(url, timeout=TIMEOUT)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = HardcodedTimeoutDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = HardcodedTimeoutDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("client.py", "import os\n\nTIMEOUT = int(os.environ.get('REQUEST_TIMEOUT', '5000'))\n\ndef fetch_data():\n    return request(url, timeout=TIMEOUT)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag configurable timeout. Found: {:?}",

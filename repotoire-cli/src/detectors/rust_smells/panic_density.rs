@@ -59,27 +59,15 @@ impl Detector for PanicDensityDetector {
         "Detects Rust files/functions with a high density of .unwrap(), .expect(), and panic!() calls"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extension("rs") {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "rs" {
-                continue;
-            }
 
-            let Some(content) = crate::cache::global_cache().content(path) else {
+            let Some(content) = files.content(path) else {
                 continue;
             };
 
@@ -310,31 +298,15 @@ mod tests {
     use super::*;
     use crate::detectors::base::Detector;
     use crate::graph::GraphStore;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn setup_test_file(content: &str) -> TempDir {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("test.rs");
-        fs::write(&path, content).unwrap();
-        dir
-    }
 
     #[test]
     fn test_function_above_threshold() {
-        let content = r#"
-fn fragile() {
-    let a = foo().unwrap();
-    let b = bar().unwrap();
-    let c = baz().unwrap();
-    let d = qux().expect("oops");
-}
-"#;
-        let dir = setup_test_file(content);
-        let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = PanicDensityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "\nfn fragile() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n    let d = qux().expect(\"oops\");\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert_eq!(findings.len(), 1, "should flag function with 4 panic calls");
         assert_eq!(findings[0].severity, Severity::Medium);
         assert!(findings[0].title.contains("fragile"));
@@ -344,50 +316,24 @@ fn fragile() {
     #[test]
     fn test_function_at_threshold_not_flagged() {
         // Exactly 3 calls should NOT be flagged (threshold is >3)
-        let content = r#"
-fn borderline() {
-    let a = foo().unwrap();
-    let b = bar().unwrap();
-    let c = baz().unwrap();
-}
-"#;
-        let dir = setup_test_file(content);
-        let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = PanicDensityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "\nfn borderline() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert!(findings.is_empty(), "3 calls should not be flagged");
     }
 
     #[test]
     fn test_file_level_threshold() {
         // 11 unwraps spread across multiple functions, all outside tests
-        let content = r#"
-fn one() {
-    let a = foo().unwrap();
-    let b = bar().unwrap();
-    let c = baz().unwrap();
-}
-fn two() {
-    let a = foo().unwrap();
-    let b = bar().unwrap();
-    let c = baz().unwrap();
-}
-fn three() {
-    let a = foo().unwrap();
-    let b = bar().unwrap();
-    let c = baz().unwrap();
-}
-fn four() {
-    let a = foo().unwrap();
-    let b = bar().unwrap();
-}
-"#;
-        let dir = setup_test_file(content);
-        let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = PanicDensityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "\nfn one() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn two() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn three() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn four() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         // No function exceeds 3, but file total is 11 > 10
         let file_findings: Vec<_> = findings
             .iter()
@@ -399,41 +345,23 @@ fn four() {
 
     #[test]
     fn test_test_code_skipped() {
-        let content = r#"
-#[cfg(test)]
-mod tests {
-    fn test_something() {
-        let a = foo().unwrap();
-        let b = bar().unwrap();
-        let c = baz().unwrap();
-        let d = qux().unwrap();
-        let e = quux().unwrap();
-    }
-}
-"#;
-        let dir = setup_test_file(content);
-        let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = PanicDensityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "\n#[cfg(test)]\nmod tests {\n    fn test_something() {\n        let a = foo().unwrap();\n        let b = bar().unwrap();\n        let c = baz().unwrap();\n        let d = qux().unwrap();\n        let e = quux().unwrap();\n    }\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert!(findings.is_empty(), "test code should be skipped");
     }
 
     #[test]
     fn test_panic_macro_counted() {
-        let content = r#"
-fn panicky() {
-    if bad { panic!("oh no"); }
-    let a = foo().unwrap();
-    let b = bar().unwrap();
-    panic!("fatal");
-}
-"#;
-        let dir = setup_test_file(content);
-        let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = PanicDensityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "\nfn panicky() {\n    if bad { panic!(\"oh no\"); }\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    panic!(\"fatal\");\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("4"));
     }
@@ -455,27 +383,12 @@ fn panicky() {
 
     #[test]
     fn test_safe_unwrap_not_counted() {
-        // OnceLock/get_or_init patterns are considered safe and should not count.
-        // We put the safe line first, then add enough gap lines so the multi-line
-        // look-back in is_safe_unwrap_context (3 lines) doesn't catch the later ones.
-        let content = r#"
-fn init() {
-    REGEX.get_or_init(|| make_regex().unwrap());
-    do_stuff_a();
-    do_stuff_b();
-    do_stuff_c();
-    do_stuff_d();
-    let a = foo().unwrap();
-    let b = bar().unwrap();
-    let c = baz().unwrap();
-    let d = qux().unwrap();
-}
-"#;
-        let dir = setup_test_file(content);
-        let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = PanicDensityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "\nfn init() {\n    REGEX.get_or_init(|| make_regex().unwrap());\n    do_stuff_a();\n    do_stuff_b();\n    do_stuff_c();\n    do_stuff_d();\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n    let d = qux().unwrap();\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         // The get_or_init line is safe; remaining 4 should trigger
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("4"), "should count 4 non-safe panics");
@@ -483,18 +396,12 @@ fn init() {
 
     #[test]
     fn test_no_findings_for_clean_code() {
-        let content = r#"
-fn clean() -> Result<(), Error> {
-    let a = foo()?;
-    let b = bar().unwrap_or_default();
-    Ok(())
-}
-"#;
-        let dir = setup_test_file(content);
-        let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = PanicDensityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "\nfn clean() -> Result<(), Error> {\n    let a = foo()?;\n    let b = bar().unwrap_or_default();\n    Ok(())\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert!(findings.is_empty());
     }
 }

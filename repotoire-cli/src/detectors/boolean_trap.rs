@@ -65,29 +65,15 @@ impl Detector for BooleanTrapDetector {
         "Detects multiple boolean arguments"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut func_call_counts: HashMap<String, usize> = HashMap::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
         // First pass: collect all boolean trap calls and count per function
         let mut trap_calls: Vec<(PathBuf, u32, String, usize)> = Vec::new();
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "java" | "go" | "rb" | "cs") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "cs"]) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -232,20 +218,12 @@ mod tests {
 
     #[test]
     fn test_detects_boolean_trap() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("caller.py");
-        std::fs::write(
-            &file,
-            r#"def main():
-    process(data, True, False)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = BooleanTrapDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = BooleanTrapDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("caller.py", "def main():\n    process(data, True, False)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect boolean trap with True, False arguments"
@@ -259,21 +237,13 @@ mod tests {
 
     #[test]
     fn test_no_finding_without_multiple_booleans() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("caller.py");
         // Only one boolean argument - no trap
-        std::fs::write(
-            &file,
-            r#"def main():
-    process(data, True)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = BooleanTrapDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = BooleanTrapDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("caller.py", "def main():\n    process(data, True)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag single boolean argument, but got: {:?}",

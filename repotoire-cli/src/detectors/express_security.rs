@@ -161,20 +161,12 @@ impl Detector for ExpressSecurityDetector {
         "Detects Express.js security issues"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["js", "ts", "mjs"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -184,12 +176,7 @@ impl Detector for ExpressSecurityDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "mjs") {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 // Check if this is an Express app
                 if !express_app().is_match(&content) {
                     continue;
@@ -462,30 +449,12 @@ mod tests {
 
     #[test]
     fn test_detects_missing_helmet() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("app.js");
-        std::fs::write(
-            &file,
-            r#"const express = require('express');
-const app = express();
-
-app.get('/api/users', (req, res) => {
-  res.json({ users: [] });
-});
-
-app.post('/api/users', (req, res) => {
-  res.json({ created: true });
-});
-
-app.listen(3000);
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ExpressSecurityDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ExpressSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("app.js", "const express = require('express');\nconst app = express();\n\napp.get('/api/users', (req, res) => {\n  res.json({ users: [] });\n});\n\napp.post('/api/users', (req, res) => {\n  res.json({ created: true });\n});\n\napp.listen(3000);\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
 
         assert!(!findings.is_empty(), "Should detect security issues");
         assert!(
@@ -497,34 +466,12 @@ app.listen(3000);
 
     #[test]
     fn test_secure_express_fewer_findings() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("server.js");
-        std::fs::write(
-            &file,
-            r#"const express = require('express');
-const helmet = require('helmet');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
-
-const app = express();
-app.use(helmet());
-app.use(cors());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
-app.use(express.json({ limit: '10kb' }));
-
-app.get('/api/data', (req, res) => {
-  res.json({ ok: true });
-});
-
-app.listen(3000);
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ExpressSecurityDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ExpressSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("server.js", "const express = require('express');\nconst helmet = require('helmet');\nconst cors = require('cors');\nconst rateLimit = require('express-rate-limit');\n\nconst app = express();\napp.use(helmet());\napp.use(cors());\napp.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));\napp.use(express.json({ limit: '10kb' }));\n\napp.get('/api/data', (req, res) => {\n  res.json({ ok: true });\n});\n\napp.listen(3000);\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
 
         // Should NOT flag helmet, cors, rate-limit, or body-parser-limit
         assert!(
@@ -543,27 +490,12 @@ app.listen(3000);
 
     #[test]
     fn test_non_express_file_no_findings() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("utils.js");
-        std::fs::write(
-            &file,
-            r#"function add(a, b) {
-  return a + b;
-}
-
-function multiply(a, b) {
-  return a * b;
-}
-
-module.exports = { add, multiply };
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ExpressSecurityDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ExpressSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils.js", "function add(a, b) {\n  return a + b;\n}\n\nfunction multiply(a, b) {\n  return a * b;\n}\n\nmodule.exports = { add, multiply };\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
 
         assert!(
             findings.is_empty(),

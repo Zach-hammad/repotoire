@@ -155,20 +155,12 @@ impl Detector for RegexDosDetector {
         "Detects ReDoS vulnerable patterns"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "rs", "go", "rb", "php"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -184,14 +176,8 @@ impl Detector for RegexDosDetector {
             }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "java" | "rs" | "go" | "rb" | "php"
-            ) {
-                continue;
-            }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -367,23 +353,12 @@ mod tests {
 
     #[test]
     fn test_detects_redos_nested_quantifier() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("validate.py");
-        std::fs::write(
-            &file,
-            r#"
-import re
-user_input = input("Enter data: ")
-pattern = re.compile(r'(a+)+$')
-pattern.match(user_input)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = RegexDosDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = RegexDosDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("validate.py", "\nimport re\nuser_input = input(\"Enter data: \")\npattern = re.compile(r'(a+)+$')\npattern.match(user_input)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect catastrophic backtracking regex (a+)+"
@@ -393,21 +368,12 @@ pattern.match(user_input)
 
     #[test]
     fn test_no_finding_for_safe_regex() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("utils.py");
-        std::fs::write(
-            &file,
-            r#"
-import re
-pattern = re.compile(r'^[a-zA-Z0-9]+$')
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = RegexDosDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = RegexDosDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils.py", "\nimport re\npattern = re.compile(r'^[a-zA-Z0-9]+$')\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag safe regex without nested quantifiers, but got: {:?}",

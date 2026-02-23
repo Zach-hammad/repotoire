@@ -102,26 +102,11 @@ impl MessageChainDetector {
     }
 
     /// Scan source files for method chains
-    fn scan_source_files(&self) -> Vec<Finding> {
+    fn scan_source_files(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut seen: HashSet<(String, u32)> = HashSet::new();
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "java" | "go" | "rs" | "rb") {
-                continue;
-            }
-
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb"]) {
             // Skip test files
             let path_str = path.to_string_lossy();
             if path_str.contains("/test") || path_str.contains("_test.") {
@@ -134,11 +119,11 @@ impl MessageChainDetector {
             }
 
             let rel_path = path
-                .strip_prefix(&self.repository_path)
+                .strip_prefix(files.repo_path())
                 .unwrap_or(path)
                 .to_path_buf();
 
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -410,11 +395,11 @@ impl Detector for MessageChainDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Source code scanning for inline chains
-        findings.extend(self.scan_source_files());
+        findings.extend(self.scan_source_files(files));
 
         // Graph analysis for delegation chains
         findings.extend(self.find_delegation_chains(graph));

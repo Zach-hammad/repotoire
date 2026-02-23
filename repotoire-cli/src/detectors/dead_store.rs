@@ -86,26 +86,12 @@ impl DeadStoreDetector {
     }
 
     /// Find dead stores using source analysis
-    fn find_local_dead_stores(&self) -> Vec<Finding> {
+    fn find_local_dead_stores(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "go", "rs", "java"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "go" | "rs" | "java") {
-                continue;
             }
 
             // Skip test files
@@ -114,9 +100,11 @@ impl DeadStoreDetector {
                 continue;
             }
 
-            let rel_path = path.strip_prefix(&self.repository_path).unwrap_or(path);
+            let rel_path = path.strip_prefix(files.repo_path()).unwrap_or(path);
 
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut seen_assignments: HashSet<(String, usize)> = HashSet::new();
 
@@ -330,11 +318,11 @@ impl Detector for DeadStoreDetector {
         "dead-code"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Source-based local dead store detection
-        findings.extend(self.find_local_dead_stores());
+        findings.extend(self.find_local_dead_stores(files));
 
         // Graph-based unused parameter detection
         findings.extend(self.find_unused_params(graph));
@@ -374,21 +362,12 @@ mod tests {
 
     #[test]
     fn test_detects_dead_store_in_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("unused.py");
-        std::fs::write(
-            &file,
-            r#"def compute():
-    unused_var = expensive_calculation()
-    return 42
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DeadStoreDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DeadStoreDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("unused.py", "def compute():\n    unused_var = expensive_calculation()\n    return 42\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.iter().any(|f| f.title.contains("unused_var")),
             "Should detect dead store 'unused_var'. Found: {:?}",
@@ -398,21 +377,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_when_variable_is_used() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("used.py");
-        std::fs::write(
-            &file,
-            r#"def compute():
-    value = expensive_calculation()
-    return value + 1
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DeadStoreDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DeadStoreDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("used.py", "def compute():\n    value = expensive_calculation()\n    return value + 1\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         let dead_store_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("value"))

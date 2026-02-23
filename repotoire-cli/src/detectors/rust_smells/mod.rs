@@ -171,115 +171,104 @@ mod tests {
     use super::*;
     use crate::detectors::base::Detector;
     use crate::graph::GraphStore;
-    use std::fs;
-    use std::path::PathBuf;
-    use tempfile::TempDir;
-
-    fn setup_test_file(content: &str) -> (TempDir, PathBuf) {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("test.rs");
-        fs::write(&path, content).unwrap();
-        (dir, path)
-    }
 
     #[test]
     fn test_unwrap_detection() {
-        let content = "fn main() {\n    let x = some_result.unwrap();\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = UnwrapWithoutContextDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = UnwrapWithoutContextDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "fn main() {\n    let x = some_result.unwrap();\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("unwrap"));
     }
 
     #[test]
     fn test_unwrap_in_test_skipped() {
-        let content = "#[test]\nfn test_something() {\n    let x = some_result.unwrap();\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = UnwrapWithoutContextDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = UnwrapWithoutContextDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "#[test]\nfn test_something() {\n    let x = some_result.unwrap();\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert!(findings.is_empty());
     }
 
     #[test]
     fn test_unsafe_without_safety() {
-        let content = "fn dangerous() {\n    unsafe {\n        do_something();\n    }\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = UnsafeWithoutSafetyCommentDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = UnsafeWithoutSafetyCommentDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "fn dangerous() {\n    unsafe {\n        do_something();\n    }\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn test_unsafe_with_safety_ok() {
-        let content = "fn dangerous() {\n    // SAFETY: pointer is valid and aligned\n    unsafe {\n        do_something();\n    }\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = UnsafeWithoutSafetyCommentDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = UnsafeWithoutSafetyCommentDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "fn dangerous() {\n    // SAFETY: pointer is valid and aligned\n    unsafe {\n        do_something();\n    }\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert!(findings.is_empty());
     }
 
     #[test]
     fn test_clone_in_loop() {
-        let content = "fn process(items: &[Item]) {\n    for item in items {\n        let owned = item.clone();\n        do_something(owned);\n    }\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = CloneInHotPathDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = CloneInHotPathDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "fn process(items: &[Item]) {\n    for item in items {\n        let owned = item.clone();\n        do_something(owned);\n    }\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn test_missing_must_use() {
-        let content = "pub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = MissingMustUseDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = MissingMustUseDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "pub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn test_must_use_present_ok() {
-        let content = "#[must_use]\npub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = MissingMustUseDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = MissingMustUseDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "#[must_use]\npub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert!(findings.is_empty());
     }
 
     #[test]
     fn test_mutex_poisoning_risk() {
-        let content =
-            "fn get_data(mutex: &Mutex<Data>) -> Data {\n    mutex.lock().unwrap().clone()\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = MutexPoisoningRiskDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = MutexPoisoningRiskDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "fn get_data(mutex: &Mutex<Data>) -> Data {\n    mutex.lock().unwrap().clone()\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn test_box_dyn_in_vec_ok() {
-        let content = "fn get_handlers() -> Vec<Box<dyn Handler>> {\n    vec![]\n}\n";
-        let (dir, _) = setup_test_file(content);
-        let detector = BoxDynTraitDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let detector = BoxDynTraitDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.rs", "fn get_handlers() -> Vec<Box<dyn Handler>> {\n    vec![]\n}\n"),
+        ]);
+        let findings = detector.detect(&graph, &files).unwrap();
         assert!(findings.is_empty());
     }
 }

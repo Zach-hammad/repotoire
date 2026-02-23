@@ -121,22 +121,13 @@ impl Detector for TestInProductionDetector {
         "Detects test code in production files"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut issues_per_file: HashMap<PathBuf, Vec<(u32, String, String)>> = HashMap::new();
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "rb", "go"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -153,15 +144,7 @@ impl Detector for TestInProductionDetector {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "jsx" | "tsx" | "java" | "rb" | "go"
-            ) {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut file_issues = Vec::new();
 
@@ -323,24 +306,12 @@ mod tests {
 
     #[test]
     fn test_detects_mock_in_production_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("service.py");
-        std::fs::write(
-            &file,
-            r#"
-from unittest.mock import Mock
-
-def get_client():
-    client = Mock()
-    return client
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = TestInProductionDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = TestInProductionDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("service.py", "\nfrom unittest.mock import Mock\n\ndef get_client():\n    client = Mock()\n    return client\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect test code (Mock) in production file"
@@ -350,26 +321,12 @@ def get_client():
 
     #[test]
     fn test_no_finding_for_clean_production_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("service.py");
-        std::fs::write(
-            &file,
-            r#"
-import os
-
-def get_config():
-    return os.environ.get("APP_CONFIG", "default")
-
-def process_data(data):
-    return [item.strip() for item in data]
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = TestInProductionDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = TestInProductionDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("service.py", "\nimport os\n\ndef get_config():\n    return os.environ.get(\"APP_CONFIG\", \"default\")\n\ndef process_data(data):\n    return [item.strip() for item in data]\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag clean production code, but got: {:?}",

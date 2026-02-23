@@ -128,26 +128,12 @@ impl GeneratorMisuseDetector {
     fn find_list_wrapped_generators(
         &self,
         _graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> HashSet<String> {
         let mut wrapped = HashSet::new();
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+        for path in files.files_with_extension("py") {
+            if let Some(content) = files.content(path) {
                 for cap in list_call().captures_iter(&content) {
                     if let Some(func_name) = cap.get(1) {
                         wrapped.insert(func_name.as_str().to_string());
@@ -206,30 +192,15 @@ impl Detector for GeneratorMisuseDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // Find generators that are always list()-wrapped
-        let list_wrapped = self.find_list_wrapped_generators(graph);
+        let list_wrapped = self.find_list_wrapped_generators(graph, files);
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extension("py") {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            // Only Python has generators with yield
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "py" {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -239,7 +210,7 @@ impl Detector for GeneratorMisuseDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -371,21 +342,12 @@ mod tests {
 
     #[test]
     fn test_detects_single_yield_generator() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("utils.py");
-        std::fs::write(
-            &file,
-            r#"
-def single_value():
-    yield 42
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = GeneratorMisuseDetector::with_path(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = GeneratorMisuseDetector::with_path("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils.py", "\ndef single_value():\n    yield 42\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect single-yield generator"
@@ -395,22 +357,12 @@ def single_value():
 
     #[test]
     fn test_no_finding_for_generator_with_loop() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("utils.py");
-        std::fs::write(
-            &file,
-            r#"
-def multi_yield(items):
-    for item in items:
-        yield item * 2
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = GeneratorMisuseDetector::with_path(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = GeneratorMisuseDetector::with_path("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils.py", "\ndef multi_yield(items):\n    for item in items:\n        yield item * 2\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag generator with yield inside a loop, but got: {:?}",
@@ -420,18 +372,12 @@ def multi_yield(items):
 
     #[test]
     fn test_no_finding_for_fastapi_dependency() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("deps.py");
-        std::fs::write(
-            &file,
-            "from fastapi import Depends\n\ndef get_db():\n    db = SessionLocal()\n    try:\n        yield db\n    finally:\n        db.close()\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = GeneratorMisuseDetector::with_path(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = GeneratorMisuseDetector::with_path("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("deps.py", "from fastapi import Depends\n\ndef get_db():\n    db = SessionLocal()\n    try:\n        yield db\n    finally:\n        db.close()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag FastAPI try/yield/finally dependency. Found: {:?}",
@@ -441,18 +387,12 @@ def multi_yield(items):
 
     #[test]
     fn test_no_finding_for_contextmanager() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("utils.py");
-        std::fs::write(
-            &file,
-            "from contextlib import contextmanager\n\n@contextmanager\ndef managed_resource():\n    resource = acquire()\n    try:\n        yield resource\n    finally:\n        release(resource)\n",
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = GeneratorMisuseDetector::with_path(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = GeneratorMisuseDetector::with_path("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils.py", "from contextlib import contextmanager\n\n@contextmanager\ndef managed_resource():\n    resource = acquire()\n    try:\n        yield resource\n    finally:\n        release(resource)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag contextmanager try/yield/finally. Found: {:?}",

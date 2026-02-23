@@ -217,20 +217,12 @@ impl Detector for XxeDetector {
         "Detects XXE vulnerabilities"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "php", "cs", "rb", "go"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -241,14 +233,8 @@ impl Detector for XxeDetector {
             }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "java" | "php" | "cs" | "rb" | "go"
-            ) {
-                continue;
-            }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 // Don't skip entire file — check protection near each parse call (#16)
                 let file_has_any_protection = Self::has_protection(&content, ext);
 
@@ -381,21 +367,12 @@ mod tests {
 
     #[test]
     fn test_detects_xxe_without_protection() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("parser.py");
-        std::fs::write(
-            &file,
-            r#"
-from lxml import etree
-tree = etree.parse(xml_file)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = XxeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = XxeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("parser.py", "\nfrom lxml import etree\ntree = etree.parse(xml_file)\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect XML parsing without XXE protection"
@@ -405,21 +382,12 @@ tree = etree.parse(xml_file)
 
     #[test]
     fn test_no_finding_with_defusedxml() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("safe_parser.py");
-        std::fs::write(
-            &file,
-            r#"
-import defusedxml.ElementTree as ET
-tree = ET.parse(xml_file)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = XxeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = XxeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("safe_parser.py", "\nimport defusedxml.ElementTree as ET\ntree = ET.parse(xml_file)\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag XML parsing with defusedxml protection, but got: {:?}",

@@ -248,20 +248,12 @@ impl Detector for InsecureRandomDetector {
         "Detects insecure random for security purposes"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "c", "cpp"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
@@ -272,14 +264,8 @@ impl Detector for InsecureRandomDetector {
             }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js" | "ts" | "java" | "go" | "rb" | "php" | "c" | "cpp"
-            ) {
-                continue;
-            }
 
-            if let Some(content) = crate::cache::global_cache().masked_content(path) {
+            if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -425,23 +411,12 @@ mod tests {
 
     #[test]
     fn test_detects_insecure_random_in_security_context() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("auth.py");
-        std::fs::write(
-            &file,
-            r#"import random
-
-def generate_token():
-    token = random.random()
-    return str(token)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = InsecureRandomDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = InsecureRandomDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("auth.py", "import random\n\ndef generate_token():\n    token = random.random()\n    return str(token)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect random.random() used for token generation"
@@ -455,22 +430,12 @@ def generate_token():
 
     #[test]
     fn test_no_finding_for_non_security_random() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("simulation.py");
-        std::fs::write(
-            &file,
-            r#"import random
-
-def roll_dice():
-    return random.randint(1, 6)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = InsecureRandomDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = InsecureRandomDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("simulation.py", "import random\n\ndef roll_dice():\n    return random.randint(1, 6)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag random used in non-security context, but got: {:?}",

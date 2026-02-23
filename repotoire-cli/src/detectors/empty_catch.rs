@@ -117,11 +117,12 @@ impl EmptyCatchDetector {
         path: &Path,
         ext: &str,
         graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> Vec<Finding> {
         let mut findings = vec![];
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => return findings,
+        let content = match files.content(path) {
+            Some(c) => c,
+            None => return findings,
         };
         let lines: Vec<&str> = content.lines().collect();
 
@@ -230,25 +231,15 @@ impl Detector for EmptyCatchDetector {
         "Detects empty catch/except blocks"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "cs"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if matches!(ext, "py" | "js" | "ts" | "jsx" | "tsx" | "java" | "cs") {
-                findings.extend(self.scan_file(path, ext, graph));
-            }
+            findings.extend(self.scan_file(path, ext, graph, files));
         }
 
         info!(
@@ -266,23 +257,12 @@ mod tests {
 
     #[test]
     fn test_detects_empty_except_pass_in_python() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("handler.py");
-        std::fs::write(
-            &file,
-            r#"def process():
-    try:
-        do_something()
-    except:
-        pass
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = EmptyCatchDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handler.py", "def process():\n    try:\n        do_something()\n    except:\n        pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect empty except: pass block"
@@ -296,23 +276,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_handled_exception() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("handler.py");
-        std::fs::write(
-            &file,
-            r#"def process():
-    try:
-        do_something()
-    except ValueError as e:
-        logger.error(e)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = EmptyCatchDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handler.py", "def process():\n    try:\n        do_something()\n    except ValueError as e:\n        logger.error(e)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag exception that is properly handled, but got: {:?}",

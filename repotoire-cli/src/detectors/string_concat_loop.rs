@@ -130,29 +130,18 @@ impl Detector for StringConcatLoopDetector {
         "Detects string concatenation in loops"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let concat_funcs = self.find_concat_functions(graph);
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py" | "js" | "ts" | "java" | "go" | "rb" | "php") {
-                continue;
-            }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
@@ -304,23 +293,12 @@ mod tests {
 
     #[test]
     fn test_detects_string_concat_in_loop() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("builder.py");
-        std::fs::write(
-            &file,
-            r#"def build_output(items):
-    result = ""
-    for item in items:
-        result += "value"
-    return result
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = StringConcatLoopDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = StringConcatLoopDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("builder.py", "def build_output(items):\n    result = \"\"\n    for item in items:\n        result += \"value\"\n    return result\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect string concatenation in loop. Found: {:?}",
@@ -330,23 +308,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_join() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("builder.py");
-        std::fs::write(
-            &file,
-            r#"def build_output(items):
-    parts = []
-    for item in items:
-        parts.append(str(item))
-    return ''.join(parts)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = StringConcatLoopDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = StringConcatLoopDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("builder.py", "def build_output(items):\n    parts = []\n    for item in items:\n        parts.append(str(item))\n    return ''.join(parts)\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag list.append + join pattern. Found: {:?}",

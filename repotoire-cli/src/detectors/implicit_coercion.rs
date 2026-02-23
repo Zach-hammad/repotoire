@@ -92,30 +92,17 @@ impl Detector for ImplicitCoercionDetector {
         "Detects == instead of ==="
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx"]) {
             if findings.len() >= self.max_findings {
                 break;
-            }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "jsx" | "tsx") {
-                continue;
             }
 
             let path_str = path.to_string_lossy().to_string();
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -238,23 +225,12 @@ mod tests {
 
     #[test]
     fn test_detects_loose_equality() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("check.js");
-        std::fs::write(
-            &file,
-            r#"function check(value) {
-    if (value == 'hello') {
-        return true;
-    }
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ImplicitCoercionDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ImplicitCoercionDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("check.js", "function check(value) {\n    if (value == 'hello') {\n        return true;\n    }\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect == instead of ==="
@@ -268,23 +244,12 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_strict_equality() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("check.js");
-        std::fs::write(
-            &file,
-            r#"function check(value) {
-    if (value === 'hello') {
-        return true;
-    }
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = ImplicitCoercionDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = ImplicitCoercionDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("check.js", "function check(value) {\n    if (value === 'hello') {\n        return true;\n    }\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag strict equality ===, but got: {:?}",

@@ -148,45 +148,17 @@ impl Detector for DuplicateCodeDetector {
         "Detects copy-pasted code blocks"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut blocks: HashMap<String, Vec<(PathBuf, usize)>> = HashMap::new();
 
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]) {
             // Skip test files for duplicate detection
             if Self::is_test_file(path) {
                 continue;
             }
 
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js"
-                    | "ts"
-                    | "jsx"
-                    | "tsx"
-                    | "java"
-                    | "go"
-                    | "rs"
-                    | "rb"
-                    | "php"
-                    | "c"
-                    | "cpp"
-            ) {
-                continue;
-            }
-
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 // Sliding window of min_lines
@@ -312,29 +284,17 @@ mod tests {
 
     #[test]
     fn test_detects_duplicate_code_blocks() {
-        let dir = tempfile::tempdir().unwrap();
         // Two files with identical code blocks. Need >6 lines so the sliding window
         // of min_lines=6 can form at least one block (loop range: 0..lines.len()-6).
-        let block = r#"def calculate_total(items):
-    total = 0
-    for item in items:
-        price = item.get_price()
-        total += price * item.quantity
-    return total
-
-def wrapper():
-    pass
-"#;
-        let file_a = dir.path().join("billing.py");
-        std::fs::write(&file_a, block).unwrap();
-
-        let file_b = dir.path().join("reporting.py");
-        std::fs::write(&file_b, block).unwrap();
+        let block = "def calculate_total(items):\n    total = 0\n    for item in items:\n        price = item.get_price()\n        total += price * item.quantity\n    return total\n\ndef wrapper():\n    pass\n";
 
         let store = GraphStore::in_memory();
-        let detector = DuplicateCodeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DuplicateCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("billing.py", block),
+            ("reporting.py", block),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect duplicate code blocks across two files"
@@ -348,37 +308,13 @@ def wrapper():
 
     #[test]
     fn test_no_finding_for_unique_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_a = dir.path().join("module_a.py");
-        std::fs::write(
-            &file_a,
-            r#"def alpha():
-    x = 1
-    y = 2
-    z = 3
-    w = 4
-    return x + y + z + w
-"#,
-        )
-        .unwrap();
-
-        let file_b = dir.path().join("module_b.py");
-        std::fs::write(
-            &file_b,
-            r#"def beta():
-    a = 10
-    b = 20
-    c = 30
-    d = 40
-    return a * b * c * d
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = DuplicateCodeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = DuplicateCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("module_a.py", "def alpha():\n    x = 1\n    y = 2\n    z = 3\n    w = 4\n    return x + y + z + w\n"),
+            ("module_b.py", "def beta():\n    a = 10\n    b = 20\n    c = 30\n    d = 40\n    return a * b * c * d\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag unique code blocks, but got: {:?}",

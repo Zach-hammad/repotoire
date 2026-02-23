@@ -39,12 +39,8 @@ impl Detector for XssDetector {
         "Detects XSS vulnerabilities"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
         // Run taint analysis for XSS
         let mut taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::Xss);
@@ -57,19 +53,12 @@ impl Detector for XssDetector {
         taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx", "vue", "html", "php"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "js" | "ts" | "jsx" | "tsx" | "vue" | "html" | "php") {
-                continue;
-            }
 
             // Skip test files - they often have test fixtures with XSS patterns
             if is_test_file(path) {
@@ -97,7 +86,7 @@ impl Detector for XssDetector {
             // For HTML files, check if data comes from hardcoded arrays (not user input)
             // If the file contains no form inputs, fetch calls, or URL params, it's static
             if ext == "html" {
-                if let Some(content) = crate::cache::global_cache().content(path) {
+                if let Some(content) = files.content(path) {
                     let has_dynamic_input = content.contains("fetch(")
                         || content.contains("XMLHttpRequest")
                         || content.contains("location.search")
@@ -122,7 +111,7 @@ impl Detector for XssDetector {
                 continue;
             }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let file_str = path.to_string_lossy();
                 let lines: Vec<&str> = content.lines().collect();
 
@@ -232,21 +221,12 @@ mod tests {
 
     #[test]
     fn test_detects_innerhtml_with_user_input() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("vuln.js");
-        std::fs::write(
-            &file,
-            r#"function renderContent(user_input) {
-    document.getElementById("output").innerHTML = user_input;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = XssDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = XssDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("vuln.js", "function renderContent(user_input) {\n    document.getElementById(\"output\").innerHTML = user_input;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect innerHTML assignment with user input"
@@ -264,21 +244,12 @@ mod tests {
 
     #[test]
     fn test_no_findings_for_textcontent() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("safe.js");
-        std::fs::write(
-            &file,
-            r#"function renderContent(data) {
-    document.getElementById("output").textContent = data;
-}
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = XssDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = XssDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("safe.js", "function renderContent(data) {\n    document.getElementById(\"output\").textContent = data;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
         assert!(
             findings.is_empty(),
             "Using textContent should have no XSS findings, but got: {:?}",

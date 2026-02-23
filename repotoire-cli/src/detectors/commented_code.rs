@@ -126,41 +126,17 @@ impl Detector for CommentedCodeDetector {
         "Detects large blocks of commented code"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let walker = ignore::WalkBuilder::new(&self.repository_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
 
-        for entry in walker.filter_map(|e| e.ok()) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(
-                ext,
-                "py" | "js"
-                    | "ts"
-                    | "jsx"
-                    | "tsx"
-                    | "java"
-                    | "go"
-                    | "rs"
-                    | "rb"
-                    | "php"
-                    | "c"
-                    | "cpp"
-            ) {
-                continue;
-            }
 
-            if let Some(content) = crate::cache::global_cache().content(path) {
+            if let Some(content) = files.content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut i = 0;
 
@@ -307,31 +283,13 @@ mod tests {
 
     #[test]
     fn test_detects_commented_code_block() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("example.py");
         // Write a file with 6 lines of commented-out code (min_lines default = 5)
-        std::fs::write(
-            &file,
-            r#"def active():
-    pass
-
-# if condition:
-#     x = 1
-#     y = x + 2
-#     result = process(x, y)
-#     return result
-#     foo = bar()
-
-def another():
-    pass
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = CommentedCodeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = CommentedCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("example.py", "def active():\n    pass\n\n# if condition:\n#     x = 1\n#     y = x + 2\n#     result = process(x, y)\n#     return result\n#     foo = bar()\n\ndef another():\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect commented code block. Found: {:?}",
@@ -341,27 +299,13 @@ def another():
 
     #[test]
     fn test_no_finding_for_normal_comments() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("clean.py");
         // Write a file with regular comments (not code-like)
-        std::fs::write(
-            &file,
-            r#"# This module handles user authentication.
-# It provides login and logout functionality.
-# See the docs for more information.
-# Created by the team in 2024.
-# Licensed under MIT.
-
-def login(user, password):
-    return authenticate(user, password)
-"#,
-        )
-        .unwrap();
-
         let store = GraphStore::in_memory();
-        let detector = CommentedCodeDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let detector = CommentedCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("clean.py", "# This module handles user authentication.\n# It provides login and logout functionality.\n# See the docs for more information.\n# Created by the team in 2024.\n# Licensed under MIT.\n\ndef login(user, password):\n    return authenticate(user, password)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag normal comments. Found: {:?}",
