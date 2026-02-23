@@ -134,6 +134,14 @@ impl PickleDeserializationDetector {
         )
     }
 
+    /// Check if path is a trusted serialization context.
+    ///
+    /// Cache and session backends only ever deserialize data they created
+    /// themselves — no user input flows to pickle.loads() in these contexts.
+    fn is_trusted_serialization_context(path: &str) -> bool {
+        path.contains("cache/backends/") || path.contains("sessions/backends/")
+    }
+
     /// Check a line for dangerous deserialization patterns
     fn check_line_for_patterns(&self, line: &str) -> Option<&'static str> {
         let stripped = line.trim();
@@ -202,6 +210,12 @@ impl PickleDeserializationDetector {
                 .to_string();
 
             if self.should_exclude(&rel_path) {
+                continue;
+            }
+
+            // Skip trusted serialization contexts — cache and session backends
+            // only deserialize data they created themselves (no user input)
+            if Self::is_trusted_serialization_context(&rel_path) {
                 continue;
             }
 
@@ -577,5 +591,30 @@ mod tests {
         assert!(detector
             .check_line_for_patterns("data = np.load('data.npy')")
             .is_none());
+    }
+
+    #[test]
+    fn test_skips_cache_backend_paths() {
+        // Cache backends only deserialize data they created themselves
+        assert!(PickleDeserializationDetector::is_trusted_serialization_context(
+            "cache/backends/redis.py"
+        ));
+        assert!(PickleDeserializationDetector::is_trusted_serialization_context(
+            "django/core/cache/backends/db.py"
+        ));
+        assert!(PickleDeserializationDetector::is_trusted_serialization_context(
+            "sessions/backends/db.py"
+        ));
+        assert!(PickleDeserializationDetector::is_trusted_serialization_context(
+            "django/contrib/sessions/backends/cached_db.py"
+        ));
+
+        // Application code should NOT be excluded
+        assert!(!PickleDeserializationDetector::is_trusted_serialization_context(
+            "myapp/views.py"
+        ));
+        assert!(!PickleDeserializationDetector::is_trusted_serialization_context(
+            "myapp/serializers.py"
+        ));
     }
 }
