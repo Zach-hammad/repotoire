@@ -189,6 +189,109 @@ impl EmptyCatchDetector {
             }
 
             if is_empty_catch {
+                // --- Pattern A: Skip empty catches in cleanup/teardown methods ---
+                let cleanup_methods: &[&str] = &[
+                    "close", "_close", "__del__", "__exit__", "__aexit__",
+                    "shutdown", "dispose", "cleanup", "teardown", "finalize",
+                    "_cleanup", "_teardown", "_dispose", "_shutdown",
+                ];
+                let mut in_cleanup = false;
+                if ext == "py" {
+                    // Search backward from catch_line to find containing def
+                    for j in (0..catch_line).rev() {
+                        let lt = lines[j].trim();
+                        if lt.starts_with("def ") {
+                            // Extract function name: "def name(...)"
+                            if let Some(name_part) = lt.strip_prefix("def ") {
+                                let func_name = name_part
+                                    .split('(')
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim();
+                                if cleanup_methods.contains(&func_name) {
+                                    in_cleanup = true;
+                                }
+                            }
+                            break;
+                        }
+                        // Stop searching if we hit a class or module-level code
+                        if lt.starts_with("class ") {
+                            break;
+                        }
+                    }
+                }
+                if in_cleanup {
+                    continue;
+                }
+
+                // Compute try body lines for Pattern B and C checks
+                let try_body_lines: Vec<&str> = if ext == "py" {
+                    if let Some(try_start) = Self::find_try_block_start(&lines, catch_line) {
+                        lines
+                            .get((try_start + 1)..catch_line)
+                            .unwrap_or(&[])
+                            .iter()
+                            .map(|l| l.trim())
+                            .filter(|l| !l.is_empty())
+                            .collect()
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                };
+
+                // --- Pattern B: Skip import probing with broad except ---
+                if ext == "py" && try_body_lines.len() <= 2 {
+                    let has_import = try_body_lines
+                        .iter()
+                        .any(|l| l.starts_with("import ") || l.starts_with("from "));
+                    if has_import {
+                        continue;
+                    }
+                }
+
+                // --- Pattern C: Skip safe single-line probes with specific exceptions ---
+                let safe_exception_types: &[&str] = &[
+                    "KeyError", "AttributeError", "TypeError", "ValueError",
+                    "FileNotFoundError", "OSError", "PermissionError",
+                    "NotImplementedError", "StopIteration", "UnicodeDecodeError",
+                    "UnicodeEncodeError", "LookupError", "IndexError",
+                ];
+                if ext == "py" && try_body_lines.len() <= 2 {
+                    // Extract the exception types from the except clause
+                    let except_types_str = trimmed
+                        .strip_prefix("except")
+                        .unwrap_or("")
+                        .strip_suffix(":")
+                        .unwrap_or("")
+                        .trim();
+                    // Remove "as <var>" suffix if present
+                    let except_types_str = except_types_str
+                        .split(" as ")
+                        .next()
+                        .unwrap_or("")
+                        .trim();
+                    // Only check when there are specific exception types (not bare except or Exception)
+                    if !except_types_str.is_empty()
+                        && except_types_str != "Exception"
+                        && except_types_str != "BaseException"
+                    {
+                        // Parse exception types: could be "OSError" or "(OSError, TypeError)"
+                        let types_inner = except_types_str
+                            .trim_start_matches('(')
+                            .trim_end_matches(')');
+                        let all_safe = types_inner
+                            .split(',')
+                            .map(|t| t.trim())
+                            .filter(|t| !t.is_empty())
+                            .all(|t| safe_exception_types.contains(&t));
+                        if all_safe {
+                            continue;
+                        }
+                    }
+                }
+
                 // Find the try block and analyze it
                 let (severity, risk_notes) =
                     if let Some(try_start) = Self::find_try_block_start(&lines, catch_line) {
@@ -349,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn test_low_severity_for_except_keyerror_pass() {
+    fn test_no_finding_for_except_keyerror_pass_single_line() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
@@ -357,13 +460,9 @@ mod tests {
         ]);
         let findings = detector.detect(&store, &files).unwrap();
         assert!(
-            !findings.is_empty(),
-            "Should still flag except KeyError: pass (can hide bugs)"
-        );
-        assert_eq!(
-            findings[0].severity,
-            Severity::Low,
-            "except KeyError: pass should be Low severity (common idiom)"
+            findings.is_empty(),
+            "Should not flag safe single-line probe with KeyError. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 
@@ -431,5 +530,79 @@ mod tests {
         assert!(findings.iter().any(|f| f.severity != Severity::Low),
             "Broad 'except Exception:' should NOT be Low severity. Got: {:?}",
             findings.iter().map(|f| (&f.title, &f.severity)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_cleanup_method() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("response.py", "class Response:\n    def close(self):\n        for closer in self._closers:\n            try:\n                closer()\n            except Exception:\n                pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag empty catch in close() method. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_exit_method() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("cursor.py", "class Cursor:\n    def __exit__(self, exc_type, exc_val, tb):\n        try:\n            self.close()\n        except db.Error:\n            pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag empty catch in __exit__ method. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_import_probing_with_broad_except() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("compat.py", "try:\n    from yaml import CSafeLoader as SafeLoader\nexcept Exception:\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag import probing with broad except. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_safe_single_line_probe() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils.py", "def get_size(f):\n    try:\n        return os.path.getsize(f.name)\n    except (OSError, TypeError):\n        pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag safe single-line probe with specific exceptions. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_still_detects_broad_except_in_regular_function() {
+        let store = GraphStore::in_memory();
+        let detector = EmptyCatchDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handler.py", "def process_data():\n    try:\n        result = complex_operation()\n        save_to_db(result)\n    except Exception:\n        pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still flag broad except in regular function with multi-line try body"
+        );
     }
 }
