@@ -268,3 +268,53 @@ impl Detector for CorsMisconfigDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_wildcard_cors() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.conf");
+        std::fs::write(
+            &file,
+            "Access-Control-Allow-Origin: *\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CorsMisconfigDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect wildcard CORS");
+        assert!(
+            findings.iter().any(|f| f.title.contains("CORS")),
+            "Finding should mention CORS. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_specific_origin() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("server.js");
+        std::fs::write(
+            &file,
+            r#"const express = require('express');
+const app = express();
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', 'https://myapp.example.com');
+    next();
+});
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = CorsMisconfigDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(findings.is_empty(), "Should not detect CORS with specific origin. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+}

@@ -284,3 +284,59 @@ impl Detector for InsecureCookieDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_insecure_cookie() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"from flask import make_response
+
+def set_session(user_id):
+    resp = make_response("OK")
+    resp.set_cookie('session_id', user_id)
+    return resp
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureCookieDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect cookie without security flags");
+        assert!(
+            findings.iter().any(|f| f.title.contains("HttpOnly") || f.title.contains("Secure") || f.title.contains("SameSite")),
+            "Finding should mention missing flag. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_secure_cookie() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(
+            &file,
+            r#"from flask import make_response
+
+def set_session(user_id):
+    resp = make_response("OK")
+    resp.set_cookie('session_id', user_id, httponly=True, secure=True, samesite='Lax')
+    return resp
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureCookieDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(findings.is_empty(), "Should not detect anything for secure cookie. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+}

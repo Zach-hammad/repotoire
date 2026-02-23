@@ -348,3 +348,58 @@ impl Detector for InsecureDeserializeDetector {
         Ok(findings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_detects_unsafe_yaml_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config_loader.py");
+        std::fs::write(
+            &file,
+            r#"import yaml
+
+def load_config(data):
+    config = yaml.load(data)
+    return config
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureDeserializeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(!findings.is_empty(), "Should detect yaml.load without SafeLoader");
+        assert!(
+            findings.iter().any(|f| f.title.contains("YAML") || f.title.contains("yaml")),
+            "Finding should mention YAML. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_json_dumps() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config_loader.py");
+        std::fs::write(
+            &file,
+            r#"import json
+
+def save_config(config):
+    output = json.dumps(config, indent=2)
+    with open("config.json", "w") as f:
+        f.write(output)
+"#,
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = InsecureDeserializeDetector::new(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(findings.is_empty(), "Should not detect json.dumps (serialization, not deserialization). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+}
