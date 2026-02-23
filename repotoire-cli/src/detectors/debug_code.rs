@@ -80,7 +80,7 @@ impl Detector for DebugCodeDetector {
         "Detects debug statements left in code"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut debug_per_file: HashMap<String, usize> = HashMap::new();
         let walker = ignore::WalkBuilder::new(&self.repository_path)
@@ -270,7 +270,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect print() statement. Found: {:?}",
@@ -297,7 +298,8 @@ def process(data):
 
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag proper logging. Found: {:?}",
@@ -317,7 +319,8 @@ def process(data):
 
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag debug/debugger inside docstrings. Found: {:?}",
@@ -337,7 +340,8 @@ def process(data):
 
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag debug in CLI option strings. Found: {:?}",

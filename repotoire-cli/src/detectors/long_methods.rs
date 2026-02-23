@@ -107,7 +107,7 @@ impl Detector for LongMethodsDetector {
         "Detects methods/functions over 50 lines"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         for func in graph.get_functions() {
@@ -275,7 +275,8 @@ mod tests {
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect function with 120 lines (threshold 50)"
@@ -299,7 +300,8 @@ mod tests {
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag a 20-line function, but got: {:?}",

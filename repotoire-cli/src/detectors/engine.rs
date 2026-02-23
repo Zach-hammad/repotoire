@@ -350,7 +350,7 @@ impl DetectorEngine {
     ///
     /// # Returns
     /// All findings from all detectors, sorted by severity (highest first)
-    pub fn run(&mut self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    pub fn run(&mut self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let start = Instant::now();
         info!(
             "Starting detection with {} detectors on {} workers",
@@ -391,7 +391,7 @@ impl DetectorEngine {
             independent
                 .par_iter()
                 .map(|detector| {
-                    let result = self.run_single_detector(detector, graph, &contexts_for_parallel);
+                    let result = self.run_single_detector(detector, graph, files, &contexts_for_parallel);
 
                     // Update progress
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -420,7 +420,7 @@ impl DetectorEngine {
         // Run dependent detectors sequentially
         // Future: Build dependency graph and run in topological order
         for detector in dependent {
-            let result = self.run_single_detector(&detector, graph, &contexts);
+            let result = self.run_single_detector(&detector, graph, files, &contexts);
 
             // Update progress
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -489,6 +489,7 @@ impl DetectorEngine {
     pub fn run_detailed(
         &mut self,
         graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> Result<(Vec<DetectorResult>, DetectionSummary)> {
         let start = Instant::now();
 
@@ -511,13 +512,13 @@ impl DetectorEngine {
         let mut all_results: Vec<DetectorResult> = pool.install(|| {
             independent
                 .par_iter()
-                .map(|detector| self.run_single_detector(detector, graph, &contexts_for_parallel))
+                .map(|detector| self.run_single_detector(detector, graph, files, &contexts_for_parallel))
                 .collect()
         });
 
         // Run dependent sequentially
         for detector in dependent {
-            all_results.push(self.run_single_detector(&detector, graph, &contexts));
+            all_results.push(self.run_single_detector(&detector, graph, files, &contexts));
         }
 
         // Filter out test file findings if enabled
@@ -660,6 +661,7 @@ impl DetectorEngine {
         &self,
         detector: &Arc<dyn Detector>,
         graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &Arc<FunctionContextMap>,
     ) -> DetectorResult {
         let name = detector.name().to_string();
@@ -671,9 +673,9 @@ impl DetectorEngine {
         let contexts_clone = Arc::clone(contexts);
         let detect_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             if detector.uses_context() {
-                detector.detect_with_context(graph, &contexts_clone)
+                detector.detect_with_context(graph, files, &contexts_clone)
             } else {
-                detector.detect(graph)
+                detector.detect(graph, files)
             }
         }));
 
@@ -827,7 +829,7 @@ mod tests {
             "Mock detector for testing"
         }
 
-        fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+        fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
             Ok((0..self.findings_count)
                 .map(|i| Finding {
                     id: format!("{}-{}", self.name, i),

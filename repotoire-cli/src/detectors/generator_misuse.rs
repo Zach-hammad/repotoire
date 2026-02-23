@@ -206,7 +206,7 @@ impl Detector for GeneratorMisuseDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // Find generators that are always list()-wrapped
@@ -384,7 +384,8 @@ def single_value():
 
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect single-yield generator"
@@ -408,7 +409,8 @@ def multi_yield(items):
 
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag generator with yield inside a loop, but got: {:?}",
@@ -428,7 +430,8 @@ def multi_yield(items):
 
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag FastAPI try/yield/finally dependency. Found: {:?}",
@@ -448,7 +451,8 @@ def multi_yield(items):
 
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag contextmanager try/yield/finally. Found: {:?}",

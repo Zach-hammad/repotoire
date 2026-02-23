@@ -29,7 +29,7 @@ impl Detector for MissingMustUseDetector {
         "Detects Result-returning functions without #[must_use]"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let pub_fn_result = Regex::new(
             r"^\s*pub\s+(?:async\s+)?fn\s+(\w+)[^{]*->\s*(?:Result|anyhow::Result|io::Result)",

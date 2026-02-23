@@ -382,7 +382,7 @@ impl Detector for SecretDetector {
         "Detects hardcoded secrets, API keys, and passwords"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         let walker = ignore::WalkBuilder::new(&self.repository_path)
@@ -518,7 +518,8 @@ AWS_ACCESS_KEY = "AKIAIOSFODNN7ABCDEFG"
 
         let store = GraphStore::in_memory();
         let detector = SecretDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded AWS access key"
@@ -542,7 +543,8 @@ SECRET = os.getenv("AWS_SECRET_ACCESS_KEY")
 
         let store = GraphStore::in_memory();
         let detector = SecretDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag secrets read from environment variables, but got: {:?}",
@@ -562,7 +564,8 @@ SECRET = os.getenv("AWS_SECRET_ACCESS_KEY")
 
         let store = GraphStore::in_memory();
         let detector = SecretDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag 'password' references in docstrings. Found: {:?}",
@@ -582,7 +585,8 @@ SECRET = os.getenv("AWS_SECRET_ACCESS_KEY")
 
         let store = GraphStore::in_memory();
         let detector = SecretDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag password type annotations. Found: {:?}",

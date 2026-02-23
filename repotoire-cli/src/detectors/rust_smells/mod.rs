@@ -188,7 +188,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = UnwrapWithoutContextDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("unwrap"));
     }
@@ -199,7 +200,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = UnwrapWithoutContextDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert!(findings.is_empty());
     }
 
@@ -209,7 +211,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = UnsafeWithoutSafetyCommentDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
@@ -219,7 +222,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = UnsafeWithoutSafetyCommentDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert!(findings.is_empty());
     }
 
@@ -229,7 +233,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = CloneInHotPathDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
@@ -239,7 +244,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = MissingMustUseDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
@@ -249,7 +255,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = MissingMustUseDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert!(findings.is_empty());
     }
 
@@ -260,7 +267,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = MutexPoisoningRiskDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
@@ -270,7 +278,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = BoxDynTraitDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert!(findings.is_empty());
     }
 }

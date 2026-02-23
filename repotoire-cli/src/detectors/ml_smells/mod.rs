@@ -121,7 +121,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = TorchLoadUnsafeDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
     }
@@ -132,7 +133,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = TorchLoadUnsafeDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert!(findings.is_empty());
     }
 
@@ -142,7 +144,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = NanEqualityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
@@ -152,7 +155,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = RequireGradTypoDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 
@@ -162,7 +166,8 @@ mod tests {
         let (dir, _) = setup_test_file(content);
         let detector = ChainIndexingDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
     }
 }

@@ -41,7 +41,7 @@ impl Detector for LogInjectionDetector {
         "Detects user input in logs"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -173,7 +173,8 @@ def handle_request(request):
 
         let store = GraphStore::in_memory();
         let detector = LogInjectionDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect user input in log statement with f-string"
@@ -201,7 +202,8 @@ def startup():
 
         let store = GraphStore::in_memory();
         let detector = LogInjectionDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Static log messages should produce no findings, but got: {:?}",

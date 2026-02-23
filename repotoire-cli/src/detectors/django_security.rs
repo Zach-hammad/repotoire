@@ -109,7 +109,7 @@ impl Detector for DjangoSecurityDetector {
         "Detects Django security issues"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -442,7 +442,8 @@ def webhook(request):
 
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(!findings.is_empty(), "Should detect @csrf_exempt usage");
         assert!(
             findings.iter().any(|f| f.title.contains("CSRF")),
@@ -472,7 +473,8 @@ ALLOWED_HOSTS = []
 
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
             "Should detect DEBUG = True in settings.py. Titles: {:?}",
@@ -507,7 +509,8 @@ def get_posts():
 
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         let raw_sql_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("Raw SQL"))
@@ -542,7 +545,8 @@ ALLOWED_HOSTS = ['*']
 
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings
                 .iter()
@@ -584,7 +588,8 @@ def list_items(request):
 
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Clean Django view code should produce no findings, but got: {:?}",

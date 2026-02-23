@@ -204,7 +204,8 @@ fn analyze_single_file(
         }
     }
 
-    let mut findings = match engine.run(&graph) {
+    let source_files = crate::detectors::SourceFiles::new(vec![file_path.to_path_buf()], repo_path.to_path_buf());
+    let mut findings = match engine.run(&graph, &source_files) {
         Ok(f) => f,
         Err(_) => return vec![],
     };

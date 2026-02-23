@@ -121,7 +121,7 @@ impl Detector for TestInProductionDetector {
         "Detects test code in production files"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut issues_per_file: HashMap<PathBuf, Vec<(u32, String, String)>> = HashMap::new();
 
@@ -339,7 +339,8 @@ def get_client():
 
         let store = GraphStore::in_memory();
         let detector = TestInProductionDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect test code (Mock) in production file"
@@ -367,7 +368,8 @@ def process_data(data):
 
         let store = GraphStore::in_memory();
         let detector = TestInProductionDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag clean production code, but got: {:?}",

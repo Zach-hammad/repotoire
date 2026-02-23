@@ -130,7 +130,7 @@ impl Detector for StringConcatLoopDetector {
         "Detects string concatenation in loops"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let concat_funcs = self.find_concat_functions(graph);
         let walker = ignore::WalkBuilder::new(&self.repository_path)
@@ -319,7 +319,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect string concatenation in loop. Found: {:?}",
@@ -344,7 +345,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag list.append + join pattern. Found: {:?}",

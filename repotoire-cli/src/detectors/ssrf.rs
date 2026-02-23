@@ -39,7 +39,7 @@ impl Detector for SsrfDetector {
         "Detects SSRF vulnerabilities"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -244,7 +244,8 @@ def fetch_url(req):
 
         let store = GraphStore::in_memory();
         let detector = SsrfDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect requests.get with user-controlled URL from req.body"
@@ -277,7 +278,8 @@ def fetch_data():
 
         let store = GraphStore::in_memory();
         let detector = SsrfDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Hardcoded URL should have no SSRF findings, but got: {:?}",

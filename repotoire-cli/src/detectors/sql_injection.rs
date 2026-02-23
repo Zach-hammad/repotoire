@@ -929,7 +929,7 @@ impl Detector for SQLInjectionDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting SQL injection detection with taint analysis");
 
         // Step 1: Run pattern-based detection (existing logic)

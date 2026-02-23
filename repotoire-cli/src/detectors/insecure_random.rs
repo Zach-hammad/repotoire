@@ -248,7 +248,7 @@ impl Detector for InsecureRandomDetector {
         "Detects insecure random for security purposes"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -440,7 +440,8 @@ def generate_token():
 
         let store = GraphStore::in_memory();
         let detector = InsecureRandomDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect random.random() used for token generation"
@@ -468,7 +469,8 @@ def roll_dice():
 
         let store = GraphStore::in_memory();
         let detector = InsecureRandomDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag random used in non-security context, but got: {:?}",

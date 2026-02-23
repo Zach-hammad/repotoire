@@ -457,7 +457,7 @@ impl Detector for GodClassDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Build class context for graph-based analysis
@@ -589,7 +589,8 @@ mod tests {
         store.add_node(create_test_class("Flask", 50, 2000, 150));
 
         let detector = GodClassDetector::new();
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
 
         assert!(
             findings.is_empty(),
@@ -603,7 +604,8 @@ mod tests {
         store.add_node(create_test_class("MyApplication", 40, 1500, 120));
 
         let detector = GodClassDetector::new();
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
 
         assert!(
             findings.is_empty(),
@@ -617,7 +619,8 @@ mod tests {
         store.add_node(create_test_class("OrderProcessor", 35, 1200, 180));
 
         let detector = GodClassDetector::new();
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
 
         assert_eq!(findings.len(), 1, "Actual god class should be flagged");
         assert!(findings[0].title.contains("OrderProcessor"));

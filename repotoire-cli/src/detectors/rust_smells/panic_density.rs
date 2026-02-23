@@ -59,7 +59,7 @@ impl Detector for PanicDensityDetector {
         "Detects Rust files/functions with a high density of .unwrap(), .expect(), and panic!() calls"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -333,7 +333,8 @@ fn fragile() {
         let dir = setup_test_file(content);
         let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1, "should flag function with 4 panic calls");
         assert_eq!(findings[0].severity, Severity::Medium);
         assert!(findings[0].title.contains("fragile"));
@@ -353,7 +354,8 @@ fn borderline() {
         let dir = setup_test_file(content);
         let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert!(findings.is_empty(), "3 calls should not be flagged");
     }
 
@@ -384,7 +386,8 @@ fn four() {
         let dir = setup_test_file(content);
         let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         // No function exceeds 3, but file total is 11 > 10
         let file_findings: Vec<_> = findings
             .iter()
@@ -411,7 +414,8 @@ mod tests {
         let dir = setup_test_file(content);
         let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert!(findings.is_empty(), "test code should be skipped");
     }
 
@@ -428,7 +432,8 @@ fn panicky() {
         let dir = setup_test_file(content);
         let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("4"));
     }
@@ -469,7 +474,8 @@ fn init() {
         let dir = setup_test_file(content);
         let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         // The get_or_init line is safe; remaining 4 should trigger
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("4"), "should count 4 non-safe panics");
@@ -487,7 +493,8 @@ fn clean() -> Result<(), Error> {
         let dir = setup_test_file(content);
         let detector = PanicDensityDetector::new(dir.path());
         let graph = GraphStore::in_memory();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
         assert!(findings.is_empty());
     }
 }

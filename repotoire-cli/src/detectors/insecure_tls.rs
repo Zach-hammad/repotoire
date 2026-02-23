@@ -414,7 +414,7 @@ impl Detector for InsecureTlsDetector {
     fn description(&self) -> &'static str {
         "Detects disabled TLS/certificate verification (CWE-295)"
     }
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting insecure TLS detection");
         let findings = self.scan_files();
         info!("InsecureTlsDetector found {} findings", findings.len());

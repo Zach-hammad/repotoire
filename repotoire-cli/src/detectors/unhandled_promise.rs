@@ -110,7 +110,7 @@ impl Detector for UnhandledPromiseDetector {
         "Detects promises without error handling"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let async_funcs = self.find_async_functions();
 
@@ -387,7 +387,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = UnhandledPromiseDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect promise .then() without .catch()"
@@ -411,7 +412,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = UnhandledPromiseDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag promise with .catch(), got: {:?}",

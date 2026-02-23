@@ -488,7 +488,7 @@ impl Detector for PickleDeserializationDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting pickle deserialization detection");
 
         let findings = self.scan_source_files();

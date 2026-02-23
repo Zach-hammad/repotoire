@@ -288,7 +288,7 @@ impl Detector for GHActionsInjectionDetector {
         "Detects command injection vulnerabilities in GitHub Actions workflows"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let workflows_dir = self.repository_path.join(".github").join("workflows");
 
         if !workflows_dir.exists() {

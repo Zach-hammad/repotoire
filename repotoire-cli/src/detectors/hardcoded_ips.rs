@@ -93,7 +93,7 @@ impl Detector for HardcodedIpsDetector {
         "Detects hardcoded IPs and localhost"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut ip_occurrences: HashMap<String, usize> = HashMap::new();
         let walker = ignore::WalkBuilder::new(&self.repository_path)
@@ -291,7 +291,8 @@ end
 
         let store = GraphStore::in_memory();
         let detector = HardcodedIpsDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded IP 192.168.1.100 in database connection"
@@ -322,7 +323,8 @@ def connect():
 
         let store = GraphStore::in_memory();
         let detector = HardcodedIpsDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Code using env vars should produce no findings, but got: {:?}",
@@ -342,7 +344,8 @@ def connect():
 
         let store = GraphStore::in_memory();
         let detector = HardcodedIpsDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag IP addresses inside docstrings. Found: {:?}",
@@ -362,7 +365,8 @@ def connect():
 
         let store = GraphStore::in_memory();
         let detector = HardcodedIpsDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag IP addresses inside comments. Found: {:?}",

@@ -169,7 +169,7 @@ impl Detector for HardcodedTimeoutDetector {
         "Detects hardcoded timeout values"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // Count occurrences for context
@@ -343,7 +343,8 @@ def wait_for_response():
 
         let store = GraphStore::in_memory();
         let detector = HardcodedTimeoutDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded timeout value. Found: {:?}",
@@ -369,7 +370,8 @@ def fetch_data():
 
         let store = GraphStore::in_memory();
         let detector = HardcodedTimeoutDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag configurable timeout. Found: {:?}",

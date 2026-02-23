@@ -9,8 +9,8 @@
 
 use crate::config::ProjectConfig;
 use crate::detectors::{
-    ConfidenceMethod, DetectorEngine, IncrementalCache, SeverityResolution, VotingEngine,
-    VotingStats, VotingStrategy,
+    ConfidenceMethod, DetectorEngine, IncrementalCache, SeverityResolution, SourceFiles,
+    VotingEngine, VotingStats, VotingStrategy,
 };
 use crate::git;
 use crate::graph::GraphStore;
@@ -156,7 +156,9 @@ pub(super) fn run_detectors(
     detector_bar.set_message("Running detectors...");
     detector_bar.enable_steady_tick(std::time::Duration::from_millis(100));
 
-    let findings = engine.run(graph)?;
+    // Build centralized file provider from collected file list
+    let source_files = SourceFiles::new(all_files.to_vec(), repo_path.to_path_buf());
+    let findings = engine.run(graph, &source_files)?;
 
     detector_bar.finish_with_message(format!(
         "{}Ran {} detectors, found {} raw issues",
@@ -204,8 +206,13 @@ pub(super) fn run_detectors_streaming(
     detector_bar.set_message("Streaming detection...");
     detector_bar.enable_steady_tick(std::time::Duration::from_millis(100));
 
+    // Build centralized file provider — streaming mode walks all source files from repo
+    let all_files: Vec<PathBuf> = crate::detectors::walk_source_files(repo_path, None).collect();
+    let source_files = SourceFiles::new(all_files, repo_path.to_path_buf());
+
     let (stats, findings_path) = run_streaming_detection(
         graph,
+        &source_files,
         repo_path,
         cache_dir,
         project_config,

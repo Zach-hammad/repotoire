@@ -269,7 +269,7 @@ impl Detector for ArchitecturalBottleneckDetector {
     }
 
     /// Legacy detection without context (fallback)
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         for func in graph.get_functions() {
@@ -313,6 +313,7 @@ impl Detector for ArchitecturalBottleneckDetector {
     fn detect_with_context(
         &self,
         graph: &dyn crate::graph::GraphQuery,
+        _files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();

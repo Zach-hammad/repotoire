@@ -65,7 +65,7 @@ impl Detector for BooleanTrapDetector {
         "Detects multiple boolean arguments"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut func_call_counts: HashMap<String, usize> = HashMap::new();
         let walker = ignore::WalkBuilder::new(&self.repository_path)
@@ -244,7 +244,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = BooleanTrapDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect boolean trap with True, False arguments"
@@ -271,7 +272,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = BooleanTrapDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag single boolean argument, but got: {:?}",

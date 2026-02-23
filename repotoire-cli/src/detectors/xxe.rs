@@ -217,7 +217,7 @@ impl Detector for XxeDetector {
         "Detects XXE vulnerabilities"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -394,7 +394,8 @@ tree = etree.parse(xml_file)
 
         let store = GraphStore::in_memory();
         let detector = XxeDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect XML parsing without XXE protection"
@@ -417,7 +418,8 @@ tree = ET.parse(xml_file)
 
         let store = GraphStore::in_memory();
         let detector = XxeDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag XML parsing with defusedxml protection, but got: {:?}",

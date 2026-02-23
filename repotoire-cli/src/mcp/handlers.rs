@@ -160,7 +160,9 @@ pub fn handle_analyze(state: &mut HandlerState, args: &Value) -> Result<Value> {
         .build();
 
     // Run analysis - engine.run() returns Vec<Finding> directly
-    let findings = engine.run(&graph)?;
+    let all_files: Vec<std::path::PathBuf> = crate::detectors::walk_source_files(&repo_path, None).collect();
+    let source_files = crate::detectors::SourceFiles::new(all_files, repo_path.to_path_buf());
+    let findings = engine.run(&graph, &source_files)?;
 
     let summary = FindingsSummary::from_findings(&findings);
 
@@ -303,7 +305,9 @@ pub fn handle_get_findings(state: &mut HandlerState, args: &Value) -> Result<Val
         .build();
 
     // engine.run() returns Vec<Finding> directly
-    let mut findings = engine.run(&graph)?;
+    let all_files: Vec<std::path::PathBuf> = crate::detectors::walk_source_files(&state.repo_path, None).collect();
+    let source_files = crate::detectors::SourceFiles::new(all_files, state.repo_path.to_path_buf());
+    let mut findings = engine.run(&graph, &source_files)?;
 
     // Apply filters
     if let Some(sev) = severity {

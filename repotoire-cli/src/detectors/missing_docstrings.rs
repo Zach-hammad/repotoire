@@ -125,7 +125,7 @@ impl Detector for MissingDocstringsDetector {
         "Detects functions without documentation"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         for func in graph.get_functions() {
@@ -286,7 +286,8 @@ mod tests {
         );
 
         let detector = MissingDocstringsDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect missing docstring. Found: {:?}",
@@ -322,7 +323,8 @@ mod tests {
         );
 
         let detector = MissingDocstringsDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag function with docstring. Found: {:?}",

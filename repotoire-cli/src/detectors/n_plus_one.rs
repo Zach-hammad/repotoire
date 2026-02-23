@@ -279,7 +279,7 @@ impl Detector for NPlusOneDetector {
         "Detects N+1 query patterns"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
         // === Source-based detection (direct queries in loops) ===
@@ -444,7 +444,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = NPlusOneDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect database query (.filter) inside a for loop"
@@ -472,7 +473,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = NPlusOneDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag bulk query before loop (no query inside the loop), got: {:?}",

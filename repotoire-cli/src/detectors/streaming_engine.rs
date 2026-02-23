@@ -101,6 +101,7 @@ impl StreamingDetectorEngine {
     pub fn run(
         &self,
         graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
         repo_path: &Path,
         project_config: &ProjectConfig,
         skip_detectors: &[String],
@@ -152,7 +153,7 @@ impl StreamingDetectorEngine {
                     }
 
                     // Run detector
-                    match detector.detect(graph) {
+                    match detector.detect(graph, files) {
                         Ok(mut findings) => {
                             // Limit findings per detector
                             if findings.len() > self.max_findings_per_detector {
@@ -257,6 +258,7 @@ impl StreamingDetectorEngine {
 /// This is the main entry point for memory-efficient detection on large repos.
 pub fn run_streaming_detection(
     graph: &dyn crate::graph::GraphQuery,
+    files: &dyn crate::detectors::file_provider::FileProvider,
     repo_path: &Path,
     cache_dir: &Path,
     project_config: &ProjectConfig,
@@ -272,6 +274,7 @@ pub fn run_streaming_detection(
 
     let stats = engine.run(
         graph,
+        files,
         repo_path,
         project_config,
         skip_detectors,

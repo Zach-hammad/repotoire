@@ -325,7 +325,7 @@ impl Detector for InsecureCryptoDetector {
         "Detects weak cryptographic algorithms"
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -517,7 +517,8 @@ def compute_hash(data):
 
         let store = GraphStore::in_memory();
         let detector = InsecureCryptoDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(!findings.is_empty(), "Should detect hashlib.md5 usage");
         assert!(
             findings.iter().any(|f| f.title.contains("MD5") || f.title.contains("SHA1")),
@@ -542,7 +543,8 @@ def compute_hash(data):
 
         let store = GraphStore::in_memory();
         let detector = InsecureCryptoDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(findings.is_empty(), "Should not detect sha256 as insecure. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

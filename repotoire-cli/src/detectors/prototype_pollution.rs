@@ -162,7 +162,7 @@ impl Detector for PrototypePollutionDetector {
         "Detects prototype pollution vulnerabilities"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -396,7 +396,8 @@ Object.assign(config, data);
 
         let store = GraphStore::in_memory();
         let detector = PrototypePollutionDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect Object.assign with user input from req.body"
@@ -419,7 +420,8 @@ const merged = Object.assign({}, defaults);
 
         let store = GraphStore::in_memory();
         let detector = PrototypePollutionDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag Object.assign without user input, but got: {:?}",

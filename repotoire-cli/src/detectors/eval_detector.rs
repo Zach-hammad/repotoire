@@ -551,7 +551,7 @@ impl Detector for EvalDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting eval/exec detection");
 
         // Primary detection is via source scanning
@@ -638,7 +638,8 @@ def process(user_input):
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             !findings.is_empty(),
             "Should detect eval() with variable argument"
@@ -661,7 +662,8 @@ data = ast.literal_eval("[1, 2, 3]")
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag ast.literal_eval (safe), but got: {:?}",

@@ -330,7 +330,7 @@ impl Detector for DeadStoreDetector {
         "dead-code"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         // Source-based local dead store detection
@@ -387,7 +387,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = DeadStoreDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.iter().any(|f| f.title.contains("unused_var")),
             "Should detect dead store 'unused_var'. Found: {:?}",
@@ -410,7 +411,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = DeadStoreDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         let dead_store_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("value"))

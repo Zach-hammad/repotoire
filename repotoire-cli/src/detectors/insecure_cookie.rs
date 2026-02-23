@@ -117,7 +117,7 @@ impl Detector for InsecureCookieDetector {
         "Detects cookies without security flags"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -308,7 +308,8 @@ def set_session(user_id):
 
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(!findings.is_empty(), "Should detect cookie without security flags");
         assert!(
             findings.iter().any(|f| f.title.contains("HttpOnly") || f.title.contains("Secure") || f.title.contains("SameSite")),
@@ -335,7 +336,8 @@ def set_session(user_id):
 
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(findings.is_empty(), "Should not detect anything for secure cookie. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -352,7 +354,8 @@ def set_session(user_id):
 
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag enum values containing 'cookie'. Found: {:?}",
@@ -372,7 +375,8 @@ def set_session(user_id):
 
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(
             findings.is_empty(),
             "Should not flag class field assignments. Found: {:?}",

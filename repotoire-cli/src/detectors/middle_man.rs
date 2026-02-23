@@ -201,7 +201,7 @@ impl Detector for MiddleManDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
         for class in graph.get_classes() {
@@ -340,7 +340,8 @@ mod tests {
         }
 
         let detector = MiddleManDetector::new();
-        let findings = detector.detect(&graph).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).unwrap();
 
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("MiddleClass"));

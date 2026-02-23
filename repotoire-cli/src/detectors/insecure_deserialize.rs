@@ -136,7 +136,7 @@ impl Detector for InsecureDeserializeDetector {
         "Detects insecure deserialization"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path)
             .hidden(false)
@@ -371,7 +371,8 @@ def load_config(data):
 
         let store = GraphStore::in_memory();
         let detector = InsecureDeserializeDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(!findings.is_empty(), "Should detect yaml.load without SafeLoader");
         assert!(
             findings.iter().any(|f| f.title.contains("YAML") || f.title.contains("yaml")),
@@ -398,7 +399,8 @@ def save_config(config):
 
         let store = GraphStore::in_memory();
         let detector = InsecureDeserializeDetector::new(dir.path());
-        let findings = detector.detect(&store).unwrap();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
         assert!(findings.is_empty(), "Should not detect json.dumps (serialization, not deserialization). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

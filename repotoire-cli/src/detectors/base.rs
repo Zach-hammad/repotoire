@@ -274,7 +274,7 @@ pub fn is_test_path(path_str: &str) -> bool {
 ///         "Detects my specific code smell"
 ///     }
 ///
-///     fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+///     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn super::file_provider::FileProvider) -> Result<Vec<Finding>> {
 ///         // Query the graph and analyze results
 ///         Ok(vec![])
 ///     }
@@ -299,10 +299,11 @@ pub trait Detector: Send + Sync {
     ///
     /// # Arguments
     /// * `graph` - Graph store implementing GraphQuery trait
+    /// * `files` - File provider for accessing source files and their contents
     ///
     /// # Returns
     /// A list of findings, or an error if detection fails
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>>;
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn super::file_provider::FileProvider) -> Result<Vec<Finding>>;
 
     /// Run detection with function context
     ///
@@ -314,6 +315,7 @@ pub trait Detector: Send + Sync {
     ///
     /// # Arguments
     /// * `graph` - Graph store implementing GraphQuery trait
+    /// * `files` - File provider for accessing source files and their contents
     /// * `contexts` - Pre-computed function contexts with roles and metrics
     ///
     /// # Returns
@@ -321,10 +323,11 @@ pub trait Detector: Send + Sync {
     fn detect_with_context(
         &self,
         graph: &dyn crate::graph::GraphQuery,
+        files: &dyn super::file_provider::FileProvider,
         _contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         // Default: ignore context, just call regular detect
-        self.detect(graph)
+        self.detect(graph, files)
     }
 
     /// Whether this detector uses function context
