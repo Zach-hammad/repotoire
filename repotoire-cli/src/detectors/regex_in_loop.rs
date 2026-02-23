@@ -167,24 +167,55 @@ impl Detector for RegexInLoopDetector {
 
             if let Some(content) = files.content(path) {
                 let _path_str = path.to_string_lossy().to_string();
+                let is_python = path.extension().and_then(|e| e.to_str()) == Some("py");
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
+                let mut loop_indent: usize = 0;
+                let mut loop_line_idx: usize = 0;
                 let all_lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in all_lines.iter().enumerate() {
+                    // Skip Python comments
+                    if is_python && line.trim().starts_with('#') {
+                        continue;
+                    }
+
+                    // Skip list comprehensions (one-shot constructs)
+                    if is_python && line.contains('[') && line.contains(" for ") && line.contains(" in ") {
+                        continue;
+                    }
+
                     if loop_pattern().is_match(line) {
                         in_loop = true;
                         loop_line = i + 1;
-                        brace_depth = 0;
+                        loop_line_idx = i;
+                        if is_python {
+                            loop_indent = line.len() - line.trim_start().len();
+                        } else {
+                            brace_depth = 0;
+                        }
                     }
 
                     if in_loop {
-                        brace_depth += line.matches('{').count() as i32;
-                        brace_depth -= line.matches('}').count() as i32;
-                        if brace_depth < 0 {
-                            in_loop = false;
-                            continue;
+                        if is_python {
+                            // Python: exit loop scope when indentation returns to/below loop level
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() && i > loop_line_idx {
+                                let current_indent = line.len() - line.trim_start().len();
+                                if current_indent <= loop_indent {
+                                    in_loop = false;
+                                    continue;
+                                }
+                            }
+                        } else {
+                            // Brace-based languages
+                            brace_depth += line.matches('{').count() as i32;
+                            brace_depth -= line.matches('}').count() as i32;
+                            if brace_depth < 0 {
+                                in_loop = false;
+                                continue;
+                            }
                         }
 
                         // Direct regex compilation in loop
@@ -359,5 +390,52 @@ mod tests {
             "Should not flag re.compile() outside a loop, got: {:?}",
             findings
         );
+    }
+
+    #[test]
+    fn test_no_finding_for_python_regex_outside_loop() {
+        let store = GraphStore::in_memory();
+        let detector = RegexInLoopDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("parser.py", "import re\n\nfor item in items:\n    process(item)\n\npattern = re.compile(r'\\w+')\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "re.compile after loop exits should not be flagged. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_list_comprehension() {
+        let store = GraphStore::in_memory();
+        let detector = RegexInLoopDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("security.py", "import re\n\nREDIRECT_HOSTS = [re.compile(r) for r in settings.ALLOWED_REDIRECTS]\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "List comprehension re.compile should not be flagged. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_regex_in_comment() {
+        let store = GraphStore::in_memory();
+        let detector = RegexInLoopDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("settings.py", "LANGUAGES = [\n    ('en', 'English'),\n    ('fr', 'French'),\n]\n# LANGUAGES_BIDI = re.compile(r'...')\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Commented-out re.compile should not be flagged. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_still_detects_regex_inside_python_loop() {
+        let store = GraphStore::in_memory();
+        let detector = RegexInLoopDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("slow.py", "import re\n\nfor pattern in patterns:\n    compiled = re.compile(pattern)\n    compiled.match(text)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(!findings.is_empty(), "Should still detect re.compile inside a for loop");
     }
 }
