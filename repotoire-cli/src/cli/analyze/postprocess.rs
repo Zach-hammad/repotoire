@@ -53,8 +53,8 @@ pub(super) fn postprocess_findings(
     // Step 2: Apply detector overrides from project config
     apply_detector_overrides(findings, project_config);
 
-    // Step 2.5: Filter out findings for excluded paths
-    if !project_config.exclude.paths.is_empty() {
+    // Step 2.5: Filter out findings for excluded paths (including built-in defaults)
+    if !project_config.exclude.effective_patterns().is_empty() {
         let before = findings.len();
         findings.retain(|f| {
             !f.affected_files

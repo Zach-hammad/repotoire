@@ -891,6 +891,7 @@ skip_detectors = ["debug-code"]
     #[test]
     fn test_should_exclude_vendor_by_default() {
         let config = ProjectConfig::default();
+        // Relative paths
         assert!(config.should_exclude(std::path::Path::new("src/vendor/jquery.js")));
         assert!(config.should_exclude(std::path::Path::new("node_modules/react/index.js")));
         assert!(config.should_exclude(std::path::Path::new("deep/path/dist/bundle.js")));
@@ -898,5 +899,15 @@ skip_detectors = ["debug-code"]
         assert!(config.should_exclude(std::path::Path::new("css/styles.min.css")));
         assert!(config.should_exclude(std::path::Path::new("js/app.bundle.js")));
         assert!(!config.should_exclude(std::path::Path::new("src/main.py")));
+        // Absolute paths (as returned by affected_files in findings)
+        assert!(config.should_exclude(std::path::Path::new(
+            "/tmp/django/django/contrib/admin/static/admin/js/vendor/jquery/jquery.js"
+        )));
+        assert!(config.should_exclude(std::path::Path::new(
+            "/tmp/project/node_modules/react/index.js"
+        )));
+        assert!(config.should_exclude(std::path::Path::new(
+            "/home/user/project/assets/app.min.js"
+        )));
     }
 }
