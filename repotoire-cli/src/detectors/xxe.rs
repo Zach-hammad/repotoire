@@ -38,6 +38,12 @@ fn get_protection_patterns(ext: &str) -> Vec<&'static str> {
             "defusedxml",
             "forbid_dtd=True",
             "forbid_entities=True",
+            "feature_external_ges",
+            "feature_external_pes",
+            "DTDForbidden",
+            "EntitiesForbidden",
+            "ExternalReferenceForbidden",
+            "defused",
         ],
         "java" => vec![
             "FEATURE_SECURE_PROCESSING",
@@ -250,6 +256,35 @@ impl Detector for XxeDetector {
                         continue;
                     }
 
+                    // Skip import-only lines — importing a module is not a vulnerability
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("from ") || trimmed.starts_with("import ") {
+                        continue;
+                    }
+
+                    // Skip lines that reference XML modules without actual parse calls
+                    let has_parse_call = line.contains(".parse(")
+                        || line.contains(".parseString(")
+                        || line.contains("XMLParser(")
+                        || line.contains("DocumentBuilder")
+                        || line.contains("SAXParser(")
+                        || line.contains("XMLReader(");
+                    if !has_parse_call {
+                        continue;
+                    }
+
+                    // Skip JS static data (globals lists, config objects)
+                    if ext == "js" {
+                        let trimmed_line = line.trim();
+                        if trimmed_line.ends_with("false,")
+                            || trimmed_line.ends_with("true,")
+                            || trimmed_line.ends_with("false")
+                            || trimmed_line.ends_with("true")
+                        {
+                            continue;
+                        }
+                    }
+
                     // Check for protection near this parse call, not just file-wide (#16)
                     // Look 15 lines before and after for protection patterns
                     if file_has_any_protection {
@@ -391,6 +426,51 @@ mod tests {
         assert!(
             findings.is_empty(),
             "Should not flag XML parsing with defusedxml protection, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_import_only() {
+        let store = GraphStore::in_memory();
+        let detector = XxeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("parser.py", "from xml.dom import minidom, pulldom\nimport xml.etree.ElementTree as ET\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag import-only lines. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_with_custom_defused_parser() {
+        let store = GraphStore::in_memory();
+        let detector = XxeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("serializer.py", "class DefusedExpatParser:\n    feature_external_ges = False\n    feature_external_pes = False\n    def reset(self):\n        raise DTDForbidden()\n\ndef deserialize(stream):\n    event_stream = pulldom.parse(stream, parser)\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag XML parsing when custom defused parser exists. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_js_static_data() {
+        let store = GraphStore::in_memory();
+        let detector = XxeDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("globals.js", "var globals = {\n    \"DOMParser\": false,\n    \"XMLHttpRequest\": false,\n};\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag JS static data. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
