@@ -59,6 +59,9 @@ impl UnusedImportsDetector {
             if let Some(imports) = caps.get(1) {
                 for part in imports.as_str().split(',') {
                     let part = part.trim();
+                    if part.is_empty() {
+                        continue;
+                    }
                     if part.contains(" as ") {
                         let parts: Vec<&str> = part.split(" as ").collect();
                         if parts.len() == 2 {
@@ -210,6 +213,9 @@ impl Detector for UnusedImportsDetector {
                 let all_exports = Self::extract_all_exports(&content);
                 let lines: Vec<&str> = content.lines().collect();
 
+                let mut in_type_checking = false;
+                let mut type_checking_indent: usize = 0;
+
                 for (line_num, line) in lines.iter().enumerate() {
                     let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
                     if crate::detectors::is_line_suppressed(line, prev_line) {
@@ -232,14 +238,43 @@ impl Detector for UnusedImportsDetector {
                         continue;
                     }
 
-                    // Skip TYPE_CHECKING blocks (type-only imports)
-                    if trimmed.contains("TYPE_CHECKING") {
+                    // Track TYPE_CHECKING blocks -- skip all indented lines within
+                    if trimmed == "if TYPE_CHECKING:" || trimmed.starts_with("if TYPE_CHECKING:") {
+                        in_type_checking = true;
+                        type_checking_indent = line.len() - line.trim_start().len();
                         continue;
+                    }
+                    if in_type_checking {
+                        let current_indent = line.len() - line.trim_start().len();
+                        if !trimmed.is_empty() && current_indent <= type_checking_indent {
+                            in_type_checking = false;
+                            // Fall through to process this line normally
+                        } else {
+                            continue; // Skip lines inside TYPE_CHECKING block
+                        }
                     }
 
                     let imports = if ext == "py" {
                         if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
-                            Self::extract_python_imports(trimmed)
+                            // Handle multi-line imports: from X import (\n    A,\n    B,\n)
+                            let effective_line = if trimmed.contains("(") && !trimmed.contains(")") {
+                                let mut accumulated = trimmed.to_string();
+                                let mut j = line_num + 1;
+                                while j < lines.len() {
+                                    let continuation = lines[j].trim();
+                                    accumulated.push(' ');
+                                    accumulated.push_str(continuation);
+                                    if continuation.contains(")") {
+                                        break;
+                                    }
+                                    j += 1;
+                                }
+                                // Remove parentheses so the regex sees a flat import list
+                                accumulated.replace('(', "").replace(')', "")
+                            } else {
+                                trimmed.to_string()
+                            };
+                            Self::extract_python_imports(&effective_line)
                         } else {
                             continue;
                         }
@@ -397,6 +432,56 @@ mod tests {
             findings.is_empty(),
             "Should not flag imports listed in __all__. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_type_checking_block() {
+        let store = GraphStore::in_memory();
+        let detector = UnusedImportsDetector::new("/mock/repo");
+        // UserModel is only imported inside TYPE_CHECKING and never referenced
+        // outside (only in string annotation "UserModel").
+        // The detector should skip the entire block, not just the `if` line.
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("typed.py", "from __future__ import annotations\nfrom typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from models import UserModel\n    from services import AuthService\n\ndef greet() -> str:\n    return \"hello\"\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        let tc_findings: Vec<_> = findings.iter()
+            .filter(|f| f.title.contains("UserModel") || f.title.contains("AuthService"))
+            .collect();
+        assert!(
+            tc_findings.is_empty(),
+            "Should not flag imports inside TYPE_CHECKING block. Found: {:?}",
+            tc_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_handles_multiline_import() {
+        let store = GraphStore::in_memory();
+        let detector = UnusedImportsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("views.py", "from django.db.models import (\n    CharField,\n    IntegerField,\n)\n\nname = CharField(max_length=100)\nage = IntegerField()\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should handle multi-line imports (CharField and IntegerField are used). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_still_detects_unused_import() {
+        let store = GraphStore::in_memory();
+        let detector = UnusedImportsDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("unused.py", "import os\nimport sys\n\nprint(sys.argv)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still detect unused import (os)"
         );
     }
 }
