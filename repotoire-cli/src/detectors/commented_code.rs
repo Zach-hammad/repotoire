@@ -37,37 +37,29 @@ impl CommentedCodeDetector {
         }
     }
 
-    fn looks_like_code(line: &str) -> bool {
-        let code_patterns = [
-            "if ",
-            "else",
-            "for ",
-            "while ",
-            "return ",
-            "def ",
-            "fn ",
-            "function ",
-            "class ",
-            "import ",
-            "from ",
-            "const ",
-            "let ",
-            "var ",
-            "=",
-            "==",
-            "!=",
-            "&&",
-            "||",
-            "->",
-            "=>",
-            "()",
-            "{}",
-            "[]",
-            ";",
-            "+=",
-            "-=",
+    /// Strong indicators: almost certainly code, not prose
+    fn has_strong_code_indicator(line: &str) -> bool {
+        let strong_indicators = [
+            "def ", "fn ", "function ", "class ", "import ", "from ",
+            "return ", "const ", "let ", "var ",
+            "==", "!=", "&&", "||", "->", "=>",
+            "+=", "-=",
         ];
-        code_patterns.iter().any(|p| line.contains(p))
+        strong_indicators.iter().any(|p| line.contains(p))
+    }
+
+    /// Weak indicators: common in prose, not sufficient alone to flag as code
+    fn has_weak_code_indicator(line: &str) -> bool {
+        let weak_indicators = [
+            "=", "()", "{}", "[]", ";", "if ", "else", "for ", "while ",
+        ];
+        weak_indicators.iter().any(|p| line.contains(p))
+    }
+
+    /// A line looks like code if it has a strong indicator, or a weak one.
+    /// But a *block* should only be flagged if at least one line has a strong indicator.
+    fn looks_like_code(line: &str) -> bool {
+        Self::has_strong_code_indicator(line) || Self::has_weak_code_indicator(line)
     }
 
     /// Check if line is a TODO/FIXME/NOTE comment (not dead code)
@@ -80,6 +72,17 @@ impl CommentedCodeDetector {
             || upper.contains("NOTE:")
             || upper.contains("BUG:")
             || upper.contains("DEPRECATED")
+    }
+
+    /// Check if line is part of a license/copyright header
+    fn is_license_comment(line: &str) -> bool {
+        let upper = line.to_uppercase();
+        upper.contains("COPYRIGHT") || upper.contains("LICENSE")
+            || upper.contains("PERMISSION IS HEREBY GRANTED")
+            || upper.contains("ALL RIGHTS RESERVED")
+            || upper.contains("SPDX-LICENSE")
+            || upper.contains("WARRANTY")
+            || upper.contains("REDISTRIBUTION")
     }
 
     /// Extract function references from commented code
@@ -152,8 +155,8 @@ impl Detector for CommentedCodeDetector {
                         || (line.starts_with("#") && ext != "rs")
                         || line.starts_with("*");
 
-                    // Skip annotation comments
-                    if is_comment && Self::is_annotation_comment(line) {
+                    // Skip annotation comments and license headers
+                    if is_comment && (Self::is_annotation_comment(line) || Self::is_license_comment(line)) {
                         i += 1;
                         continue;
                     }
@@ -164,6 +167,7 @@ impl Detector for CommentedCodeDetector {
                         let mut code_lines = 1;
                         let mut j = i + 1;
                         let mut has_annotation = false;
+                        let mut has_strong = Self::has_strong_code_indicator(line);
 
                         while j < lines.len() {
                             let next = lines[j].trim();
@@ -176,6 +180,9 @@ impl Detector for CommentedCodeDetector {
                             }
 
                             if next_is_comment && Self::looks_like_code(next) {
+                                if Self::has_strong_code_indicator(next) {
+                                    has_strong = true;
+                                }
                                 code_lines += 1;
                                 j += 1;
                             } else if next.is_empty()
@@ -187,7 +194,10 @@ impl Detector for CommentedCodeDetector {
                             }
                         }
 
-                        if code_lines >= self.min_lines {
+                        // Only flag the block if it has at least one strong code indicator.
+                        // Blocks with only weak indicators (=, if, else, etc.) are likely
+                        // technical documentation, not commented-out code.
+                        if code_lines >= self.min_lines && has_strong {
                             // === Graph-enhanced analysis ===
                             let func_refs = Self::extract_func_refs(&lines, start, j);
                             let (existing, missing) = Self::check_func_existence(graph, &func_refs);
@@ -310,6 +320,50 @@ mod tests {
             findings.is_empty(),
             "Should not flag normal comments. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_license_header() {
+        let store = GraphStore::in_memory();
+        let detector = CommentedCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("licensed.py", "# Copyright (c) 2024 Django Software Foundation\n# All rights reserved.\n# Permission is hereby granted, free of charge,\n# to any person obtaining a copy of this software\n# and associated documentation files (the \"Software\"),\n# to deal in the Software without restriction.\n\ndef main():\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag license headers as commented code. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_technical_comments_with_equals() {
+        let store = GraphStore::in_memory();
+        let detector = CommentedCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("doc.py", "# The default timeout = 30 seconds for all connections.\n# Each worker handles requests independently.\n# When count = 0, the queue is considered empty.\n# The maximum retry count = 3 before giving up.\n# Buffer size = 4096 bytes is optimal for most cases.\n# Connection pool size = 10 is the recommended default.\n\ndef process():\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag technical docs (contain '=' but aren't code). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_still_detects_real_commented_code() {
+        let store = GraphStore::in_memory();
+        let detector = CommentedCodeDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("dead.py", "def active():\n    pass\n\n# def old_function():\n#     x = compute()\n#     if x > 0:\n#         return process(x)\n#     else:\n#         return fallback()\n\ndef another():\n    pass\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should still detect real commented-out code"
         );
     }
 }
