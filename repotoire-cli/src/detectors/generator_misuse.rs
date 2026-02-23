@@ -81,6 +81,49 @@ impl GeneratorMisuseDetector {
         (count, in_loop)
     }
 
+    /// Check if function body uses try/yield/finally (resource management pattern)
+    fn is_resource_management_yield(lines: &[&str], func_start: usize, indent: usize) -> bool {
+        let mut has_try = false;
+        let mut has_finally = false;
+
+        for line in lines.iter().skip(func_start + 1) {
+            let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
+            if !line.trim().is_empty() && current_indent <= indent {
+                break;
+            }
+            let trimmed = line.trim();
+            if trimmed.starts_with("try:") {
+                has_try = true;
+            }
+            if trimmed.starts_with("finally:") {
+                has_finally = true;
+            }
+        }
+        has_try && has_finally
+    }
+
+    /// Check if file imports from frameworks that use yield for DI
+    fn has_framework_yield_import(content: &str) -> bool {
+        content.contains("from fastapi")
+            || content.contains("from starlette")
+            || content.contains("from contextlib import contextmanager")
+            || content.contains("from contextlib import asynccontextmanager")
+            || content.contains("import contextlib")
+    }
+
+    /// Check if function has @contextmanager or @asynccontextmanager decorator
+    fn has_contextmanager_decorator(lines: &[&str], func_start: usize) -> bool {
+        for i in (0..func_start).rev() {
+            let trimmed = lines[i].trim();
+            if trimmed.is_empty() { continue; }
+            if trimmed.starts_with('@') {
+                return trimmed.contains("contextmanager");
+            }
+            if !trimmed.starts_with('@') { break; }
+        }
+        false
+    }
+
     /// Find all generators that are immediately converted to list
     fn find_list_wrapped_generators(
         &self,
@@ -218,6 +261,14 @@ impl Detector for GeneratorMisuseDetector {
 
                         // Single yield outside loop = probably should be a simple return
                         if yield_count == 1 && !yield_in_loop {
+                            // Skip resource management patterns (try/yield/finally)
+                            if Self::is_resource_management_yield(&lines, i, indent)
+                                && (Self::has_framework_yield_import(&content)
+                                    || Self::has_contextmanager_decorator(&lines, i))
+                            {
+                                continue;
+                            }
+
                             findings.push(Finding {
                                 id: String::new(),
                                 detector: "GeneratorMisuseDetector".to_string(),
@@ -361,6 +412,46 @@ def multi_yield(items):
         assert!(
             findings.is_empty(),
             "Should not flag generator with yield inside a loop, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_fastapi_dependency() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("deps.py");
+        std::fs::write(
+            &file,
+            "from fastapi import Depends\n\ndef get_db():\n    db = SessionLocal()\n    try:\n        yield db\n    finally:\n        db.close()\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = GeneratorMisuseDetector::with_path(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag FastAPI try/yield/finally dependency. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_contextmanager() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("utils.py");
+        std::fs::write(
+            &file,
+            "from contextlib import contextmanager\n\n@contextmanager\ndef managed_resource():\n    resource = acquire()\n    try:\n        yield resource\n    finally:\n        release(resource)\n",
+        )
+        .unwrap();
+
+        let store = GraphStore::in_memory();
+        let detector = GeneratorMisuseDetector::with_path(dir.path());
+        let findings = detector.detect(&store).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag contextmanager try/yield/finally. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
