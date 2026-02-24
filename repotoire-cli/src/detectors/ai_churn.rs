@@ -386,10 +386,188 @@ impl Detector for AIChurnDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        // Churn detection needs git history analysis
-        let _ = graph;
-        Ok(vec![])
+    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        use crate::detectors::base::is_test_path;
+        use crate::git::history::GitHistory;
+
+        let repo_path = files.repo_path();
+
+        // Graceful degradation: if no git repo, return empty
+        let git_history = match GitHistory::new(repo_path) {
+            Ok(h) => h,
+            Err(e) => {
+                warn!("AIChurnDetector: Cannot open git repository at {:?}: {}. Returning empty results.", repo_path, e);
+                return Ok(vec![]);
+            }
+        };
+
+        // Phase 1 (fast): Get file-level churn in a single revwalk
+        info!("AIChurnDetector: Phase 1 - collecting file-level churn (up to 500 commits)");
+        let all_file_churn = match git_history.get_all_file_churn(500) {
+            Ok(churn) => churn,
+            Err(e) => {
+                warn!("AIChurnDetector: Failed to get file churn: {}. Falling back.", e);
+                return self.detect_without_git_history(graph);
+            }
+        };
+
+        // Filter to high-churn files (commit_count > 5)
+        let high_churn_files: HashMap<String, _> = all_file_churn
+            .into_iter()
+            .filter(|(_, churn)| churn.commit_count > 5)
+            .collect();
+
+        debug!(
+            "AIChurnDetector: {} high-churn files (commit_count > 5)",
+            high_churn_files.len()
+        );
+
+        if high_churn_files.is_empty() {
+            info!("AIChurnDetector: No high-churn files found, skipping Phase 2");
+            return Ok(vec![]);
+        }
+
+        // Phase 2 (targeted): For functions in high-churn files, get function-level commits
+        info!("AIChurnDetector: Phase 2 - analyzing function-level churn");
+
+        let repo_path_str = repo_path.to_string_lossy();
+        let functions = graph.get_functions();
+        let analysis_cutoff = Utc::now() - Duration::days(self.analysis_window_days);
+        let mut findings = Vec::new();
+
+        for func in &functions {
+            if findings.len() >= 50 {
+                debug!("AIChurnDetector: Reached 50-finding cap, stopping");
+                break;
+            }
+
+            // Skip test files
+            if is_test_path(&func.file_path) {
+                continue;
+            }
+
+            // Skip small functions
+            if func.loc() < self.min_function_lines as u32 {
+                continue;
+            }
+
+            // Normalize path: graph stores absolute paths, git stores relative
+            // Strip repo_path prefix and leading '/' to get relative path
+            let relative_path = func
+                .file_path
+                .strip_prefix(repo_path_str.as_ref())
+                .unwrap_or(&func.file_path)
+                .trim_start_matches('/');
+
+            // Check if this file is in our high-churn set
+            if !high_churn_files.contains_key(relative_path) {
+                continue;
+            }
+
+            // Get function-level commits via line range
+            let line_start = func.line_start;
+            let line_end = func.line_end;
+
+            if line_start == 0 || line_end == 0 {
+                continue;
+            }
+
+            let commits = match git_history.get_line_range_commits(
+                relative_path,
+                line_start,
+                line_end,
+                50,
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    debug!(
+                        "AIChurnDetector: Failed to get line range commits for {}: {}",
+                        func.qualified_name, e
+                    );
+                    continue;
+                }
+            };
+
+            // Need at least 2 commits (creation + modification)
+            if commits.len() < 2 {
+                continue;
+            }
+
+            // Commits are sorted newest-first. The last one is the creation commit.
+            let creation_commit = commits.last().unwrap();
+            let created_at = chrono::DateTime::parse_from_rfc3339(&creation_commit.timestamp)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc));
+
+            // Filter to commits within the analysis window
+            if let Some(created) = created_at {
+                if created < analysis_cutoff {
+                    continue;
+                }
+            }
+
+            // Build modifications from all commits except the creation commit
+            let mut modifications = Vec::new();
+            for commit in commits.iter().take(commits.len() - 1) {
+                let ts = chrono::DateTime::parse_from_rfc3339(&commit.timestamp)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc));
+
+                if let Some(timestamp) = ts {
+                    modifications.push(Modification {
+                        timestamp,
+                        commit_sha: commit.hash.clone(),
+                        lines_added: commit.insertions,
+                        lines_deleted: commit.deletions,
+                    });
+                }
+            }
+
+            if modifications.is_empty() {
+                continue;
+            }
+
+            // Sort modifications oldest-first for consistent analysis
+            modifications.sort_by_key(|m| m.timestamp);
+
+            let first_mod = modifications.first().map(|m| m.timestamp);
+            let first_mod_sha = modifications
+                .first()
+                .map(|m| m.commit_sha.clone())
+                .unwrap_or_default();
+
+            let record = FunctionChurnRecord {
+                qualified_name: func.qualified_name.clone(),
+                file_path: func.file_path.clone(),
+                function_name: func.name.clone(),
+                created_at,
+                creation_commit: creation_commit.hash.clone(),
+                lines_original: func.loc() as usize,
+                first_modification_at: first_mod,
+                first_modification_commit: first_mod_sha,
+                modifications,
+            };
+
+            // Score and produce finding
+            if let Some(finding) = self.create_finding(&record) {
+                debug!(
+                    "AIChurnDetector: Finding for {} (score={:.2}, severity={:?})",
+                    record.qualified_name,
+                    record.ai_churn_score(),
+                    finding.severity
+                );
+                findings.push(finding);
+            }
+        }
+
+        info!(
+            "AIChurnDetector: Produced {} findings from {} functions in {} high-churn files",
+            findings.len(),
+            functions.len(),
+            high_churn_files.len()
+        );
+
+        Ok(findings)
     }
 }
 
@@ -404,5 +582,101 @@ impl AIChurnDetector {
              For full churn detection, ensure git history is indexed."
         );
         Ok(vec![])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detectors::base::Detector;
+
+    #[test]
+    fn test_detect_returns_empty_without_git() {
+        let store = crate::graph::GraphStore::in_memory();
+        let detector = AIChurnDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(findings.is_empty(), "Should return empty when no git repo");
+    }
+
+    #[test]
+    fn test_churn_score_high_velocity() {
+        let record = FunctionChurnRecord {
+            qualified_name: "module.func".to_string(),
+            file_path: "src/module.py".to_string(),
+            function_name: "func".to_string(),
+            created_at: Some(Utc::now() - Duration::hours(72)),
+            creation_commit: "abc123".to_string(),
+            lines_original: 20,
+            first_modification_at: Some(Utc::now() - Duration::hours(48)),
+            first_modification_commit: "def456".to_string(),
+            modifications: vec![
+                Modification {
+                    timestamp: Utc::now() - Duration::hours(48),
+                    commit_sha: "def456".to_string(),
+                    lines_added: 10,
+                    lines_deleted: 5,
+                },
+                Modification {
+                    timestamp: Utc::now() - Duration::hours(24),
+                    commit_sha: "ghi789".to_string(),
+                    lines_added: 8,
+                    lines_deleted: 3,
+                },
+                Modification {
+                    timestamp: Utc::now() - Duration::hours(12),
+                    commit_sha: "jkl012".to_string(),
+                    lines_added: 5,
+                    lines_deleted: 2,
+                },
+            ],
+        };
+        let score = record.ai_churn_score();
+        assert!(
+            score > 0.5,
+            "High-velocity fix should have significant churn score, got {}",
+            score
+        );
+        assert!(
+            record.is_high_velocity_fix(),
+            "Should be flagged as high velocity fix"
+        );
+    }
+
+    #[test]
+    fn test_churn_score_stable_code() {
+        let record = FunctionChurnRecord {
+            qualified_name: "module.stable".to_string(),
+            file_path: "src/module.py".to_string(),
+            function_name: "stable".to_string(),
+            created_at: Some(Utc::now() - Duration::days(365)),
+            creation_commit: "old123".to_string(),
+            lines_original: 30,
+            first_modification_at: Some(Utc::now() - Duration::days(300)),
+            first_modification_commit: "mod456".to_string(),
+            modifications: vec![Modification {
+                timestamp: Utc::now() - Duration::days(300),
+                commit_sha: "mod456".to_string(),
+                lines_added: 2,
+                lines_deleted: 1,
+            }],
+        };
+        let score = record.ai_churn_score();
+        assert!(
+            score < 0.5,
+            "Stable code should have low churn score, got {}",
+            score
+        );
+        assert!(
+            !record.is_high_velocity_fix(),
+            "Should NOT be flagged as high velocity fix"
+        );
+    }
+
+    #[test]
+    fn test_detector_defaults() {
+        let detector = AIChurnDetector::new();
+        assert_eq!(detector.analysis_window_days, 90);
+        assert_eq!(detector.min_function_lines, 5);
     }
 }
