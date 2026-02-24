@@ -40,10 +40,6 @@ pub mod state;
 pub mod tools;
 pub mod transport;
 
-// Legacy modules (kept for transition, will be removed)
-mod handlers;
-mod server;
-
 pub use rmcp_server::RepotoireServer;
 pub use state::HandlerState;
 
@@ -82,6 +78,3 @@ pub async fn run_mcp_server(
     Ok(())
 }
 
-// Keep the old run_server for backward compatibility during transition
-#[allow(unused_imports)]
-pub use server::run_server;
