@@ -250,6 +250,46 @@ fn test_max_files_limits_analyzed_files() {
 }
 
 // ============================================================================
+// Findings command round-trip: analyze -> cache -> findings
+// ============================================================================
+
+#[test]
+fn test_findings_command_after_analyze() {
+    let dir = setup_test_repo("findings_roundtrip");
+
+    // Step 1: Run analyze to populate the findings cache
+    let (analyze_code, _) = run_analyze(dir.path(), &["--format", "text"]);
+    assert!(
+        analyze_code == 0 || analyze_code == 1,
+        "analyze should exit 0 or 1 (fail-on), got {}",
+        analyze_code
+    );
+
+    // Step 2: Run findings --top 3 against the same path
+    // Path must come before subcommand because `findings` has a positional INDEX arg
+    let mut cmd = Command::new(repotoire_bin());
+    cmd.arg(dir.path())
+        .arg("findings")
+        .arg("--top")
+        .arg("3");
+    let output = cmd.output().expect("Failed to run repotoire findings");
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let code = output.status.code().unwrap_or(-1);
+
+    // Step 3: Assert findings command succeeds and produces output
+    assert_eq!(
+        code, 0,
+        "findings command should exit 0, got {}.\nstdout: {}\nstderr: {}",
+        code, stdout, stderr
+    );
+    assert!(
+        !stdout.trim().is_empty(),
+        "findings command should produce non-empty output"
+    );
+}
+
+// ============================================================================
 // Cache parity: same results fresh vs cached
 // ============================================================================
 
