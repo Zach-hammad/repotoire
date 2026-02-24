@@ -7,6 +7,7 @@ use tracing::info;
 use super::{expect_call, has_meaningful_expect_message, is_safe_unwrap_context, unwrap_call};
 
 pub struct UnwrapWithoutContextDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

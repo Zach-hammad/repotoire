@@ -17,6 +17,7 @@ use tracing::info;
 
 static NONE_ALG: OnceLock<Regex> = OnceLock::new();
 static HS256_ALG: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)]
 static JWT_VERIFY: OnceLock<Regex> = OnceLock::new();
 static ALG_PARAM: OnceLock<Regex> = OnceLock::new();
 
@@ -34,6 +35,7 @@ fn hs256_alg() -> &'static Regex {
     })
 }
 
+#[allow(dead_code)]
 fn jwt_verify() -> &'static Regex {
     JWT_VERIFY.get_or_init(|| {
         Regex::new(r"(?i)(jwt\.(decode|verify)|verify_jwt|verifyToken|JWTVerifier)")
@@ -49,6 +51,7 @@ fn alg_param() -> &'static Regex {
 }
 
 pub struct JwtWeakDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

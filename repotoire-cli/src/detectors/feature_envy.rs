@@ -33,6 +33,7 @@ use tracing::{debug, info};
 
 /// Thresholds for feature envy detection
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Config struct for feature envy thresholds
 pub struct FeatureEnvyThresholds {
     /// Minimum ratio of external to internal uses
     pub threshold_ratio: f64,
@@ -71,6 +72,7 @@ impl Default for FeatureEnvyThresholds {
 pub struct FeatureEnvyDetector {
     #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
+    #[allow(dead_code)] // Config field
     thresholds: FeatureEnvyThresholds,
     /// Function context for graph-aware analysis
     function_contexts: Option<FunctionContextMap>,
@@ -118,6 +120,7 @@ impl FeatureEnvyDetector {
     }
 
     /// Set function contexts for graph-aware analysis
+    #[allow(dead_code)] // Builder method
     pub fn with_function_contexts(mut self, contexts: FunctionContextMap) -> Self {
         self.function_contexts = Some(contexts);
         self
@@ -245,6 +248,7 @@ impl FeatureEnvyDetector {
     }
 
     /// Calculate severity based on ratio and uses
+    #[allow(dead_code)] // Helper for graph-based detection
     fn calculate_severity(&self, ratio: f64, external_uses: usize) -> Severity {
         if ratio >= self.thresholds.critical_ratio
             && external_uses >= self.thresholds.critical_min_uses
@@ -264,6 +268,7 @@ impl FeatureEnvyDetector {
     }
 
     /// Estimate effort based on severity
+    #[allow(dead_code)] // Helper for graph-based detection
     fn estimate_effort(&self, severity: Severity) -> String {
         match severity {
             Severity::Critical => "Large (2-4 hours)".to_string(),
@@ -274,6 +279,7 @@ impl FeatureEnvyDetector {
     }
 
     /// Create a finding for feature envy
+    #[allow(dead_code)] // Helper for graph-based detection
     fn create_finding(
         &self,
         _method_name: String,

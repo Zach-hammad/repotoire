@@ -93,6 +93,7 @@ impl DetectorEngine {
     }
 
     /// Create engine with default settings
+    #[allow(dead_code)] // Public API
     pub fn default() -> Self {
         Self::new(0)
     }
@@ -110,6 +111,7 @@ impl DetectorEngine {
     }
 
     /// Set pre-computed function contexts
+    #[allow(dead_code)] // Public API
     pub fn with_function_contexts(mut self, contexts: Arc<FunctionContextMap>) -> Self {
         self.function_contexts = Some(contexts);
         self
@@ -139,6 +141,7 @@ impl DetectorEngine {
     }
 
     /// Get function contexts (returns None if not built)
+    #[allow(dead_code)] // Public API
     pub fn function_contexts(&self) -> Option<&Arc<FunctionContextMap>> {
         self.function_contexts.as_ref()
     }
@@ -306,11 +309,13 @@ impl DetectorEngine {
     }
 
     /// Get HMM contexts (returns None if not built)
+    #[allow(dead_code)] // Public API
     pub fn hmm_contexts(&self) -> Option<&Arc<HashMap<String, FunctionContext>>> {
         self.hmm_contexts.as_ref()
     }
 
     /// Get context for a specific function
+    #[allow(dead_code)] // Public API
     pub fn get_function_context(&self, qualified_name: &str) -> Option<FunctionContext> {
         self.hmm_contexts
             .as_ref()
@@ -339,6 +344,7 @@ impl DetectorEngine {
     }
 
     /// Get names of all registered detectors
+    #[allow(dead_code)] // Public API
     pub fn detector_names(&self) -> Vec<&'static str> {
         self.detectors.iter().map(|d| d.name()).collect()
     }
@@ -486,6 +492,7 @@ impl DetectorEngine {
     ///
     /// Unlike `run()`, this returns individual results for each detector,
     /// useful for debugging and detailed reporting.
+    #[allow(dead_code)] // Public API for detailed reporting
     pub fn run_detailed(
         &mut self,
         graph: &dyn crate::graph::GraphQuery,
@@ -757,12 +764,14 @@ impl DetectorEngineBuilder {
     }
 
     /// Set maximum findings
+    #[allow(dead_code)] // Builder method
     pub fn max_findings(mut self, max: usize) -> Self {
         self.max_findings = max;
         self
     }
 
     /// Add a detector
+    #[allow(dead_code)] // Builder method
     pub fn detector(mut self, detector: Arc<dyn Detector>) -> Self {
         self.detectors.push(detector);
         self
@@ -775,12 +784,14 @@ impl DetectorEngineBuilder {
     }
 
     /// Set progress callback
+    #[allow(dead_code)] // Builder method
     pub fn on_progress(mut self, callback: ProgressCallback) -> Self {
         self.progress_callback = Some(callback);
         self
     }
 
     /// Set whether to skip test files (default: true)
+    #[allow(dead_code)] // Builder method
     pub fn skip_test_files(mut self, skip: bool) -> Self {
         self.skip_test_files = skip;
         self

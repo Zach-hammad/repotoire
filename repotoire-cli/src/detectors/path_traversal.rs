@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 static FILE_OP: OnceLock<Regex> = OnceLock::new();
 static PATH_JOIN: OnceLock<Regex> = OnceLock::new();
 static SEND_FILE: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)]
 static PATH_RESOLVE: OnceLock<Regex> = OnceLock::new();
 
 fn file_op() -> &'static Regex {
@@ -34,6 +35,7 @@ fn send_file() -> &'static Regex {
     })
 }
 
+#[allow(dead_code)]
 fn path_resolve() -> &'static Regex {
     // Path resolution/normalization that might be unsafe if done after concatenation
     PATH_RESOLVE.get_or_init(|| {

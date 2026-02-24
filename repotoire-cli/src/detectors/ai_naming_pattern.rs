@@ -180,6 +180,7 @@ const LOOP_CONTEXT_NAMES: &[&str] = &["i", "j", "k", "idx"];
 pub struct FunctionNamingAnalysis {
     pub file_path: String,
     pub function_name: String,
+    #[allow(dead_code)] // Included in analysis results
     pub qualified_name: String,
     pub total_identifiers: usize,
     pub generic_count: usize,
@@ -240,6 +241,7 @@ impl AINamingPatternDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder method
     pub fn with_config(config: DetectorConfig) -> Self {
         let mut detector = Self::new();
         detector.generic_ratio_threshold =
@@ -290,6 +292,7 @@ impl AINamingPatternDetector {
     }
 
     /// Analyze identifiers and return generic ones
+    #[allow(dead_code)] // Helper for naming analysis
     fn analyze_identifiers(&self, identifiers: &[String]) -> Vec<String> {
         let mut generic: Vec<String> = Vec::new();
 

@@ -26,6 +26,7 @@ pub struct GraphStore {
     #[allow(dead_code)]
     db_path: Option<std::path::PathBuf>,
     /// Lazy mode - query db directly instead of loading all into memory
+    #[allow(dead_code)] // Config field for future lazy loading support
     lazy_mode: bool,
 }
 

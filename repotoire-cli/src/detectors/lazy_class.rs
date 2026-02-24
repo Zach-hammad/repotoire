@@ -176,6 +176,7 @@ impl LazyClassDetector {
     }
 
     /// Calculate usage ratio (callers per method)
+    #[allow(dead_code)] // Helper for graph-based detection
     fn calculate_usage_ratio(
         &self,
         graph: &dyn crate::graph::GraphQuery,

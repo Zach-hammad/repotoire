@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! TRUE streaming parsers that extract lightweight info directly
 //!
 //! These functions parse files and extract ONLY what we need into

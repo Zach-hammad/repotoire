@@ -435,6 +435,7 @@ impl ModuleLookup {
         }
     }
 
+    #[allow(dead_code)] // Planned for import resolution improvements
     pub(super) fn find_matches(
         &self,
         import_path: &str,
@@ -661,6 +662,7 @@ pub(super) fn save_graph_stats(graph: &GraphStore, repo_path: &Path) -> Result<(
 /// This implementation receives parsed files one at a time and immediately
 /// adds nodes to the graph. Edges are collected for batch insertion at the end.
 /// This prevents OOM on large repositories (75k+ files).
+#[allow(dead_code)] // Infrastructure for streaming graph building
 pub(super) struct StreamingGraphBuilderImpl {
     graph: Arc<GraphStore>,
     repo_path: PathBuf,
@@ -675,6 +677,7 @@ pub(super) struct StreamingGraphBuilderImpl {
     total_classes: usize,
 }
 
+#[allow(dead_code)]
 impl StreamingGraphBuilderImpl {
     pub(super) fn new(
         graph: Arc<GraphStore>,

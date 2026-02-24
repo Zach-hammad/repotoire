@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! Streaming graph builder using LightweightFileInfo
 //!
 //! This module builds the code graph from LightweightFileInfo structs

@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 /// Scope of a detector - determines when it needs to be re-run
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[allow(dead_code)] // Used by incremental cache to scope detector re-runs
 pub enum DetectorScope {
     /// Analyzes a single file in isolation (complexity, naming, etc.)
     /// Can be cached per-file and only re-run when that file changes.
@@ -84,6 +85,7 @@ impl DetectorResult {
 #[derive(Debug, Clone, Default)]
 pub struct DetectorConfig {
     /// Repository ID for multi-tenant filtering
+    #[allow(dead_code)] // Multi-tenant support
     pub repo_id: Option<String>,
     /// Maximum findings to return per detector
     pub max_findings: Option<usize>,
@@ -167,18 +169,21 @@ impl DetectorConfig {
     }
 
     /// Set the repository ID
+    #[allow(dead_code)] // Builder method for multi-tenant support
     pub fn with_repo_id(mut self, repo_id: impl Into<String>) -> Self {
         self.repo_id = Some(repo_id.into());
         self
     }
 
     /// Set maximum findings
+    #[allow(dead_code)] // Builder method for detector configuration
     pub fn with_max_findings(mut self, max: usize) -> Self {
         self.max_findings = Some(max);
         self
     }
 
     /// Set a custom option
+    #[allow(dead_code)] // Builder method for detector configuration
     pub fn with_option(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.options.insert(key.into(), value);
         self
@@ -381,6 +386,7 @@ pub trait Detector: Send + Sync {
     /// - `GraphBased`: Uses full graph, re-run if graph structure changes
     ///
     /// Default is GraphBased (conservative - always re-runs)
+    #[allow(dead_code)] // Used by incremental cache to scope detector re-runs
     fn scope(&self) -> DetectorScope {
         DetectorScope::GraphBased
     }

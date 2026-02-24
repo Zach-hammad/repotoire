@@ -59,6 +59,7 @@ fn suggest_constant_name(num: i64, context_line: &str) -> String {
 }
 
 pub struct MagicNumbersDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
     acceptable: HashSet<i64>,

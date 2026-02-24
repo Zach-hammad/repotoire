@@ -23,8 +23,10 @@ use tracing::{debug, info};
 pub struct CoreUtilityDetector {
     config: DetectorConfig,
     /// Complexity threshold for escalating central coordinator severity
+    #[allow(dead_code)] // Config field
     high_complexity_threshold: u32,
     /// Minimum callers to not be considered isolated
+    #[allow(dead_code)] // Config field
     min_callers_threshold: usize,
 }
 
@@ -53,6 +55,7 @@ impl CoreUtilityDetector {
     /// Calculate harmonic centrality for all nodes (parallelized)
     ///
     /// HC(v) = Σ (1 / d(v, u)) for all u ≠ v
+    #[allow(dead_code)] // Graph algorithm helper
     fn calculate_harmonic(
         &self,
         adj: &[Vec<usize>],
@@ -97,6 +100,7 @@ impl CoreUtilityDetector {
     }
 
     /// Create a finding for central coordinator function
+    #[allow(dead_code)] // Helper for graph-based detection
     fn create_central_coordinator_finding(
         &self,
         name: &str,
@@ -194,6 +198,7 @@ impl CoreUtilityDetector {
     }
 
     /// Create a finding for isolated/dead code
+    #[allow(dead_code)] // Helper for graph-based detection
     fn create_isolated_code_finding(
         &self,
         name: &str,

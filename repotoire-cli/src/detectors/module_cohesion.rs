@@ -27,10 +27,13 @@ pub struct ModuleCohesionDetector {
     #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     /// Modularity threshold for "poor"
+    #[allow(dead_code)] // Config field
     modularity_poor: f64,
     /// God module threshold (% of total files)
+    #[allow(dead_code)] // Config field
     god_module_threshold: f64,
     /// Resolution parameter for Louvain
+    #[allow(dead_code)] // Config field
     resolution: f64,
 }
 
@@ -56,6 +59,7 @@ impl ModuleCohesionDetector {
     }
 
     /// Run Louvain community detection algorithm
+    #[allow(dead_code)] // Graph algorithm helper
     fn louvain(
         &self,
         neighbors: &[Vec<(usize, f64)>],
@@ -167,6 +171,7 @@ impl ModuleCohesionDetector {
     }
 
     /// Calculate modularity score
+    #[allow(dead_code)]
     fn calculate_modularity(
         &self,
         communities: &[u32],
@@ -195,6 +200,7 @@ impl ModuleCohesionDetector {
     }
 
     /// Create finding for poor global modularity
+    #[allow(dead_code)]
     fn create_poor_modularity_finding(
         &self,
         modularity_score: f64,
@@ -264,6 +270,7 @@ impl ModuleCohesionDetector {
     }
 
     /// Create finding for god module
+    #[allow(dead_code)]
     fn create_god_module_finding(
         &self,
         community_id: u32,
@@ -333,6 +340,7 @@ impl ModuleCohesionDetector {
     }
 
     /// Create finding for misplaced file
+    #[allow(dead_code)]
     fn create_misplaced_file_finding(
         &self,
         file_path: &str,
@@ -403,6 +411,7 @@ impl ModuleCohesionDetector {
     }
 
     /// Create finding for high inter-community coupling
+    #[allow(dead_code)]
     fn create_coupling_finding(
         &self,
         high_coupling_edges: &[(u32, u32, usize)],

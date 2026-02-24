@@ -43,6 +43,7 @@ fn debug_pattern() -> &'static Regex {
 }
 
 pub struct TestInProductionDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }
@@ -100,6 +101,7 @@ impl TestInProductionDetector {
     }
 
     /// Find containing function
+    #[allow(dead_code)] // Helper for graph-based detection
     fn find_containing_function(
         graph: &dyn crate::graph::GraphQuery,
         file_path: &str,

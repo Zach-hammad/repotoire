@@ -72,6 +72,7 @@ fn get_async_alternative(blocking_call: &str) -> &'static str {
 }
 
 pub struct SyncInAsyncDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

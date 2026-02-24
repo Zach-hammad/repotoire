@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! Streaming AST processing for memory-efficient large repo analysis
 //!
 //! This module provides a streaming architecture that parses files one at a time,

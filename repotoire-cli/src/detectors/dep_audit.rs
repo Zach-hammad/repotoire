@@ -67,6 +67,7 @@ struct OsvVuln {
     aliases: Vec<String>,
 }
 
+#[allow(dead_code)] // Fields populated by serde deserialization
 #[derive(Deserialize, Debug)]
 struct OsvSeverity {
     #[serde(rename = "type")]
@@ -80,6 +81,7 @@ struct OsvAffected {
     ranges: Vec<OsvRange>,
 }
 
+#[allow(dead_code)] // Fields populated by serde deserialization
 #[derive(Deserialize, Debug)]
 struct OsvRange {
     #[serde(rename = "type")]
@@ -88,6 +90,7 @@ struct OsvRange {
     events: Vec<OsvEvent>,
 }
 
+#[allow(dead_code)] // Fields populated by serde deserialization
 #[derive(Deserialize, Debug)]
 struct OsvEvent {
     introduced: Option<String>,

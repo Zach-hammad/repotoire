@@ -6,6 +6,7 @@ use super::CodeNode;
 use std::collections::HashMap;
 
 /// Common interface for graph stores
+#[allow(dead_code)] // Trait defines public API surface; not all methods called in binary
 pub trait GraphQuery: Send + Sync {
     /// Get all functions
     fn get_functions(&self) -> Vec<CodeNode>;

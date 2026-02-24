@@ -16,13 +16,16 @@ use std::path::PathBuf;
 use tracing::info;
 
 pub struct LongMethodsDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
+    #[allow(dead_code)] // Part of detector pattern
     config: DetectorConfig,
     max_findings: usize,
     threshold: u32,
 }
 
 impl LongMethodsDetector {
+    #[allow(dead_code)] // Constructor used by tests and detector registration
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self {
             repository_path: repository_path.into(),

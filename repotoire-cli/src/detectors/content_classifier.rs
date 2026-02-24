@@ -237,6 +237,7 @@ pub fn is_ast_manipulation_code(func_name: &str, content: &str) -> bool {
 
 /// Check if this is test infrastructure code (fixtures, mocks, test utilities)
 /// These should be analyzed with test-context rules, not skipped entirely
+#[allow(dead_code)] // Public API for test-context classification
 pub fn is_test_infrastructure(file_path: &str, content: &str) -> bool {
     let path_lower = file_path.to_lowercase();
     let header: String = content.chars().take(500).collect();

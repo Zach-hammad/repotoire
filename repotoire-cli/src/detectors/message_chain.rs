@@ -56,6 +56,7 @@ const EXCLUDE_PATTERNS: &[&str] = &[
 pub struct MessageChainDetector {
     config: DetectorConfig,
     thresholds: MessageChainThresholds,
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 

@@ -31,6 +31,7 @@ fn func_call() -> &'static Regex {
 }
 
 pub struct BooleanTrapDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

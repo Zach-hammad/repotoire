@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! Memory-mapped graph store
 //!
 //! Streams graph data from disk instead of holding it all in RAM.

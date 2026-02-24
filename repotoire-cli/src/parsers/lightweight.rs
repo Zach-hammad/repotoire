@@ -216,6 +216,7 @@ pub struct LightweightFileInfo {
 
 impl LightweightFileInfo {
     /// Create empty info for a path
+    #[allow(dead_code)] // Public API
     pub fn empty(path: PathBuf, language: Language) -> Self {
         Self {
             path,
@@ -239,11 +240,13 @@ impl LightweightFileInfo {
     }
 
     /// Check if file is empty (no functions or classes)
+    #[allow(dead_code)] // Public API
     pub fn is_empty(&self) -> bool {
         self.functions.is_empty() && self.classes.is_empty()
     }
 
     /// Total entities count
+    #[allow(dead_code)] // Public API
     pub fn entity_count(&self) -> usize {
         self.functions.len() + self.classes.len()
     }
@@ -337,8 +340,10 @@ impl LightweightFileInfo {
 /// Statistics from lightweight parsing
 #[derive(Debug, Clone, Default)]
 pub struct LightweightParseStats {
+    #[allow(dead_code)] // Included in stats
     pub total_files: usize,
     pub parsed_files: usize,
+    #[allow(dead_code)] // Included in stats
     pub skipped_files: usize,
     pub total_functions: usize,
     pub total_classes: usize,
@@ -360,6 +365,7 @@ impl LightweightParseStats {
     }
 
     /// Human-readable memory estimate
+    #[allow(dead_code)] // Public API
     pub fn memory_human(&self) -> String {
         let bytes = self.estimated_memory_bytes;
         if bytes < 1024 {

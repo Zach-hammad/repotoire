@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use tracing::info;
 
 pub struct LargeFilesDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
     threshold: usize,
@@ -22,6 +23,7 @@ pub struct LargeFilesDetector {
 }
 
 impl LargeFilesDetector {
+    #[allow(dead_code)] // Constructor used by tests and detector registration
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self {
             repository_path: repository_path.into(),

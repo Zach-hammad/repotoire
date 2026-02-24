@@ -51,16 +51,19 @@ const FUNC_QUERY_STR: &str = r#"
 /// Cached queries for TypeScript
 static TS_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
 static TS_CLASS_QUERY: OnceLock<Query> = OnceLock::new();
+#[allow(dead_code)] // Prepared for import query caching
 static TS_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Cached queries for TSX
 static TSX_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
 static TSX_CLASS_QUERY: OnceLock<Query> = OnceLock::new();
+#[allow(dead_code)]
 static TSX_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Cached queries for JavaScript
 static JS_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
 static JS_CLASS_QUERY: OnceLock<Query> = OnceLock::new();
+#[allow(dead_code)]
 static JS_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Class query string for TypeScript
@@ -98,6 +101,7 @@ const JS_CLASS_QUERY_STR: &str = r#"
 "#;
 
 /// Import query string (shared)
+#[allow(dead_code)] // Prepared for import resolution
 const IMPORT_QUERY_STR: &str = r#"
     (import_statement
         source: (string) @import_path
@@ -140,6 +144,7 @@ fn get_class_query(ext: &str, language: &Language) -> &'static Query {
 }
 
 /// Get or create cached import query for an extension
+#[allow(dead_code)] // Prepared for import resolution
 fn get_import_query(ext: &str, language: &Language) -> &'static Query {
     match ext {
         "ts" => TS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).unwrap()),

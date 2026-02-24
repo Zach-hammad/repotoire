@@ -69,6 +69,7 @@ pub enum SeverityResolution {
 /// Weight configuration for a detector
 #[derive(Debug, Clone)]
 pub struct DetectorWeight {
+    #[allow(dead_code)] // Included in weight configuration
     pub name: String,
     pub weight: f64,
     pub accuracy: f64,
@@ -102,7 +103,9 @@ pub struct ConsensusResult {
     pub severity: Severity,
     pub contributing_detectors: Vec<String>,
     pub vote_count: usize,
+    #[allow(dead_code)] // Included in consensus result
     pub total_detectors: usize,
+    #[allow(dead_code)] // Included in consensus result
     pub agreement_ratio: f64,
 }
 

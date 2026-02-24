@@ -9,6 +9,7 @@ use super::{
 };
 
 pub struct MissingRandomSeedDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 
@@ -125,6 +126,7 @@ impl Detector for MissingRandomSeedDetector {
 
 /// Detects pandas chain indexing df['a']['b'] (SettingWithCopyWarning)
 pub struct ChainIndexingDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 
@@ -220,6 +222,7 @@ impl Detector for ChainIndexingDetector {
 
 /// Detects require_grad typo (should be requires_grad)
 pub struct RequireGradTypoDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 
@@ -308,6 +311,7 @@ impl Detector for RequireGradTypoDetector {
 
 /// Detects deprecated PyTorch API usage
 pub struct DeprecatedTorchApiDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 

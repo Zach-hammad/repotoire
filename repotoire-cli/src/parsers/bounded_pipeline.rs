@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! Memory-bounded parallel pipeline using crossbeam channels
 //!
 //! This module implements an improved producer-consumer pipeline with:

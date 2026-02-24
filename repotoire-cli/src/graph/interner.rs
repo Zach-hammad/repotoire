@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! String interning for memory-efficient graph storage
 //!
 //! Instead of storing duplicate strings (e.g., file paths repeated for every function),

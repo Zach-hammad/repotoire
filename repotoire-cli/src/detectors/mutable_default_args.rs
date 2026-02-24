@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 use tracing::info;
 
 static MUTABLE_DEFAULT: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)]
 static FUNC_NAME: OnceLock<Regex> = OnceLock::new();
 
 fn mutable_default() -> &'static Regex {
@@ -23,6 +24,7 @@ fn mutable_default() -> &'static Regex {
     })
 }
 
+#[allow(dead_code)]
 fn func_name() -> &'static Regex {
     FUNC_NAME.get_or_init(|| Regex::new(r"def\s+(\w+)").expect("valid regex"))
 }
@@ -62,6 +64,7 @@ fn get_fix_example(mutable_type: &str, param_name: &str) -> String {
 }
 
 pub struct MutableDefaultArgsDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

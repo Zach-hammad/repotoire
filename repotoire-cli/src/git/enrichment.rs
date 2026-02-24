@@ -41,6 +41,7 @@ pub struct GitEnricher<'a> {
     history: &'a GitHistory,
     graph: &'a GraphStore,
     /// Track commits we've already created
+    #[allow(dead_code)] // Used by create_commit_if_needed
     seen_commits: HashSet<String>,
 }
 
@@ -256,6 +257,7 @@ impl<'a> GitEnricher<'a> {
     }
 
     /// Create a Commit node if it doesn't already exist.
+    #[allow(dead_code)] // Infrastructure for git graph enrichment
     fn create_commit_if_needed(&mut self, hash: &str, author: &str, timestamp: &str) -> bool {
         if self.seen_commits.contains(hash) {
             return false;
@@ -273,6 +275,7 @@ impl<'a> GitEnricher<'a> {
     }
 
     /// Create a MODIFIED_IN edge from entity to commit.
+    #[allow(dead_code)] // Infrastructure for git graph enrichment
     fn create_modified_in_edge(&self, entity_qn: &str, commit_hash: &str) -> bool {
         self.graph
             .add_edge_by_name(entity_qn, commit_hash, CodeEdge::new(EdgeKind::ModifiedIn))

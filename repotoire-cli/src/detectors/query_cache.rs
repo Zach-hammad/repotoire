@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future detector parallelization
 //! Shared query cache for detector parallelization
 //!
 //! Caches common graph data, enabling O(1) lookups instead of

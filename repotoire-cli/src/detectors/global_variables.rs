@@ -16,9 +16,11 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
 
+#[allow(dead_code)] // Used by global_pattern()
 static GLOBAL_PATTERN: OnceLock<Regex> = OnceLock::new();
 static VAR_NAME: OnceLock<Regex> = OnceLock::new();
 
+#[allow(dead_code)] // Prepared for additional global detection rules
 fn global_pattern() -> &'static Regex {
     GLOBAL_PATTERN.get_or_init(|| {
         Regex::new(r"^(var\s+\w+\s*=|let\s+\w+\s*=|global\s+\w+|\w+\s*=\s*[^=])")
@@ -31,6 +33,7 @@ fn var_name_pattern() -> &'static Regex {
 }
 
 pub struct GlobalVariablesDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

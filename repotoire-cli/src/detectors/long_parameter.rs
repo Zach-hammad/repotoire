@@ -50,6 +50,7 @@ pub struct LongParameterListDetector {
     #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     thresholds: LongParameterThresholds,
+    #[allow(dead_code)] // Config field for parameter exclusion
     skip_params: HashSet<String>,
 }
 
@@ -95,6 +96,7 @@ impl LongParameterListDetector {
     }
 
     /// Extract meaningful parameter names (excluding self/cls)
+    #[allow(dead_code)] // Helper for graph-based parameter analysis
     fn get_meaningful_params(&self, params: &[serde_json::Value]) -> Vec<String> {
         params
             .iter()
@@ -128,6 +130,7 @@ impl LongParameterListDetector {
     }
 
     /// Generate a suggested config class name
+    #[allow(dead_code)] // Helper for graph-based parameter analysis
     fn suggest_config_name(&self, func_name: &str, params: &[String]) -> String {
         // Try to derive from function name
         if let Some(base) = func_name.strip_prefix("create_") {
@@ -173,6 +176,7 @@ impl LongParameterListDetector {
     }
 
     /// Generate refactoring suggestion
+    #[allow(dead_code)] // Helper for graph-based parameter analysis
     fn generate_suggestion(&self, func_name: &str, params: &[String]) -> String {
         let config_name = self.suggest_config_name(func_name, params);
 
@@ -244,6 +248,7 @@ impl LongParameterListDetector {
     }
 
     /// Create a finding for a function with long parameter list
+    #[allow(dead_code)] // Helper for graph-based parameter analysis
     fn create_finding(
         &self,
         _qualified_name: String,
@@ -513,6 +518,7 @@ impl Detector for LongParameterListDetector {
 }
 
 /// Convert snake_case to PascalCase
+#[allow(dead_code)] // Used by suggest_config_name
 fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .map(|word| {

@@ -11,6 +11,7 @@ use super::{
 };
 
 pub struct TorchLoadUnsafeDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 
@@ -99,6 +100,7 @@ impl Detector for TorchLoadUnsafeDetector {
 
 /// Detects comparisons with NaN (always False due to IEEE 754)
 pub struct NanEqualityDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 
@@ -187,6 +189,7 @@ impl Detector for NanEqualityDetector {
 
 /// Detects .backward() without zero_grad() in training loops
 pub struct MissingZeroGradDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 
@@ -288,6 +291,7 @@ impl Detector for MissingZeroGradDetector {
 
 /// Detects model.forward() instead of model() - skips hooks
 pub struct ForwardMethodDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
 }
 

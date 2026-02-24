@@ -184,6 +184,7 @@ pub struct ProjectConfig {
 
     /// Cached auto-detected project type (not serialized)
     #[serde(skip)]
+    #[allow(dead_code)] // Set during detection, read in future project-type logic
     detected_type: Option<ProjectType>,
 }
 

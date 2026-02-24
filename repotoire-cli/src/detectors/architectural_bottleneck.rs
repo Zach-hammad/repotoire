@@ -26,6 +26,7 @@ use tracing::debug;
 pub struct ArchitecturalBottleneckDetector {
     config: DetectorConfig,
     /// Complexity threshold for severity escalation
+    #[allow(dead_code)] // Config field
     high_complexity_threshold: u32,
     /// Minimum fan-in to consider a bottleneck
     min_fan_in: usize,

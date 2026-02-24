@@ -67,6 +67,7 @@ fn suggest_constant_name(context: &str, value: u64) -> String {
 }
 
 pub struct HardcodedTimeoutDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

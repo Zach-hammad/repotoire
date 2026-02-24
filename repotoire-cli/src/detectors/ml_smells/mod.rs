@@ -29,11 +29,16 @@ static ZERO_GRAD_CALL: OnceLock<Regex> = OnceLock::new();
 static FORWARD_METHOD: OnceLock<Regex> = OnceLock::new();
 static MANUAL_SEED: OnceLock<Regex> = OnceLock::new();
 static CHAIN_INDEX: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)] // Prepared for future ML smell detectors
 static PCA_SVM_CALL: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)]
 static SCALER_CALL: OnceLock<Regex> = OnceLock::new();
 static REQUIRE_GRAD_TYPO: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)]
 static DEPRECATED_TORCH: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)]
 static DATALOADER_SHUFFLE: OnceLock<Regex> = OnceLock::new();
+#[allow(dead_code)]
 static EVAL_MODE: OnceLock<Regex> = OnceLock::new();
 
 pub(crate) fn torch_load() -> &'static Regex {
@@ -68,11 +73,13 @@ pub(crate) fn chain_index() -> &'static Regex {
         Regex::new(r#"\w+\[['"][^'"]+['"]\]\s*\[['"][^'"]+['"]\]"#).expect("valid regex")
     })
 }
+#[allow(dead_code)]
 pub(crate) fn pca_svm_call() -> &'static Regex {
     PCA_SVM_CALL.get_or_init(|| {
         Regex::new(r"(?:PCA|SVC|SVR|SGDClassifier|SGDRegressor|MLPClassifier|MLPRegressor|KMeans|DBSCAN|Lasso|Ridge|ElasticNet)\s*\(").expect("valid regex")
     })
 }
+#[allow(dead_code)]
 pub(crate) fn scaler_call() -> &'static Regex {
     SCALER_CALL.get_or_init(|| {
         Regex::new(r"(?:StandardScaler|MinMaxScaler|RobustScaler|Normalizer|MaxAbsScaler)\s*\(")
@@ -84,16 +91,19 @@ pub(crate) fn require_grad_typo() -> &'static Regex {
         Regex::new(r"\.require_grad\s*=|require_grad\s*=\s*True").expect("valid regex")
     })
 }
+#[allow(dead_code)]
 pub(crate) fn deprecated_torch() -> &'static Regex {
     DEPRECATED_TORCH.get_or_init(|| {
         Regex::new(r"torch\.(?:solve|symeig|qr|cholesky|chain_matmul|range)\s*\(")
             .expect("valid regex")
     })
 }
+#[allow(dead_code)]
 pub(crate) fn dataloader_shuffle() -> &'static Regex {
     DATALOADER_SHUFFLE
         .get_or_init(|| Regex::new(r"DataLoader\s*\([^)]*shuffle\s*=\s*True").expect("valid regex"))
 }
+#[allow(dead_code)]
 pub(crate) fn eval_mode() -> &'static Regex {
     EVAL_MODE.get_or_init(|| Regex::new(r"\.eval\s*\(").expect("valid regex"))
 }

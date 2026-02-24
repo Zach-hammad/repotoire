@@ -31,6 +31,7 @@ use std::path::PathBuf;
 use tracing::{debug, info};
 
 /// Thresholds for refused bequest detection
+#[allow(dead_code)] // Config struct for refused bequest thresholds
 #[derive(Debug, Clone)]
 pub struct RefusedBequestThresholds {
     /// Minimum overrides to consider
@@ -49,6 +50,7 @@ impl Default for RefusedBequestThresholds {
 }
 
 /// Patterns to exclude from detection (abstract base classes)
+#[allow(dead_code)] // Used by is_abstract_parent
 static EXCLUDE_PARENT_PATTERNS: &[&str] =
     &["ABC", "Abstract", "Interface", "Base", "Mixin", "Protocol"];
 
@@ -56,6 +58,7 @@ static EXCLUDE_PARENT_PATTERNS: &[&str] =
 pub struct RefusedBequestDetector {
     #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
+    #[allow(dead_code)] // Config field
     thresholds: RefusedBequestThresholds,
 }
 
@@ -85,6 +88,7 @@ impl RefusedBequestDetector {
     }
 
     /// Check if parent is an abstract class
+    #[allow(dead_code)] // Helper for graph-based detection
     fn is_abstract_parent(&self, parent_name: &str) -> bool {
         if parent_name.is_empty() {
             return false;
@@ -97,6 +101,7 @@ impl RefusedBequestDetector {
     }
 
     /// Calculate severity based on parent call ratio
+    #[allow(dead_code)] // Helper for graph-based detection
     fn calculate_severity(&self, ratio: f64) -> Severity {
         if ratio == 0.0 {
             Severity::High
@@ -108,6 +113,7 @@ impl RefusedBequestDetector {
     }
 
     /// Estimate effort based on severity
+    #[allow(dead_code)] // Helper for graph-based detection
     fn estimate_effort(&self, severity: Severity) -> String {
         match severity {
             Severity::Critical | Severity::High => "Medium (2-4 hours)".to_string(),
@@ -117,6 +123,7 @@ impl RefusedBequestDetector {
     }
 
     /// Create a finding for refused bequest
+    #[allow(dead_code)] // Helper for graph-based detection
     fn create_finding(
         &self,
         _child_name: String,

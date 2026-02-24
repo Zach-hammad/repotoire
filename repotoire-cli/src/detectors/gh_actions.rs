@@ -68,6 +68,7 @@ impl GHActionsInjectionDetector {
     }
 
     /// Set maximum findings
+    #[allow(dead_code)] // Builder method
     pub fn with_max_findings(mut self, max: usize) -> Self {
         self.max_findings = max;
         self

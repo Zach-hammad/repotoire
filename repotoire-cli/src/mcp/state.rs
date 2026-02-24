@@ -108,6 +108,7 @@ impl HandlerState {
     }
 
     /// Get mode description
+    #[allow(dead_code)] // Used in tests
     pub fn mode_description(&self) -> &'static str {
         if self.is_pro() {
             "PRO (cloud)"
@@ -132,6 +133,7 @@ impl HandlerState {
     }
 
     /// Inject a pre-built graph store (used by tests and embedding scenarios).
+    #[allow(dead_code)] // Called from MCP tool handlers and tests
     pub fn set_graph(&mut self, graph: Arc<GraphStore>) {
         self.graph = Some(graph);
     }

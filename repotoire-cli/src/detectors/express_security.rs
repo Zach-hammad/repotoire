@@ -37,8 +37,10 @@ struct SecurityFeatures {
     has_cors: bool,
     has_rate_limit: bool,
     has_body_parser_limit: bool,
+    #[allow(dead_code)] // Tracked for security audit completeness
     has_hpp: bool,
     has_csrf: bool,
+    #[allow(dead_code)] // Tracked for security audit completeness
     has_compression: bool,
     route_count: usize,
     auth_middleware_count: usize,
@@ -127,6 +129,7 @@ impl SecurityFeatures {
 }
 
 pub struct ExpressSecurityDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }
@@ -140,6 +143,7 @@ impl ExpressSecurityDetector {
     }
 
     /// Find containing function
+    #[allow(dead_code)] // Helper for graph-based detection
     fn find_containing_function(
         graph: &dyn crate::graph::GraphQuery,
         file_path: &str,

@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future taint analysis
 //! Intra-function data flow analysis for taint tracking.
 //!
 //! This module provides a trait-based abstraction for analyzing data flow

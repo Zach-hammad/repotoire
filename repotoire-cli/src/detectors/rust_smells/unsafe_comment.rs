@@ -7,6 +7,7 @@ use tracing::info;
 use super::{is_test_context, safety_comment, unsafe_block};
 
 pub struct UnsafeWithoutSafetyCommentDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

@@ -738,6 +738,7 @@ pub fn is_safe_orm_pattern(line: &str, frameworks: &HashSet<Framework>) -> bool 
 }
 
 /// Get which framework a line matches (for reporting purposes)
+#[allow(dead_code)] // Public API for framework detection
 pub fn get_matching_framework(line: &str, frameworks: &HashSet<Framework>) -> Option<Framework> {
     let line_lower = line.to_lowercase();
 

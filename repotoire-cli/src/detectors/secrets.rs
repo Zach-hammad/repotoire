@@ -94,7 +94,9 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
 }
 
 pub struct SecretDetector {
+    #[allow(dead_code)] // Part of detector pattern
     config: DetectorConfig,
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

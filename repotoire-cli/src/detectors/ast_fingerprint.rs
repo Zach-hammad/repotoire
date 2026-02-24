@@ -27,6 +27,7 @@ pub struct FunctionInfo {
     /// Full text of the function body.
     pub body_text: String,
     /// Language the function was parsed from.
+    #[allow(dead_code)] // Included in function info
     pub language: Language,
 }
 

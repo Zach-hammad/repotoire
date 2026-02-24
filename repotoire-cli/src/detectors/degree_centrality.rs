@@ -25,6 +25,7 @@ pub struct DegreeCentralityDetector {
     #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
     /// Complexity threshold for severity escalation
+    #[allow(dead_code)] // Config field
     high_complexity_threshold: u32,
     /// Minimum total degree for coupling hotspot
     min_total_degree: usize,

@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future SSA-based taint analysis
 //! SSA-based data flow analysis using tree-sitter ASTs (Approach B).
 //!
 //! This module implements `DataFlowProvider` using proper AST traversal

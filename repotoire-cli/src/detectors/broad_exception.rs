@@ -23,6 +23,7 @@ fn broad_except() -> &'static Regex {
 }
 
 pub struct BroadExceptionDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

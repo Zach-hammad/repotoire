@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Superseded by dedicated security detectors, kept for reference
 //! Taint tracking detector for security vulnerability detection
 //!
 //! **Status: Disabled in default detector set.** This pattern-based taint detector

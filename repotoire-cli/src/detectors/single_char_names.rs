@@ -71,6 +71,7 @@ fn suggest_name(var: &str, context_line: &str) -> String {
 }
 
 pub struct SingleCharNamesDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

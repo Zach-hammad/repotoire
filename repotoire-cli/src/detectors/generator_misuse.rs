@@ -39,6 +39,7 @@ fn list_call() -> &'static Regex {
 /// Detects generator functions with only one yield statement
 pub struct GeneratorMisuseDetector {
     config: DetectorConfig,
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

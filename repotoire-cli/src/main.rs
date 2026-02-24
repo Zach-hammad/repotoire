@@ -8,8 +8,6 @@
 //! A fast, local-first code analysis tool that uses knowledge graphs
 //! to detect code smells, architectural issues, and technical debt.
 
-// Suppresses warnings during rapid development
-#![allow(dead_code)]
 // Allow structural patterns common in detector/parser architecture
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::needless_update)]

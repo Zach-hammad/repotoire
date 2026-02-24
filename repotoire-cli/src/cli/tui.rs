@@ -35,7 +35,7 @@ use crate::models::{Finding, Severity};
 pub enum AgentStatus {
     Running,
     Completed(bool), // success
-    Failed(String),  // error message
+    Failed(#[allow(dead_code)] String),  // error message
 }
 
 /// Represents a running agent task

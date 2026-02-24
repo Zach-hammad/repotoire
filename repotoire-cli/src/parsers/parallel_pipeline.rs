@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! Parallel parsing pipeline using crossbeam channels
 //!
 //! This module implements a producer-consumer pipeline that SEPARATES:

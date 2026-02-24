@@ -117,6 +117,7 @@ impl TaintCategory {
     }
 
     /// Get a human-readable name
+    #[allow(dead_code)] // Public API
     pub fn name(&self) -> &'static str {
         match self {
             TaintCategory::SqlInjection => "SQL Injection",
@@ -652,6 +653,7 @@ impl TaintAnalyzer {
 
     /// Check if a function name matches any source pattern for the category.
     /// Uses word-boundary matching to avoid false positives like 'id' matching 'valid' (#28).
+    #[allow(dead_code)] // Public API for taint analysis
     pub fn is_source(&self, func_name: &str, category: TaintCategory) -> bool {
         if let Some(sources) = self.sources.get(&category) {
             let name_lower = func_name.to_lowercase();

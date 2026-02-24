@@ -199,6 +199,7 @@ impl StreamingDetectorEngine {
     }
 
     /// Read findings from disk (streaming iterator)
+    #[allow(dead_code)] // Public API for streaming results
     pub fn read_findings(&self) -> Result<impl Iterator<Item = Finding>> {
         let file = File::open(&self.output_path)?;
         let reader = BufReader::new(file);
@@ -209,6 +210,7 @@ impl StreamingDetectorEngine {
     }
 
     /// Read findings with limit (for display)
+    #[allow(dead_code)] // Public API for streaming results
     pub fn read_findings_limited(&self, limit: usize) -> Result<Vec<Finding>> {
         let file = File::open(&self.output_path)?;
         let reader = BufReader::new(file);
@@ -237,6 +239,7 @@ impl StreamingDetectorEngine {
     }
 
     /// Count findings by severity (without loading all)
+    #[allow(dead_code)] // Public API for streaming results
     pub fn count_by_severity(&self) -> Result<HashMap<Severity, usize>> {
         let file = File::open(&self.output_path)?;
         let reader = BufReader::new(file);

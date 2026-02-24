@@ -91,6 +91,7 @@ fn categorize_violation(
 }
 
 pub struct ReactHooksDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }
@@ -126,6 +127,7 @@ impl ReactHooksDetector {
     }
 
     /// Check for custom hooks (functions starting with 'use')
+    #[allow(dead_code)] // Helper for React hooks analysis
     fn is_custom_hook(func_name: &str) -> bool {
         func_name.starts_with("use")
             && func_name

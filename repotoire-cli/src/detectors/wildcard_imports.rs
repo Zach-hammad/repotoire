@@ -33,6 +33,7 @@ fn module_name() -> &'static Regex {
 }
 
 pub struct WildcardImportsDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

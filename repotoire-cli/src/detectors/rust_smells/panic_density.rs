@@ -37,6 +37,7 @@ struct FunctionSpan {
 /// this detector aggregates counts and flags *density* -- functions with many panic
 /// points or files with a large total count.
 pub struct PanicDensityDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
 }

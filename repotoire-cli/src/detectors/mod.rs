@@ -665,6 +665,7 @@ pub fn is_line_suppressed(line: &str, prev_line: Option<&str>) -> bool {
 ///
 /// # Returns
 /// `true` if the line should be suppressed for the given detector
+#[allow(dead_code)] // Public API for inline suppression checking
 pub fn is_line_suppressed_for(line: &str, prev_line: Option<&str>, detector_name: &str) -> bool {
     fn check_suppression(text: &str, detector_name: &str) -> bool {
         let lower = text.to_lowercase();

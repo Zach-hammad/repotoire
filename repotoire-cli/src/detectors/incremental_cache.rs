@@ -195,6 +195,7 @@ pub struct CacheStats {
 /// Stores file hashes and associated findings to avoid re-running detectors
 /// on unchanged files. Cache is persisted to disk as JSON.
 pub struct IncrementalCache {
+    #[allow(dead_code)] // Part of cache structure
     cache_dir: PathBuf,
     cache_file: PathBuf,
     cache: CacheData,
@@ -348,6 +349,7 @@ impl IncrementalCache {
     }
 
     /// Check if file has changed since last cache
+    #[allow(dead_code)] // Public API
     pub fn is_file_changed(&self, path: &Path) -> bool {
         let path_key = self.path_key(path);
         match self.cache.files.get(&path_key) {
@@ -526,6 +528,7 @@ impl IncrementalCache {
     }
 
     /// Retrieve cached findings for a specific graph detector
+    #[allow(dead_code)] // Public API
     pub fn cached_graph_findings(&self, detector_name: &str) -> Vec<Finding> {
         self.cache
             .graph
@@ -552,6 +555,7 @@ impl IncrementalCache {
     }
 
     /// Cache the score result
+    #[allow(dead_code)] // Public API
     pub fn cache_score(
         &mut self,
         score: f64,

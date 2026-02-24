@@ -105,6 +105,7 @@ impl FunctionContext {
     }
 
     /// Coupling threshold multiplier
+    #[allow(dead_code)] // Public API for context-aware thresholds
     pub fn coupling_multiplier(&self) -> f64 {
         match self {
             FunctionContext::Utility => 3.0,  // Very lenient
@@ -218,8 +219,11 @@ pub struct FunctionFeatures {
     pub caller_file_spread: f64, // unique_caller_files / total_callers
 
     // Code features
+    #[allow(dead_code)] // Used by HMM feature vector
     pub complexity_ratio: f64,  // complexity / avg_complexity
+    #[allow(dead_code)] // Used by HMM feature vector
     pub loc_ratio: f64,         // loc / avg_loc
+    #[allow(dead_code)] // Used by HMM feature vector
     pub param_count_ratio: f64, // params / avg_params
 
     // Address-taken (callback indicator)
@@ -607,6 +611,7 @@ impl ContextHMM {
     }
 
     /// Classify a sequence of functions using Viterbi algorithm
+    #[allow(dead_code)] // Public API for HMM classification
     pub fn classify_sequence(&self, features: &[FunctionFeatures]) -> Vec<FunctionContext> {
         if features.is_empty() {
             return vec![];
@@ -756,6 +761,7 @@ impl ContextHMM {
     ///
     /// E-step: Classify all functions with current model
     /// M-step: Update model parameters from confident predictions
+    #[allow(dead_code)] // Public API for HMM refinement
     pub fn em_refine(
         &mut self,
         function_data: &[(FunctionFeatures, usize, usize, bool)],
@@ -782,6 +788,7 @@ impl ContextHMM {
     }
 
     /// Classify with confidence score
+    #[allow(dead_code)] // Public API for HMM classification
     pub fn classify_with_confidence(&self, features: &FunctionFeatures) -> (FunctionContext, f64) {
         let vec = features.to_vector();
         let mut log_probs = [0.0f64; 5];

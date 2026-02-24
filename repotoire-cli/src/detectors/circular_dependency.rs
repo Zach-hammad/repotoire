@@ -18,6 +18,7 @@ use tracing::{debug, info};
 struct CouplingAnalysis {
     edge_strengths: HashMap<(String, String), usize>,
     weakest_link: Option<(String, String, usize)>,
+    #[allow(dead_code)] // Computed during analysis for future use
     strongest_link: Option<(String, String, usize)>,
 }
 

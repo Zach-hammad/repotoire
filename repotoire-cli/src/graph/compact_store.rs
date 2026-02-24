@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! Memory-efficient graph store using string interning
 //!
 //! This store uses ~60-70% less memory than the standard GraphStore

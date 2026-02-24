@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! Streaming graph builder using CompactGraphStore
 //!
 //! Memory-efficient graph building that uses string interning.

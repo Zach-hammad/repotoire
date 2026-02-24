@@ -32,6 +32,7 @@ use std::path::PathBuf;
 use tracing::{debug, info};
 
 /// Thresholds for inappropriate intimacy detection
+#[allow(dead_code)] // Config struct for intimacy thresholds
 #[derive(Debug, Clone)]
 pub struct InappropriateIntimacyThresholds {
     /// Total coupling for high severity
@@ -56,6 +57,7 @@ impl Default for InappropriateIntimacyThresholds {
 pub struct InappropriateIntimacyDetector {
     #[allow(dead_code)] // Stored for future config access
     config: DetectorConfig,
+    #[allow(dead_code)] // Config field
     thresholds: InappropriateIntimacyThresholds,
 }
 
@@ -74,6 +76,7 @@ impl InappropriateIntimacyDetector {
     }
 
     /// Create with custom config
+    #[allow(dead_code)] // Builder method
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = InappropriateIntimacyThresholds {
             threshold_high: config.get_option_or("threshold_high", 20),
@@ -85,6 +88,7 @@ impl InappropriateIntimacyDetector {
     }
 
     /// Calculate severity based on total coupling
+    #[allow(dead_code)] // Helper for graph-based detection
     fn calculate_severity(&self, total_coupling: usize) -> Severity {
         if total_coupling >= self.thresholds.threshold_high {
             Severity::High
@@ -96,6 +100,7 @@ impl InappropriateIntimacyDetector {
     }
 
     /// Estimate effort based on severity
+    #[allow(dead_code)] // Helper for graph-based detection
     fn estimate_effort(&self, severity: Severity) -> String {
         match severity {
             Severity::Critical => "Large (8+ hours)".to_string(),
@@ -106,6 +111,7 @@ impl InappropriateIntimacyDetector {
     }
 
     /// Create a finding for inappropriate intimacy
+    #[allow(dead_code)] // Helper for graph-based detection
     fn create_finding(
         &self,
         _class1: String,
