@@ -7,6 +7,7 @@
 #![allow(non_snake_case)]
 
 pub mod analysis;
+pub mod evolution;
 pub mod files;
 pub mod graph;
 
