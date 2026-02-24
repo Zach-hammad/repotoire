@@ -311,7 +311,7 @@ impl Detector for GeneratorMisuseDetector {
                                 "get_template_sources", "subwidgets", "chunks",
                                 "__iter__", "__aiter__", "__next__", "__anext__",
                             ];
-                            if polymorphic_methods.iter().any(|m| func_name == *m)
+                            if polymorphic_methods.contains(&func_name)
                                 || func_name.starts_with("iter_")
                             {
                                 continue;

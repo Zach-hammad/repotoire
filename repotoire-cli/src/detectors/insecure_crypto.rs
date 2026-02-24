@@ -53,10 +53,10 @@ fn is_hash_mention_not_usage(line: &str) -> bool {
     }
 
     // Skip non-cryptographic hashing contexts (cache keys, template hashing)
-    if lower.contains("generate_hash") || lower.contains("hexdigest") {
-        if lower.contains("cache") || lower.contains("template") || lower.contains("loader") || lower.contains("join") || lower.contains("values") {
-            return true;
-        }
+    if (lower.contains("generate_hash") || lower.contains("hexdigest"))
+        && (lower.contains("cache") || lower.contains("template") || lower.contains("loader") || lower.contains("join") || lower.contains("values"))
+    {
+        return true;
     }
 
     // Skip regex pattern definitions

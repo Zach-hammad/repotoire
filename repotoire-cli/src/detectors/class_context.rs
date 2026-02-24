@@ -468,7 +468,7 @@ impl<'a> ClassContextBuilder<'a> {
         if FRAMEWORK_CORE_SUFFIXES.iter().any(|s| name.ends_with(s)) {
             return (
                 ClassRole::FrameworkCore,
-                format!("Name ends with framework suffix"),
+                "Name ends with framework suffix".to_string(),
             );
         }
 

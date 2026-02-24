@@ -91,32 +91,22 @@ pub struct TraceDependenciesParams {
     pub kind: Option<TraceKind>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TraceDirection {
     Upstream,
     Downstream,
+    #[default]
     Both,
 }
 
-impl Default for TraceDirection {
-    fn default() -> Self {
-        Self::Both
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TraceKind {
     Calls,
     Imports,
+    #[default]
     All,
-}
-
-impl Default for TraceKind {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -129,17 +119,12 @@ pub struct AnalyzeImpactParams {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ImpactScope {
     Function,
+    #[default]
     File,
-}
-
-impl Default for ImpactScope {
-    fn default() -> Self {
-        Self::File
-    }
 }
 
 // ── File Tools ──

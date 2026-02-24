@@ -279,7 +279,7 @@ impl Detector for UnusedImportsDetector {
                                     j += 1;
                                 }
                                 // Remove parentheses so the regex sees a flat import list
-                                accumulated.replace('(', "").replace(')', "")
+                                accumulated.replace(['(', ')'], "")
                             } else {
                                 trimmed.to_string()
                             };
