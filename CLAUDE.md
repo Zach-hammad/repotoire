@@ -172,16 +172,21 @@ repotoire validate
 
 ### MCP Server (Claude Code Integration)
 
-Repotoire provides an MCP server for use with Claude Code, Cursor, and other MCP-compatible AI assistants. The server follows an **Open Core** model:
+Repotoire provides an MCP server (built on the rmcp SDK, protocol version MCP 2025-06-18) for use with Claude Code, Cursor, and other MCP-compatible AI assistants. The server follows an **Open Core** model:
 
 | Tier | Features | Requirements |
 |------|----------|--------------|
-| **Free** | Graph analysis, detectors, Cypher queries | Local FalkorDB |
-| **Pro** | AI search, RAG Q&A, embeddings | `REPOTOIRE_API_KEY` |
+| **Free** | Analysis, graph queries, architecture, hotspots, evolution | Local CLI only |
+| **Pro** | Semantic search, RAG Q&A | `REPOTOIRE_API_KEY` |
+| **AI/BYOK** | AI-powered fix generation | Any LLM API key |
 
 **Start the MCP server:**
 ```bash
-repotoire-mcp
+# Default: stdio transport
+repotoire serve
+
+# Streamable HTTP transport on a custom port
+repotoire serve --http-port 8080
 ```
 
 **Configure in Claude Code** (`~/.claude.json`):
@@ -190,11 +195,9 @@ repotoire-mcp
   "mcpServers": {
     "repotoire": {
       "type": "stdio",
-      "command": "repotoire-mcp",
+      "command": "repotoire",
+      "args": ["serve"],
       "env": {
-        "FALKORDB_HOST": "localhost",
-        "FALKORDB_PORT": "6379",
-        "FALKORDB_PASSWORD": "your-password",
         "REPOTOIRE_API_KEY": "${REPOTOIRE_API_KEY}"
       }
     }
@@ -202,16 +205,25 @@ repotoire-mcp
 }
 ```
 
-**Available tools:**
-- `health_check` - [FREE] Check system status
-- `analyze_codebase` - [FREE] Run code health analysis
-- `query_graph` - [FREE] Execute Cypher queries
-- `get_codebase_stats` - [FREE] Get codebase statistics
-- `search_code` - [PRO] Semantic code search
-- `ask_code_question` - [PRO] RAG-powered Q&A
-- `get_embeddings_status` - [PRO] Check embeddings coverage
+**Available tools (13):**
 
-See [docs/guides/mcp-server.md](docs/guides/mcp-server.md) for complete documentation.
+| Tool | Tier | Description |
+|------|------|-------------|
+| `repotoire_analyze` | FREE | Run code analysis, return findings by severity |
+| `repotoire_get_findings` | FREE | Get findings with filtering and pagination |
+| `repotoire_get_hotspots` | FREE | Get files ranked by issue density |
+| `repotoire_query_graph` | FREE | Query code entities (functions, classes, files, callers, callees) |
+| `repotoire_trace_dependencies` | FREE | Multi-hop graph traversal (call chains, imports, inheritance) |
+| `repotoire_analyze_impact` | FREE | Change impact analysis (what breaks if I modify X?) |
+| `repotoire_get_file` | FREE | Read file content with line range |
+| `repotoire_get_architecture` | FREE | Codebase structure overview |
+| `repotoire_list_detectors` | FREE | List available detectors |
+| `repotoire_query_evolution` | FREE | Git history queries (churn, blame, commits, ownership) |
+| `repotoire_search_code` | PRO | Semantic code search with embeddings |
+| `repotoire_ask` | PRO | RAG-powered Q&A about the codebase |
+| `repotoire_generate_fix` | AI/BYOK | AI-powered fix generation |
+
+See [repotoire-cli/docs/MCP.md](repotoire-cli/docs/MCP.md) for complete documentation.
 
 ## Architecture
 
