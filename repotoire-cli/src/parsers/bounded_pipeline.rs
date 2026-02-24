@@ -21,7 +21,7 @@
 //!   - When edges hit threshold, consumer flushes to disk
 //! ```
 //!
-//! # Key Differences from parallel_pipeline.rs
+//! # Key Differences from unbounded pipelines
 //!
 //! - Adaptive buffer size: smaller for larger repos
 //! - Edge flushing: periodic flush instead of defer-all

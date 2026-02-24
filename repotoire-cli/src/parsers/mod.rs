@@ -20,9 +20,6 @@ pub mod streaming;
 pub mod lightweight;
 pub mod lightweight_parser;
 
-/// Parallel pipeline using crossbeam channels
-pub mod parallel_pipeline;
-
 /// Memory-bounded parallel pipeline with adaptive sizing
 pub mod bounded_pipeline;
 
