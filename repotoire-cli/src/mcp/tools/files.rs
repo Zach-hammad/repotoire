@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::detectors::default_detectors_with_ngram;
-use crate::mcp::handlers::HandlerState;
+use crate::mcp::state::HandlerState;
 use crate::mcp::params::GetFileParams;
 
 /// Read file content from the repository.
@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn test_get_file_not_found() {
         let dir = tempdir().unwrap();
-        let state = HandlerState::new(dir.path().to_path_buf());
+        let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
             file_path: "nonexistent.txt".to_string(),
             start_line: None,
@@ -197,7 +197,7 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("test.txt"), "line1\nline2\nline3").unwrap();
 
-        let state = HandlerState::new(dir.path().to_path_buf());
+        let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
             file_path: "test.txt".to_string(),
             start_line: None,
@@ -217,7 +217,7 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("test.txt"), "line1\nline2\nline3\nline4\nline5").unwrap();
 
-        let state = HandlerState::new(dir.path().to_path_buf());
+        let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
             file_path: "test.txt".to_string(),
             start_line: Some(2),
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_get_file_path_traversal() {
         let dir = tempdir().unwrap();
-        let state = HandlerState::new(dir.path().to_path_buf());
+        let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
             file_path: "../../../etc/passwd".to_string(),
             start_line: None,
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_list_detectors() {
         let dir = tempdir().unwrap();
-        let state = HandlerState::new(dir.path().to_path_buf());
+        let state = HandlerState::new(dir.path().to_path_buf(), false);
         let result = handle_list_detectors(&state).unwrap();
 
         let detectors = result.get("detectors").and_then(|v| v.as_array()).unwrap();

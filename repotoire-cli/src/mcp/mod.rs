@@ -45,6 +45,7 @@
 mod handlers;
 pub mod params;
 mod server;
+pub mod state;
 mod tools;
 
 pub use server::run_server;

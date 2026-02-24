@@ -10,7 +10,7 @@ use std::path::PathBuf;
 // No async runtime needed — ureq is sync
 use tracing::{debug, error, info};
 
-use super::handlers::HandlerState;
+use super::state::HandlerState;
 use super::tools::available_tools_full;
 
 /// MCP Server implementation
@@ -21,10 +21,7 @@ pub struct McpServer {
 
 impl McpServer {
     pub fn new(repo_path: PathBuf, force_local: bool) -> Self {
-        let mut state = HandlerState::new(repo_path);
-        if force_local {
-            state.api_key = None;
-        }
+        let state = HandlerState::new(repo_path, force_local);
         Self { state, force_local }
     }
 

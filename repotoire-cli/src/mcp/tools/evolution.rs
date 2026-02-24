@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 
 use crate::git::blame::GitBlame;
 use crate::git::GitHistory;
-use crate::mcp::handlers::HandlerState;
+use crate::mcp::state::HandlerState;
 use crate::mcp::params::{EvolutionQueryType, QueryEvolutionParams};
 
 /// Handle a `query_evolution` request.
@@ -373,14 +373,14 @@ mod tests {
     /// Build a HandlerState pointing at a non-git temporary directory.
     fn state_non_git() -> (HandlerState, tempfile::TempDir) {
         let dir = tempdir().unwrap();
-        let state = HandlerState::new(dir.path().to_path_buf());
+        let state = HandlerState::new(dir.path().to_path_buf(), false);
         (state, dir)
     }
 
     /// Build a HandlerState with a pre-populated graph for function_history tests.
     fn state_with_graph_and_function() -> (HandlerState, tempfile::TempDir) {
         let dir = tempdir().unwrap();
-        let mut state = HandlerState::new(dir.path().to_path_buf());
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
 
         let graph = GraphStore::in_memory();
         let mut func = CodeNode::function("my_func", "src/lib.rs");

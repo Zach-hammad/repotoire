@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
 use crate::ai::{AiClient, FixGenerator, LlmBackend};
-use crate::mcp::handlers::HandlerState;
+use crate::mcp::state::HandlerState;
 use crate::mcp::params::{AskParams, GenerateFixParams, SearchCodeParams};
 use crate::models::Finding;
 
@@ -273,7 +273,7 @@ mod tests {
     /// Helper: create a HandlerState with no API key and no AI backend.
     fn free_state() -> (HandlerState, tempfile::TempDir) {
         let dir = tempdir().unwrap();
-        let mut state = HandlerState::new(dir.path().to_path_buf());
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         // Ensure no PRO or BYOK keys leak from the test environment
         state.api_key = None;
         state.ai_backend = None;

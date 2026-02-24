@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::collections::{HashSet, VecDeque};
 
 use crate::graph::store::{CodeNode, EdgeKind};
-use crate::mcp::handlers::HandlerState;
+use crate::mcp::state::HandlerState;
 use crate::mcp::params::{
     AnalyzeImpactParams, GraphQueryType, ImpactScope, QueryGraphParams, TraceDependenciesParams,
     TraceDirection, TraceKind,
@@ -485,7 +485,7 @@ mod tests {
     /// Build a HandlerState backed by a pre-populated in-memory graph.
     fn state_with_graph(graph: GraphStore) -> (HandlerState, Arc<GraphStore>) {
         let dir = tempdir().unwrap();
-        let mut state = HandlerState::new(dir.path().to_path_buf());
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let arc = Arc::new(graph);
         // Inject graph directly (bypasses lazy init)
         state.set_graph(arc.clone());

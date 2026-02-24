@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::detectors::{default_detectors_with_ngram, walk_source_files, DetectorEngineBuilder, SourceFiles};
-use crate::mcp::handlers::HandlerState;
+use crate::mcp::state::HandlerState;
 use crate::mcp::params::{AnalyzeParams, GetFindingsParams, GetHotspotsParams};
 use crate::models::FindingsSummary;
 
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_handle_get_hotspots_no_findings_file() {
         let dir = tempdir().unwrap();
-        let mut state = HandlerState::new(dir.path().to_path_buf());
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetHotspotsParams { limit: None };
         let result = handle_get_hotspots(&mut state, &params).unwrap();
         assert!(result.get("error").is_some());
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn test_handle_get_findings_no_findings_file_no_graph() {
         let dir = tempdir().unwrap();
-        let mut state = HandlerState::new(dir.path().to_path_buf());
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFindingsParams {
             severity: None,
             detector: None,
@@ -283,7 +283,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut state = HandlerState::new(dir.path().to_path_buf());
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
 
         // No filter
         let params = GetFindingsParams {
@@ -345,7 +345,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut state = HandlerState::new(dir.path().to_path_buf());
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetHotspotsParams { limit: Some(1) };
         let result = handle_get_hotspots(&mut state, &params).unwrap();
 
