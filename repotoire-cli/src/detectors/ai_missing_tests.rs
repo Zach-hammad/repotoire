@@ -357,6 +357,20 @@ impl Detector for AIMissingTestsDetector {
                 continue;
             }
 
+            // Skip framework boilerplate (migrations, admin, management commands, configs)
+            let path_lower = func.file_path.to_lowercase();
+            if path_lower.contains("/migrations/")
+                || path_lower.contains("/admin.py")
+                || path_lower.contains("/apps.py")
+                || path_lower.contains("/manage.py")
+                || path_lower.contains("/settings")
+                || path_lower.contains("/conftest")
+                || path_lower.contains("/setup.py")
+                || path_lower.contains("/conf.py")
+            {
+                continue;
+            }
+
             // Skip private functions
             if func.name.starts_with('_') && !func.name.starts_with("__") {
                 continue;
@@ -371,7 +385,7 @@ impl Detector for AIMissingTestsDetector {
             let loc = func.loc();
 
             // Only flag complex/large functions
-            if complexity < 5 && loc < 20 {
+            if complexity < 5 && loc < 15 {
                 continue;
             }
 
@@ -463,6 +477,20 @@ impl Detector for AIMissingTestsDetector {
                 continue;
             }
 
+            // Skip framework boilerplate (migrations, admin, management commands, configs)
+            let path_lower = func.file_path.to_lowercase();
+            if path_lower.contains("/migrations/")
+                || path_lower.contains("/admin.py")
+                || path_lower.contains("/apps.py")
+                || path_lower.contains("/manage.py")
+                || path_lower.contains("/settings")
+                || path_lower.contains("/conftest")
+                || path_lower.contains("/setup.py")
+                || path_lower.contains("/conf.py")
+            {
+                continue;
+            }
+
             // Skip private functions
             if func.name.starts_with('_') && !func.name.starts_with("__") {
                 continue;
@@ -483,7 +511,7 @@ impl Detector for AIMissingTestsDetector {
             let loc = func.loc();
 
             // Only flag complex/large functions
-            if complexity < 5 && loc < 20 {
+            if complexity < 5 && loc < 15 {
                 continue;
             }
 
@@ -561,5 +589,76 @@ mod tests {
         assert!(variants.contains(&"process_data_test".to_string()));
         assert!(variants.contains(&"test_process".to_string()));
         assert!(variants.contains(&"test_data".to_string()));
+    }
+
+    #[test]
+    fn test_detects_untested_complex_function() {
+        use crate::graph::{CodeNode, GraphStore};
+
+        let store = GraphStore::in_memory();
+        // Complex function (complexity 8, 30 LOC) with no test
+        let node = CodeNode::function("calculate_risk_score", "src/analytics.py")
+            .with_qualified_name("analytics.calculate_risk_score")
+            .with_lines(1, 30)
+            .with_property("complexity", 8_i64);
+        store.add_node(node);
+
+        let detector = AIMissingTestsDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should flag complex function without tests"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_tested_function() {
+        use crate::graph::{CodeNode, GraphStore};
+
+        let store = GraphStore::in_memory();
+        // Add the function and its test
+        let func = CodeNode::function("calculate_risk_score", "src/analytics.py")
+            .with_qualified_name("analytics.calculate_risk_score")
+            .with_lines(1, 30)
+            .with_property("complexity", 8_i64);
+        store.add_node(func);
+
+        let test_func = CodeNode::function("test_calculate_risk_score", "tests/test_analytics.py")
+            .with_qualified_name("tests.test_analytics.test_calculate_risk_score")
+            .with_lines(1, 15)
+            .with_property("complexity", 2_i64);
+        store.add_node(test_func);
+
+        let detector = AIMissingTestsDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag function that has a test. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_simple_function() {
+        use crate::graph::{CodeNode, GraphStore};
+
+        let store = GraphStore::in_memory();
+        // Simple function (complexity 1, 5 LOC) — too trivial to need tests
+        let node = CodeNode::function("get_name", "src/models.py")
+            .with_qualified_name("models.get_name")
+            .with_lines(1, 5)
+            .with_property("complexity", 1_i64);
+        store.add_node(node);
+
+        let detector = AIMissingTestsDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag simple functions. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
