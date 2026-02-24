@@ -13,8 +13,6 @@
 //! - Action-specific names: validated_email, parsed_response
 //! - Type-hinted names: user_list, config_dict
 
-#![allow(dead_code)] // Module under development - structs/helpers used in tests only
-
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
@@ -22,7 +20,24 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use tracing::{debug, info};
+
+static FUNC_DEF_RE: OnceLock<Regex> = OnceLock::new();
+static ASSIGNMENT_RE: OnceLock<Regex> = OnceLock::new();
+static FOR_LOOP_RE: OnceLock<Regex> = OnceLock::new();
+
+fn func_def_re() -> &'static Regex {
+    FUNC_DEF_RE.get_or_init(|| Regex::new(r"^(\s*)def\s+(\w+)\s*\(").expect("valid regex"))
+}
+
+fn assignment_re() -> &'static Regex {
+    ASSIGNMENT_RE.get_or_init(|| Regex::new(r"^\s+(\w+)\s*=\s").expect("valid regex"))
+}
+
+fn for_loop_re() -> &'static Regex {
+    FOR_LOOP_RE.get_or_init(|| Regex::new(r"^\s+for\s+(\w+)\s+in\s").expect("valid regex"))
+}
 
 /// Default configuration
 const DEFAULT_GENERIC_RATIO_THRESHOLD: f64 = 0.4; // 40%
@@ -441,44 +456,157 @@ impl Detector for AINamingPatternDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        let generic_names = [
-            "temp", "data", "result", "value", "item", "obj", "x", "y", "val", "tmp", "ret",
-        ];
+        let func_re = func_def_re();
+        let assign_re = assignment_re();
+        let for_re = for_loop_re();
 
-        for func in graph.get_functions() {
-            // Check function name
-            let name_lower = func.name.to_lowercase();
-            let is_generic = generic_names
-                .iter()
-                .any(|g| name_lower == *g || name_lower.starts_with(&format!("{}_", g)));
+        for path in files.files_with_extensions(&["py"]) {
+            if findings.len() >= self.max_findings {
+                break;
+            }
 
-            if is_generic && func.loc() > 10 {
-                findings.push(Finding {
-                    id: String::new(),
-                    detector: "AINamingPatternDetector".to_string(),
-                    severity: Severity::Low,
-                    title: format!("Generic Naming: {}", func.name),
-                    description: format!(
-                        "Function '{}' has a generic name. Consider a more descriptive name.",
-                        func.name
-                    ),
-                    affected_files: vec![func.file_path.clone().into()],
-                    line_start: Some(func.line_start),
-                    line_end: Some(func.line_end),
-                    suggested_fix: Some("Rename to describe what the function does".to_string()),
-                    estimated_effort: Some("Small (15 min)".to_string()),
-                    category: Some("ai_watchdog".to_string()),
-                    cwe_id: None,
-                    why_it_matters: Some("Generic names reduce code readability".to_string()),
-                    ..Default::default()
-                });
+            // Skip test files
+            if crate::detectors::base::is_test_path(&path.to_string_lossy()) {
+                continue;
+            }
+
+            let content = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let lines: Vec<&str> = content.lines().collect();
+            let mut i = 0;
+
+            while i < lines.len() {
+                // Look for function definitions
+                let caps = match func_re.captures(lines[i]) {
+                    Some(c) => c,
+                    None => {
+                        i += 1;
+                        continue;
+                    }
+                };
+
+                let indent = caps.get(1).map(|m| m.as_str().len()).unwrap_or(0);
+                let func_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+
+                // Skip private/dunder functions
+                if func_name.starts_with('_') {
+                    i += 1;
+                    continue;
+                }
+
+                let func_line_number = (i + 1) as u32;
+
+                // Collect function body lines: lines after the def with greater indent
+                let body_start = i + 1;
+                let mut body_end = body_start;
+                while body_end < lines.len() {
+                    let line = lines[body_end];
+                    // Empty lines are part of the body
+                    if line.trim().is_empty() {
+                        body_end += 1;
+                        continue;
+                    }
+                    // Check if this line has greater indent than the def
+                    let line_indent = line.len() - line.trim_start().len();
+                    if line_indent <= indent {
+                        break;
+                    }
+                    body_end += 1;
+                }
+
+                let body_line_count = body_end - body_start;
+
+                // Require function body >= 8 lines
+                if body_line_count < 8 {
+                    i = body_end;
+                    continue;
+                }
+
+                // Extract identifiers from the function body
+                let mut identifiers: Vec<String> = Vec::new();
+                let mut is_loop_var: HashSet<String> = HashSet::new();
+
+                for line in &lines[body_start..body_end] {
+                    // For-loop variables
+                    if let Some(caps) = for_re.captures(line) {
+                        if let Some(m) = caps.get(1) {
+                            let name = m.as_str().to_string();
+                            is_loop_var.insert(name.clone());
+                            identifiers.push(name);
+                        }
+                    }
+                    // Assignment targets
+                    else if let Some(caps) = assign_re.captures(line) {
+                        if let Some(m) = caps.get(1) {
+                            let name = m.as_str().to_string();
+                            // Skip private names and ignored
+                            if !name.starts_with('_') && !self.ignored_set.contains(&name.to_lowercase()) {
+                                identifiers.push(name);
+                            }
+                        }
+                    }
+                }
+
+                // Deduplicate identifiers for counting
+                let unique_idents: Vec<String> = {
+                    let mut seen = HashSet::new();
+                    identifiers
+                        .iter()
+                        .filter(|name| seen.insert(name.to_lowercase()))
+                        .cloned()
+                        .collect()
+                };
+
+                // Require minimum identifiers for meaningful ratio
+                if unique_idents.len() < self.min_identifiers {
+                    i = body_end;
+                    continue;
+                }
+
+                // Classify each identifier
+                let mut generic_identifiers: Vec<String> = Vec::new();
+                for name in &unique_idents {
+                    let is_loop = is_loop_var.contains(name);
+                    if self.is_generic_name(name, is_loop) {
+                        generic_identifiers.push(name.clone());
+                    }
+                }
+
+                let total = unique_idents.len();
+                let generic_count = generic_identifiers.len();
+                let generic_ratio = generic_count as f64 / total as f64;
+
+                if generic_ratio >= self.generic_ratio_threshold {
+                    let file_str = path.to_string_lossy().to_string();
+                    let analysis = FunctionNamingAnalysis {
+                        file_path: file_str.clone(),
+                        function_name: func_name.to_string(),
+                        qualified_name: format!("{}::{}", file_str, func_name),
+                        total_identifiers: total,
+                        generic_count,
+                        generic_ratio,
+                        generic_identifiers,
+                        line_number: func_line_number,
+                    };
+
+                    findings.push(self.create_finding(&analysis));
+                }
+
+                i = body_end;
             }
         }
 
-        findings.truncate(30);
+        findings.truncate(self.max_findings);
+        info!(
+            "AINamingPatternDetector found {} findings",
+            findings.len()
+        );
         Ok(findings)
     }
 }
@@ -550,5 +678,38 @@ mod tests {
         let detector = AINamingPatternDetector::new();
         assert!((detector.generic_ratio_threshold - 0.4).abs() < 0.01);
         assert_eq!(detector.min_identifiers, 5);
+    }
+
+    #[test]
+    fn test_detects_generic_naming_in_function_body() {
+        use crate::graph::GraphStore;
+
+        let store = GraphStore::in_memory();
+        let detector = AINamingPatternDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("generic.py", "def process_users(users):\n    result = []\n    for item in users:\n        data = item.get('name')\n        temp = data.strip()\n        value = temp.lower()\n        obj = {'name': value}\n        result.append(obj)\n    output = sorted(result)\n    return output\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should flag function with high generic naming ratio (result, item, data, temp, value, obj, output)"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_domain_specific_naming() {
+        use crate::graph::GraphStore;
+
+        let store = GraphStore::in_memory();
+        let detector = AINamingPatternDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("users.py", "def create_user(username, email, password):\n    hashed_password = hash_password(password)\n    user = User(username=username, email=email)\n    user.set_password(hashed_password)\n    user.save()\n    confirmation_email = build_welcome_email(user)\n    send_email(confirmation_email)\n    return user\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag function with domain-specific names. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
