@@ -63,7 +63,6 @@ mod eval_detector;
 mod pickle_detector;
 mod sql_injection;
 mod surprisal;
-mod taint_detector;
 mod unsafe_template;
 
 // Taint analysis module (graph-based data flow tracking)
@@ -88,7 +87,6 @@ mod unused_imports;
 // Cross-detector analysis (ported from Python)
 mod health_delta;
 mod incremental_cache;
-mod query_cache;
 mod risk_analyzer;
 mod root_cause_analyzer;
 mod voting_engine;
@@ -207,7 +205,6 @@ pub use shotgun_surgery::ShotgunSurgeryDetector;
 pub use eval_detector::EvalDetector;
 pub use pickle_detector::PickleDeserializationDetector;
 pub use sql_injection::SQLInjectionDetector;
-pub use taint_detector::TaintDetector;
 pub use unsafe_template::UnsafeTemplateDetector;
 
 // Re-export misc detectors
@@ -221,7 +218,6 @@ pub use health_delta::{
     HealthScoreDeltaCalculator, ImpactLevel, MetricsBreakdown,
 };
 pub use incremental_cache::{CacheStats, CachedScoreResult, IncrementalCache};
-pub use query_cache::{ClassData, FileData, FunctionData, QueryCache};
 pub use risk_analyzer::{analyze_compound_risks, RiskAnalyzer, RiskAssessment, RiskFactor};
 pub use root_cause_analyzer::{RootCauseAnalysis, RootCauseAnalyzer, RootCauseSummary};
 pub use voting_engine::{
@@ -422,9 +418,6 @@ fn default_detectors_full(
         Arc::new(SQLInjectionDetector::with_repository_path(
             repository_path.to_path_buf(),
         )),
-        // TaintDetector disabled - naive file-based analysis, replaced by graph-based detectors:
-        // PathTraversalDetector, CommandInjectionDetector, SqlInjectionDetector, etc.
-        // Arc::new(TaintDetector::with_repository_path(repository_path.to_path_buf())),
         Arc::new(UnsafeTemplateDetector::with_repository_path(
             repository_path.to_path_buf(),
         )),

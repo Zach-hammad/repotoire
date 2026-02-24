@@ -430,7 +430,7 @@ fn get_detector_description(detector: &str) -> String {
 
 /// Get tags for a detector
 fn get_detector_tags(detector: &str) -> Vec<String> {
-    let security = ["BanditDetector", "SemgrepDetector", "TaintDetector"];
+    let security = ["BanditDetector", "SemgrepDetector"];
     let quality = ["RuffLintDetector", "MypyDetector", "PylintDetector"];
     let complexity = [
         "RadonDetector",
