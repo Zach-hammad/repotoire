@@ -3,17 +3,17 @@
 //! These structs define the inputSchema for each MCP tool via schemars derive.
 
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ── Analysis Tools ──
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct AnalyzeParams {
     /// Only analyze changed files (faster). Defaults to true.
     pub incremental: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetFindingsParams {
     /// Filter by severity level
     pub severity: Option<SeverityFilter>,
@@ -25,7 +25,7 @@ pub struct GetFindingsParams {
     pub offset: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SeverityFilter {
     Critical,
@@ -48,7 +48,7 @@ impl std::fmt::Display for SeverityFilter {
     }
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetHotspotsParams {
     /// Maximum number of files to return (default: 10)
     pub limit: Option<u64>,
@@ -56,7 +56,7 @@ pub struct GetHotspotsParams {
 
 // ── Graph Tools ──
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct QueryGraphParams {
     /// Query type: functions, classes, files, stats, callers, callees
     pub query_type: GraphQueryType,
@@ -68,7 +68,7 @@ pub struct QueryGraphParams {
     pub offset: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum GraphQueryType {
     Functions,
@@ -79,7 +79,7 @@ pub enum GraphQueryType {
     Callees,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TraceDependenciesParams {
     /// Function or class name to trace from
     pub name: String,
@@ -91,7 +91,7 @@ pub struct TraceDependenciesParams {
     pub kind: Option<TraceKind>,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TraceDirection {
     Upstream,
@@ -105,7 +105,7 @@ impl Default for TraceDirection {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TraceKind {
     Calls,
@@ -119,7 +119,7 @@ impl Default for TraceKind {
     }
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct AnalyzeImpactParams {
     /// File path of the target (relative to repo root)
     pub target: String,
@@ -129,7 +129,7 @@ pub struct AnalyzeImpactParams {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ImpactScope {
     Function,
@@ -144,7 +144,7 @@ impl Default for ImpactScope {
 
 // ── File Tools ──
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetFileParams {
     /// Path to file (relative to repo root)
     pub file_path: String,
@@ -158,7 +158,7 @@ pub struct GetFileParams {
 
 // ── Evolution Tools ──
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct QueryEvolutionParams {
     /// Type of temporal query to run
     pub query_type: EvolutionQueryType,
@@ -174,7 +174,7 @@ pub struct QueryEvolutionParams {
     pub limit: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EvolutionQueryType {
     /// Get churn metrics for a single file
@@ -195,7 +195,7 @@ pub enum EvolutionQueryType {
 
 // ── AI Tools ──
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchCodeParams {
     /// Natural language search query
     pub query: String,
@@ -205,7 +205,7 @@ pub struct SearchCodeParams {
     pub entity_types: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct AskParams {
     /// Natural language question about the codebase
     pub question: String,
@@ -213,7 +213,7 @@ pub struct AskParams {
     pub top_k: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GenerateFixParams {
     /// Index of the finding to fix (1-based, from analyze results)
     pub finding_id: String,

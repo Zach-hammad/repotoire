@@ -44,6 +44,7 @@
 
 mod handlers;
 pub mod params;
+pub mod rmcp_server;
 mod server;
 pub mod state;
 mod tools;
