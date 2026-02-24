@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "repotoire": {
+      "type": "stdio",
+      "command": "repotoire",
+      "args": ["serve"]
+    }
+  }
+}
