@@ -50,6 +50,18 @@ impl std::fmt::Display for Severity {
     }
 }
 
+/// Deserialize a HashMap that may be `null` in JSON (treat null as empty map)
+fn deserialize_null_as_empty_map<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::HashMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<std::collections::HashMap<String, String>> =
+        Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
+
 /// A code smell or issue finding
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Finding {
@@ -84,7 +96,7 @@ pub struct Finding {
     pub confidence: Option<f64>,
     /// Threshold metadata for adaptive explainability
     /// Keys: threshold_source, effective_threshold, actual_value, default_threshold
-    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty", deserialize_with = "deserialize_null_as_empty_map")]
     pub threshold_metadata: std::collections::HashMap<String, String>,
 }
 

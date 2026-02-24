@@ -342,7 +342,7 @@ pub(super) fn cache_results(
                 "cwe_id": f.cwe_id,
                 "why_it_matters": f.why_it_matters,
                 "confidence": f.confidence,
-                "threshold_metadata": if f.threshold_metadata.is_empty() { None } else { Some(&f.threshold_metadata) },
+                "threshold_metadata": &f.threshold_metadata,
             })
         }).collect::<Vec<_>>()
     });
