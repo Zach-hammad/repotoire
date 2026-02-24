@@ -388,6 +388,8 @@ impl ServerHandler for RepotoireServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::store::{CodeEdge, CodeNode, GraphStore};
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     #[test]
@@ -479,6 +481,247 @@ mod tests {
                 "Missing tool: {}. Registered: {:?}",
                 expected,
                 tool_names
+            );
+        }
+    }
+
+    // ── Helper ──────────────────────────────────────────────────────────────
+
+    /// Extract the text payload from a `CallToolResult`.
+    ///
+    /// Panics if the result contains no text content.
+    fn extract_text(result: &CallToolResult) -> &str {
+        result
+            .content
+            .first()
+            .and_then(|c| match &c.raw {
+                RawContent::Text(t) => Some(t.text.as_str()),
+                _ => None,
+            })
+            .expect("CallToolResult should contain text content")
+    }
+
+    // ── New integration tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_all_tools_have_descriptions() {
+        let dir = tempdir().unwrap();
+        let state = HandlerState::new(dir.path().to_path_buf(), true);
+        let server = RepotoireServer::new(state);
+
+        let tools = server.tool_router.list_all();
+        assert!(!tools.is_empty(), "Tool list should not be empty");
+
+        for tool in &tools {
+            let desc = tool
+                .description
+                .as_ref()
+                .expect(&format!("Tool '{}' is missing a description", tool.name));
+            assert!(
+                !desc.is_empty(),
+                "Tool '{}' has an empty description",
+                tool.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_tool_names_follow_convention() {
+        let dir = tempdir().unwrap();
+        let state = HandlerState::new(dir.path().to_path_buf(), true);
+        let server = RepotoireServer::new(state);
+
+        let tools = server.tool_router.list_all();
+        assert!(!tools.is_empty(), "Tool list should not be empty");
+
+        for tool in &tools {
+            assert!(
+                tool.name.starts_with("repotoire_"),
+                "Tool '{}' does not follow the repotoire_ naming convention",
+                tool.name
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_analyze_tool_works() {
+        let dir = tempdir().unwrap();
+        // Write a small Rust file so detectors have something to analyze
+        std::fs::write(
+            dir.path().join("main.rs"),
+            "fn main() {\n    println!(\"hello\");\n}\n",
+        )
+        .unwrap();
+
+        let state = HandlerState::new(dir.path().to_path_buf(), true);
+        let server = RepotoireServer::new(state);
+
+        let params = AnalyzeParams {
+            incremental: Some(true),
+        };
+        let result = server
+            .repotoire_analyze(Parameters(params))
+            .await;
+
+        assert!(result.is_ok(), "analyze should succeed: {:?}", result.err());
+        let call_result = result.unwrap();
+        let text = extract_text(&call_result);
+        let json: serde_json::Value =
+            serde_json::from_str(text).expect("Response should be valid JSON");
+
+        assert!(json.get("status").is_some(), "Response missing 'status'");
+        assert!(
+            json.get("total_findings").is_some(),
+            "Response missing 'total_findings'"
+        );
+        assert!(
+            json.get("by_severity").is_some(),
+            "Response missing 'by_severity'"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_file_tool_works() {
+        let dir = tempdir().unwrap();
+        let file_content = "line one\nline two\nline three\n";
+        std::fs::write(dir.path().join("sample.txt"), file_content).unwrap();
+
+        let state = HandlerState::new(dir.path().to_path_buf(), true);
+        let server = RepotoireServer::new(state);
+
+        let params = GetFileParams {
+            file_path: "sample.txt".to_string(),
+            start_line: None,
+            end_line: None,
+        };
+        let result = server
+            .repotoire_get_file(Parameters(params))
+            .await;
+
+        assert!(result.is_ok(), "get_file should succeed: {:?}", result.err());
+        let call_result = result.unwrap();
+        let text = extract_text(&call_result);
+        let json: serde_json::Value =
+            serde_json::from_str(text).expect("Response should be valid JSON");
+
+        // Should contain file content, not an error
+        assert!(
+            json.get("error").is_none(),
+            "Unexpected error: {}",
+            json
+        );
+        let content = json
+            .get("content")
+            .and_then(|v| v.as_str())
+            .expect("Response should have 'content' field");
+        assert!(
+            content.contains("line one"),
+            "File content should contain 'line one'"
+        );
+        assert!(
+            content.contains("line two"),
+            "File content should contain 'line two'"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_query_graph_tool_works() {
+        let dir = tempdir().unwrap();
+
+        // Build an in-memory graph with test data
+        let graph = GraphStore::in_memory();
+        graph.add_node(
+            CodeNode::function("my_func", "src/lib.rs").with_qualified_name("lib::my_func"),
+        );
+        graph.add_node(
+            CodeNode::function("helper", "src/lib.rs").with_qualified_name("lib::helper"),
+        );
+        graph.add_edge_by_name("lib::my_func", "lib::helper", CodeEdge::calls());
+
+        let mut state = HandlerState::new(dir.path().to_path_buf(), true);
+        state.set_graph(Arc::new(graph));
+        let server = RepotoireServer::new(state);
+
+        let params = QueryGraphParams {
+            query_type: GraphQueryType::Functions,
+            name: None,
+            limit: Some(100),
+            offset: Some(0),
+        };
+        let result = server
+            .repotoire_query_graph(Parameters(params))
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "query_graph should succeed: {:?}",
+            result.err()
+        );
+        let call_result = result.unwrap();
+        let text = extract_text(&call_result);
+        let json: serde_json::Value =
+            serde_json::from_str(text).expect("Response should be valid JSON");
+
+        let results = json
+            .get("results")
+            .and_then(|v| v.as_array())
+            .expect("Response should have 'results' array");
+        assert_eq!(
+            results.len(),
+            2,
+            "Should return 2 functions, got: {:?}",
+            results
+        );
+        assert_eq!(json["total_count"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_detectors_tool_works() {
+        let dir = tempdir().unwrap();
+        let state = HandlerState::new(dir.path().to_path_buf(), true);
+        let server = RepotoireServer::new(state);
+
+        let result = server.repotoire_list_detectors().await;
+
+        assert!(
+            result.is_ok(),
+            "list_detectors should succeed: {:?}",
+            result.err()
+        );
+        let call_result = result.unwrap();
+        let text = extract_text(&call_result);
+        let json: serde_json::Value =
+            serde_json::from_str(text).expect("Response should be valid JSON");
+
+        let detectors = json
+            .get("detectors")
+            .and_then(|v| v.as_array())
+            .expect("Response should have 'detectors' array");
+        assert!(
+            !detectors.is_empty(),
+            "Detector list should not be empty"
+        );
+
+        let count = json
+            .get("count")
+            .and_then(|v| v.as_u64())
+            .expect("Response should have 'count' field");
+        assert_eq!(
+            count,
+            detectors.len() as u64,
+            "count should match detectors array length"
+        );
+
+        // Each detector should have name, description, category
+        for d in detectors {
+            assert!(d.get("name").is_some(), "Detector missing 'name'");
+            assert!(
+                d.get("description").is_some(),
+                "Detector missing 'description'"
+            );
+            assert!(
+                d.get("category").is_some(),
+                "Detector missing 'category'"
             );
         }
     }
