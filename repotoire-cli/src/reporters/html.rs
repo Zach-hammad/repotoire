@@ -604,3 +604,34 @@ body {
     .finding-card { page-break-inside: avoid; }
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reporters::tests::test_report;
+
+    #[test]
+    fn test_html_render_valid() {
+        let report = test_report();
+        let html_str = render(&report).unwrap();
+        assert!(html_str.contains("<!DOCTYPE html>") || html_str.contains("<html"));
+        assert!(html_str.contains("</html>"));
+    }
+
+    #[test]
+    fn test_html_contains_score() {
+        let report = test_report();
+        let html_str = render(&report).unwrap();
+        assert!(html_str.contains("85")); // score
+        assert!(html_str.contains("B")); // grade
+    }
+
+    #[test]
+    fn test_html_empty_findings() {
+        let mut report = test_report();
+        report.findings.clear();
+        report.findings_summary = Default::default();
+        let html_str = render(&report).unwrap();
+        assert!(html_str.contains("</html>"));
+    }
+}

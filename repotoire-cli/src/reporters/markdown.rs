@@ -302,3 +302,42 @@ fn capitalize(s: &str) -> String {
         Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reporters::tests::test_report;
+
+    #[test]
+    fn test_markdown_render_has_header() {
+        let report = test_report();
+        let md = render(&report).unwrap();
+        assert!(md.contains("# "));
+        assert!(md.contains("Grade: B"));
+        assert!(md.contains("85.0/100"));
+    }
+
+    #[test]
+    fn test_markdown_render_has_findings() {
+        let report = test_report();
+        let md = render(&report).unwrap();
+        assert!(md.contains("Test finding"));
+        assert!(md.contains("src/main.rs"));
+    }
+
+    #[test]
+    fn test_markdown_empty_findings() {
+        let mut report = test_report();
+        report.findings.clear();
+        report.findings_summary = Default::default();
+        let md = render(&report).unwrap();
+        assert!(md.contains("No issues found"));
+    }
+
+    #[test]
+    fn test_markdown_has_table_of_contents() {
+        let report = test_report();
+        let md = render(&report).unwrap();
+        assert!(md.contains("## Table of Contents"));
+    }
+}

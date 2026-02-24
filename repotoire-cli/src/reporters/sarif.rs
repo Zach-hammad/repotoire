@@ -544,6 +544,25 @@ mod tests {
     }
 
     #[test]
+    fn test_sarif_valid_structure() {
+        let report = crate::reporters::tests::test_report();
+        let sarif_str = render(&report).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&sarif_str).unwrap();
+        assert_eq!(parsed["version"], "2.1.0");
+        assert!(parsed["$schema"].as_str().is_some());
+        assert!(!parsed["runs"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_sarif_has_results() {
+        let report = crate::reporters::tests::test_report();
+        let sarif_str = render(&report).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&sarif_str).unwrap();
+        let results = parsed["runs"][0]["results"].as_array().unwrap();
+        assert!(!results.is_empty());
+    }
+
+    #[test]
     fn test_rank_in_sarif_output() {
         // Create a minimal report with a finding that has confidence
         let report = HealthReport {

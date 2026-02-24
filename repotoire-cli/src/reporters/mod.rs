@@ -87,8 +87,39 @@ pub fn file_extension(format: OutputFormat) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// Create a minimal HealthReport for testing
+    pub(crate) fn test_report() -> HealthReport {
+        use crate::models::{Finding, FindingsSummary, Severity};
+
+        let findings = vec![Finding {
+            id: "f1".into(),
+            detector: "TestDetector".into(),
+            severity: Severity::High,
+            title: "Test finding".into(),
+            description: "A test issue".into(),
+            affected_files: vec!["src/main.rs".into()],
+            line_start: Some(10),
+            suggested_fix: Some("Fix it".into()),
+            ..Default::default()
+        }];
+
+        HealthReport {
+            overall_score: 85.0,
+            grade: "B".into(),
+            structure_score: 90.0,
+            quality_score: 80.0,
+            architecture_score: Some(85.0),
+            findings_summary: FindingsSummary::from_findings(&findings),
+            findings,
+            total_files: 100,
+            total_functions: 500,
+            total_classes: 50,
+            total_loc: 10000,
+        }
+    }
 
     #[test]
     fn test_format_parsing() {

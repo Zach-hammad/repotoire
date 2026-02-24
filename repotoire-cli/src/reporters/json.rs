@@ -16,3 +16,36 @@ pub fn render(report: &HealthReport) -> Result<String> {
 pub fn render_compact(report: &HealthReport) -> Result<String> {
     Ok(serde_json::to_string(report)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reporters::tests::test_report;
+
+    #[test]
+    fn test_json_render_valid() {
+        let report = test_report();
+        let json_str = render(&report).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["grade"], "B");
+        assert!(!parsed["findings"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_json_render_compact() {
+        let report = test_report();
+        let json_str = render_compact(&report).unwrap();
+        assert!(!json_str.contains('\n'));
+        let _: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+    }
+
+    #[test]
+    fn test_json_empty_findings() {
+        let mut report = test_report();
+        report.findings.clear();
+        report.findings_summary = Default::default();
+        let json_str = render(&report).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["findings"].as_array().unwrap().len(), 0);
+    }
+}
