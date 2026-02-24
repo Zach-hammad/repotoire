@@ -44,6 +44,7 @@ mod ai_complexity_spike;
 mod ai_duplicate_block;
 mod ai_missing_tests;
 mod ai_naming_pattern;
+pub mod ast_fingerprint;
 
 // ML/Data Science detectors (PyTorch, TensorFlow, Scikit-Learn, Pandas, NumPy)
 mod ml_smells;
