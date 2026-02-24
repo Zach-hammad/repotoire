@@ -289,7 +289,7 @@ pub fn normalized_fingerprint(content: &str, lang: Language) -> HashSet<String> 
     // Collect a sequence of normalized tokens (node kinds, with identifiers
     // replaced by $ID and literals by $LIT).
     let mut tokens = Vec::new();
-    collect_normalized_tokens(tree.root_node(), content, &mut tokens);
+    collect_normalized_tokens(tree.root_node(), &mut tokens);
 
     // Build bigrams
     let mut bigrams = HashSet::new();
@@ -299,7 +299,7 @@ pub fn normalized_fingerprint(content: &str, lang: Language) -> HashSet<String> 
     bigrams
 }
 
-fn collect_normalized_tokens(node: Node, source: &str, out: &mut Vec<String>) {
+fn collect_normalized_tokens(node: Node, out: &mut Vec<String>) {
     let kind = node.kind();
 
     if node.child_count() == 0 {
@@ -336,7 +336,7 @@ fn collect_normalized_tokens(node: Node, source: &str, out: &mut Vec<String>) {
     let count = node.child_count();
     for i in 0..count {
         if let Some(child) = node.child(i) {
-            collect_normalized_tokens(child, source, out);
+            collect_normalized_tokens(child, out);
         }
     }
 }
