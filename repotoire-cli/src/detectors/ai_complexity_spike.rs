@@ -460,7 +460,7 @@ impl Detector for AIComplexitySpikeDetector {
                 } else {
                     threshold
                 };
-                let min_complexity = if is_ast_code { 35 } else { 20 };
+                let min_complexity = if is_ast_code { 35 } else { 10 };
 
                 if complexity as f64 > effective_threshold && complexity > min_complexity {
                     let z_score = (complexity as f64 - avg) / std_dev;
@@ -501,6 +501,7 @@ impl Detector for AIComplexitySpikeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::{CodeNode, GraphStore};
 
     #[test]
     fn test_compute_baseline() {
@@ -542,5 +543,66 @@ mod tests {
 
         assert_eq!(baseline.total_functions, 0);
         assert_eq!(baseline.stddev_complexity, 1.0); // Should avoid division by zero
+    }
+
+    #[test]
+    fn test_detects_complexity_outlier() {
+        let store = crate::graph::GraphStore::in_memory();
+
+        // Add 10 normal-complexity functions (complexity 3-5)
+        for i in 0..10 {
+            let complexity = 3 + (i % 3); // cycles through 3, 4, 5
+            let node = CodeNode::function(&format!("normal_func_{}", i), "/src/app.py")
+                .with_qualified_name(&format!("app.normal_func_{}", i))
+                .with_lines(1, 20)
+                .with_property("complexity", complexity as i64);
+            store.add_node(node);
+        }
+
+        // Add 1 outlier function with high complexity
+        let outlier = CodeNode::function("complex_handler", "/src/app.py")
+            .with_qualified_name("app.complex_handler")
+            .with_lines(1, 200)
+            .with_property("complexity", 25_i64);
+        store.add_node(outlier);
+
+        let detector = AIComplexitySpikeDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
+
+        assert!(
+            !findings.is_empty(),
+            "Should detect the complexity outlier (25 vs avg ~5)"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("complex_handler")),
+            "Finding should reference the outlier function, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_normal_complexity() {
+        let store = crate::graph::GraphStore::in_memory();
+
+        // Add 20 functions all with normal complexity (3-7)
+        for i in 0..20 {
+            let complexity = 3 + (i % 5); // cycles through 3, 4, 5, 6, 7
+            let node = CodeNode::function(&format!("func_{}", i), "/src/app.py")
+                .with_qualified_name(&format!("app.func_{}", i))
+                .with_lines(1, 30)
+                .with_property("complexity", complexity as i64);
+            store.add_node(node);
+        }
+
+        let detector = AIComplexitySpikeDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&store, &empty_files).unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "Should not flag any function when all complexities are normal (3-7), but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
