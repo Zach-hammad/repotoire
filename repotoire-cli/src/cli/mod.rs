@@ -247,6 +247,10 @@ pub enum Commands {
         /// Force local-only mode (disable PRO API features)
         #[arg(long)]
         local: bool,
+
+        /// Optional HTTP port for Streamable HTTP transport (default: stdio)
+        #[arg(long)]
+        http_port: Option<u16>,
     },
 
     /// Manage configuration
@@ -436,7 +440,7 @@ pub fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
 
-        Some(Commands::Serve { local }) => serve::run(&cli.path, local),
+        Some(Commands::Serve { local, http_port }) => serve::run(&cli.path, local, http_port),
 
         Some(Commands::Config { action }) => {
             use crate::config::UserConfig;
