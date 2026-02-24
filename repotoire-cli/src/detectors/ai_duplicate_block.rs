@@ -359,10 +359,75 @@ impl Detector for AIDuplicateBlockDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        // Duplicate detection needs AST fingerprinting
-        let _ = graph;
-        Ok(vec![])
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let mut all_functions: Vec<FunctionData> = Vec::new();
+
+        let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"];
+        for path in files.files_with_extensions(source_exts) {
+            if crate::detectors::base::is_test_path(&path.to_string_lossy()) {
+                continue;
+            }
+
+            let content = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let lang = crate::parsers::lightweight::Language::from_extension(
+                path.extension().and_then(|e| e.to_str()).unwrap_or(""),
+            );
+
+            let functions = crate::detectors::ast_fingerprint::parse_functions(&content, lang);
+
+            for func in functions {
+                let loc = (func.line_end - func.line_start + 1) as usize;
+                if loc < self.min_loc {
+                    continue;
+                }
+
+                let hash_set =
+                    crate::detectors::ast_fingerprint::normalized_fingerprint(&func.body_text, lang);
+                if hash_set.is_empty() {
+                    continue;
+                }
+
+                let identifiers =
+                    crate::detectors::ast_fingerprint::extract_identifiers(&func.body_text, lang);
+                let generic_ratio = calculate_generic_ratio(&identifiers);
+
+                let ast_size = hash_set.len();
+
+                all_functions.push(FunctionData {
+                    qualified_name: format!("{}::{}", path.to_string_lossy(), func.name),
+                    name: func.name,
+                    file_path: path.to_string_lossy().to_string(),
+                    line_start: func.line_start,
+                    line_end: func.line_end,
+                    loc,
+                    hash_set,
+                    generic_ratio,
+                    ast_size,
+                });
+            }
+        }
+
+        info!(
+            "AIDuplicateBlockDetector: analyzing {} functions",
+            all_functions.len()
+        );
+
+        let duplicates = self.find_duplicates(&all_functions);
+
+        let mut findings = Vec::new();
+        for (func1, func2, similarity) in &duplicates {
+            findings.push(self.create_finding(func1, func2, *similarity));
+            if findings.len() >= self.max_findings {
+                break;
+            }
+        }
+
+        info!("AIDuplicateBlockDetector found {} findings", findings.len());
+        Ok(findings)
     }
 }
 
@@ -409,5 +474,58 @@ mod tests {
         assert!((detector.similarity_threshold - 0.70).abs() < 0.01);
         assert!((detector.generic_name_threshold - 0.40).abs() < 0.01);
         assert_eq!(detector.min_loc, 5);
+    }
+
+    #[test]
+    fn test_detects_near_duplicates() {
+        // Two functions with identical structure but different variable names
+        // across different files — classic Type-2 clone.
+        let store = crate::graph::GraphStore::in_memory();
+        let detector = AIDuplicateBlockDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            (
+                "services/user_service.py",
+                "def process_user(data):\n    result = validate(data)\n    if result is None:\n        raise ValueError('invalid')\n    output = transform(result)\n    return output\n",
+            ),
+            (
+                "services/order_service.py",
+                "def process_order(info):\n    value = validate(info)\n    if value is None:\n        raise ValueError('invalid')\n    output = transform(value)\n    return output\n",
+            ),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect near-duplicate functions with same structure but different variable names"
+        );
+        assert_eq!(findings[0].detector, "AIDuplicateBlockDetector");
+        assert!(
+            findings[0].title.contains("process_user")
+                || findings[0].title.contains("process_order"),
+            "Finding title should reference the duplicate function names. Got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_different_functions() {
+        // Two structurally different functions — should produce no duplicates.
+        let store = crate::graph::GraphStore::in_memory();
+        let detector = AIDuplicateBlockDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            (
+                "auth.py",
+                "def login(username, password):\n    user = authenticate(username, password)\n    if user is None:\n        raise AuthError('Invalid credentials')\n    token = create_token(user)\n    return token\n",
+            ),
+            (
+                "export.py",
+                "def export_csv(data, output_path):\n    with open(output_path, 'w') as f:\n        writer = csv.writer(f)\n        writer.writerow(data[0].keys())\n        for row in data:\n            writer.writerow(row.values())\n",
+            ),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag structurally different functions. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
