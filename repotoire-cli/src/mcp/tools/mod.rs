@@ -6,6 +6,7 @@
 
 #![allow(non_snake_case)]
 
+pub mod ai;
 pub mod analysis;
 pub mod evolution;
 pub mod files;
