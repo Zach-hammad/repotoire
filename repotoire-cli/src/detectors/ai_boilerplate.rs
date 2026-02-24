@@ -540,10 +540,76 @@ impl Detector for AIBoilerplateDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        // Boilerplate detection needs AST similarity analysis
-        let _ = graph;
-        Ok(vec![])
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let mut all_functions: Vec<FunctionAST> = Vec::new();
+
+        let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"];
+        for path in files.files_with_extensions(source_exts) {
+            if crate::detectors::base::is_test_path(&path.to_string_lossy()) {
+                continue;
+            }
+
+            let content = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let lang = crate::parsers::lightweight::Language::from_extension(
+                path.extension().and_then(|e| e.to_str()).unwrap_or("")
+            );
+
+            let functions = crate::detectors::ast_fingerprint::parse_functions(&content, lang);
+
+            for func in functions {
+                let loc = (func.line_end - func.line_start + 1) as usize;
+                if loc < self.min_loc {
+                    continue;
+                }
+
+                let hash_set = crate::detectors::ast_fingerprint::structural_fingerprint(&func.body_text, lang);
+                if hash_set.is_empty() {
+                    continue;
+                }
+
+                let patterns = crate::detectors::ast_fingerprint::detect_patterns(&func.body_text, lang);
+
+                all_functions.push(FunctionAST {
+                    qualified_name: format!("{}::{}", path.to_string_lossy(), func.name),
+                    name: func.name,
+                    file_path: path.to_string_lossy().to_string(),
+                    line_start: func.line_start,
+                    line_end: func.line_end,
+                    loc,
+                    hash_set,
+                    patterns,
+                    decorators: vec![],
+                    parent_class: None,
+                    is_method: false,
+                });
+            }
+        }
+
+        info!("AIBoilerplateDetector: analyzing {} functions", all_functions.len());
+
+        let clusters = cluster_by_similarity(
+            &all_functions,
+            self.similarity_threshold,
+            self.min_cluster_size,
+        );
+
+        let mut findings = Vec::new();
+        for functions in clusters {
+            let cluster = self.analyze_cluster(functions);
+            if !cluster.has_shared_abstraction {
+                findings.push(self.create_finding(&cluster));
+            }
+            if findings.len() >= self.max_findings {
+                break;
+            }
+        }
+
+        info!("AIBoilerplateDetector found {} findings", findings.len());
+        Ok(findings)
     }
 }
 
@@ -576,5 +642,38 @@ mod tests {
     fn test_pattern_display() {
         assert_eq!(BoilerplatePattern::TryExcept.to_string(), "try_except");
         assert_eq!(BoilerplatePattern::Crud.to_string(), "crud");
+    }
+
+    #[test]
+    fn test_detects_boilerplate_cluster() {
+        let store = crate::graph::GraphStore::in_memory();
+        let detector = AIBoilerplateDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handlers/user.py", "def create_user(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
+            ("handlers/order.py", "def create_order(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
+            ("handlers/product.py", "def create_product(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Should detect cluster of 3 structurally identical functions"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_diverse_functions() {
+        let store = crate::graph::GraphStore::in_memory();
+        let detector = AIBoilerplateDetector::new();
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("auth.py", "def login(username, password):\n    user = authenticate(username, password)\n    if user is None:\n        raise AuthError('Invalid credentials')\n    token = create_token(user)\n    return token\n"),
+            ("search.py", "def search(query, filters):\n    results = []\n    for item in database.query(query):\n        if matches_filters(item, filters):\n            results.append(item)\n    return sorted(results, key=lambda x: x.score)\n"),
+            ("export.py", "def export_csv(data, output_path):\n    with open(output_path, 'w') as f:\n        writer = csv.writer(f)\n        writer.writerow(data[0].keys())\n        for row in data:\n            writer.writerow(row.values())\n"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Should not flag structurally diverse functions. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
