@@ -194,3 +194,69 @@ pub struct File {
     pub functions: usize,
     pub classes: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_finding_serde_round_trip() {
+        let finding = Finding {
+            id: "test-1".into(),
+            detector: "TestDetector".into(),
+            severity: Severity::High,
+            title: "Test finding".into(),
+            description: "A test".into(),
+            threshold_metadata: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("key".into(), "value".into());
+                m
+            },
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&finding).unwrap();
+        let back: Finding = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, "test-1");
+        assert_eq!(back.threshold_metadata.get("key").unwrap(), "value");
+    }
+
+    #[test]
+    fn test_finding_deserialize_null_threshold_metadata() {
+        let json = r#"{"id":"t1","detector":"D","severity":"high","title":"T","description":"","affected_files":[],"threshold_metadata":null}"#;
+        let finding: Finding = serde_json::from_str(json).unwrap();
+        assert!(finding.threshold_metadata.is_empty());
+    }
+
+    #[test]
+    fn test_finding_deserialize_missing_threshold_metadata() {
+        let json = r#"{"id":"t1","detector":"D","severity":"high","title":"T","description":"","affected_files":[]}"#;
+        let finding: Finding = serde_json::from_str(json).unwrap();
+        assert!(finding.threshold_metadata.is_empty());
+    }
+
+    #[test]
+    fn test_health_report_grade_from_score() {
+        assert_eq!(HealthReport::grade_from_score(95.0), "A");
+        assert_eq!(HealthReport::grade_from_score(85.0), "B");
+        assert_eq!(HealthReport::grade_from_score(75.0), "C");
+        assert_eq!(HealthReport::grade_from_score(65.0), "D");
+        assert_eq!(HealthReport::grade_from_score(50.0), "F");
+    }
+
+    #[test]
+    fn test_findings_summary_from_findings() {
+        let findings = vec![
+            Finding { severity: Severity::Critical, ..Default::default() },
+            Finding { severity: Severity::High, ..Default::default() },
+            Finding { severity: Severity::High, ..Default::default() },
+            Finding { severity: Severity::Medium, ..Default::default() },
+            Finding { severity: Severity::Low, ..Default::default() },
+        ];
+        let summary = FindingsSummary::from_findings(&findings);
+        assert_eq!(summary.critical, 1);
+        assert_eq!(summary.high, 2);
+        assert_eq!(summary.medium, 1);
+        assert_eq!(summary.low, 1);
+        assert_eq!(summary.total, 5);
+    }
+}
