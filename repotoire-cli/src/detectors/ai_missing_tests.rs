@@ -390,10 +390,18 @@ impl Detector for AIMissingTestsDetector {
             }
 
             // Check if there's a test for this function
+            // Use word-boundary matching: test name must contain _FUNCNAME as a
+            // suffix or _FUNCNAME_ as an infix (not just substring — otherwise
+            // a function named "get" matches "test_get_users")
             let test_name = format!("test_{}", func.name);
-            if !test_funcs.contains(&test_name)
-                && !test_funcs.iter().any(|t| t.contains(&func.name))
-            {
+            let suffix_pattern = format!("_{}", func.name);
+            let has_test = test_funcs.contains(&test_name)
+                || (func.name.len() >= 4
+                    && test_funcs.iter().any(|t| {
+                        t.ends_with(&suffix_pattern)
+                            || t.contains(&format!("_{}_", func.name))
+                    }));
+            if !has_test {
                 let severity = if complexity > 15 {
                     Severity::High
                 } else if complexity > 10 {
@@ -516,10 +524,18 @@ impl Detector for AIMissingTestsDetector {
             }
 
             // Check if there's a test for this function
+            // Use word-boundary matching: test name must contain _FUNCNAME as a
+            // suffix or _FUNCNAME_ as an infix (not just substring — otherwise
+            // a function named "get" matches "test_get_users")
             let test_name = format!("test_{}", func.name);
-            if !test_funcs.contains(&test_name)
-                && !test_funcs.iter().any(|t| t.contains(&func.name))
-            {
+            let suffix_pattern = format!("_{}", func.name);
+            let has_test = test_funcs.contains(&test_name)
+                || (func.name.len() >= 4
+                    && test_funcs.iter().any(|t| {
+                        t.ends_with(&suffix_pattern)
+                            || t.contains(&format!("_{}_", func.name))
+                    }));
+            if !has_test {
                 let severity = if complexity > 15 {
                     Severity::High
                 } else if complexity > 10 {
