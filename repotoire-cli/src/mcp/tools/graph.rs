@@ -851,6 +851,34 @@ mod tests {
     }
 
     #[test]
+    fn test_query_graph_callers_empty_name() {
+        let (mut state, _g) = state_with_graph(build_call_graph());
+        let params = QueryGraphParams {
+            query_type: GraphQueryType::Callers,
+            name: Some("".into()),
+            limit: None,
+            offset: None,
+        };
+        let result = handle_query_graph(&mut state, &params);
+        // Empty name should be treated as missing
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_query_graph_callees_empty_name() {
+        let (mut state, _g) = state_with_graph(build_call_graph());
+        let params = QueryGraphParams {
+            query_type: GraphQueryType::Callees,
+            name: Some("".into()),
+            limit: None,
+            offset: None,
+        };
+        let result = handle_query_graph(&mut state, &params);
+        // Empty name should be treated as missing
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_query_graph_callees_existing_node_no_callees() {
         let (mut state, _g) = state_with_graph(build_call_graph());
         // bar::c has no callees (it's a leaf), but it exists in the graph

@@ -266,6 +266,19 @@ mod tests {
     }
 
     #[test]
+    fn test_get_file_nonexistent() {
+        let dir = tempdir().unwrap();
+        let state = HandlerState::new(dir.path().to_path_buf(), false);
+        let params = GetFileParams {
+            file_path: "does_not_exist.rs".into(),
+            start_line: None,
+            end_line: None,
+        };
+        let result = handle_get_file(&state, &params).unwrap();
+        assert!(result.get("error").is_some());
+    }
+
+    #[test]
     fn test_list_detectors() {
         let dir = tempdir().unwrap();
         let state = HandlerState::new(dir.path().to_path_buf(), false);

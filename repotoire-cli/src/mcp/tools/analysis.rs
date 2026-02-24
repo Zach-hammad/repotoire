@@ -244,6 +244,7 @@ pub fn handle_get_hotspots(state: &mut HandlerState, params: &GetHotspotsParams)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     #[test]
@@ -384,6 +385,20 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("malformed"));
         assert!(err_msg.contains("findings"));
+    }
+
+    #[test]
+    fn test_get_findings_no_cache() {
+        let mut state = HandlerState::new(PathBuf::from("/tmp/nonexistent_repo_xyz"), false);
+        let params = GetFindingsParams {
+            severity: None,
+            detector: None,
+            limit: Some(5),
+            offset: None,
+        };
+        // No cache file and no graph — should not panic.
+        // Falls back to running analysis which tries to init graph.
+        let _result = handle_get_findings(&mut state, &params);
     }
 
     #[test]
