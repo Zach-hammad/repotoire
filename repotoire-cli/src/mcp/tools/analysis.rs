@@ -80,9 +80,11 @@ pub fn handle_get_findings(state: &mut HandlerState, params: &GetFindingsParams)
     if findings_path.exists() {
         let content = std::fs::read_to_string(&findings_path)?;
         let parsed: Value = serde_json::from_str(&content)?;
-        let mut findings: Vec<Value> = parsed
-            .get("findings")
-            .and_then(|v| v.as_array())
+        let findings_val = parsed.get("findings").ok_or_else(|| {
+            anyhow::anyhow!("Cached findings file is malformed (missing 'findings' key). Re-run: repotoire analyze")
+        })?;
+        let mut findings: Vec<Value> = findings_val
+            .as_array()
             .cloned()
             .unwrap_or_default();
 
@@ -181,9 +183,11 @@ pub fn handle_get_hotspots(state: &mut HandlerState, params: &GetHotspotsParams)
 
     let content = std::fs::read_to_string(&findings_path)?;
     let parsed: Value = serde_json::from_str(&content)?;
-    let findings: Vec<Value> = parsed
-        .get("findings")
-        .and_then(|v| v.as_array())
+    let findings_val = parsed.get("findings").ok_or_else(|| {
+        anyhow::anyhow!("Cached findings file is malformed (missing 'findings' key). Re-run: repotoire analyze")
+    })?;
+    let findings: Vec<Value> = findings_val
+        .as_array()
         .cloned()
         .unwrap_or_default();
 
@@ -354,5 +358,52 @@ mod tests {
         // a.rs has 2 findings, should be first
         assert_eq!(hotspots[0]["file_path"], "a.rs");
         assert_eq!(hotspots[0]["finding_count"], 2);
+    }
+
+    #[test]
+    fn test_handle_get_findings_malformed_cache() {
+        let dir = tempdir().unwrap();
+        let repotoire_dir = dir.path().join(".repotoire");
+        std::fs::create_dir_all(&repotoire_dir).unwrap();
+        // Write JSON without the required "findings" key
+        std::fs::write(
+            repotoire_dir.join("last_findings.json"),
+            r#"{"version": 1, "detectors": []}"#,
+        )
+        .unwrap();
+
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
+        let params = GetFindingsParams {
+            severity: None,
+            detector: None,
+            limit: Some(10),
+            offset: Some(0),
+        };
+        let result = handle_get_findings(&mut state, &params);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("malformed"));
+        assert!(err_msg.contains("findings"));
+    }
+
+    #[test]
+    fn test_handle_get_hotspots_malformed_cache() {
+        let dir = tempdir().unwrap();
+        let repotoire_dir = dir.path().join(".repotoire");
+        std::fs::create_dir_all(&repotoire_dir).unwrap();
+        // Write JSON without the required "findings" key
+        std::fs::write(
+            repotoire_dir.join("last_findings.json"),
+            r#"{"version": 1, "detectors": []}"#,
+        )
+        .unwrap();
+
+        let mut state = HandlerState::new(dir.path().to_path_buf(), false);
+        let params = GetHotspotsParams { limit: None };
+        let result = handle_get_hotspots(&mut state, &params);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("malformed"));
+        assert!(err_msg.contains("findings"));
     }
 }

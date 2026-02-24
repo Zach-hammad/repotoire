@@ -118,6 +118,12 @@ pub fn handle_query_graph(state: &mut HandlerState, params: &QueryGraphParams) -
                 })?;
 
             let callers = graph.get_callers(name);
+            // Distinguish "no callers" from "function not found"
+            if callers.is_empty() && graph.get_node(name).is_none() {
+                return Ok(json!({
+                    "error": format!("Node '{}' not found in graph. Use query_type=functions to list available names.", name),
+                }));
+            }
             let results: Vec<Value> = callers.iter().map(node_to_json).collect();
             let (page, total, has_more) = paginate(results, offset, limit);
             Ok(json!({
@@ -141,6 +147,12 @@ pub fn handle_query_graph(state: &mut HandlerState, params: &QueryGraphParams) -
                 })?;
 
             let callees = graph.get_callees(name);
+            // Distinguish "no callees" from "function not found"
+            if callees.is_empty() && graph.get_node(name).is_none() {
+                return Ok(json!({
+                    "error": format!("Node '{}' not found in graph. Use query_type=functions to list available names.", name),
+                }));
+            }
             let results: Vec<Value> = callees.iter().map(node_to_json).collect();
             let (page, total, has_more) = paginate(results, offset, limit);
             Ok(json!({
@@ -786,5 +798,71 @@ mod tests {
         };
         let result = handle_analyze_impact(&mut state, &params).unwrap();
         assert!(result["strongly_connected"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_query_graph_callers_nonexistent_node() {
+        let (mut state, _g) = state_with_graph(build_call_graph());
+        let params = QueryGraphParams {
+            query_type: GraphQueryType::Callers,
+            name: Some("nonexistent::func".to_string()),
+            limit: Some(10),
+            offset: Some(0),
+        };
+        let result = handle_query_graph(&mut state, &params).unwrap();
+        // Should return an error JSON instead of silent empty results
+        assert!(result.get("error").is_some());
+        let err_msg = result["error"].as_str().unwrap();
+        assert!(err_msg.contains("nonexistent::func"));
+        assert!(err_msg.contains("not found"));
+    }
+
+    #[test]
+    fn test_query_graph_callees_nonexistent_node() {
+        let (mut state, _g) = state_with_graph(build_call_graph());
+        let params = QueryGraphParams {
+            query_type: GraphQueryType::Callees,
+            name: Some("nonexistent::func".to_string()),
+            limit: Some(10),
+            offset: Some(0),
+        };
+        let result = handle_query_graph(&mut state, &params).unwrap();
+        // Should return an error JSON instead of silent empty results
+        assert!(result.get("error").is_some());
+        let err_msg = result["error"].as_str().unwrap();
+        assert!(err_msg.contains("nonexistent::func"));
+        assert!(err_msg.contains("not found"));
+    }
+
+    #[test]
+    fn test_query_graph_callers_existing_node_no_callers() {
+        let (mut state, _g) = state_with_graph(build_call_graph());
+        // foo::a has no callers (it's the root), but it exists in the graph
+        let params = QueryGraphParams {
+            query_type: GraphQueryType::Callers,
+            name: Some("foo::a".to_string()),
+            limit: Some(10),
+            offset: Some(0),
+        };
+        let result = handle_query_graph(&mut state, &params).unwrap();
+        // Should return normal results (empty list), NOT an error
+        assert!(result.get("error").is_none());
+        assert_eq!(result["total_count"], 0);
+    }
+
+    #[test]
+    fn test_query_graph_callees_existing_node_no_callees() {
+        let (mut state, _g) = state_with_graph(build_call_graph());
+        // bar::c has no callees (it's a leaf), but it exists in the graph
+        let params = QueryGraphParams {
+            query_type: GraphQueryType::Callees,
+            name: Some("bar::c".to_string()),
+            limit: Some(10),
+            offset: Some(0),
+        };
+        let result = handle_query_graph(&mut state, &params).unwrap();
+        // Should return normal results (empty list), NOT an error
+        assert!(result.get("error").is_none());
+        assert_eq!(result["total_count"], 0);
     }
 }
