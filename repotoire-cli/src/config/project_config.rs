@@ -910,4 +910,137 @@ skip_detectors = ["debug-code"]
             "/home/user/project/assets/app.min.js"
         )));
     }
+
+    #[test]
+    fn test_default_project_type() {
+        let pt = ProjectType::default();
+        assert_eq!(pt, ProjectType::Web);
+    }
+
+    #[test]
+    fn test_default_exclude_patterns_populated() {
+        assert!(!DEFAULT_EXCLUDE_PATTERNS.is_empty());
+        assert!(DEFAULT_EXCLUDE_PATTERNS.contains(&"**/node_modules/**"));
+        assert!(DEFAULT_EXCLUDE_PATTERNS.contains(&"**/vendor/**"));
+        assert!(DEFAULT_EXCLUDE_PATTERNS.contains(&"**/dist/**"));
+        assert!(DEFAULT_EXCLUDE_PATTERNS.contains(&"**/*.min.js"));
+    }
+
+    #[test]
+    fn test_project_config_toml_with_project_type() {
+        let toml_str = r#"
+project_type = "library"
+
+[scoring]
+security_multiplier = 3.0
+
+[exclude]
+paths = ["generated/"]
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.project_type, Some(ProjectType::Library));
+        assert!((config.scoring.security_multiplier - 3.0).abs() < 0.001);
+        assert_eq!(config.exclude.paths, vec!["generated/"]);
+    }
+
+    #[test]
+    fn test_project_config_all_project_types_parse() {
+        for (type_str, expected) in [
+            ("web", ProjectType::Web),
+            ("interpreter", ProjectType::Interpreter),
+            ("compiler", ProjectType::Compiler),
+            ("library", ProjectType::Library),
+            ("framework", ProjectType::Framework),
+            ("cli", ProjectType::Cli),
+            ("kernel", ProjectType::Kernel),
+            ("game", ProjectType::Game),
+            ("datascience", ProjectType::DataScience),
+            ("mobile", ProjectType::Mobile),
+        ] {
+            let toml_str = format!("project_type = \"{}\"", type_str);
+            let config: ProjectConfig = toml::from_str(&toml_str).unwrap();
+            assert_eq!(
+                config.project_type,
+                Some(expected),
+                "Failed for project_type = \"{}\"",
+                type_str
+            );
+        }
+    }
+
+    #[test]
+    fn test_unknown_project_type_is_error() {
+        let toml_str = r#"project_type = "unknown_type""#;
+        let result = toml::from_str::<ProjectConfig>(toml_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_coupling_multiplier_varies_by_type() {
+        // Web (default) should be the strictest at 1.0
+        assert!((ProjectType::Web.coupling_multiplier() - 1.0).abs() < 0.001);
+        // Compiler and Kernel should be lenient
+        assert!(ProjectType::Compiler.coupling_multiplier() > 2.0);
+        assert!(ProjectType::Kernel.coupling_multiplier() > 2.0);
+    }
+
+    #[test]
+    fn test_lenient_dead_code() {
+        assert!(ProjectType::Interpreter.lenient_dead_code());
+        assert!(ProjectType::Kernel.lenient_dead_code());
+        assert!(ProjectType::Game.lenient_dead_code());
+        assert!(ProjectType::Framework.lenient_dead_code());
+        assert!(ProjectType::DataScience.lenient_dead_code());
+        // Non-lenient types
+        assert!(!ProjectType::Web.lenient_dead_code());
+        assert!(!ProjectType::Library.lenient_dead_code());
+        assert!(!ProjectType::Cli.lenient_dead_code());
+        assert!(!ProjectType::Compiler.lenient_dead_code());
+        assert!(!ProjectType::Mobile.lenient_dead_code());
+    }
+
+    #[test]
+    fn test_disabled_detectors() {
+        let toml_str = r#"
+[detectors.god-class]
+enabled = false
+
+[detectors.sql-injection]
+enabled = true
+
+[defaults]
+skip_detectors = ["debug-code"]
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        let disabled = config.disabled_detectors();
+        assert!(disabled.contains(&"god-class".to_string()));
+        assert!(disabled.contains(&"debug-code".to_string()));
+        assert!(!disabled.contains(&"sql-injection".to_string()));
+    }
+
+    #[test]
+    fn test_cli_defaults_parsing() {
+        let toml_str = r#"
+[defaults]
+format = "sarif"
+severity = "high"
+workers = 16
+per_page = 50
+thorough = true
+no_git = false
+no_emoji = true
+fail_on = "medium"
+skip_detectors = ["dead-code", "unused-import"]
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.defaults.format, Some("sarif".to_string()));
+        assert_eq!(config.defaults.severity, Some("high".to_string()));
+        assert_eq!(config.defaults.workers, Some(16));
+        assert_eq!(config.defaults.per_page, Some(50));
+        assert_eq!(config.defaults.thorough, Some(true));
+        assert_eq!(config.defaults.no_git, Some(false));
+        assert_eq!(config.defaults.no_emoji, Some(true));
+        assert_eq!(config.defaults.fail_on, Some("medium".to_string()));
+        assert_eq!(config.defaults.skip_detectors.len(), 2);
+    }
 }

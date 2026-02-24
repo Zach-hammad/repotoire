@@ -154,3 +154,126 @@ impl UserConfig {
         Ok(config_path)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = UserConfig::default();
+        assert!(!config.has_ai_key());
+        assert_eq!(config.ai_backend(), "claude");
+        assert!(!config.use_ollama());
+        assert_eq!(config.ollama_url(), "http://localhost:11434");
+        assert_eq!(config.ollama_model(), "codellama");
+        assert!(config.anthropic_api_key().is_none());
+    }
+
+    #[test]
+    fn test_load_returns_defaults_without_file() {
+        let config = UserConfig::load().unwrap();
+        // Should not crash even without a config file on disk
+        assert!(!config.use_ollama());
+    }
+
+    #[test]
+    fn test_toml_parsing_ollama_backend() {
+        let toml_str = r#"
+[ai]
+anthropic_api_key = "sk-test-123"
+backend = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "codellama"
+"#;
+        let config: UserConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.ai.anthropic_api_key.as_deref(), Some("sk-test-123"));
+        assert_eq!(config.ai.backend.as_deref(), Some("ollama"));
+        assert_eq!(
+            config.ai.ollama_url.as_deref(),
+            Some("http://localhost:11434")
+        );
+        assert_eq!(config.ai.ollama_model.as_deref(), Some("codellama"));
+        assert!(config.has_ai_key());
+        assert!(config.use_ollama());
+        assert_eq!(config.ai_backend(), "ollama");
+    }
+
+    #[test]
+    fn test_toml_parsing_claude_backend() {
+        let toml_str = r#"
+[ai]
+anthropic_api_key = "sk-ant-abc"
+backend = "claude"
+"#;
+        let config: UserConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.has_ai_key());
+        assert!(!config.use_ollama());
+        assert_eq!(config.ai_backend(), "claude");
+        assert_eq!(config.anthropic_api_key(), Some("sk-ant-abc"));
+    }
+
+    #[test]
+    fn test_toml_parsing_minimal() {
+        let toml_str = "";
+        let config: UserConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.has_ai_key());
+        assert_eq!(config.ai_backend(), "claude");
+    }
+
+    #[test]
+    fn test_invalid_toml_does_not_crash() {
+        let bad_toml = "this is [[ not valid toml {{{}}}";
+        let result = toml::from_str::<UserConfig>(bad_toml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_merge_overrides_set_fields() {
+        let mut base = UserConfig::default();
+        let other = UserConfig {
+            ai: AiConfig {
+                anthropic_api_key: Some("sk-new".to_string()),
+                openai_api_key: Some("sk-openai".to_string()),
+                model: Some("claude-3".to_string()),
+                backend: Some("ollama".to_string()),
+                ollama_url: Some("http://remote:11434".to_string()),
+                ollama_model: Some("deepseek-coder".to_string()),
+            },
+        };
+        base.merge(other);
+        assert_eq!(base.anthropic_api_key(), Some("sk-new"));
+        assert_eq!(base.ai.openai_api_key.as_deref(), Some("sk-openai"));
+        assert_eq!(base.ai.model.as_deref(), Some("claude-3"));
+        assert_eq!(base.ai_backend(), "ollama");
+        assert_eq!(base.ollama_url(), "http://remote:11434");
+        assert_eq!(base.ollama_model(), "deepseek-coder");
+    }
+
+    #[test]
+    fn test_merge_preserves_base_when_other_is_none() {
+        let mut base = UserConfig {
+            ai: AiConfig {
+                anthropic_api_key: Some("sk-original".to_string()),
+                openai_api_key: None,
+                model: None,
+                backend: Some("claude".to_string()),
+                ollama_url: None,
+                ollama_model: None,
+            },
+        };
+        let other = UserConfig::default();
+        base.merge(other);
+        assert_eq!(base.anthropic_api_key(), Some("sk-original"));
+        assert_eq!(base.ai_backend(), "claude");
+    }
+
+    #[test]
+    fn test_user_config_path_returns_some() {
+        // On most systems, config_dir() should return a valid path
+        let path = UserConfig::user_config_path();
+        if let Some(p) = path {
+            assert!(p.ends_with("repotoire/config.toml"));
+        }
+    }
+}
