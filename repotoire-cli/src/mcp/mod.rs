@@ -43,6 +43,7 @@
 //! - `generate_fix` - Generate AI-powered fix for a finding
 
 mod handlers;
+pub mod params;
 mod server;
 mod tools;
 
