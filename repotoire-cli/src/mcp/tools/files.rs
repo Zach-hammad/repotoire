@@ -12,24 +12,35 @@ use crate::mcp::params::GetFileParams;
 /// Read file content from the repository.
 ///
 /// Resolves the requested path relative to `state.repo_path`, canonicalizes
-/// both paths, and rejects the request when the resolved path escapes the
-/// repository root ("Access denied: path traversal detected").
+/// both paths, and rejects the request when either path cannot be
+/// canonicalized or the resolved path escapes the repository root.
 ///
 /// Supports optional `start_line` / `end_line` (1-indexed) to return a
 /// sub-range. Returns JSON with `path`, `content`, `total_lines`, and
 /// `showing_lines`.
 pub fn handle_get_file(state: &HandlerState, params: &GetFileParams) -> Result<Value> {
-    // Prevent path traversal (#3) -- resolve and verify within repo
+    // Prevent path traversal -- reject paths that can't be canonicalized
     let full_path = state.repo_path.join(&params.file_path);
-    let canonical = full_path.canonicalize().unwrap_or(full_path.clone());
-    let repo_canonical = state
-        .repo_path
-        .canonicalize()
-        .unwrap_or(state.repo_path.clone());
+    let repo_canonical = match state.repo_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            return Ok(json!({
+                "error": "Cannot resolve repository root path"
+            }));
+        }
+    };
+    let canonical = match full_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            return Ok(json!({
+                "error": format!("File not found or inaccessible: {}", params.file_path)
+            }));
+        }
+    };
 
     if !canonical.starts_with(&repo_canonical) {
         return Ok(json!({
-            "error": "Access denied: path traversal detected"
+            "error": "Access denied: path outside repository"
         }));
     }
     if !canonical.exists() {
