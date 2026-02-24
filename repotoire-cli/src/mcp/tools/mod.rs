@@ -1,8 +1,12 @@
-//! MCP Tool definitions
+//! MCP Tool definitions and handler functions
 //!
 //! Defines the available tools and their JSON schemas for the MCP protocol.
+//! Each sub-module contains the handler logic for a group of tools.
+//! Functions accept HandlerState and return Result<Value, anyhow::Error>.
 
 #![allow(non_snake_case)]
+
+pub mod analysis;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
