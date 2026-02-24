@@ -827,4 +827,42 @@ mod tests {
         assert!(!cache.is_populated());
         assert_eq!(cache.stats().cached_files, 0);
     }
+
+    #[test]
+    fn test_cached_finding_round_trip_preserves_threshold_metadata() {
+        use crate::models::{Finding, Severity};
+        use std::collections::HashMap;
+
+        let mut meta = HashMap::new();
+        meta.insert("threshold_source".to_string(), "adaptive".to_string());
+        meta.insert("effective_threshold".to_string(), "15".to_string());
+
+        let finding = Finding {
+            id: "rt-1".into(),
+            detector: "TestDetector".into(),
+            severity: Severity::High,
+            title: "Test".into(),
+            description: "Desc".into(),
+            confidence: Some(0.85),
+            threshold_metadata: meta,
+            ..Default::default()
+        };
+
+        let cached = CachedFinding::from(&finding);
+        assert_eq!(
+            cached.threshold_metadata.get("threshold_source").unwrap(),
+            "adaptive"
+        );
+
+        let restored = cached.to_finding();
+        assert_eq!(restored.id, "rt-1");
+        assert_eq!(restored.confidence, Some(0.85));
+        assert_eq!(
+            restored
+                .threshold_metadata
+                .get("effective_threshold")
+                .unwrap(),
+            "15"
+        );
+    }
 }
