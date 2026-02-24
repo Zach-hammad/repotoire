@@ -7,6 +7,7 @@
 #![allow(non_snake_case)]
 
 pub mod analysis;
+pub mod files;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
