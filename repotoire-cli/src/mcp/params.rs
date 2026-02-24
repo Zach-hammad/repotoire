@@ -91,7 +91,7 @@ pub struct TraceDependenciesParams {
     pub kind: Option<TraceKind>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TraceDirection {
     Upstream,
@@ -105,7 +105,7 @@ impl Default for TraceDirection {
     }
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TraceKind {
     Calls,
@@ -129,7 +129,7 @@ pub struct AnalyzeImpactParams {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ImpactScope {
     Function,

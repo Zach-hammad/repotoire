@@ -8,6 +8,7 @@
 
 pub mod analysis;
 pub mod files;
+pub mod graph;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

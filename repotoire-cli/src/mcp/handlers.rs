@@ -127,6 +127,11 @@ impl HandlerState {
         self.graph = Some(Arc::clone(&client));
         Ok(client)
     }
+
+    /// Inject a pre-built graph store (used by tests and embedding scenarios).
+    pub fn set_graph(&mut self, graph: Arc<GraphStore>) {
+        self.graph = Some(graph);
+    }
 }
 
 // =============================================================================
