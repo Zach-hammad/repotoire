@@ -51,6 +51,8 @@ struct CachedFinding {
     pub why_it_matters: Option<String>,
     #[serde(default)]
     pub confidence: Option<f64>,
+    #[serde(default)]
+    pub threshold_metadata: std::collections::HashMap<String, String>,
 }
 
 impl From<&Finding> for CachedFinding {
@@ -74,6 +76,7 @@ impl From<&Finding> for CachedFinding {
             cwe_id: f.cwe_id.clone(),
             why_it_matters: f.why_it_matters.clone(),
             confidence: f.confidence,
+            threshold_metadata: f.threshold_metadata.clone(),
         }
     }
 }
@@ -104,7 +107,7 @@ impl CachedFinding {
             cwe_id: self.cwe_id.clone(),
             why_it_matters: self.why_it_matters.clone(),
             confidence: self.confidence,
-            ..Default::default()
+            threshold_metadata: self.threshold_metadata.clone(),
         }
     }
 }
