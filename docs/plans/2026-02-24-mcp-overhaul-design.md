@@ -43,7 +43,7 @@ repotoire-cli/src/mcp/
 ├── mod.rs              # Module entry, re-exports
 ├── server.rs           # rmcp ServerHandler impl + transport setup
 ├── tools/
-│   ├── mod.rs          # Tool registry, #[tool_box] macro
+│   ├── mod.rs          # Tool registry, #[tool_router] + #[tool_handler] macros
 │   ├── analysis.rs     # repotoire_analyze, repotoire_get_findings, repotoire_get_hotspots
 │   ├── graph.rs        # repotoire_query_graph, repotoire_trace_dependencies, repotoire_analyze_impact
 │   ├── files.rs        # repotoire_get_file, repotoire_get_architecture, repotoire_list_detectors
@@ -56,53 +56,76 @@ repotoire-cli/src/mcp/
 
 1. **Tokio only in MCP module** — the rest of the codebase stays sync. MCP handlers use `tokio::task::spawn_blocking` to call existing sync code (GraphStore, DetectorEngine, file I/O). No async infection.
 
-2. **rmcp `#[tool]` macros** auto-generate JSON schemas from Rust types — eliminates the manual `ToolSchema` builder.
+2. **rmcp `#[tool_router]` + `#[tool_handler]` macros** — `#[tool_router]` on impl block auto-generates `ToolRouter<Self>`, `#[tool_handler]` on `ServerHandler` impl wires tools into protocol. Schemars 1.0 generates JSON schemas from Rust types.
 
 3. **Structured output** via `outputSchema` on tools that return typed data (findings, architecture, graph results).
 
-4. **State sharing** via `Arc<RwLock<HandlerState>>` passed to the rmcp `ServerHandler`.
+4. **State sharing** via `Arc<RwLock<HandlerState>>` as field on the `Clone`-able server struct. `ToolRouter<Self>` is also a required field.
 
-5. **Protocol version:** 2025-11-25 (latest, handled by rmcp automatically).
+5. **Protocol version:** 2025-06-18 (latest variant available in rmcp: `ProtocolVersion::V_2025_06_18`).
 
 ## rmcp Integration Pattern
 
 ### Server Handler
 
 ```rust
-use rmcp::{ServerHandler, tool_box, model::*};
+use rmcp::{
+    ErrorData as McpError, ServerHandler, ServiceExt, RoleServer,
+    handler::server::router::tool::ToolRouter,
+    handler::server::wrapper::Parameters,
+    model::*,
+    schemars,
+    tool, tool_handler, tool_router,
+    transport::stdio,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct RepotoireServer {
     state: Arc<RwLock<HandlerState>>,
+    tool_router: ToolRouter<RepotoireServer>,
 }
 
-#[tool_box]
+#[tool_router]
 impl RepotoireServer {
-    #[tool(description = "Run full code analysis on the repository...")]
+    pub fn new(state: HandlerState) -> Self {
+        Self {
+            state: Arc::new(RwLock::new(state)),
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    #[tool(description = "Run full code analysis on the repository. Returns findings summary by severity.")]
     async fn repotoire_analyze(
         &self,
-        #[tool(param, description = "Only analyze changed files")]
-        incremental: Option<bool>,
+        Parameters(params): Parameters<AnalyzeParams>,
     ) -> Result<CallToolResult, McpError> {
         let state = self.state.clone();
         let result = tokio::task::spawn_blocking(move || {
             let mut state = state.blocking_write();
-            handle_analyze(&mut state, incremental.unwrap_or(true))
-        }).await.map_err(|e| McpError::internal(e.to_string()))?;
+            handle_analyze(&mut state, params.incremental.unwrap_or(true))
+        }).await.map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         result.map(|v| CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&v).unwrap()
         )]))
+        .map_err(|e| McpError::internal_error(e.to_string(), None))
     }
 }
 
-#[async_trait]
-#[tool_box]
+#[tool_handler]
 impl ServerHandler for RepotoireServer {
-    fn name(&self) -> String { "repotoire".into() }
-    fn version(&self) -> String { env!("CARGO_PKG_VERSION").into() }
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            protocol_version: ProtocolVersion::V_2025_06_18,
+            capabilities: ServerCapabilities::builder()
+                .enable_tools()
+                .build(),
+            server_info: Implementation::from_build_env(),
+            instructions: Some("Repotoire: graph-powered code health analysis".into()),
+        }
+    }
 }
 ```
 
