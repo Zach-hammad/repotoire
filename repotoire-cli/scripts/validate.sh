@@ -14,7 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CLI_DIR/.." && pwd)"
-BINARY="$REPO_ROOT/target/release/repotoire"
+BINARY="$CLI_DIR/target/release/repotoire"
 TMPDIR=$(mktemp -d /tmp/repotoire-validate-XXXXXX)
 
 PASSED=0
