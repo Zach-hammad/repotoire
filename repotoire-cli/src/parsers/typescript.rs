@@ -285,14 +285,7 @@ fn extract_functions(
 
 /// Check if a node is inside a class body
 fn is_inside_class(node: &Node) -> bool {
-    let mut current = node.parent();
-    while let Some(parent) = current {
-        if parent.kind() == "class_body" {
-            return true;
-        }
-        current = parent.parent();
-    }
-    false
+    super::is_inside_ancestor(node, "class_body")
 }
 
 /// Check if function has async modifier

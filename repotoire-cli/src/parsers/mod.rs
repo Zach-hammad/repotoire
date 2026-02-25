@@ -29,9 +29,23 @@ pub use lightweight_parser::parse_file_lightweight;
 
 use anyhow::Result;
 use std::path::Path;
+use tree_sitter::Node;
 
 // Performance guardrail: skip very large source files in AST parsing (#48).
 const MAX_PARSE_FILE_BYTES: u64 = 2 * 1024 * 1024; // 2MB
+
+/// Walk up the AST to check if a node is nested inside an ancestor of the given kind.
+/// Shared across language parsers to avoid structural duplication.
+pub(crate) fn is_inside_ancestor(node: &Node, ancestor_kind: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == ancestor_kind {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
+}
 
 fn is_probably_cpp_header(path: &Path) -> bool {
     let content = match std::fs::read(path) {

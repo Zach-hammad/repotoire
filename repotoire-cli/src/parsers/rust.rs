@@ -142,14 +142,7 @@ fn has_async_modifier(node: &Node, source: &[u8]) -> bool {
 
 /// Check if a node is inside an impl block
 fn is_inside_impl(node: &Node) -> bool {
-    let mut current = node.parent();
-    while let Some(parent) = current {
-        if parent.kind() == "impl_item" {
-            return true;
-        }
-        current = parent.parent();
-    }
-    false
+    super::is_inside_ancestor(node, "impl_item")
 }
 
 /// Extract parameter names from a parameters node
