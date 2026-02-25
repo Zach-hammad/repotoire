@@ -1,6 +1,4 @@
 //! Graph store traits for detector compatibility
-//!
-//! This trait allows detectors to work with both GraphStore and CompactGraphStore.
 
 use super::CodeNode;
 use std::collections::HashMap;

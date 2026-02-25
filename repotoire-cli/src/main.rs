@@ -27,7 +27,6 @@ mod graph;
 mod mcp;
 pub mod models;
 mod parsers;
-mod pipeline;
 mod reporters;
 pub mod scoring;
 

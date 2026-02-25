@@ -73,7 +73,6 @@ pub fn run(
     verify: bool,
     skip_graph: bool,
     max_files: usize,
-    compact: bool,
 ) -> Result<()> {
     // Normalize skip_detector names to kebab-case so both "TodoScanner" and "todo-scanner" work
     let skip_detector: Vec<String> = skip_detector
@@ -81,10 +80,6 @@ pub fn run(
         .map(|s| normalize_to_kebab(&s))
         .collect();
 
-    // Note: compact mode uses CompactGraphStore via the --compact flag
-    if compact {
-        tracing::info!("Compact mode enabled (string interning)");
-    }
     let start_time = Instant::now();
 
     // Phase 1: Validate repository and setup environment

@@ -312,7 +312,7 @@ impl MessageChainDetector {
     }
 
     /// Check if a chain is trait delegation — most members share the same function name.
-    /// e.g. GraphStore::get_callers → CompactGraphStore::get_callers → MmapStore::get_callers
+    /// e.g. GraphStore::get_callers → MmapStore::get_callers
     fn is_trait_delegation_chain(&self, chain_members: &[String]) -> bool {
         if chain_members.len() < 3 {
             return false;
