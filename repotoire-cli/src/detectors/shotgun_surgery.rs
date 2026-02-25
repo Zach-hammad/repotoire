@@ -394,6 +394,28 @@ impl Detector for ShotgunSurgeryDetector {
             "as_bool",
             "as_array",
             "as_object", // JSON accessors
+            // Common stdlib method names that cause graph conflation (bare method
+            // calls like .find() resolve to whichever fn was last in the global map)
+            "find",
+            "map",
+            "filter",
+            "fold",
+            "collect",
+            "contains",
+            "push",
+            "pop",
+            "insert",
+            "remove",
+            "sort",
+            "unwrap",
+            "expect",
+            "ok",
+            "err",
+            "read",
+            "write",
+            "lock",
+            "send",
+            "recv",
         ];
 
         for func in graph.get_functions() {

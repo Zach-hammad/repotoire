@@ -265,13 +265,24 @@ impl FlushingGraphBuilder {
                 .next()
                 .unwrap_or(&call.callee);
 
-            // Check same file first, then lookup
-            let callee_qn = info
+            // Check same file first
+            let same_file_match = info
                 .functions
                 .iter()
                 .find(|f| f.name == callee_name)
-                .map(|f| f.qualified_name.clone())
-                .or_else(|| self.function_lookup.get(callee_name).cloned());
+                .map(|f| f.qualified_name.clone());
+
+            // For cross-file lookup, skip ambiguous bare method names to avoid
+            // conflating unrelated methods (e.g., str::find vs user fn find)
+            let callee_qn = same_file_match.or_else(|| {
+                let has_module = call.callee.contains(':') || call.callee.contains('.');
+                if !has_module
+                    && crate::cli::analyze::graph::AMBIGUOUS_METHOD_NAMES.contains(&callee_name)
+                {
+                    return None;
+                }
+                self.function_lookup.get(callee_name).cloned()
+            });
 
             if let Some(qn) = callee_qn {
                 self.edge_buffer

@@ -563,6 +563,155 @@ impl ModuleLookup {
     }
 }
 
+/// Common method names that exist on standard library types and traits.
+/// These are extracted as bare names by method_call_expression parsing and
+/// must NOT be resolved via the global function map, as that would conflate
+/// unrelated methods (e.g., `str::find` vs a local `fn find`) into a single
+/// graph node, producing massive false-positive fan-in counts.
+pub(crate) const AMBIGUOUS_METHOD_NAMES: &[&str] = &[
+    // Iterator trait methods
+    "find",
+    "map",
+    "filter",
+    "fold",
+    "reduce",
+    "collect",
+    "any",
+    "all",
+    "count",
+    "sum",
+    "min",
+    "max",
+    "zip",
+    "chain",
+    "skip",
+    "take",
+    "flat_map",
+    "for_each",
+    "enumerate",
+    "peekable",
+    "position",
+    // Option/Result methods
+    "unwrap",
+    "expect",
+    "ok",
+    "err",
+    "map_err",
+    "unwrap_or",
+    "unwrap_or_else",
+    "unwrap_or_default",
+    "and_then",
+    "or_else",
+    "is_some",
+    "is_none",
+    "is_ok",
+    "is_err",
+    // String/str methods
+    "contains",
+    "starts_with",
+    "ends_with",
+    "replace",
+    "trim",
+    "split",
+    "join",
+    "to_lowercase",
+    "to_uppercase",
+    "chars",
+    "bytes",
+    "lines",
+    // Vec/slice methods
+    "push",
+    "pop",
+    "insert",
+    "remove",
+    "sort",
+    "sort_by",
+    "retain",
+    "extend",
+    "truncate",
+    "clear",
+    "is_empty",
+    "len",
+    "first",
+    "last",
+    "iter",
+    "into_iter",
+    "iter_mut",
+    // HashMap/BTreeMap
+    "entry",
+    "or_insert",
+    "or_default",
+    "or_insert_with",
+    "keys",
+    "values",
+    // Conversion traits
+    "into",
+    "from",
+    "as_ref",
+    "as_mut",
+    "to_owned",
+    "to_string",
+    "clone",
+    // Display/Debug/comparison traits
+    "fmt",
+    "eq",
+    "cmp",
+    "partial_cmp",
+    "hash",
+    // I/O
+    "read",
+    "write",
+    "flush",
+    "close",
+    "seek",
+    // Sync primitives
+    "lock",
+    "unlock",
+    "send",
+    "recv",
+    // Common trait methods
+    "next",
+    "poll",
+    "drop",
+    "deref",
+    "index",
+    "borrow",
+    // Python/JS common builtins (also bare names from method calls)
+    "append",
+    "update",
+    "items",
+    "keys",
+    "values",
+    "strip",
+    "encode",
+    "decode",
+    "match",
+    "test",
+    "exec",
+    "apply",
+    "bind",
+    "call",
+    "then",
+    "catch",
+    "finally",
+    "resolve",
+    "reject",
+    "slice",
+    "splice",
+    "shift",
+    "unshift",
+    "concat",
+    "includes",
+    "indexOf",
+    "forEach",
+    "some",
+    "every",
+    "flat",
+    "fill",
+    "at",
+    "with",
+];
+
 /// Build call edges using pre-computed lookup (O(1) module resolution)
 pub(super) fn build_call_edges_fast(
     edges: &mut Vec<(String, String, CodeEdge)>,
@@ -589,6 +738,17 @@ pub(super) fn build_call_edges_fast(
                 callee_func.qualified_name.clone(),
                 CodeEdge::calls(),
             ));
+            continue;
+        }
+
+        // Skip cross-file resolution for bare method names that are ambiguous.
+        // These come from method_call_expression nodes where the parser extracts
+        // just the method name without receiver type. Resolving "find" globally
+        // would conflate str::find, Iterator::find, and user-defined find() into
+        // one node, creating massive false-positive fan-in/fan-out counts.
+        if callee_module.is_none()
+            && AMBIGUOUS_METHOD_NAMES.contains(&callee_name)
+        {
             continue;
         }
 

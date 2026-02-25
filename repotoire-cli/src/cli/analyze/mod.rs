@@ -11,7 +11,7 @@
 
 mod detect;
 pub(crate) mod files;
-mod graph;
+pub(crate) mod graph;
 mod output;
 mod parse;
 mod postprocess;
