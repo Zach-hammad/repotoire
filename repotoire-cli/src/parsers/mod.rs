@@ -28,11 +28,36 @@ pub use lightweight::{Language, LightweightParseStats};
 pub use lightweight_parser::parse_file_lightweight;
 
 use anyhow::Result;
+use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::Node;
 
 // Performance guardrail: skip very large source files in AST parsing (#48).
 const MAX_PARSE_FILE_BYTES: u64 = 2 * 1024 * 1024; // 2MB
+
+/// Find the smallest scope in `scope_map` that contains the given line.
+/// Shared across language parsers to avoid structural duplication.
+pub(crate) fn find_containing_scope(
+    line: u32,
+    scope_map: &HashMap<(u32, u32), String>,
+) -> Option<String> {
+    let mut best_match: Option<(&(u32, u32), &String)> = None;
+
+    for (range, name) in scope_map {
+        if line >= range.0 && line <= range.1 {
+            match best_match {
+                None => best_match = Some((range, name)),
+                Some((best_range, _)) => {
+                    if (range.1 - range.0) < (best_range.1 - best_range.0) {
+                        best_match = Some((range, name));
+                    }
+                }
+            }
+        }
+    }
+
+    best_match.map(|(_, name)| name.clone())
+}
 
 /// Walk up the AST to check if a node is nested inside an ancestor of the given kind.
 /// Shared across language parsers to avoid structural duplication.

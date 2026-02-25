@@ -640,22 +640,7 @@ fn extract_calls_recursive(
 
 /// Find which scope contains a given line
 fn find_containing_scope(line: u32, scope_map: &HashMap<(u32, u32), String>) -> Option<String> {
-    let mut best_match: Option<(&(u32, u32), &String)> = None;
-
-    for (range, name) in scope_map {
-        if line >= range.0 && line <= range.1 {
-            match best_match {
-                None => best_match = Some((range, name)),
-                Some((best_range, _)) => {
-                    if (range.1 - range.0) < (best_range.1 - best_range.0) {
-                        best_match = Some((range, name));
-                    }
-                }
-            }
-        }
-    }
-
-    best_match.map(|(_, name)| name.clone())
+    super::find_containing_scope(line, scope_map)
 }
 
 /// Extract the target of a method call
