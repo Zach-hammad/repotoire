@@ -159,8 +159,8 @@ impl NgramModel {
             return 0.0; // Not enough data to judge
         }
 
-        let k = 0.1; // Smoothing constant
-        let v = self.vocab_size.max(1) as f64;
+        let smoothing = 0.1;
+        let vocab = self.vocab_size.max(1) as f64;
         let mut total_surprisal = 0.0;
         let mut count = 0;
 
@@ -173,12 +173,12 @@ impl NgramModel {
 
             // Smoothed probability with backoff
             let prob = if context_count > 0.0 {
-                (ngram_count + k) / (context_count + k * v)
+                (ngram_count + smoothing) / (context_count + smoothing * vocab)
             } else {
                 // Backoff to unigram
                 let target = &window[self.order - 1];
                 let uni_count = *self.unigram_counts.get(target).unwrap_or(&0) as f64;
-                (uni_count + k) / (self.total_tokens as f64 + k * v)
+                (uni_count + smoothing) / (self.total_tokens as f64 + smoothing * vocab)
             };
 
             total_surprisal += -prob.log2();
@@ -209,12 +209,12 @@ impl NgramModel {
         let mut scored_lines = 0;
 
         for (i, line) in lines.iter().enumerate() {
-            let s = self.line_surprisal(line);
-            if s > 0.0 {
-                total += s;
+            let score = self.line_surprisal(line);
+            if score > 0.0 {
+                total += score;
                 scored_lines += 1;
-                if s > max_surprisal {
-                    max_surprisal = s;
+                if score > max_surprisal {
+                    max_surprisal = score;
                     max_line = i;
                 }
             }

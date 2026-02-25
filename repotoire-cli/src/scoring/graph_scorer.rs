@@ -659,11 +659,11 @@ impl<'a> GraphScorer<'a> {
         ));
 
         lines.push("## Scoring Formula\n".to_string());
-        let w = &self.config.scoring.pillar_weights;
+        let weights = &self.config.scoring.pillar_weights;
         lines.push("```".to_string());
         lines.push(format!(
             "Overall = Structure × {:.2} + Quality × {:.2} + Architecture × {:.2}",
-            w.structure, w.quality, w.architecture
+            weights.structure, weights.quality, weights.architecture
         ));
         lines.push("Pillar  = (100 - penalties) + graph_bonuses".to_string());
         lines.push(format!(
