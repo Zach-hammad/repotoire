@@ -269,24 +269,7 @@ impl FixGenerator {
         let changes: Vec<CodeChange> = data
             .get("changes")
             .and_then(|c| c.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|change| {
-                        Some(CodeChange {
-                            file_path: PathBuf::from(change.get("file_path")?.as_str()?),
-                            original_code: change.get("original_code")?.as_str()?.to_string(),
-                            fixed_code: change.get("fixed_code")?.as_str()?.to_string(),
-                            start_line: change.get("start_line")?.as_u64()? as u32,
-                            end_line: change.get("end_line")?.as_u64()? as u32,
-                            description: change
-                                .get("description")
-                                .and_then(|d| d.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                        })
-                    })
-                    .collect()
-            })
+            .map(|arr| arr.iter().filter_map(parse_code_change).collect())
             .unwrap_or_default();
 
         // Extract evidence
@@ -355,32 +338,31 @@ impl FixGenerator {
     fn validate_original_code(&self, fix: &FixProposal, repo_path: &Path) -> bool {
         for change in &fix.changes {
             let file_path = repo_path.join(&change.file_path);
-            if let Ok(content) = fs::read_to_string(&file_path) {
-                // Try exact match first
-                if content.contains(&change.original_code) {
-                    continue;
-                }
+            let Ok(content) = fs::read_to_string(&file_path) else {
+                return false;
+            };
+            // Try exact match first
+            if content.contains(&change.original_code) {
+                continue;
+            }
 
-                // Try normalized match (ignore leading/trailing whitespace on lines)
-                let normalized_original: String = change
-                    .original_code
-                    .lines()
-                    .map(|l| l.trim())
-                    .filter(|l| !l.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+            // Try normalized match (ignore leading/trailing whitespace on lines)
+            let normalized_original: String = change
+                .original_code
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
 
-                let normalized_content: String = content
-                    .lines()
-                    .map(|l| l.trim())
-                    .filter(|l| !l.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+            let normalized_content: String = content
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
 
-                if !normalized_content.contains(&normalized_original) {
-                    return false;
-                }
-            } else {
+            if !normalized_content.contains(&normalized_original) {
                 return false;
             }
         }
@@ -403,6 +385,22 @@ fn is_syntactically_valid(code: &str, language: &str) -> bool {
         "javascript" | "typescript" | "rust" | "go" | "java" => balanced('{', '}'),
         _ => true,
     }
+}
+
+/// Parse a single code change from a JSON value
+fn parse_code_change(change: &serde_json::Value) -> Option<CodeChange> {
+    Some(CodeChange {
+        file_path: PathBuf::from(change.get("file_path")?.as_str()?),
+        original_code: change.get("original_code")?.as_str()?.to_string(),
+        fixed_code: change.get("fixed_code")?.as_str()?.to_string(),
+        start_line: change.get("start_line")?.as_u64()? as u32,
+        end_line: change.get("end_line")?.as_u64()? as u32,
+        description: change
+            .get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or("")
+            .to_string(),
+    })
 }
 
 fn extract_string_array(value: &serde_json::Value, key: &str) -> Vec<String> {

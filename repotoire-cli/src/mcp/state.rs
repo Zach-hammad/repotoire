@@ -65,30 +65,7 @@ impl HandlerState {
     /// Build or return the cached n-gram language model for predictive coding
     pub fn ngram_model(&mut self) -> Option<crate::calibrate::NgramModel> {
         if self.ngram_model.is_none() {
-            let mut model = crate::calibrate::NgramModel::new();
-            let walker = ignore::WalkBuilder::new(&self.repo_path)
-                .hidden(false)
-                .git_ignore(true)
-                .build();
-            for entry in walker.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if !path.is_file() { continue; }
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if !matches!(ext, "rs" | "py" | "ts" | "tsx" | "js" | "jsx" | "go" | "java"
-                    | "c" | "cpp" | "cc" | "h" | "hpp" | "cs" | "kt") {
-                    continue;
-                }
-                let path_lower = path.to_string_lossy().to_lowercase();
-                if path_lower.contains("/test") || path_lower.contains("/vendor")
-                    || path_lower.contains("/node_modules") || path_lower.contains("/generated")
-                {
-                    continue;
-                }
-                let Ok(content) = std::fs::read_to_string(path) else { continue; };
-                let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
-                model.train_on_tokens(&tokens);
-            }
-            if model.is_confident() {
+            if let Some(model) = build_ngram_model_from_repo(&self.repo_path) {
                 tracing::info!("MCP: Learned coding patterns ({} tokens, {} vocabulary)",
                     model.total_tokens(), model.vocab_size());
                 self.ngram_model = Some(model);
@@ -136,6 +113,37 @@ impl HandlerState {
     pub fn set_graph(&mut self, graph: Arc<GraphStore>) {
         self.graph = Some(graph);
     }
+}
+
+/// Build an n-gram model by scanning source files in the repo
+fn build_ngram_model_from_repo(repo_path: &std::path::Path) -> Option<crate::calibrate::NgramModel> {
+    let mut model = crate::calibrate::NgramModel::new();
+    let walker = ignore::WalkBuilder::new(repo_path)
+        .hidden(false)
+        .git_ignore(true)
+        .build();
+    for entry in walker.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !matches!(ext, "rs" | "py" | "ts" | "tsx" | "js" | "jsx" | "go" | "java"
+            | "c" | "cpp" | "cc" | "h" | "hpp" | "cs" | "kt")
+        {
+            continue;
+        }
+        let path_lower = path.to_string_lossy().to_lowercase();
+        if path_lower.contains("/test") || path_lower.contains("/vendor")
+            || path_lower.contains("/node_modules") || path_lower.contains("/generated")
+        {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(path) else { continue };
+        let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
+        model.train_on_tokens(&tokens);
+    }
+    model.is_confident().then_some(model)
 }
 
 #[cfg(test)]

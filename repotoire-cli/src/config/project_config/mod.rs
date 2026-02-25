@@ -647,47 +647,14 @@ pub fn glob_match(pattern: &str, path: &str) -> bool {
 
     // Handle ** (match any path segments)
     if pattern.contains("**") {
-        let parts: Vec<&str> = pattern.split("**").collect();
-        if parts.len() == 2 {
-            let prefix = parts[0].trim_end_matches('/');
-            let suffix = parts[1].trim_start_matches('/');
-
-            // Check prefix
-            if !prefix.is_empty() && !path.starts_with(prefix) {
-                return false;
-            }
-
-            // Check suffix (handle * wildcard within suffix, e.g. **/*.min.js)
-            if !suffix.is_empty() && !suffix.contains('*') && !path.ends_with(suffix) {
-                return false;
-            }
-            if !suffix.is_empty() && suffix.contains('*') {
-                let star_parts: Vec<&str> = suffix.split('*').collect();
-                if star_parts.len() == 2 {
-                    let before = star_parts[0];
-                    let after = star_parts[1];
-                    let matches = if before.is_empty() {
-                        path.ends_with(after)
-                    } else {
-                        path.contains(before) && path.ends_with(after)
-                    };
-                    if !matches {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-        }
+        return glob_match_doublestar(pattern, path);
     }
 
     // Handle single * (match within segment)
     if pattern.contains('*') {
         let parts: Vec<&str> = pattern.split('*').collect();
         if parts.len() == 2 {
-            let prefix = parts[0];
-            let suffix = parts[1];
-            return path.starts_with(prefix) && path.ends_with(suffix);
+            return path.starts_with(parts[0]) && path.ends_with(parts[1]);
         }
     }
 
@@ -695,6 +662,46 @@ pub fn glob_match(pattern: &str, path: &str) -> bool {
     // "vendor/" only matches "vendor/foo.py", NOT "src/vendor/foo.py"
     // Use "**/vendor/**" pattern for recursive matching
     path.starts_with(pattern) || path == pattern
+}
+
+/// Handle ** doublestar glob patterns (e.g. src/**/*.min.js)
+fn glob_match_doublestar(pattern: &str, path: &str) -> bool {
+    let parts: Vec<&str> = pattern.split("**").collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let prefix = parts[0].trim_end_matches('/');
+    let suffix = parts[1].trim_start_matches('/');
+
+    // Check prefix
+    if !prefix.is_empty() && !path.starts_with(prefix) {
+        return false;
+    }
+
+    // Check suffix (handle * wildcard within suffix, e.g. **/*.min.js)
+    if !suffix.is_empty() && !suffix.contains('*') && !path.ends_with(suffix) {
+        return false;
+    }
+    if !suffix.is_empty() && suffix.contains('*') && !suffix_wildcard_matches(suffix, path) {
+        return false;
+    }
+
+    true
+}
+
+/// Check if a suffix pattern with a single wildcard (e.g. *.min.js) matches the path
+fn suffix_wildcard_matches(suffix: &str, path: &str) -> bool {
+    let star_parts: Vec<&str> = suffix.split('*').collect();
+    if star_parts.len() != 2 {
+        return true; // Can't parse, assume match
+    }
+    let before = star_parts[0];
+    let after = star_parts[1];
+    if before.is_empty() {
+        path.ends_with(after)
+    } else {
+        path.contains(before) && path.ends_with(after)
+    }
 }
 
 #[cfg(test)]

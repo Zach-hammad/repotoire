@@ -88,17 +88,19 @@ pub(crate) fn collect_file_list(repo_path: &Path, exclude: &ExcludeConfig) -> Re
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
             continue;
         };
-        if SUPPORTED_EXTENSIONS.contains(&ext) {
-            // Skip files matching exclusion patterns
-            if let Ok(rel) = path.strip_prefix(repo_path) {
-                let rel_str = rel.to_string_lossy();
-                if effective.iter().any(|p| glob_match(p, &rel_str)) {
-                    continue;
-                }
+        if !SUPPORTED_EXTENSIONS.contains(&ext) {
+            continue;
+        }
+
+        // Skip files matching exclusion patterns
+        if let Ok(rel) = path.strip_prefix(repo_path) {
+            let rel_str = rel.to_string_lossy();
+            if effective.iter().any(|p| glob_match(p, &rel_str)) {
+                continue;
             }
-            if let Some(validated) = validate_file(path, &repo_canonical) {
-                files.push(validated);
-            }
+        }
+        if let Some(validated) = validate_file(path, &repo_canonical) {
+            files.push(validated);
         }
     }
 
@@ -203,19 +205,22 @@ fn collect_source_files(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec
             continue;
         }
 
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if SUPPORTED_EXTENSIONS.contains(&ext) {
-                // Skip files matching exclusion patterns
-                if let Ok(rel) = path.strip_prefix(repo_path) {
-                    let rel_str = rel.to_string_lossy();
-                    if effective.iter().any(|p| glob_match(p, &rel_str)) {
-                        continue;
-                    }
-                }
-                if let Some(validated) = validate_file(path, &repo_canonical) {
-                    files.push(validated);
-                }
+        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        if !SUPPORTED_EXTENSIONS.contains(&ext) {
+            continue;
+        }
+
+        // Skip files matching exclusion patterns
+        if let Ok(rel) = path.strip_prefix(repo_path) {
+            let rel_str = rel.to_string_lossy();
+            if effective.iter().any(|p| glob_match(p, &rel_str)) {
+                continue;
             }
+        }
+        if let Some(validated) = validate_file(path, &repo_canonical) {
+            files.push(validated);
         }
     }
 
@@ -269,17 +274,16 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
         .current_dir(repo_path)
         .output();
 
-    if let Ok(out) = untracked {
-        if out.status.success() {
-            let new_files = String::from_utf8_lossy(&out.stdout);
-            for line in new_files.lines().filter(|l| !l.is_empty()) {
-                let path = repo_path.join(line);
-                if !path.exists() { continue; }
-                let Some(validated) = validate_file(&path, &repo_canonical) else { continue; };
-                if !files.contains(&validated) {
-                    files.push(validated);
-                }
-            }
+    let untracked_files = untracked.ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
+        .unwrap_or_default();
+    for line in untracked_files.lines().filter(|l| !l.is_empty()) {
+        let path = repo_path.join(line);
+        if !path.exists() { continue; }
+        let Some(validated) = validate_file(&path, &repo_canonical) else { continue; };
+        if !files.contains(&validated) {
+            files.push(validated);
         }
     }
 

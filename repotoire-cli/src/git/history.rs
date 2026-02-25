@@ -55,6 +55,51 @@ pub struct GitHistory {
     repo: Repository,
 }
 
+/// Extract file path from a diff delta and process it for churn tracking.
+fn process_diff_file_cb(
+    delta: git2::DiffDelta<'_>,
+    churn_map: &mut HashMap<String, FileChurn>,
+    author: &str,
+    timestamp: &str,
+) {
+    let Some(path) = delta.new_file().path() else {
+        return;
+    };
+    let path_str = path.to_string_lossy().to_string();
+    process_diff_delta(churn_map, path_str, author, timestamp);
+}
+
+/// Process a single diff delta, updating churn tracking for the file.
+fn process_diff_delta(
+    churn_map: &mut HashMap<String, FileChurn>,
+    path_str: String,
+    author: &str,
+    timestamp: &str,
+) {
+    let entry = churn_map.entry(path_str).or_default();
+    entry.commit_count += 1;
+
+    // Track authors
+    if !entry.authors.contains(&author.to_string()) {
+        entry.authors.push(author.to_string());
+    }
+
+    // Update last modified if this is newer
+    if entry.last_modified.is_none() {
+        entry.last_modified = Some(timestamp.to_string());
+        entry.last_author = Some(author.to_string());
+    }
+}
+
+/// Check whether a commit is before the given timestamp cutoff
+fn is_commit_before(commit: &git2::Commit, since: Option<DateTime<Utc>>) -> bool {
+    let Some(since_ts) = since else { return false };
+    let commit_time = commit.time();
+    Utc.timestamp_opt(commit_time.seconds(), 0)
+        .single()
+        .is_some_and(|dt| dt < since_ts)
+}
+
 impl GitHistory {
     /// Create a new GitHistory for a repository.
     ///
@@ -158,13 +203,9 @@ impl GitHistory {
             let oid = oid_result?;
             let commit = self.repo.find_commit(oid)?;
 
-            // Filter by timestamp if specified
-            if let Some(since_ts) = since {
-                let commit_time = commit.time();
-                let commit_dt = Utc.timestamp_opt(commit_time.seconds(), 0).single();
-                if commit_dt.is_some_and(|dt| dt < since_ts) {
-                    break; // Commits are sorted by time, so we can stop
-                }
+            // Filter by timestamp if specified — commits are sorted by time, so stop early
+            if is_commit_before(&commit, since) {
+                break;
             }
 
             let commit_info = self.extract_commit_info(&commit)?;
@@ -236,23 +277,12 @@ impl GitHistory {
             let timestamp = format_git_time(&commit.time());
 
             // Process each file in the diff
+            let churn_ref = &mut churn_map;
+            let author_ref = &author;
+            let ts_ref = &timestamp;
             diff.foreach(
                 &mut |delta, _| {
-                    let Some(path) = delta.new_file().path() else { return true; };
-                    let path_str = path.to_string_lossy().to_string();
-                    let entry = churn_map.entry(path_str).or_default();
-                    entry.commit_count += 1;
-
-                    // Track authors
-                    if !entry.authors.contains(&author) {
-                        entry.authors.push(author.clone());
-                    }
-
-                    // Update last modified if this is newer
-                    if entry.last_modified.is_none() {
-                        entry.last_modified = Some(timestamp.clone());
-                        entry.last_author = Some(author.clone());
-                    }
+                    process_diff_file_cb(delta, churn_ref, author_ref, ts_ref);
                     true
                 },
                 None,

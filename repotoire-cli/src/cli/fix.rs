@@ -48,6 +48,85 @@ fn confirm(prompt: &str) -> Result<bool> {
     Ok(input.is_empty() || input == "y" || input == "yes")
 }
 
+/// Display a single finding in dry-run mode with colored patch or manual steps
+fn display_dry_run_finding(term: &Term, idx: usize, finding: &Finding, rule_fix: &RuleFix) -> Result<()> {
+    term.write_line(&format!(
+        "{}",
+        style(format!("═══ Finding #{} ═══", idx)).cyan().bold()
+    ))?;
+    term.write_line(&format!(
+        "  {} {}",
+        style("Detector:").bold(),
+        finding.detector
+    ))?;
+    term.write_line(&format!("  {} {}", style("Title:").bold(), finding.title))?;
+    if let Some(file) = finding.affected_files.first() {
+        term.write_line(&format!("  {} {}", style("File:").bold(), file.display()))?;
+    }
+    term.write_line(&format!(
+        "  {} {}",
+        style("Fix:").green().bold(),
+        rule_fix.title
+    ))?;
+
+    if let Some(ref patch) = rule_fix.patch {
+        term.write_line(&format!("\n  {}:", style("Changes").bold()))?;
+        for line in patch.lines() {
+            let colored = colorize_diff_line(line);
+            term.write_line(&format!("    {}", colored))?;
+        }
+    } else {
+        term.write_line(&format!(
+            "\n  {} (no auto-patch available)",
+            style("Manual fix required").yellow()
+        ))?;
+        for step in rule_fix
+            .steps
+            .iter()
+            .filter(|s| !s.is_empty() && !s.starts_with("  ") && !s.starts_with("```"))
+        {
+            term.write_line(&format!("    • {}", step))?;
+        }
+    }
+    term.write_line("")?;
+    Ok(())
+}
+
+/// Colorize a single diff line for terminal output
+fn colorize_diff_line(line: &str) -> String {
+    match line.as_bytes().first() {
+        Some(b'+') if !line.starts_with("+++") => style(line).green().to_string(),
+        Some(b'-') if !line.starts_with("---") => style(line).red().to_string(),
+        Some(b'@') => style(line).cyan().to_string(),
+        _ => line.to_string(),
+    }
+}
+
+/// Display the result of applying a rule fix
+fn display_apply_result(term: &Term, result: Result<()>) -> Result<()> {
+    match result {
+        Ok(()) => {
+            term.write_line(&format!(
+                "{} Fix applied successfully!",
+                style("✓").green().bold()
+            ))?;
+            term.write_line(&format!(
+                "   Re-run analysis to verify: {}\n",
+                style("repotoire analyze").cyan()
+            ))?;
+        }
+        Err(e) => {
+            term.write_line(&format!(
+                "{} Failed to apply fix: {}",
+                style("✗").red().bold(),
+                e
+            ))?;
+            term.write_line("Please apply the changes manually.\n")?;
+        }
+    }
+    Ok(())
+}
+
 /// Run the fix command
 pub fn run(
     path: &Path,
@@ -174,50 +253,7 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions) -> Resu
         ))?;
 
         for (idx, finding, rule_fix) in &fixable {
-            term.write_line(&format!(
-                "{}",
-                style(format!("═══ Finding #{} ═══", idx)).cyan().bold()
-            ))?;
-            term.write_line(&format!(
-                "  {} {}",
-                style("Detector:").bold(),
-                finding.detector
-            ))?;
-            term.write_line(&format!("  {} {}", style("Title:").bold(), finding.title))?;
-            if let Some(file) = finding.affected_files.first() {
-                term.write_line(&format!("  {} {}", style("File:").bold(), file.display()))?;
-            }
-            term.write_line(&format!(
-                "  {} {}",
-                style("Fix:").green().bold(),
-                rule_fix.title
-            ))?;
-
-            if let Some(ref patch) = rule_fix.patch {
-                term.write_line(&format!("\n  {}:", style("Changes").bold()))?;
-                for line in patch.lines() {
-                    let colored = match line.as_bytes().first() {
-                        Some(b'+') if !line.starts_with("+++") => style(line).green().to_string(),
-                        Some(b'-') if !line.starts_with("---") => style(line).red().to_string(),
-                        Some(b'@') => style(line).cyan().to_string(),
-                        _ => line.to_string(),
-                    };
-                    term.write_line(&format!("    {}", colored))?;
-                }
-            } else {
-                term.write_line(&format!(
-                    "\n  {} (no auto-patch available)",
-                    style("Manual fix required").yellow()
-                ))?;
-                for step in rule_fix
-                    .steps
-                    .iter()
-                    .filter(|s| !s.is_empty() && !s.starts_with("  ") && !s.starts_with("```"))
-                {
-                    term.write_line(&format!("    • {}", step))?;
-                }
-            }
-            term.write_line("")?;
+            display_dry_run_finding(&term, *idx, finding, rule_fix)?;
         }
 
         term.write_line(&format!(
@@ -363,14 +399,11 @@ fn apply_rule_fix(
     let new_content = match detector {
         "UnusedImportsDetector" => {
             // Remove the import lines
-            let mut new_lines: Vec<&str> = Vec::new();
-            for (i, line) in lines.iter().enumerate() {
-                let line_num = i + 1;
-                if line_num < line_start || line_num > line_end {
-                    new_lines.push(line);
-                }
-            }
-            new_lines.join("\n")
+            lines.iter().enumerate()
+                .filter(|(i, _)| { let n = i + 1; n < line_start || n > line_end })
+                .map(|(_, line)| *line)
+                .collect::<Vec<_>>()
+                .join("\n")
         }
         _ => {
             // For other detectors, we'd need more sophisticated patching
@@ -714,27 +747,7 @@ fn display_rule_fix(
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("No file path in finding"))?;
 
-            let applied = apply_rule_fix(path, file_path, finding, rule_fix);
-            match applied {
-                Ok(()) => {
-                    term.write_line(&format!(
-                        "{} Fix applied successfully!",
-                        style("✓").green().bold()
-                    ))?;
-                    term.write_line(&format!(
-                        "   Re-run analysis to verify: {}\n",
-                        style("repotoire analyze").cyan()
-                    ))?;
-                }
-                Err(e) => {
-                    term.write_line(&format!(
-                        "{} Failed to apply fix: {}",
-                        style("✗").red().bold(),
-                        e
-                    ))?;
-                    term.write_line("Please apply the changes manually.\n")?;
-                }
-            }
+            display_apply_result(&term, apply_rule_fix(path, file_path, finding, rule_fix))?;
         }
     } else if !should_apply {
         // AI upgrade suggestion for non-applicable fixes

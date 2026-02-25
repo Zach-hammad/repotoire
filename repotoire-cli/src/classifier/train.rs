@@ -135,32 +135,14 @@ pub fn train(config: &TrainConfig) -> Result<TrainResult, String> {
         let train_acc = correct as f32 / train_data.len() as f32;
 
         // Validation
-        let (_val_loss, val_acc) = if !val_data.is_empty() {
-            let mut loss = 0.0;
-            let mut correct = 0;
-
-            for (f, label) in val_data {
-                let pred = model.predict(f);
-                correct += usize::from(pred.is_true_positive == *label);
-                // Cross-entropy loss
-                let prob = if *label {
-                    pred.tp_probability
-                } else {
-                    pred.fp_probability
-                };
-                loss -= prob.max(1e-7).ln();
-            }
-
-            let val_loss = loss / val_data.len() as f32;
-            let val_acc = correct as f32 / val_data.len() as f32;
-
+        let (_val_loss, val_acc) = if val_data.is_empty() {
+            (None, None)
+        } else {
+            let (val_loss, val_acc) = evaluate_validation(&model, val_data);
             if val_acc > best_val_acc {
                 best_val_acc = val_acc;
             }
-
             (Some(val_loss), Some(val_acc))
-        } else {
-            (None, None)
         };
 
         if epoch % 10 == 0 || epoch == config.epochs - 1 {
@@ -223,6 +205,21 @@ pub fn train(config: &TrainConfig) -> Result<TrainResult, String> {
         epochs: config.epochs,
         model_path,
     })
+}
+
+/// Evaluate model on validation data, returning (loss, accuracy)
+fn evaluate_validation(model: &FpClassifier, val_data: &[(Features, bool)]) -> (f32, f32) {
+    let mut loss = 0.0;
+    let mut correct = 0;
+
+    for (f, label) in val_data {
+        let pred = model.predict(f);
+        correct += usize::from(pred.is_true_positive == *label);
+        let prob = if *label { pred.tp_probability } else { pred.fp_probability };
+        loss -= prob.max(1e-7).ln();
+    }
+
+    (loss / val_data.len() as f32, correct as f32 / val_data.len() as f32)
 }
 
 /// Convert labeled finding back to Finding for feature extraction

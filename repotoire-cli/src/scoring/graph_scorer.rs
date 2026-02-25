@@ -145,6 +145,40 @@ enum Pillar {
     Architecture,
 }
 
+/// Format a single pillar breakdown into markdown lines.
+fn format_pillar_breakdown(pillar: &PillarBreakdown, lines: &mut Vec<String>) {
+    lines.push(format!(
+        "## {} Score: {:.1}\n",
+        pillar.name, pillar.final_score
+    ));
+    lines.push(format!(
+        "- Base: 100 - {:.2} penalties = {:.1}",
+        pillar.penalty_points, pillar.base_score
+    ));
+    let total_bonus: f64 = pillar.bonuses.iter().map(|(_, v)| v).sum::<f64>() * 100.0;
+    let capped = if pillar.penalty_points > 0.0 {
+        total_bonus.min(pillar.penalty_points * 0.5)
+    } else {
+        total_bonus
+    };
+    let active_bonuses: Vec<_> = pillar.bonuses.iter().filter(|(_, v)| *v > 0.001).collect();
+    if !active_bonuses.is_empty() {
+        lines.push("- Bonuses (additive, capped at 50% of penalty):".to_string());
+        for (name, value) in &active_bonuses {
+            let pts = value * 100.0;
+            lines.push(format!("  - {name}: +{pts:.1} pts"));
+        }
+    }
+    if capped < total_bonus {
+        lines.push(format!(
+            "  - *(capped from {:.1} to {:.1} pts)*",
+            total_bonus, capped
+        ));
+    }
+    lines.push(format!("- Final: {:.1}", pillar.final_score));
+    lines.push(format!("- Findings: {}\n", pillar.finding_count));
+}
+
 /// Classify a finding into a pillar based on its category and detector name.
 /// Every category maps to exactly one pillar — no splitting.
 fn classify_pillar(category: &str, detector: &str, is_security: bool) -> Pillar {
@@ -279,29 +313,18 @@ impl<'a> GraphScorer<'a> {
             let detector = finding.detector.to_lowercase();
 
             let is_security = self.is_security_finding(finding);
-            let security_mult = if is_security {
-                self.config.scoring.security_multiplier
-            } else {
-                1.0
-            };
+            let security_mult = if is_security { self.config.scoring.security_multiplier } else { 1.0 };
             let effective = scaled * security_mult;
 
             // Route findings to pillars based on category
             let pillar = classify_pillar(category, &detector, is_security);
-            match pillar {
-                Pillar::Quality => {
-                    quality_penalty += effective;
-                    quality_count += 1;
-                }
-                Pillar::Structure => {
-                    structure_penalty += effective;
-                    structure_count += 1;
-                }
-                Pillar::Architecture => {
-                    architecture_penalty += effective;
-                    architecture_count += 1;
-                }
-            }
+            let (penalty, count) = match pillar {
+                Pillar::Quality => (&mut quality_penalty, &mut quality_count),
+                Pillar::Structure => (&mut structure_penalty, &mut structure_count),
+                Pillar::Architecture => (&mut architecture_penalty, &mut architecture_count),
+            };
+            *penalty += effective;
+            *count += 1;
         }
 
         // Build pillar breakdowns
@@ -709,37 +732,7 @@ impl<'a> GraphScorer<'a> {
             &breakdown.quality,
             &breakdown.architecture,
         ] {
-            lines.push(format!(
-                "## {} Score: {:.1}\n",
-                pillar.name, pillar.final_score
-            ));
-            lines.push(format!(
-                "- Base: 100 - {:.2} penalties = {:.1}",
-                pillar.penalty_points, pillar.base_score
-            ));
-            let total_bonus: f64 = pillar.bonuses.iter().map(|(_, v)| v).sum::<f64>() * 100.0;
-            let capped = if pillar.penalty_points > 0.0 {
-                total_bonus.min(pillar.penalty_points * 0.5)
-            } else {
-                total_bonus
-            };
-            let active_bonuses: Vec<_> =
-                pillar.bonuses.iter().filter(|(_, v)| *v > 0.001).collect();
-            if !active_bonuses.is_empty() {
-                lines.push("- Bonuses (additive, capped at 50% of penalty):".to_string());
-                for (name, value) in &active_bonuses {
-                    let pts = value * 100.0;
-                    lines.push(format!("  - {name}: +{pts:.1} pts"));
-                }
-            }
-            if capped < total_bonus {
-                lines.push(format!(
-                    "  - *(capped from {:.1} to {:.1} pts)*",
-                    total_bonus, capped
-                ));
-            }
-            lines.push(format!("- Final: {:.1}", pillar.final_score));
-            lines.push(format!("- Findings: {}\n", pillar.finding_count));
+            format_pillar_breakdown(pillar, &mut lines);
         }
 
         lines.join("\n")

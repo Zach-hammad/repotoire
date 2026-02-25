@@ -50,18 +50,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("class") {
         let classes = graph.get_classes();
         if json_output {
-            let json: Vec<_> = classes
-                .iter()
-                .map(|c| {
-                    serde_json::json!({
-                        "name": c.name,
-                        "qualified_name": c.qualified_name,
-                        "file": c.file_path,
-                        "line_start": c.line_start,
-                        "line_end": c.line_end,
-                    })
-                })
-                .collect();
+            let json: Vec<_> = classes.iter().map(class_to_json).collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Classes ({})\n", style("📊").bold(), classes.len());
@@ -80,14 +69,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("file") {
         let files = graph.get_files();
         if json_output {
-            let json: Vec<_> = files
-                .iter()
-                .map(|f| {
-                    serde_json::json!({
-                        "path": f.file_path,
-                    })
-                })
-                .collect();
+            let json: Vec<_> = files.iter().map(|f| serde_json::json!({"path": f.file_path})).collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Files ({})\n", style("📊").bold(), files.len());
@@ -101,15 +83,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("call") {
         let calls = graph.get_calls();
         if json_output {
-            let json: Vec<_> = calls
-                .iter()
-                .map(|(from, to)| {
-                    serde_json::json!({
-                        "from": from,
-                        "to": to,
-                    })
-                })
-                .collect();
+            let json: Vec<_> = calls.iter().map(edge_pair_to_json).collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
@@ -123,15 +97,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("import") {
         let imports = graph.get_imports();
         if json_output {
-            let json: Vec<_> = imports
-                .iter()
-                .map(|(from, to)| {
-                    serde_json::json!({
-                        "from": from,
-                        "to": to,
-                    })
-                })
-                .collect();
+            let json: Vec<_> = imports.iter().map(edge_pair_to_json).collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!(
@@ -290,4 +256,18 @@ fn function_to_json(f: &crate::graph::CodeNode) -> serde_json::Value {
         "line_start": f.line_start,
         "line_end": f.line_end,
     })
+}
+
+fn class_to_json(c: &crate::graph::CodeNode) -> serde_json::Value {
+    serde_json::json!({
+        "name": c.name,
+        "qualified_name": c.qualified_name,
+        "file": c.file_path,
+        "line_start": c.line_start,
+        "line_end": c.line_end,
+    })
+}
+
+fn edge_pair_to_json((from, to): &(String, String)) -> serde_json::Value {
+    serde_json::json!({"from": from, "to": to})
 }

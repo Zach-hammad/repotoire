@@ -377,21 +377,12 @@ fn sanitize_code(code: &str, _language: &str) -> String {
 
     let lower = result.to_lowercase();
     for pattern in &injection_patterns {
-        if lower.contains(pattern) {
-            // Replace the injection attempt but preserve code structure
-            result = result
-                .lines()
-                .map(|line| {
-                    if line.to_lowercase().contains(pattern) {
-                        "/* [prompt injection filtered] */".to_string()
-                    } else {
-                        line.to_string()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            break; // Re-check after filtering
+        if !lower.contains(pattern) {
+            continue;
         }
+        // Replace the injection attempt but preserve code structure
+        result = filter_injection_lines(&result, pattern);
+        break; // Re-check after filtering
     }
 
     // Truncate very long code sections
@@ -401,6 +392,20 @@ fn sanitize_code(code: &str, _language: &str) -> String {
     }
 
     result
+}
+
+/// Replace lines containing an injection pattern with a filtered comment
+fn filter_injection_lines(code: &str, pattern: &str) -> String {
+    code.lines()
+        .map(|line| {
+            if line.to_lowercase().contains(pattern) {
+                "/* [prompt injection filtered] */".to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

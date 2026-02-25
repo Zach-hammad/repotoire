@@ -351,10 +351,11 @@ pub fn run(cli: Cli) -> Result<()> {
             };
 
             // Lite mode: fast analysis for huge repos
-            let (effective_no_git, effective_skip_graph, effective_max_files) = if lite {
-                (true, true, if max_files == 0 { 10000 } else { max_files })
+            let effective_max_files = if lite && max_files == 0 { 10000 } else { max_files };
+            let (effective_no_git, effective_skip_graph) = if lite {
+                (true, true)
             } else {
-                (no_git, skip_graph, max_files)
+                (no_git, skip_graph)
             };
 
             analyze::run(
@@ -441,22 +442,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
         Some(Commands::Serve { local, http_port }) => serve::run(&cli.path, local, http_port),
 
-        Some(Commands::Config { action }) => {
-            use crate::config::UserConfig;
-            match action {
-                ConfigAction::Init => {
-                    let path = UserConfig::init_user_config()?;
-                    println!("✅ Config initialized at: {}", path.display());
-                    println!("\nEdit to add your API key:");
-                    println!("  {}", path.display());
-                    println!("\nOr set via environment:");
-                    println!("  export ANTHROPIC_API_KEY=\"sk-ant-...\"");
-                    Ok(())
-                }
-                ConfigAction::Show => show_config(),
-                ConfigAction::Set { key, value } => set_config_value(&key, &value),
-            }
-        }
+        Some(Commands::Config { action }) => run_config_action(action),
 
         Some(Commands::Feedback {
             index,
@@ -549,25 +535,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
         None => {
             // Check if the path looks like an unknown subcommand
-            let path_str = cli.path.to_string_lossy();
-            if !cli.path.exists()
-                && !path_str.contains('/')
-                && !path_str.contains('\\')
-                && !path_str.starts_with('.')
-            {
-                // Looks like user tried to use an unknown subcommand
-                let known_commands = [
-                    "init", "analyze", "findings", "fix", "graph", "stats", "status", "doctor",
-                    "clean", "version", "serve",
-                ];
-                if !known_commands.contains(&path_str.as_ref()) {
-                    anyhow::bail!(
-                        "Unknown command '{}'. Run 'repotoire --help' for available commands.\n\nDid you mean one of: {}?",
-                        path_str,
-                        known_commands.join(", ")
-                    );
-                }
-            }
+            check_unknown_subcommand(&cli.path)?;
             // Default: run analyze with pagination (page 1, 20 per page)
             analyze::run(
                 &cli.path,
@@ -714,6 +682,47 @@ fn set_config_value(key: &str, value: &str) -> anyhow::Result<()> {
     std::fs::write(&config_path, content)?;
     println!("✅ Set {} in {}", key, config_path.display());
     Ok(())
+}
+
+/// Check if the path looks like a mistyped subcommand and bail with a helpful message
+fn check_unknown_subcommand(path: &std::path::Path) -> anyhow::Result<()> {
+    let path_str = path.to_string_lossy();
+    let looks_like_command = !path.exists()
+        && !path_str.contains('/')
+        && !path_str.contains('\\')
+        && !path_str.starts_with('.');
+    if !looks_like_command {
+        return Ok(());
+    }
+    let known_commands = [
+        "init", "analyze", "findings", "fix", "graph", "stats", "status", "doctor",
+        "clean", "version", "serve",
+    ];
+    if !known_commands.contains(&path_str.as_ref()) {
+        anyhow::bail!(
+            "Unknown command '{}'. Run 'repotoire --help' for available commands.\n\nDid you mean one of: {}?",
+            path_str,
+            known_commands.join(", ")
+        );
+    }
+    Ok(())
+}
+
+fn run_config_action(action: ConfigAction) -> anyhow::Result<()> {
+    use crate::config::UserConfig;
+    match action {
+        ConfigAction::Init => {
+            let path = UserConfig::init_user_config()?;
+            println!("✅ Config initialized at: {}", path.display());
+            println!("\nEdit to add your API key:");
+            println!("  {}", path.display());
+            println!("\nOr set via environment:");
+            println!("  export ANTHROPIC_API_KEY=\"sk-ant-...\"");
+            Ok(())
+        }
+        ConfigAction::Show => show_config(),
+        ConfigAction::Set { key, value } => set_config_value(&key, &value),
+    }
 }
 
 fn show_config() -> anyhow::Result<()> {

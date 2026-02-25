@@ -7,6 +7,7 @@
 //! - Streaming graph building for huge repos
 
 use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
+use crate::models::{Class, Function};
 use crate::parsers::bounded_pipeline::{run_bounded_pipeline, PipelineConfig};
 use crate::parsers::streaming::{
     FunctionIndex, ModuleIndex, ParsedFileInfo, StreamingGraphBuilder,
@@ -47,6 +48,100 @@ fn detect_language(path: &Path) -> String {
         _ => "Unknown",
     }
     .to_string()
+}
+
+/// Generate module import pattern keys for a given relative file path.
+fn generate_module_patterns(relative_str: &str) -> Vec<String> {
+    let mut patterns = Vec::new();
+
+    // Rust module patterns
+    if relative_str.ends_with(".rs") {
+        let rust_path = relative_str.trim_end_matches(".rs").replace('/', "::");
+        patterns.push(rust_path);
+    }
+
+    // TypeScript/JavaScript patterns
+    for ext in &[".ts", ".tsx", ".js", ".jsx", ".mjs"] {
+        if !relative_str.ends_with(ext) {
+            continue;
+        }
+        let base = relative_str.trim_end_matches(ext);
+        patterns.push(base.to_string());
+        // index.ts -> parent dir name
+        if base.ends_with("/index") {
+            patterns.push(base.trim_end_matches("/index").to_string());
+        }
+    }
+
+    // Python patterns
+    if relative_str.ends_with(".py") {
+        let py_path = relative_str.trim_end_matches(".py").replace('/', ".");
+        patterns.push(py_path);
+        if relative_str.ends_with("/__init__.py") {
+            let pkg = relative_str
+                .trim_end_matches("/__init__.py")
+                .replace('/', ".");
+            patterns.push(pkg);
+        }
+    }
+
+    patterns
+}
+
+/// Build a CodeNode for a single function, attaching optional doc_comment and annotations.
+fn build_func_node(
+    func: &Function,
+    relative_str: &str,
+    loc: u32,
+    complexity: u32,
+    address_taken: bool,
+) -> CodeNode {
+    let mut node = CodeNode::new(NodeKind::Function, &func.name, relative_str)
+        .with_qualified_name(&func.qualified_name)
+        .with_lines(func.line_start, func.line_end)
+        .with_property("is_async", func.is_async)
+        .with_property("complexity", complexity as i64)
+        .with_property("loc", loc as i64)
+        .with_property("address_taken", address_taken);
+    if let Some(ref doc) = func.doc_comment {
+        node = node.with_property("doc_comment", doc.as_str());
+    }
+    if !func.annotations.is_empty() {
+        node = node.with_property(
+            "annotations",
+            serde_json::Value::Array(
+                func.annotations
+                    .iter()
+                    .map(|a| serde_json::Value::String(a.clone()))
+                    .collect(),
+            ),
+        );
+    }
+    node
+}
+
+/// Build a CodeNode for a single class, attaching optional doc_comment and annotations.
+fn build_class_node(class: &Class, relative_str: &str) -> CodeNode {
+    let mut node = CodeNode::new(NodeKind::Class, &class.name, relative_str)
+        .with_qualified_name(&class.qualified_name)
+        .with_lines(class.line_start, class.line_end)
+        .with_property("methodCount", class.methods.len() as i64);
+    if let Some(ref doc) = class.doc_comment {
+        node = node.with_property("doc_comment", doc.as_str());
+    }
+    if !class.annotations.is_empty() {
+        node = node.with_property(
+            "annotations",
+            serde_json::Value::Array(
+                class
+                    .annotations
+                    .iter()
+                    .map(|a| serde_json::Value::String(a.clone()))
+                    .collect(),
+            ),
+        );
+    }
+    node
 }
 
 /// Build the code graph from parse results
@@ -263,32 +358,11 @@ pub(super) fn build_graph_chunked(
 
                 // Function nodes
                 for func in &result.functions {
-                    let loc = if func.line_end >= func.line_start {
-                        func.line_end - func.line_start + 1
-                    } else {
-                        1
-                    };
+                    let loc = func.line_end.saturating_sub(func.line_start).saturating_add(1);
                     let complexity = func.complexity.unwrap_or(1);
                     let address_taken = result.address_taken.contains(&func.name);
 
-                    let mut func_node = CodeNode::new(NodeKind::Function, &func.name, &relative_str)
-                        .with_qualified_name(&func.qualified_name)
-                        .with_lines(func.line_start, func.line_end)
-                        .with_property("is_async", func.is_async)
-                        .with_property("complexity", complexity as i64)
-                        .with_property("loc", loc as i64)
-                        .with_property("address_taken", address_taken);
-                    if let Some(ref doc) = func.doc_comment {
-                        func_node = func_node.with_property("doc_comment", doc.as_str());
-                    }
-                    if !func.annotations.is_empty() {
-                        func_node = func_node.with_property(
-                            "annotations",
-                            serde_json::Value::Array(
-                                func.annotations.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
-                            ),
-                        );
-                    }
+                    let func_node = build_func_node(func, &relative_str, loc, complexity, address_taken);
                     func_nodes.push(func_node);
                     edges.push((
                         relative_str.clone(),
@@ -299,21 +373,7 @@ pub(super) fn build_graph_chunked(
 
                 // Class nodes
                 for class in &result.classes {
-                    let mut class_node = CodeNode::new(NodeKind::Class, &class.name, &relative_str)
-                        .with_qualified_name(&class.qualified_name)
-                        .with_lines(class.line_start, class.line_end)
-                        .with_property("methodCount", class.methods.len() as i64);
-                    if let Some(ref doc) = class.doc_comment {
-                        class_node = class_node.with_property("doc_comment", doc.as_str());
-                    }
-                    if !class.annotations.is_empty() {
-                        class_node = class_node.with_property(
-                            "annotations",
-                            serde_json::Value::Array(
-                                class.annotations.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
-                            ),
-                        );
-                    }
+                    let class_node = build_class_node(class, &relative_str);
                     class_nodes.push(class_node);
                     edges.push((
                         relative_str.clone(),
@@ -413,39 +473,7 @@ impl ModuleLookup {
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_string();
-
-                // Generate various pattern keys for this file
-                let mut patterns = Vec::new();
-
-                // Rust module patterns
-                if relative_str.ends_with(".rs") {
-                    let rust_path = relative_str.trim_end_matches(".rs").replace('/', "::");
-                    patterns.push(rust_path);
-                }
-
-                // TypeScript/JavaScript patterns
-                for ext in &[".ts", ".tsx", ".js", ".jsx", ".mjs"] {
-                    if !relative_str.ends_with(ext) { continue; }
-                    let base = relative_str.trim_end_matches(ext);
-                    patterns.push(base.to_string());
-                    // index.ts -> parent dir name
-                    if base.ends_with("/index") {
-                        patterns.push(base.trim_end_matches("/index").to_string());
-                    }
-                }
-
-                // Python patterns
-                if relative_str.ends_with(".py") {
-                    let py_path = relative_str.trim_end_matches(".py").replace('/', ".");
-                    patterns.push(py_path);
-                    if relative_str.ends_with("/__init__.py") {
-                        let pkg = relative_str
-                            .trim_end_matches("/__init__.py")
-                            .replace('/', ".");
-                        patterns.push(pkg);
-                    }
-                }
-
+                let patterns = generate_module_patterns(&relative_str);
                 (idx, relative_str, file_stem, patterns)
             })
             .collect();
@@ -494,45 +522,44 @@ impl ModuleLookup {
         let mut matches = Vec::new();
 
         // Try direct pattern lookup first (O(1) instead of O(n))
-        if let Some(candidates) = self.by_pattern.get(clean_import) {
-            for (path, _) in candidates {
-                matches.push(path.clone());
-            }
-        }
+        Self::collect_paths(&mut matches, self.by_pattern.get(clean_import));
 
         // Try file stem lookup
         if matches.is_empty() {
-            if let Some(candidates) = self.by_stem.get(first_module) {
-                for (path, _) in candidates {
-                    matches.push(path.clone());
-                }
-            }
+            Self::collect_paths(&mut matches, self.by_stem.get(first_module));
         }
 
         // If still no matches, fall back to pattern matching (but on fewer candidates)
         if matches.is_empty() {
-            if let Some(candidates) = self.by_stem.get(clean_import) {
-                for (path, _) in candidates {
-                    matches.push(path.clone());
-                }
-            }
+            Self::collect_paths(&mut matches, self.by_stem.get(clean_import));
         }
 
         // Final fallback: check all patterns for partial matches
         if matches.is_empty() {
-            for (pattern, candidates) in &self.by_pattern {
-                if !pattern.contains(clean_import) && !clean_import.contains(pattern.as_str()) {
-                    continue;
-                }
-                for (path, _) in candidates {
-                    if !matches.contains(path) {
-                        matches.push(path.clone());
-                    }
-                }
-            }
+            self.collect_partial_matches(&mut matches, clean_import);
         }
 
         matches
+    }
+
+    /// Push all paths from an optional candidate list into matches
+    fn collect_paths(matches: &mut Vec<String>, candidates: Option<&Vec<(String, usize)>>) {
+        let Some(candidates) = candidates else { return };
+        for (path, _) in candidates {
+            matches.push(path.clone());
+        }
+    }
+
+    /// Collect paths from patterns that partially match the import
+    fn collect_partial_matches(&self, matches: &mut Vec<String>, clean_import: &str) {
+        let new_paths = self.by_pattern.iter()
+            .filter(|(pattern, _)| pattern.contains(clean_import) || clean_import.contains(pattern.as_str()))
+            .flat_map(|(_, candidates)| candidates.iter().map(|(path, _)| path.clone()));
+        for path in new_paths {
+            if !matches.contains(&path) {
+                matches.push(path);
+            }
+        }
     }
 }
 
@@ -605,6 +632,11 @@ fn resolve_callee_cross_file(
     global_func_map.get(callee_name).cloned()
 }
 
+/// Find the first candidate path that isn't the source file itself
+fn first_other_file(candidates: Option<&Vec<(String, usize)>>, exclude: &str) -> Option<String> {
+    candidates?.iter().find(|(p, _)| p != exclude).map(|(p, _)| p.clone())
+}
+
 /// Build import edges using pre-computed lookup (O(1) instead of O(n))
 pub(super) fn build_import_edges_fast(
     edges: &mut Vec<(String, String, CodeEdge)>,
@@ -625,53 +657,10 @@ pub(super) fn build_import_edges_fast(
         let python_path = clean_import.replace('.', "/");
 
         // Try fast lookup paths in order of specificity
-        let mut matched_file = None;
-
-        // 1. Direct pattern match (most specific)
-        if let Some(candidates) = module_lookup.by_pattern.get(clean_import) {
-            for (path, _) in candidates {
-                if path != relative_str {
-                    matched_file = Some(path.clone());
-                    break;
-                }
-            }
-        }
-
-        // 2. Python path pattern
-        if matched_file.is_none() {
-            if let Some(candidates) = module_lookup.by_pattern.get(&python_path) {
-                for (path, _) in candidates {
-                    if path != relative_str {
-                        matched_file = Some(path.clone());
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 3. First module stem lookup
-        if matched_file.is_none() {
-            if let Some(candidates) = module_lookup.by_stem.get(first_module) {
-                for (path, _) in candidates {
-                    if path != relative_str {
-                        matched_file = Some(path.clone());
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 4. Clean import as stem
-        if matched_file.is_none() {
-            if let Some(candidates) = module_lookup.by_stem.get(clean_import) {
-                for (path, _) in candidates {
-                    if path != relative_str {
-                        matched_file = Some(path.clone());
-                        break;
-                    }
-                }
-            }
-        }
+        let matched_file = first_other_file(module_lookup.by_pattern.get(clean_import), relative_str)
+            .or_else(|| first_other_file(module_lookup.by_pattern.get(&python_path), relative_str))
+            .or_else(|| first_other_file(module_lookup.by_stem.get(first_module), relative_str))
+            .or_else(|| first_other_file(module_lookup.by_stem.get(clean_import), relative_str));
 
         if let Some(target_file) = matched_file {
             let import_edge =
@@ -815,14 +804,14 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
         // Collect import edges (resolve using module index)
         for import in &info.imports {
             let matches = self.module_index.find_matches(&import.path);
-            if let Some(target) = matches.first() {
-                if target != &info.relative_path {
-                    let import_edge =
-                        CodeEdge::imports().with_property("is_type_only", import.is_type_only);
-                    self.edges
-                        .push((info.relative_path.clone(), target.clone(), import_edge));
-                }
+            let Some(target) = matches.first() else { continue };
+            if target == &info.relative_path {
+                continue;
             }
+            let import_edge =
+                CodeEdge::imports().with_property("is_type_only", import.is_type_only);
+            self.edges
+                .push((info.relative_path.clone(), target.clone(), import_edge));
         }
 
         Ok(())

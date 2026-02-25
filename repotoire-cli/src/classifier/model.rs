@@ -149,71 +149,92 @@ impl FpClassifier {
         let mut total_loss = 0.0;
 
         for (feat, &is_tp) in features.iter().zip(labels.iter()) {
-            // Forward pass
-            let mut hidden = vec![0.0f32; self.hidden_size];
-            for (i, h) in hidden.iter_mut().enumerate() {
-                let mut sum = self.b1[i];
-                for (&x, &w) in feat.values.iter().zip(self.w1[i].iter()) {
-                    sum += w * x;
-                }
-                *h = sum.max(0.0);
-            }
-
-            let mut logits = [0.0f32; 2];
-            for (i, logit) in logits.iter_mut().enumerate() {
-                let mut sum = self.b2[i];
-                for (j, &h) in hidden.iter().enumerate() {
-                    sum += self.w2[i][j] * h;
-                }
-                *logit = sum;
-            }
-
-            // Softmax
-            let max_logit = logits[0].max(logits[1]);
-            let exp0 = (logits[0] - max_logit).exp();
-            let exp1 = (logits[1] - max_logit).exp();
-            let sum_exp = exp0 + exp1;
-            let probs = [exp0 / sum_exp, exp1 / sum_exp];
-
-            // Cross-entropy loss
-            let target = if is_tp { 1 } else { 0 };
-            let loss = -probs[target].ln();
-            total_loss += loss;
-
-            // Backward pass (gradient of softmax + cross-entropy)
-            let mut d_logits = probs;
-            d_logits[target] -= 1.0;
-
-            // Gradient for W2, b2
-            for i in 0..2 {
-                self.b2[i] -= learning_rate * d_logits[i];
-                for j in 0..self.hidden_size {
-                    self.w2[i][j] -= learning_rate * d_logits[i] * hidden[j];
-                }
-            }
-
-            // Gradient for hidden layer
-            let mut d_hidden = vec![0.0f32; self.hidden_size];
-            for j in 0..self.hidden_size {
-                for i in 0..2 {
-                    d_hidden[j] += d_logits[i] * self.w2[i][j];
-                }
-                // ReLU gradient
-                if hidden[j] <= 0.0 {
-                    d_hidden[j] = 0.0;
-                }
-            }
-
-            // Gradient for W1, b1
-            for i in 0..self.hidden_size {
-                self.b1[i] -= learning_rate * d_hidden[i];
-                for j in 0..feat.values.len().min(self.input_size) {
-                    self.w1[i][j] -= learning_rate * d_hidden[i] * feat.values[j];
-                }
-            }
+            total_loss += self.train_single(feat, is_tp, learning_rate);
         }
 
         total_loss / features.len() as f32
+    }
+
+    /// Forward and backward pass for a single training example
+    fn train_single(&mut self, feat: &Features, is_tp: bool, learning_rate: f32) -> f32 {
+        // Forward pass
+        let hidden = self.forward_hidden(feat);
+        let logits = self.forward_logits(&hidden);
+
+        // Softmax
+        let max_logit = logits[0].max(logits[1]);
+        let exp0 = (logits[0] - max_logit).exp();
+        let exp1 = (logits[1] - max_logit).exp();
+        let sum_exp = exp0 + exp1;
+        let probs = [exp0 / sum_exp, exp1 / sum_exp];
+
+        // Cross-entropy loss
+        let target = if is_tp { 1 } else { 0 };
+        let loss = -probs[target].ln();
+
+        // Backward pass (gradient of softmax + cross-entropy)
+        let mut d_logits = probs;
+        d_logits[target] -= 1.0;
+
+        self.backward_w2(&d_logits, &hidden, learning_rate);
+        let d_hidden = self.compute_hidden_gradient(&d_logits, &hidden);
+        self.backward_w1(&d_hidden, feat, learning_rate);
+
+        loss
+    }
+
+    /// Compute hidden layer activations (ReLU)
+    fn forward_hidden(&self, feat: &Features) -> Vec<f32> {
+        (0..self.hidden_size)
+            .map(|i| {
+                let sum: f32 = self.b1[i]
+                    + feat.values.iter().zip(self.w1[i].iter()).map(|(&x, &w)| w * x).sum::<f32>();
+                sum.max(0.0)
+            })
+            .collect()
+    }
+
+    /// Compute output logits from hidden layer
+    fn forward_logits(&self, hidden: &[f32]) -> [f32; 2] {
+        let mut logits = [0.0f32; 2];
+        for (i, logit) in logits.iter_mut().enumerate() {
+            *logit = self.b2[i] + hidden.iter().enumerate().map(|(j, &h)| self.w2[i][j] * h).sum::<f32>();
+        }
+        logits
+    }
+
+    /// Update W2 and b2 using output gradients
+    fn backward_w2(&mut self, d_logits: &[f32; 2], hidden: &[f32], lr: f32) {
+        for i in 0..2 {
+            self.b2[i] -= lr * d_logits[i];
+            for j in 0..self.hidden_size {
+                self.w2[i][j] -= lr * d_logits[i] * hidden[j];
+            }
+        }
+    }
+
+    /// Compute gradient for hidden layer with ReLU
+    fn compute_hidden_gradient(&self, d_logits: &[f32; 2], hidden: &[f32]) -> Vec<f32> {
+        let mut d_hidden = vec![0.0f32; self.hidden_size];
+        for j in 0..self.hidden_size {
+            for i in 0..2 {
+                d_hidden[j] += d_logits[i] * self.w2[i][j];
+            }
+            if hidden[j] <= 0.0 {
+                d_hidden[j] = 0.0;
+            }
+        }
+        d_hidden
+    }
+
+    /// Update W1 and b1 using hidden gradients
+    fn backward_w1(&mut self, d_hidden: &[f32], feat: &Features, lr: f32) {
+        for i in 0..self.hidden_size {
+            self.b1[i] -= lr * d_hidden[i];
+            for j in 0..feat.values.len().min(self.input_size) {
+                self.w1[i][j] -= lr * d_hidden[i] * feat.values[j];
+            }
+        }
     }
 }
 

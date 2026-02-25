@@ -181,30 +181,16 @@ pub fn run(
 
     // Build n-gram language model from parsed source files (predictive coding)
     // This learns the project's coding patterns so detectors can flag "surprising" code.
-    {
-        let mut model = crate::calibrate::NgramModel::new();
-        for (path, _pr) in &parse_result.parse_results {
-            // Skip test/vendor files (same as calibration)
-            let path_lower = path.to_string_lossy().to_lowercase();
-            if path_lower.contains("/test") || path_lower.contains("/vendor")
-                || path_lower.contains("/node_modules") || path_lower.contains("/generated")
-            {
-                continue;
-            }
-            let Ok(content) = std::fs::read_to_string(path) else { continue; };
-            let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
-            model.train_on_tokens(&tokens);
+    let ngram_model = build_ngram_model(&parse_result.parse_results);
+    if let Some(model) = ngram_model {
+        if !env.quiet_mode {
+            let icon = if env.config.no_emoji { "" } else { "🧠 " };
+            println!(
+                "{}Learned coding patterns ({} tokens, {} vocabulary)",
+                icon, model.total_tokens(), model.vocab_size()
+            );
         }
-        if model.is_confident() {
-            if !env.quiet_mode {
-                let icon = if env.config.no_emoji { "" } else { "🧠 " };
-                println!(
-                    "{}Learned coding patterns ({} tokens, {} vocabulary)",
-                    icon, model.total_tokens(), model.vocab_size()
-                );
-            }
-            env.ngram_model = Some(model);
-        }
+        env.ngram_model = Some(model);
     }
 
     // Phase 3: Run detectors
@@ -305,6 +291,24 @@ pub fn run(
 // ============================================================================
 // Pipeline phases (private orchestration helpers)
 // ============================================================================
+
+/// Build an n-gram language model from parsed source files, skipping test/vendor paths.
+/// Returns None if the model doesn't have enough data to be confident.
+fn build_ngram_model(parse_results: &[(PathBuf, crate::parsers::ParseResult)]) -> Option<crate::calibrate::NgramModel> {
+    let mut model = crate::calibrate::NgramModel::new();
+    for (path, _pr) in parse_results {
+        let path_lower = path.to_string_lossy().to_lowercase();
+        if path_lower.contains("/test") || path_lower.contains("/vendor")
+            || path_lower.contains("/node_modules") || path_lower.contains("/generated")
+        {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(path) else { continue };
+        let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
+        model.train_on_tokens(&tokens);
+    }
+    model.is_confident().then_some(model)
+}
 
 /// Try the fast cache path — returns Some(()) if cache hit, None if cache miss.
 fn try_cached_fast_path(

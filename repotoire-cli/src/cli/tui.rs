@@ -100,6 +100,23 @@ fn agent_status_from_exit(status: std::process::ExitStatus) -> AgentStatus {
     }
 }
 
+/// Format an agent spawn error message based on the backend
+fn format_spawn_error(error: std::io::Error, use_ollama: bool) -> String {
+    if use_ollama {
+        format!("❌ Failed: {}. Is Ollama running? (ollama serve)", error)
+    } else {
+        format!("❌ Failed: {}. Install claude-code or set up venv.", error)
+    }
+}
+
+/// Resolve Anthropic API key from config or environment
+fn resolve_api_key(config: &UserConfig) -> Option<String> {
+    if let Some(key) = config.anthropic_api_key() {
+        return Some(key.to_string());
+    }
+    std::env::var("ANTHROPIC_API_KEY").ok()
+}
+
 /// Read code snippet from file around the given line range
 fn read_code_snippet(
     repo_path: &Path,
@@ -254,18 +271,13 @@ impl App {
         let use_ollama = self.config.use_ollama();
 
         // For Claude backend, check for API key
-        let api_key = if !use_ollama {
-            match self.config.anthropic_api_key() {
-                Some(key) => key.to_string(),
-                None => match std::env::var("ANTHROPIC_API_KEY") {
-                    Ok(key) => key,
-                    Err(_) => {
-                        return Some("❌ No API key. Run: repotoire config init\n   Or use Ollama: repotoire config set ai.backend ollama".to_string());
-                    }
-                },
-            }
-        } else {
+        let api_key = if use_ollama {
             String::new() // Not needed for Ollama
+        } else {
+            match resolve_api_key(&self.config) {
+                Some(key) => key,
+                None => return Some("❌ No API key. Run: repotoire config init\n   Or use Ollama: repotoire config set ai.backend ollama".to_string()),
+            }
         };
 
         // Create log file for this agent
@@ -359,33 +371,20 @@ impl App {
             "Claude".to_string()
         };
 
-        match result {
-            Ok(child) => {
-                let pid = child.id();
-                self.agents.push(AgentTask {
-                    finding_index: index,
-                    finding_title: finding.title.clone(),
-                    started_at: Instant::now(),
-                    status: AgentStatus::Running,
-                    log_file: log_file.clone(),
-                    child: Some(child),
-                });
-                Some(format!("🚀 {} agent launched (PID: {})", backend_name, pid))
-            }
-            Err(e) => {
-                if use_ollama {
-                    Some(format!(
-                        "❌ Failed: {}. Is Ollama running? (ollama serve)",
-                        e
-                    ))
-                } else {
-                    Some(format!(
-                        "❌ Failed: {}. Install claude-code or set up venv.",
-                        e
-                    ))
-                }
-            }
-        }
+        let child = match result {
+            Ok(c) => c,
+            Err(e) => return Some(format_spawn_error(e, use_ollama)),
+        };
+        let pid = child.id();
+        self.agents.push(AgentTask {
+            finding_index: index,
+            finding_title: finding.title.clone(),
+            started_at: Instant::now(),
+            status: AgentStatus::Running,
+            log_file: log_file.clone(),
+            child: Some(child),
+        });
+        Some(format!("🚀 {} agent launched (PID: {})", backend_name, pid))
     }
 
     /// Run the built-in fix command for the current finding
@@ -433,14 +432,8 @@ impl App {
             return;
         }
         let i = match self.list_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.findings.len() - 1
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
+            Some(0) | None => self.findings.len() - 1,
+            Some(i) => i - 1,
         };
         self.list_state.select(Some(i));
     }

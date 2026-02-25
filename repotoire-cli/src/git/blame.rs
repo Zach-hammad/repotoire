@@ -280,19 +280,19 @@ impl GitBlame {
             if let Some(existing) = seen_commits.get_mut(&hash) {
                 existing.line_end = (line_no + line_count - 1).max(existing.line_end);
                 existing.line_count = existing.line_end - existing.line_start + 1;
-            } else {
-                let entry = LineBlame {
-                    commit_hash: short_hash,
-                    full_hash: hash.clone(),
-                    author,
-                    author_email: email,
-                    timestamp,
-                    line_start: line_no,
-                    line_end: line_no + line_count - 1,
-                    line_count,
-                };
-                seen_commits.insert(hash, entry);
+                continue;
             }
+            let entry = LineBlame {
+                commit_hash: short_hash,
+                full_hash: hash.clone(),
+                author,
+                author_email: email,
+                timestamp,
+                line_start: line_no,
+                line_end: line_no + line_count - 1,
+                line_count,
+            };
+            seen_commits.insert(hash, entry);
         }
 
         entries.extend(seen_commits.into_values());
@@ -333,12 +333,11 @@ impl GitBlame {
             let line_count = hunk.lines_in_hunk() as u32;
 
             // Merge consecutive hunks from same commit
-            if current_hash.as_ref() == Some(&hash) {
-                if let Some(ref mut entry) = current_entry {
-                    entry.line_end = line_no + line_count - 1;
-                    entry.line_count = entry.line_end - entry.line_start + 1;
-                    continue;
-                }
+            if current_hash.as_ref() == Some(&hash) && current_entry.is_some() {
+                let entry = current_entry.as_mut().unwrap();
+                entry.line_end = line_no + line_count - 1;
+                entry.line_count = entry.line_end - entry.line_start + 1;
+                continue;
             }
 
             // Save previous entry

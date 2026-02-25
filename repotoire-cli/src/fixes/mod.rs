@@ -195,11 +195,11 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
         if i + 1 == line_num {
             patch_lines.push(format!("-{}", line));
             patch_lines.push(format!("+{}", new_catch));
-            if let Some(next_line) = lines.get(i + 1) {
-                if next_line.trim() == "pass" || next_line.trim() == "..." {
-                    // Skip the pass/... line
-                    continue;
-                }
+            let next_is_pass = lines.get(i + 1)
+                .map(|l| l.trim() == "pass" || l.trim() == "...")
+                .unwrap_or(false);
+            if next_is_pass {
+                continue; // Skip the pass/... line
             }
             patch_lines.push(format!("+{}", new_body));
         } else if i + 1 == line_num + 1 && (lines[i].trim() == "pass" || lines[i].trim() == "...") {

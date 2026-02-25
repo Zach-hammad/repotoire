@@ -84,34 +84,7 @@ impl NgramModel {
         let mut chars = trimmed.chars().peekable();
 
         while let Some(&ch) = chars.peek() {
-            match ch {
-                // Whitespace — skip
-                ' ' | '\t' => { chars.next(); }
-
-                // String literals → normalize to <STR>
-                '"' | '\'' | '`' => {
-                    chars.next();
-                    consume_string_literal(&mut chars, ch);
-                    tokens.push("<STR>".to_string());
-                }
-
-                // Numbers → normalize to <NUM>
-                '0'..='9' => {
-                    consume_number(&mut chars);
-                    tokens.push("<NUM>".to_string());
-                }
-
-                // Identifiers and keywords
-                'a'..='z' | 'A'..='Z' | '_' => {
-                    let word = consume_identifier(&mut chars);
-                    tokens.push(classify_identifier(word));
-                }
-
-                // Operators and punctuation — keep as-is (they carry structure)
-                _ => {
-                    tokens.push(consume_operator(&mut chars));
-                }
-            }
+            tokenize_next_char(&mut chars, ch, &mut tokens);
         }
 
         tokens
@@ -189,13 +162,14 @@ impl NgramModel {
 
         for (i, line) in lines.iter().enumerate() {
             let score = self.line_surprisal(line);
-            if score > 0.0 {
-                total += score;
-                scored_lines += 1;
-                if score > max_surprisal {
-                    max_surprisal = score;
-                    max_line = i;
-                }
+            if score <= 0.0 {
+                continue;
+            }
+            total += score;
+            scored_lines += 1;
+            if score > max_surprisal {
+                max_surprisal = score;
+                max_line = i;
             }
         }
 
@@ -248,6 +222,36 @@ fn consume_number(chars: &mut std::iter::Peekable<std::str::Chars>) {
         .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == 'x' || *c == '_')
     {
         chars.next();
+    }
+}
+
+/// Process a single character during tokenization, advancing the iterator and collecting tokens
+fn tokenize_next_char(chars: &mut std::iter::Peekable<std::str::Chars>, ch: char, tokens: &mut Vec<String>) {
+    match ch {
+        // Whitespace -- skip
+        ' ' | '\t' => drop(chars.next()),
+
+        // String literals -> normalize to <STR>
+        '"' | '\'' | '`' => {
+            chars.next();
+            consume_string_literal(chars, ch);
+            tokens.push("<STR>".to_string());
+        }
+
+        // Numbers -> normalize to <NUM>
+        '0'..='9' => {
+            consume_number(chars);
+            tokens.push("<NUM>".to_string());
+        }
+
+        // Identifiers and keywords
+        'a'..='z' | 'A'..='Z' | '_' => {
+            let word = consume_identifier(chars);
+            tokens.push(classify_identifier(word));
+        }
+
+        // Operators and punctuation -- keep as-is (they carry structure)
+        _ => tokens.push(consume_operator(chars)),
     }
 }
 

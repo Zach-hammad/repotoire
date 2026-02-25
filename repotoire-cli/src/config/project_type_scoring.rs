@@ -1,5 +1,17 @@
 use std::path::Path;
 
+/// Read Cargo.toml content if it exists
+fn read_cargo_toml(repo_path: &Path) -> Option<String> {
+    let path = repo_path.join("Cargo.toml");
+    std::fs::read_to_string(path).ok()
+}
+
+/// Score Cargo.toml dependencies: add `points` for each matching dep
+fn score_cargo_deps(repo_path: &Path, deps: &[&str], points: u32) -> u32 {
+    let Some(content) = read_cargo_toml(repo_path) else { return 0 };
+    deps.iter().filter(|dep| content.contains(*dep)).count() as u32 * points
+}
+
 pub(super) fn score_framework_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
 
@@ -135,11 +147,12 @@ pub(super) fn score_compiler_markers(repo_path: &Path) -> u32 {
     if let Ok(packages) = std::fs::read_dir(repo_path.join("packages")) {
         for entry in packages.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.is_dir() {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if name.contains("compiler") || name.contains("transform") {
-                    score += 5; // Strong signal
-                }
+            if !path.is_dir() {
+                continue;
+            }
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.contains("compiler") || name.contains("transform") {
+                score += 5; // Strong signal
             }
         }
     }
@@ -202,17 +215,7 @@ pub(super) fn score_game_markers(repo_path: &Path) -> u32 {
     }
 
     // Check for game-specific dependencies
-    let cargo_toml = repo_path.join("Cargo.toml");
-    if cargo_toml.exists() {
-        if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-            let game_deps = ["bevy", "ggez", "amethyst", "macroquad", "fyrox", "godot"];
-            for dep in game_deps {
-                if content.contains(dep) {
-                    score += 5;
-                }
-            }
-        }
-    }
+    score += score_cargo_deps(repo_path, &["bevy", "ggez", "amethyst", "macroquad", "fyrox", "godot"], 5);
 
     score
 }
@@ -224,12 +227,10 @@ pub(super) fn score_cli_markers(repo_path: &Path) -> u32 {
     const CLI_DIRS: &[&str] = &["cli", "cmd", "commands"];
 
     // Check for CLI framework deps
-    let cargo_toml = repo_path.join("Cargo.toml");
-    if cargo_toml.exists() {
-        if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-            if content.contains("clap") || content.contains("structopt") {
-                score += 4;
-            }
+    let cargo_content = read_cargo_toml(repo_path);
+    if let Some(ref content) = cargo_content {
+        if content.contains("clap") || content.contains("structopt") {
+            score += 4;
         }
     }
 
@@ -247,15 +248,17 @@ pub(super) fn score_cli_markers(repo_path: &Path) -> u32 {
     let requirements = repo_path.join("requirements.txt");
     let pyproject = repo_path.join("pyproject.toml");
     for file_path in [requirements, pyproject] {
-        if file_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                if content.contains("click")
-                    || content.contains("typer")
-                    || content.contains("argparse")
-                {
-                    score += 3;
-                }
-            }
+        if !file_path.exists() {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&file_path) else {
+            continue;
+        };
+        if content.contains("click")
+            || content.contains("typer")
+            || content.contains("argparse")
+        {
+            score += 3;
         }
     }
 
@@ -313,42 +316,53 @@ pub(super) fn score_library_markers(repo_path: &Path) -> u32 {
     score
 }
 
+/// Score Rust web framework dependencies from Cargo.toml.
+fn score_cargo_web_deps(repo_path: &Path) -> u32 {
+    let cargo_toml = repo_path.join("Cargo.toml");
+    let Ok(content) = std::fs::read_to_string(&cargo_toml) else {
+        return 0;
+    };
+    let web_deps = ["actix-web", "axum", "rocket", "warp", "tide"];
+    let mut score = 0u32;
+    for dep in web_deps {
+        if content.contains(dep) {
+            score += 4;
+        }
+    }
+    score
+}
+
+/// Score JavaScript web framework dependencies from package.json.
+fn score_package_json_web_deps(repo_path: &Path) -> u32 {
+    let package_json = repo_path.join("package.json");
+    let Ok(content) = std::fs::read_to_string(&package_json) else {
+        return 0;
+    };
+    let mut score = 0u32;
+    // Backend frameworks
+    let backend_deps = ["express", "fastify", "koa", "hapi", "nest"];
+    for dep in backend_deps {
+        if content.contains(&format!("\"{}\"", dep)) {
+            score += 4;
+        }
+    }
+    // Frontend (but using, not being)
+    let frontend_deps = ["next", "nuxt", "gatsby"];
+    for dep in frontend_deps {
+        if content.contains(&format!("\"{}\"", dep)) {
+            score += 3;
+        }
+    }
+    score
+}
+
 /// Score web framework markers
 pub(super) fn score_web_markers(repo_path: &Path) -> u32 {
     let mut score = 0u32;
 
     // Check for common web framework dependencies
-    let cargo_toml = repo_path.join("Cargo.toml");
-    if cargo_toml.exists() {
-        if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-            let web_deps = ["actix-web", "axum", "rocket", "warp", "tide"];
-            for dep in web_deps {
-                if content.contains(dep) {
-                    score += 4;
-                }
-            }
-        }
-    }
-
-    let package_json = repo_path.join("package.json");
-    if package_json.exists() {
-        if let Ok(content) = std::fs::read_to_string(&package_json) {
-            // Backend frameworks
-            let backend_deps = ["express", "fastify", "koa", "hapi", "nest"];
-            for dep in backend_deps {
-                if content.contains(&format!("\"{}\"", dep)) {
-                    score += 4;
-                }
-            }
-            // Frontend (but using, not being)
-            let frontend_deps = ["next", "nuxt", "gatsby"];
-            for dep in frontend_deps {
-                if content.contains(&format!("\"{}\"", dep)) {
-                    score += 3;
-                }
-            }
-        }
-    }
+    score += score_cargo_web_deps(repo_path);
+    score += score_package_json_web_deps(repo_path);
 
     let requirements = repo_path.join("requirements.txt");
     let pyproject = repo_path.join("pyproject.toml");
