@@ -24,7 +24,6 @@ pub mod lightweight_parser;
 pub mod bounded_pipeline;
 
 // Re-export lightweight types for convenience
-pub use lightweight::{Language, LightweightParseStats};
 pub use lightweight_parser::parse_file_lightweight;
 
 use anyhow::Result;
