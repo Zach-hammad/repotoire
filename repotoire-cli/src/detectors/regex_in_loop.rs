@@ -169,6 +169,7 @@ impl Detector for RegexInLoopDetector {
             if let Some(content) = files.content(path) {
                 let _path_str = path.to_string_lossy().to_string();
                 let is_python = path.extension().and_then(|e| e.to_str()) == Some("py");
+                let is_rust = path.extension().and_then(|e| e.to_str()) == Some("rs");
                 let mut in_loop = false;
                 let mut loop_line = 0;
                 let mut brace_depth = 0;
@@ -227,6 +228,10 @@ impl Detector for RegexInLoopDetector {
                         {
                             let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
                             if crate::detectors::is_line_suppressed(line, prev_line) {
+                                continue;
+                            }
+                            // Skip test code in Rust files (string literals containing regex patterns)
+                            if is_rust && crate::detectors::rust_smells::is_test_context(line, &content, i) {
                                 continue;
                             }
 
