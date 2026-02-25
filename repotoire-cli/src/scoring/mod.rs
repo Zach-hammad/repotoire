@@ -10,8 +10,9 @@
 //! Overall Score = Structure × W₁ + Quality × W₂ + Architecture × W₃
 //!
 //! Where each pillar score:
-//!   Pillar = 100 × (1 - penalty_ratio) × (1 + bonus_ratio)
-//!          = 100 × (1 - findings_impact) × (1 + graph_bonus)
+//!   Pillar = clamp(100 - penalty, 25, 100) + capped_bonus
+//!   Penalty = severity_weight × 5.0 / kLOC  (per finding)
+//!   Bonus capped at 50% of penalty (bonuses can't fully mask issues)
 //! ```
 //!
 //! # Graph Bonuses (Positive Signals)
@@ -22,22 +23,23 @@
 //! - **Complexity Distribution** (0-5%): Most functions are simple
 //! - **Test Coverage Signal** (0-5%): Test files exist
 //!
-//! # Finding Penalties
+//! # Finding Penalties (severity_weight × 5.0 / kLOC per finding)
 //!
-//! - Critical: 10 points (scaled by codebase size)
-//! - High: 5 points
-//! - Medium: 1.5 points
-//! - Low: 0.3 points
+//! - Critical: 8.0
+//! - High: 4.0
+//! - Medium: 1.0
+//! - Low: 0.2
 //! - Security findings: 3x multiplier (configurable)
 //!
 //! # Example
 //!
-//! A codebase with:
-//! - 5 High findings → -25 base penalty
-//! - Good modularity → +8% bonus
-//! - No cycles → +10% bonus
+//! A 10kLOC codebase with:
+//! - 5 High findings → penalty = 5 × 4.0 × 5.0 / 10 = 10 points
+//! - Good modularity → +8 pts bonus
+//! - No cycles → +10 pts bonus
+//! - Bonus capped at 50% of penalty → +5 pts
 //!
-//! Quality = 100 × (1 - 25/100) × (1 + 0.18) = 88.5
+//! Quality = (100 - 10) + 5 = 95
 
 mod graph_scorer;
 

@@ -38,7 +38,7 @@ pub fn run(path: &Path) -> Result<()> {
 # paths = ["generated/", "vendor/", "third_party/"]
 
 # [scoring]
-# pillar_weights = { structure = 0.30, quality = 0.40, architecture = 0.30 }
+# pillar_weights = { structure = 0.40, quality = 0.30, architecture = 0.30 }
 # security_multiplier = 5.0
 
 # [defaults]

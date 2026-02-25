@@ -14,6 +14,7 @@
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
+use crate::config::PillarWeights;
 use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -181,12 +182,17 @@ impl Default for HealthScoreDeltaCalculator {
 }
 
 impl HealthScoreDeltaCalculator {
-    /// Create a new calculator with default weights
+    /// Create a new calculator with default weights (from PillarWeights::default)
     pub fn new() -> Self {
+        Self::from_weights(&PillarWeights::default())
+    }
+
+    /// Create from project config pillar weights
+    pub fn from_weights(weights: &PillarWeights) -> Self {
         Self {
-            structure_weight: 0.40,
-            quality_weight: 0.30,
-            architecture_weight: 0.30,
+            structure_weight: weights.structure,
+            quality_weight: weights.quality,
+            architecture_weight: weights.architecture,
         }
     }
 
