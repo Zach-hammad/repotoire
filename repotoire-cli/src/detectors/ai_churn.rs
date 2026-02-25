@@ -30,13 +30,17 @@ const MEDIUM_FIX_VELOCITY_HOURS: i64 = 72;
 const CRITICAL_MOD_COUNT: usize = 5;
 const HIGH_MOD_COUNT: usize = 3;
 
-/// Churn ratio thresholds
+/// Churn ratio thresholds (applied to effective_churn_ratio, not raw)
 const CRITICAL_CHURN_RATIO: f64 = 1.5;
 const HIGH_CHURN_RATIO: f64 = 0.8;
-const MEDIUM_CHURN_RATIO: f64 = 0.5;
+const MEDIUM_CHURN_RATIO: f64 = 0.8;
 
 /// Minimum score to create a finding (filters out noise)
-const MIN_CHURN_SCORE: f64 = 0.8;
+const MIN_CHURN_SCORE: f64 = 1.2;
+
+/// When lines_added / lines_deleted exceeds this ratio, apply a discount
+/// to the churn score because the changes represent feature growth, not fix-up.
+const NET_POSITIVE_DISCOUNT_THRESHOLD: f64 = 3.0;
 
 /// Analysis window in days
 const DEFAULT_ANALYSIS_WINDOW_DAYS: i64 = 90;
@@ -107,12 +111,49 @@ impl FunctionChurnRecord {
             .sum()
     }
 
-    /// Ratio of lines changed to original lines in first week
+    /// Ratio of lines changed to original lines in first week (raw, undiscounted)
     pub fn churn_ratio(&self) -> f64 {
         if self.lines_original == 0 {
             return 0.0;
         }
         self.lines_changed_first_week() as f64 / self.lines_original as f64
+    }
+
+    /// Ratio of total lines_added to total lines_deleted across first-week modifications.
+    /// A high ratio (e.g., > 3.0) indicates feature growth rather than fix-up churn.
+    pub fn net_positive_ratio(&self) -> f64 {
+        let Some(created_at) = self.created_at else {
+            return 1.0;
+        };
+        let week_cutoff = created_at + Duration::days(7);
+        let (total_added, total_deleted): (usize, usize) = self
+            .modifications
+            .iter()
+            .filter(|m| m.timestamp <= week_cutoff)
+            .fold((0, 0), |(a, d), m| (a + m.lines_added, d + m.lines_deleted));
+
+        if total_deleted == 0 {
+            return f64::MAX; // Pure additions — maximally net-positive
+        }
+        total_added as f64 / total_deleted as f64
+    }
+
+    /// Effective churn ratio: the raw churn_ratio discounted when the changes are
+    /// net-positive (lines_added >> lines_deleted). Feature growth should not
+    /// inflate the churn score.
+    pub fn effective_churn_ratio(&self) -> f64 {
+        let raw = self.churn_ratio();
+        let npr = self.net_positive_ratio();
+
+        if npr > NET_POSITIVE_DISCOUNT_THRESHOLD {
+            // The more net-positive, the steeper the discount.
+            // discount = 1 / (1 + ln(npr / threshold))
+            // e.g., npr=6, threshold=3 => discount ≈ 0.59
+            let discount = 1.0 / (1.0 + (npr / NET_POSITIVE_DISCOUNT_THRESHOLD).ln());
+            raw * discount
+        } else {
+            raw
+        }
     }
 
     /// Key signal: fixed within 48h AND multiple modifications
@@ -148,8 +189,8 @@ impl FunctionChurnRecord {
             score += 0.1;
         }
 
-        // High churn ratio
-        let churn = self.churn_ratio();
+        // High churn ratio — use effective (net-positive discounted) ratio
+        let churn = self.effective_churn_ratio();
         if churn > 1.0 {
             score += 0.3;
         } else if churn > 0.5 {
@@ -190,11 +231,12 @@ impl AIChurnDetector {
         }
     }
 
-    /// Calculate severity based on fix velocity and churn metrics
+    /// Calculate severity based on fix velocity and churn metrics.
+    /// Uses effective_churn_ratio which discounts net-positive (feature growth) patterns.
     fn calculate_severity(&self, record: &FunctionChurnRecord) -> Severity {
         let ttf_hours = record.time_to_first_fix_hours();
         let mods = record.modifications.len();
-        let churn = record.churn_ratio();
+        let churn = record.effective_churn_ratio();
 
         // CRITICAL conditions
         if churn > CRITICAL_CHURN_RATIO {
@@ -288,7 +330,7 @@ impl AIChurnDetector {
             );
         }
 
-        if record.churn_ratio() > CRITICAL_CHURN_RATIO {
+        if record.effective_churn_ratio() > CRITICAL_CHURN_RATIO {
             description.push_str(
                 "\n\n⚠️ **Critical churn ratio**: More code was changed than originally written, \
                  indicating significant rewriting was needed.",
@@ -678,5 +720,98 @@ mod tests {
         let detector = AIChurnDetector::new();
         assert_eq!(detector.analysis_window_days, 90);
         assert_eq!(detector.min_function_lines, 5);
+    }
+
+    /// Regression test: legitimate iterative development (feature growth) should NOT
+    /// produce a Critical or High finding. The key signal is lines_added >> lines_deleted,
+    /// indicating new functionality being added rather than AI fix-up churn.
+    ///
+    /// This scenario: a 30-line function with 4 modifications over 3 days, where
+    /// lines_added (62) vastly exceeds lines_deleted (9). The raw churn_ratio is
+    /// (62+9)/30 = 2.37, which would trigger Critical under the old pure-churn logic.
+    /// But since additions dominate deletions, this is feature growth, not AI slop.
+    #[test]
+    fn test_no_critical_for_legitimate_development() {
+        let now = Utc::now();
+        let record = FunctionChurnRecord {
+            qualified_name: "cli.analyze.run_analysis".to_string(),
+            file_path: "src/cli/analyze.rs".to_string(),
+            function_name: "run_analysis".to_string(),
+            created_at: Some(now - Duration::hours(72)),
+            creation_commit: "aaa111".to_string(),
+            lines_original: 30,
+            first_modification_at: Some(now - Duration::hours(46)),
+            first_modification_commit: "bbb222".to_string(),
+            modifications: vec![
+                // Commit 1: Add error handling — mostly additions
+                Modification {
+                    timestamp: now - Duration::hours(46),
+                    commit_sha: "bbb222".to_string(),
+                    lines_added: 15,
+                    lines_deleted: 2,
+                },
+                // Commit 2: Add new feature branch — mostly additions
+                Modification {
+                    timestamp: now - Duration::hours(36),
+                    commit_sha: "ccc333".to_string(),
+                    lines_added: 20,
+                    lines_deleted: 3,
+                },
+                // Commit 3: Polish and extend — still net-positive
+                Modification {
+                    timestamp: now - Duration::hours(24),
+                    commit_sha: "ddd444".to_string(),
+                    lines_added: 15,
+                    lines_deleted: 2,
+                },
+                // Commit 4: One more iteration adding functionality
+                Modification {
+                    timestamp: now - Duration::hours(12),
+                    commit_sha: "eee555".to_string(),
+                    lines_added: 12,
+                    lines_deleted: 2,
+                },
+            ],
+        };
+
+        // Raw churn_ratio = (15+2+20+3+15+2+12+2)/30 = 71/30 = 2.37
+        // This exceeds CRITICAL_CHURN_RATIO (1.5) under the old logic.
+        // But lines_added=62, lines_deleted=9 → ratio 6.9:1, clearly feature growth.
+        let raw_churn = record.churn_ratio();
+        assert!(
+            raw_churn > CRITICAL_CHURN_RATIO,
+            "Test setup: raw churn ratio ({:.2}) should exceed CRITICAL threshold ({}) \
+             so this test is meaningful",
+            raw_churn,
+            CRITICAL_CHURN_RATIO,
+        );
+
+        let detector = AIChurnDetector::new();
+        let finding = detector.create_finding(&record);
+
+        // Should either produce no finding, or at most Medium — never Critical or High
+        match &finding {
+            None => {} // acceptable: no finding at all
+            Some(f) => {
+                assert_ne!(
+                    f.severity,
+                    Severity::Critical,
+                    "Legitimate iterative development should NOT produce Critical. \
+                     Got severity={:?}, score={:.2}, churn_ratio={:.2}",
+                    f.severity,
+                    record.ai_churn_score(),
+                    record.churn_ratio(),
+                );
+                assert_ne!(
+                    f.severity,
+                    Severity::High,
+                    "Legitimate iterative development should NOT produce High. \
+                     Got severity={:?}, score={:.2}, churn_ratio={:.2}",
+                    f.severity,
+                    record.ai_churn_score(),
+                    record.churn_ratio(),
+                );
+            }
+        }
     }
 }
