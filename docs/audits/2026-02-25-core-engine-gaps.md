@@ -12,12 +12,12 @@
 | 2026-02-25 | `de351c6` | **Scoring weight inconsistencies fixed** across 4 locations: `explain()` reads from config dynamically, `health_delta.rs` gets `from_weights()` constructor, `init.rs` template corrected to 0.40/0.30/0.30, `scoring/mod.rs` doc comment updated. Resolves finding #5. |
 | 2026-02-25 | `405c3f0` | **Dead code removed (1,894 lines).** Deleted `queries.rs`, `schema.rs`, `unified.rs`, `compact_store.rs`, `pipeline/mod.rs`, and the no-op `--compact` CLI flag. Resolves all CompactGraphStore, dead Kuzu/Cypher, and pipeline stub findings. |
 | 2026-02-25 | `c39fc72` | **Pipeline hardening.** Added `validate_file()` with symlink rejection, path traversal protection (canonicalize+starts_with), and 2MB file size pre-filtering. Integrated into all 3 file collection paths. Exposed `--since` CLI flag. Resolves pipeline security findings #314-316 and --since finding #310. |
+| 2026-02-25 | `33ef8f1` | **Framework-aware scoring.** Wired `ProjectType` into `GraphScorer` bonus calculations. Modularity, cohesion, and complexity bonus thresholds now scale by coupling/complexity multipliers. Resolves finding #6. |
 
 ### Current Status
 
-- **Findings #1-5, #7:** RESOLVED
+- **Findings #1-7:** RESOLVED (all except #3)
 - **Finding #3 (parser feature gaps):** OPEN — 7 parser features still unimplemented (JSDoc, Javadoc, Go doc comments, Java annotations, React patterns, Go goroutines/channels)
-- **Finding #6 (framework-aware scoring):** OPEN — ProjectType feeds detectors but scoring module ignores it
 
 ## Summary
 
@@ -41,7 +41,7 @@
 
 5. ~~**Scoring weight values are inconsistent across 3 locations.**~~ **RESOLVED** (de351c6) — All 4 locations now read from config or use correct values.
 
-6. **Framework-aware scoring is not implemented.** OPEN — `ProjectType` detection exists and feeds into detector thresholds, but the scoring module itself has zero awareness of frameworks.
+6. ~~**Framework-aware scoring is not implemented.**~~ **RESOLVED** (33ef8f1) — `GraphScorer` bonus calculations now scale by `ProjectType` multipliers. Modularity, cohesion, and complexity bonuses adjust per project type.
 
 7. ~~**The codebase has far more capability than documentation suggests.**~~ **RESOLVED** (be9c77e) — CLAUDE.md now documents the actual architecture. Individual detector-level documentation remains incomplete but architectural coverage is accurate.
 
@@ -354,7 +354,7 @@ rewritten to describe petgraph+redb. Dead code (`schema.rs`, `queries.rs`, `unif
 
 ### Documented but Missing
 
-- [MISSING] Framework-aware scoring adjustments — source: `scoring/graph_scorer.rs` (no references to `ProjectType`), doc: CLAUDE.md "Why Three-Category Scoring?" section implies framework-aware scoring. `ProjectType` with its `coupling_multiplier()` and `complexity_multiplier()` (defined in `config/project_config.rs:79-107`) is wired into **detector thresholds** via `DetectorContext` (`detectors/base.rs:159-161`), but the scoring module (`scoring/graph_scorer.rs`) has zero references to `ProjectType`. Project type affects which findings are emitted (detection sensitivity), not how findings are scored. This is an indirect influence, not a "framework-aware scoring adjustment" as one might infer from documentation.
+- [~~MISSING~~] Framework-aware scoring adjustments — **RESOLVED** (33ef8f1): `GraphScorer` now accepts `repo_path`, resolves `ProjectType`, and scales bonus thresholds by `coupling_multiplier()` and `complexity_multiplier()`. Modularity, cohesion, and complexity bonuses all adjust per project type (e.g., compilers get lenient coupling thresholds).
 
 ### Documented but Partial
 
