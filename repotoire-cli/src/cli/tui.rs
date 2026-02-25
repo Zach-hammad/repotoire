@@ -498,19 +498,19 @@ fn handle_key_event(app: &mut App, code: KeyCode) -> bool {
             app.show_detail = false;
             app.show_agents = false;
         }
+        _ => handle_key_action(app, code),
+    }
+    false
+}
+
+/// Handle navigation and action keybindings
+fn handle_key_action(app: &mut App, code: KeyCode) {
+    match code {
         KeyCode::Down | KeyCode::Char('j') if !app.show_agents => app.next(),
         KeyCode::Up | KeyCode::Char('k') if !app.show_agents => app.previous(),
         KeyCode::Enter if !app.show_agents => app.show_detail = !app.show_detail,
-        KeyCode::PageDown => {
-            for _ in 0..10 {
-                app.next();
-            }
-        }
-        KeyCode::PageUp => {
-            for _ in 0..10 {
-                app.previous();
-            }
-        }
+        KeyCode::PageDown => (0..10).for_each(|_| app.next()),
+        KeyCode::PageUp => (0..10).for_each(|_| app.previous()),
         KeyCode::Char('f') => {
             if let Some(msg) = app.run_fix() {
                 app.set_status(msg, false);
@@ -522,9 +522,7 @@ fn handle_key_event(app: &mut App, code: KeyCode) -> bool {
                 app.set_status(msg, is_error);
             }
         }
-        KeyCode::Char('a') | KeyCode::Char('A') => {
-            app.show_agents = !app.show_agents;
-        }
+        KeyCode::Char('a') | KeyCode::Char('A') => app.show_agents = !app.show_agents,
         KeyCode::Char('c') => {
             if let Some(msg) = app.cancel_latest_agent() {
                 let is_error = msg.starts_with("❌") || msg.starts_with("⚠️");
@@ -533,7 +531,6 @@ fn handle_key_event(app: &mut App, code: KeyCode) -> bool {
         }
         _ => {}
     }
-    false
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
