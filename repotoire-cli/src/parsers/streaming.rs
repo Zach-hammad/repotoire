@@ -191,6 +191,8 @@ impl ParsedFileInfo {
                     is_async: f.is_async,
                     complexity: Some(f.complexity),
                     max_nesting: f.max_nesting,
+                    doc_comment: None,
+                    annotations: vec![],
                 })
                 .collect(),
             classes: self
@@ -204,6 +206,8 @@ impl ParsedFileInfo {
                     line_end: c.line_end,
                     methods: c.methods.clone(),
                     bases: c.bases.clone(),
+                    doc_comment: None,
+                    annotations: vec![],
                 })
                 .collect(),
             imports: self

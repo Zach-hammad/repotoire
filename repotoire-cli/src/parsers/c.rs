@@ -107,6 +107,8 @@ fn extract_functions(
                 is_async: false,
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
+                doc_comment: None,
+                annotations: vec![],
             });
         }
     }
@@ -248,6 +250,8 @@ fn extract_structs(
                     line_end,
                     methods: vec![],
                     bases: vec![],
+                    doc_comment: None,
+                    annotations: vec![],
                 });
             }
         }

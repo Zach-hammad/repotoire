@@ -115,6 +115,8 @@ fn extract_functions(
                 is_async,
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
+                doc_comment: None,
+                annotations: vec![],
             });
         }
     }
@@ -235,6 +237,8 @@ fn parse_struct_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         line_end,
         methods: vec![],
         bases: vec![],
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -255,6 +259,8 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         line_end,
         methods: vec![],
         bases: vec![],
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -281,6 +287,8 @@ fn parse_trait_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         line_end,
         methods,
         bases,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -419,6 +427,8 @@ fn parse_impl_method(
         is_async,
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 

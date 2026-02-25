@@ -93,6 +93,13 @@ fn extract_functions(
             let line_end = node.end_position().row as u32 + 1;
             let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
 
+            let doc_comment = extract_doc_comment(&node, source);
+            let has_goroutines = contains_go_statement(&node);
+            let mut annotations = Vec::new();
+            if contains_channel_ops(&node) {
+                annotations.push("go:uses_channels".to_string());
+            }
+
             result.functions.push(Function {
                 name: name.clone(),
                 qualified_name,
@@ -101,9 +108,11 @@ fn extract_functions(
                 line_end,
                 parameters,
                 return_type,
-                is_async: false, // Go uses goroutines, not async/await
+                is_async: has_goroutines,
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
+                doc_comment,
+                annotations,
             });
         }
     }
@@ -173,6 +182,13 @@ fn extract_methods(
                 format!("{}::{}:{}", path.display(), name, line_start)
             };
 
+            let doc_comment = extract_doc_comment(&node, source);
+            let has_goroutines = contains_go_statement(&node);
+            let mut annotations = Vec::new();
+            if contains_channel_ops(&node) {
+                annotations.push("go:uses_channels".to_string());
+            }
+
             result.functions.push(Function {
                 name: name.clone(),
                 qualified_name,
@@ -181,9 +197,11 @@ fn extract_methods(
                 line_end,
                 parameters,
                 return_type,
-                is_async: false,
+                is_async: has_goroutines,
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
+                doc_comment,
+                annotations,
             });
         }
     }
@@ -314,6 +332,8 @@ fn extract_structs_and_interfaces(
                 vec![]
             };
 
+            let doc_comment = extract_doc_comment(&node, source);
+
             result.classes.push(Class {
                 name: name.clone(),
                 qualified_name,
@@ -322,6 +342,8 @@ fn extract_structs_and_interfaces(
                 line_end,
                 methods,
                 bases: vec![],
+                doc_comment,
+                annotations: vec![],
             });
         }
     }
@@ -469,6 +491,107 @@ fn extract_call_target(node: &Node, source: &[u8]) -> Option<String> {
         }
         _ => node.utf8_text(source).ok().map(|s| s.to_string()),
     }
+}
+
+/// Extract the doc comment immediately preceding a declaration node.
+///
+/// In Go, doc comments are `//` or `/* */` comments with no blank lines
+/// between the comment and the declaration.
+fn extract_doc_comment(node: &Node, source: &[u8]) -> Option<String> {
+    let mut comments = Vec::new();
+    let mut sibling = node.prev_sibling();
+
+    while let Some(sib) = sibling {
+        if sib.kind() == "comment" {
+            // Check there's no blank line gap between this comment and the next node
+            let comment_end_row = sib.end_position().row;
+            let next_start_row = if let Some(next) = sib.next_sibling() {
+                next.start_position().row
+            } else {
+                break;
+            };
+            // Allow at most 1 row gap (the comment line itself ends, next starts on the following line)
+            if next_start_row - comment_end_row > 1 {
+                break;
+            }
+            comments.push(sib);
+            sibling = sib.prev_sibling();
+        } else {
+            break;
+        }
+    }
+
+    if comments.is_empty() {
+        return None;
+    }
+
+    // Comments were collected in reverse order
+    comments.reverse();
+
+    let doc: String = comments
+        .iter()
+        .filter_map(|c| c.utf8_text(source).ok())
+        .map(|text| {
+            // Strip // prefix and leading space
+            if let Some(stripped) = text.strip_prefix("//") {
+                stripped.strip_prefix(' ').unwrap_or(stripped)
+            } else if text.starts_with("/*") && text.ends_with("*/") {
+                // Block comment: strip /* and */
+                &text[2..text.len() - 2]
+            } else {
+                text
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if doc.trim().is_empty() {
+        None
+    } else {
+        Some(doc)
+    }
+}
+
+/// Check if a function body contains `go` statements (goroutine launches)
+fn contains_go_statement(node: &Node) -> bool {
+    fn walk(node: &Node) -> bool {
+        if node.kind() == "go_statement" {
+            return true;
+        }
+        for child in node.children(&mut node.walk()) {
+            if walk(&child) {
+                return true;
+            }
+        }
+        false
+    }
+    walk(node)
+}
+
+/// Check if a function body contains channel operations
+/// (channel_type, send_statement, or receive via unary_expression with <-)
+fn contains_channel_ops(node: &Node) -> bool {
+    fn walk(node: &Node) -> bool {
+        match node.kind() {
+            "channel_type" | "send_statement" => return true,
+            "unary_expression" => {
+                // Receive expression: <-ch
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "<-" {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        for child in node.children(&mut node.walk()) {
+            if walk(&child) {
+                return true;
+            }
+        }
+        false
+    }
+    walk(node)
 }
 
 /// Calculate cyclomatic complexity of a function
@@ -648,6 +771,133 @@ func (h *Handler) Clear() {
             3,
             "Expected 3 methods (Register, Execute, Clear), got {:?}",
             methods.iter().map(|f| &f.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_doc_comment_extracted() {
+        let source = r#"
+package main
+
+// Add adds two numbers together
+// and returns the result.
+func Add(a, b int) int {
+    return a + b
+}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(source, &path).unwrap();
+
+        let func = &result.functions[0];
+        assert_eq!(func.name, "Add");
+        assert!(func.doc_comment.is_some());
+        let doc = func.doc_comment.as_ref().unwrap();
+        assert!(doc.contains("Add adds two numbers"), "Got: {}", doc);
+        assert!(doc.contains("returns the result"), "Got: {}", doc);
+    }
+
+    #[test]
+    fn test_no_doc_comment_when_gap() {
+        let source = r#"
+package main
+
+// This comment has a blank line before the function
+
+func NoDoc() {}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(source, &path).unwrap();
+
+        let func = &result.functions[0];
+        assert_eq!(func.name, "NoDoc");
+        assert!(func.doc_comment.is_none());
+    }
+
+    #[test]
+    fn test_struct_doc_comment() {
+        let source = r#"
+package main
+
+// Server represents an HTTP server.
+type Server struct {
+    Port int
+}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(source, &path).unwrap();
+
+        let class = &result.classes[0];
+        assert_eq!(class.name, "Server");
+        assert!(class.doc_comment.is_some());
+        assert!(class.doc_comment.as_ref().unwrap().contains("HTTP server"));
+    }
+
+    #[test]
+    fn test_goroutine_detected() {
+        let source = r#"
+package main
+
+func startWorker() {
+    go func() {
+        doWork()
+    }()
+}
+
+func noGoroutine() {
+    doWork()
+}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(source, &path).unwrap();
+
+        let worker = result.functions.iter().find(|f| f.name == "startWorker").unwrap();
+        assert!(worker.is_async, "startWorker should be marked async (goroutine)");
+
+        let no_go = result.functions.iter().find(|f| f.name == "noGoroutine").unwrap();
+        assert!(!no_go.is_async, "noGoroutine should not be marked async");
+    }
+
+    #[test]
+    fn test_channel_ops_detected() {
+        let source = r#"
+package main
+
+func producer(ch chan<- int) {
+    ch <- 42
+}
+
+func consumer(ch <-chan int) {
+    val := <-ch
+    _ = val
+}
+
+func noChannels() {
+    x := 1 + 2
+    _ = x
+}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(source, &path).unwrap();
+
+        let producer = result.functions.iter().find(|f| f.name == "producer").unwrap();
+        assert!(
+            producer.annotations.contains(&"go:uses_channels".to_string()),
+            "producer should have go:uses_channels annotation, got: {:?}",
+            producer.annotations
+        );
+
+        let consumer = result.functions.iter().find(|f| f.name == "consumer").unwrap();
+        assert!(
+            consumer.annotations.contains(&"go:uses_channels".to_string()),
+            "consumer should have go:uses_channels annotation, got: {:?}",
+            consumer.annotations
+        );
+
+        let no_ch = result.functions.iter().find(|f| f.name == "noChannels").unwrap();
+        assert!(
+            no_ch.annotations.is_empty(),
+            "noChannels should have no annotations, got: {:?}",
+            no_ch.annotations
         );
     }
 

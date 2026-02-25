@@ -128,6 +128,8 @@ fn extract_functions(
                 is_async,
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
+                doc_comment: None,
+                annotations: vec![],
             });
         }
     }
@@ -213,6 +215,8 @@ fn parse_function_node(
         is_async,
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -326,6 +330,8 @@ fn parse_class_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         line_end,
         methods,
         bases,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 

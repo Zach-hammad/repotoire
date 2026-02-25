@@ -151,6 +151,9 @@ fn parse_class_node(
     // Extract method names from body
     let methods = extract_method_names(node, source);
 
+    let doc_comment = extract_doc_comment(node, source);
+    let annotations = extract_annotations(node, source);
+
     Some(Class {
         name: full_name,
         qualified_name,
@@ -159,6 +162,8 @@ fn parse_class_node(
         line_end,
         methods,
         bases,
+        doc_comment,
+        annotations,
     })
 }
 
@@ -202,6 +207,8 @@ fn parse_interface_node(
     }
 
     let methods = extract_method_names(node, source);
+    let doc_comment = extract_doc_comment(node, source);
+    let annotations = extract_annotations(node, source);
 
     Some(Class {
         name: full_name,
@@ -211,6 +218,8 @@ fn parse_interface_node(
         line_end,
         methods,
         bases,
+        doc_comment,
+        annotations,
     })
 }
 
@@ -230,6 +239,8 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>
     let qualified_name = format!("{}::enum::{}:{}", path.display(), full_name, line_start);
 
     let methods = extract_method_names(node, source);
+    let doc_comment = extract_doc_comment(node, source);
+    let annotations = extract_annotations(node, source);
 
     Some(Class {
         name: full_name,
@@ -239,6 +250,8 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>
         line_end,
         methods,
         bases: vec![],
+        doc_comment,
+        annotations,
     })
 }
 
@@ -263,6 +276,8 @@ fn parse_record_node(
     let qualified_name = format!("{}::record::{}:{}", path.display(), full_name, line_start);
 
     let methods = extract_method_names(node, source);
+    let doc_comment = extract_doc_comment(node, source);
+    let annotations = extract_annotations(node, source);
 
     Some(Class {
         name: full_name,
@@ -272,6 +287,8 @@ fn parse_record_node(
         line_end,
         methods,
         bases: vec![],
+        doc_comment,
+        annotations,
     })
 }
 
@@ -367,6 +384,9 @@ fn parse_method_node(
     let line_end = node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}.{}:{}", path.display(), class_name, name, line_start);
 
+    let doc_comment = extract_doc_comment(node, source);
+    let annotations = extract_annotations(node, source);
+
     Some(Function {
         name,
         qualified_name,
@@ -378,6 +398,8 @@ fn parse_method_node(
         is_async: false,
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
+        doc_comment,
+        annotations,
     })
 }
 
@@ -398,6 +420,9 @@ fn parse_constructor_node(
     let line_end = node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}.<init>:{}", path.display(), class_name, line_start);
 
+    let doc_comment = extract_doc_comment(node, source);
+    let annotations = extract_annotations(node, source);
+
     Some(Function {
         name: format!("<init>:{}", name),
         qualified_name,
@@ -409,6 +434,8 @@ fn parse_constructor_node(
         is_async: false,
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
+        doc_comment,
+        annotations,
     })
 }
 
@@ -546,6 +573,129 @@ fn find_containing_scope(line: u32, scope_map: &HashMap<(u32, u32), String>) -> 
     }
 
     best_match.map(|(_, name)| name.clone())
+}
+
+/// Extract Javadoc comment preceding a declaration node.
+///
+/// Javadoc comments are `/** ... */` block comments immediately before a declaration.
+/// Regular `/* */` and `//` comments are ignored.
+fn extract_doc_comment(node: &Node, source: &[u8]) -> Option<String> {
+    let mut sibling = node.prev_sibling();
+
+    // Skip annotations to find the doc comment before them
+    while let Some(sib) = sibling {
+        if sib.kind() == "marker_annotation"
+            || sib.kind() == "annotation"
+            || sib.kind() == "modifiers"
+        {
+            // Check inside modifiers for block_comment (Javadoc)
+            if sib.kind() == "modifiers" {
+                for child in sib.children(&mut sib.walk()) {
+                    if child.kind() == "block_comment" {
+                        if let Ok(text) = child.utf8_text(source) {
+                            if text.starts_with("/**") {
+                                let doc = text
+                                    .trim_start_matches("/**")
+                                    .trim_end_matches("*/")
+                                    .lines()
+                                    .map(|line| {
+                                        let trimmed = line.trim();
+                                        trimmed.strip_prefix("* ").unwrap_or(
+                                            trimmed.strip_prefix('*').unwrap_or(trimmed),
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                                    .trim()
+                                    .to_string();
+                                if !doc.is_empty() {
+                                    return Some(doc);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            sibling = sib.prev_sibling();
+            continue;
+        }
+        if sib.kind() == "block_comment" {
+            if let Ok(text) = sib.utf8_text(source) {
+                if text.starts_with("/**") {
+                    let doc = text
+                        .trim_start_matches("/**")
+                        .trim_end_matches("*/")
+                        .lines()
+                        .map(|line| {
+                            let trimmed = line.trim();
+                            trimmed
+                                .strip_prefix("* ")
+                                .unwrap_or(trimmed.strip_prefix('*').unwrap_or(trimmed))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                        .trim()
+                        .to_string();
+                    if !doc.is_empty() {
+                        return Some(doc);
+                    }
+                }
+            }
+        }
+        break;
+    }
+
+    None
+}
+
+/// Extract annotations from a declaration node.
+///
+/// Looks for `marker_annotation` (e.g., `@Override`) and `annotation` (e.g., `@SuppressWarnings("unchecked")`)
+/// nodes that are siblings or inside a `modifiers` node preceding the declaration.
+fn extract_annotations(node: &Node, source: &[u8]) -> Vec<String> {
+    let mut annotations = Vec::new();
+
+    // Check siblings before the declaration
+    let mut sibling = node.prev_sibling();
+    while let Some(sib) = sibling {
+        match sib.kind() {
+            "marker_annotation" | "annotation" => {
+                if let Ok(text) = sib.utf8_text(source) {
+                    annotations.push(text.to_string());
+                }
+                sibling = sib.prev_sibling();
+            }
+            "modifiers" => {
+                // Annotations can be inside a modifiers node
+                for child in sib.children(&mut sib.walk()) {
+                    if child.kind() == "marker_annotation" || child.kind() == "annotation" {
+                        if let Ok(text) = child.utf8_text(source) {
+                            annotations.push(text.to_string());
+                        }
+                    }
+                }
+                sibling = sib.prev_sibling();
+            }
+            _ => break,
+        }
+    }
+
+    // Also check direct children (some grammars nest annotations inside the declaration)
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "modifiers" {
+            for grandchild in child.children(&mut child.walk()) {
+                if grandchild.kind() == "marker_annotation" || grandchild.kind() == "annotation" {
+                    if let Ok(text) = grandchild.utf8_text(source) {
+                        if !annotations.contains(&text.to_string()) {
+                            annotations.push(text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    annotations
 }
 
 /// Calculate cyclomatic complexity of a method
@@ -768,6 +918,78 @@ public class EventHandler {
             2,
             "Expected 2 methods (setup, handleClick), got {:?}",
             main_class.methods
+        );
+    }
+
+    #[test]
+    fn test_javadoc_extracted() {
+        let source = r#"
+/**
+ * Calculates the sum of two numbers.
+ * @param a first number
+ * @param b second number
+ * @return the sum
+ */
+public class Calculator {
+    /**
+     * Add two integers.
+     */
+    public int add(int a, int b) {
+        return a + b;
+    }
+}
+"#;
+        let path = PathBuf::from("Calculator.java");
+        let result = parse_source(source, &path).unwrap();
+
+        let class = &result.classes[0];
+        assert!(class.doc_comment.is_some(), "Class should have Javadoc");
+        let doc = class.doc_comment.as_ref().unwrap();
+        assert!(doc.contains("Calculates the sum"), "Got: {}", doc);
+
+        let method = result.functions.iter().find(|f| f.name == "add").unwrap();
+        assert!(method.doc_comment.is_some(), "Method should have Javadoc");
+        assert!(method.doc_comment.as_ref().unwrap().contains("Add two integers"));
+    }
+
+    #[test]
+    fn test_annotations_extracted() {
+        let source = r#"
+public class Service {
+    @Override
+    public String toString() {
+        return "Service";
+    }
+
+    @Deprecated
+    @SuppressWarnings("unchecked")
+    public void oldMethod() {}
+
+    public void noAnnotation() {}
+}
+"#;
+        let path = PathBuf::from("Service.java");
+        let result = parse_source(source, &path).unwrap();
+
+        let to_string = result.functions.iter().find(|f| f.name == "toString").unwrap();
+        assert!(
+            to_string.annotations.iter().any(|a| a.contains("Override")),
+            "toString should have @Override, got: {:?}",
+            to_string.annotations
+        );
+
+        let old_method = result.functions.iter().find(|f| f.name == "oldMethod").unwrap();
+        assert!(
+            old_method.annotations.iter().any(|a| a.contains("Deprecated")),
+            "oldMethod should have @Deprecated, got: {:?}",
+            old_method.annotations
+        );
+
+        let no_ann = result.functions.iter().find(|f| f.name == "noAnnotation").unwrap();
+        assert!(
+            no_ann.annotations.is_empty(),
+            "noAnnotation should have no annotations, got: {:?}",
+            no_ann.annotations
         );
     }
 }

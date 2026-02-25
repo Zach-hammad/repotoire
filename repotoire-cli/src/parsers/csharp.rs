@@ -143,6 +143,8 @@ fn parse_class_node(
         line_end,
         methods,
         bases,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -177,6 +179,8 @@ fn parse_struct_node(
         line_end,
         methods,
         bases,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -216,6 +220,8 @@ fn parse_interface_node(
         line_end,
         methods,
         bases,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -250,6 +256,8 @@ fn parse_record_node(
         line_end,
         methods,
         bases,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -276,6 +284,8 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>
         line_end,
         methods: vec![],
         bases: vec![],
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -425,6 +435,8 @@ fn parse_method_node(
         is_async,
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -456,6 +468,8 @@ fn parse_constructor_node(
         is_async: false,
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -500,6 +514,8 @@ fn parse_local_function(
         is_async,
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 

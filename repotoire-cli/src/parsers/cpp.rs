@@ -115,6 +115,8 @@ fn extract_functions(
                 is_async: false,
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
+                doc_comment: None,
+                annotations: vec![],
             });
         }
     }
@@ -184,6 +186,8 @@ fn extract_classes(
                 line_end,
                 bases: vec![], // Base class extraction not yet implemented for C++
                 methods: methods.iter().map(|m| m.name.clone()).collect(),
+                doc_comment: None,
+                annotations: vec![],
             });
         }
     }
@@ -261,6 +265,8 @@ fn extract_class_methods(
                 is_async: false,
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
+                doc_comment: None,
+                annotations: vec![],
             });
         }
     }
@@ -316,6 +322,8 @@ fn extract_structs(
                 line_end,
                 bases: vec![],
                 methods: vec![],
+                doc_comment: None,
+                annotations: vec![],
             });
         }
     }

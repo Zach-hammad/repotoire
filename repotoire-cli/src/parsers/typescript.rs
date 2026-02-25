@@ -256,6 +256,13 @@ fn extract_functions(
             let line_end = node.end_position().row as u32 + 1;
             let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
 
+            let doc_comment = extract_jsdoc_comment(&node, source);
+            let mut annotations = Vec::new();
+            if is_react_component(&node, source, &name) {
+                annotations.push("react:component".to_string());
+            }
+            collect_hook_calls(&node, source, &mut annotations);
+
             result.functions.push(Function {
                 name: name.clone(),
                 qualified_name,
@@ -267,6 +274,8 @@ fn extract_functions(
                 is_async,
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
+                doc_comment,
+                annotations,
             });
         }
     }
@@ -446,6 +455,8 @@ fn extract_classes(
                 vec![]
             };
 
+            let doc_comment = extract_jsdoc_comment(&node, source);
+
             result.classes.push(Class {
                 name: name.clone(),
                 qualified_name,
@@ -454,6 +465,8 @@ fn extract_classes(
                 line_end,
                 methods,
                 bases,
+                doc_comment,
+                annotations: vec![],
             });
         }
     }
@@ -631,6 +644,8 @@ fn parse_arrow_field_node(
         is_async,
         complexity: Some(calculate_complexity(arrow_node, source)),
         max_nesting: None,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -665,6 +680,8 @@ fn parse_method_node(
         is_async,
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
+        doc_comment: None,
+        annotations: vec![],
     })
 }
 
@@ -821,6 +838,131 @@ fn extract_call_target(node: &Node, source: &[u8]) -> Option<String> {
         }
         _ => node.utf8_text(source).ok().map(|s| s.to_string()),
     }
+}
+
+/// Extract JSDoc comment preceding a declaration node.
+///
+/// JSDoc comments are `/** ... */` block comments immediately before a declaration.
+fn extract_jsdoc_comment(node: &Node, source: &[u8]) -> Option<String> {
+    let mut target = *node;
+
+    // If this node is wrapped in an export_statement, check the export's siblings
+    if let Some(parent) = node.parent() {
+        if parent.kind() == "export_statement" {
+            target = parent;
+        }
+    }
+
+    // Also check if wrapped in variable_declarator -> variable_declaration -> export
+    if let Some(parent) = node.parent() {
+        if parent.kind() == "variable_declarator" {
+            if let Some(grandparent) = parent.parent() {
+                if grandparent.kind() == "lexical_declaration" || grandparent.kind() == "variable_declaration" {
+                    target = grandparent;
+                    if let Some(ggp) = grandparent.parent() {
+                        if ggp.kind() == "export_statement" {
+                            target = ggp;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sibling = target.prev_sibling();
+    while let Some(sib) = sibling {
+        if sib.kind() == "comment" {
+            if let Ok(text) = sib.utf8_text(source) {
+                if text.starts_with("/**") {
+                    let doc = text
+                        .trim_start_matches("/**")
+                        .trim_end_matches("*/")
+                        .lines()
+                        .map(|line| {
+                            let trimmed = line.trim();
+                            trimmed
+                                .strip_prefix("* ")
+                                .unwrap_or(trimmed.strip_prefix('*').unwrap_or(trimmed))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                        .trim()
+                        .to_string();
+                    if !doc.is_empty() {
+                        return Some(doc);
+                    }
+                }
+            }
+            break;
+        }
+        // Skip decorator nodes
+        if sib.kind() == "decorator" {
+            sibling = sib.prev_sibling();
+            continue;
+        }
+        break;
+    }
+
+    None
+}
+
+/// Check if a function is a React component.
+///
+/// Heuristic: function name starts with uppercase and the function body
+/// contains JSX elements (jsx_element, jsx_self_closing_element, jsx_fragment).
+fn is_react_component(node: &Node, _source: &[u8], name: &str) -> bool {
+    // React components must start with an uppercase letter
+    if !name.starts_with(|c: char| c.is_uppercase()) {
+        return false;
+    }
+
+    // Check if the function body contains JSX
+    fn contains_jsx(node: &Node) -> bool {
+        match node.kind() {
+            "jsx_element" | "jsx_self_closing_element" | "jsx_fragment" => return true,
+            _ => {}
+        }
+        for child in node.children(&mut node.walk()) {
+            if contains_jsx(&child) {
+                return true;
+            }
+        }
+        false
+    }
+
+    contains_jsx(node)
+}
+
+/// Collect React hook calls from a function body.
+///
+/// Detects calls to `useState`, `useEffect`, `useCallback`, `useMemo`, `useRef`,
+/// `useContext`, `useReducer`, `useLayoutEffect`, and custom hooks (use* pattern).
+fn collect_hook_calls(node: &Node, source: &[u8], annotations: &mut Vec<String>) {
+    fn walk_for_hooks(node: &Node, source: &[u8], hooks: &mut Vec<String>) {
+        if node.kind() == "call_expression" {
+            if let Some(func_node) = node.child_by_field_name("function") {
+                if let Ok(name) = func_node.utf8_text(source) {
+                    // Match useXxx pattern (React hooks convention)
+                    if name.starts_with("use") && name.len() > 3 {
+                        let third_char = name.chars().nth(3).unwrap_or('a');
+                        if third_char.is_uppercase() {
+                            let hook_annotation = format!("react:hook:{}", name);
+                            if !hooks.contains(&hook_annotation) {
+                                hooks.push(hook_annotation);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for child in node.children(&mut node.walk()) {
+            walk_for_hooks(&child, source, hooks);
+        }
+    }
+
+    let mut hooks = Vec::new();
+    walk_for_hooks(node, source, &mut hooks);
+    annotations.extend(hooks);
 }
 
 /// Calculate cyclomatic complexity of a function
@@ -1199,6 +1341,104 @@ class Service {
             3,
             "Expected 3 methods (constructor, register, execute), got {:?}",
             class.methods
+        );
+    }
+
+    #[test]
+    fn test_jsdoc_extracted() {
+        let source = r#"
+/**
+ * Adds two numbers together.
+ * @param a - first number
+ * @param b - second number
+ * @returns the sum
+ */
+function add(a: number, b: number): number {
+    return a + b;
+}
+"#;
+        let path = PathBuf::from("test.ts");
+        let result = parse_source(source, &path, "ts").unwrap();
+
+        let func = &result.functions[0];
+        assert_eq!(func.name, "add");
+        assert!(func.doc_comment.is_some(), "Should have JSDoc");
+        let doc = func.doc_comment.as_ref().unwrap();
+        assert!(doc.contains("Adds two numbers"), "Got: {}", doc);
+    }
+
+    #[test]
+    fn test_jsdoc_on_arrow_function() {
+        let source = r#"
+/** Multiplies two values */
+const multiply = (a: number, b: number): number => a * b;
+"#;
+        let path = PathBuf::from("test.ts");
+        let result = parse_source(source, &path, "ts").unwrap();
+
+        let func = result.functions.iter().find(|f| f.name == "multiply").unwrap();
+        assert!(func.doc_comment.is_some(), "Arrow function should have JSDoc");
+        assert!(func.doc_comment.as_ref().unwrap().contains("Multiplies"));
+    }
+
+    #[test]
+    fn test_react_component_detected() {
+        let source = r#"
+function MyComponent({ name }: { name: string }) {
+    return <div>Hello {name}</div>;
+}
+
+function helperFunction() {
+    return 42;
+}
+"#;
+        let path = PathBuf::from("test.tsx");
+        let result = parse_source(source, &path, "tsx").unwrap();
+
+        let component = result.functions.iter().find(|f| f.name == "MyComponent").unwrap();
+        assert!(
+            component.annotations.contains(&"react:component".to_string()),
+            "Should detect React component, got: {:?}",
+            component.annotations
+        );
+
+        let helper = result.functions.iter().find(|f| f.name == "helperFunction").unwrap();
+        assert!(
+            !helper.annotations.contains(&"react:component".to_string()),
+            "helperFunction should not be a React component"
+        );
+    }
+
+    #[test]
+    fn test_react_hooks_detected() {
+        let source = r#"
+function Counter() {
+    const [count, setCount] = useState(0);
+    useEffect(() => {
+        document.title = `Count: ${count}`;
+    }, [count]);
+    const ref = useRef(null);
+    return <div>{count}</div>;
+}
+"#;
+        let path = PathBuf::from("test.tsx");
+        let result = parse_source(source, &path, "tsx").unwrap();
+
+        let counter = result.functions.iter().find(|f| f.name == "Counter").unwrap();
+        assert!(
+            counter.annotations.iter().any(|a| a == "react:hook:useState"),
+            "Should detect useState hook, got: {:?}",
+            counter.annotations
+        );
+        assert!(
+            counter.annotations.iter().any(|a| a == "react:hook:useEffect"),
+            "Should detect useEffect hook, got: {:?}",
+            counter.annotations
+        );
+        assert!(
+            counter.annotations.iter().any(|a| a == "react:hook:useRef"),
+            "Should detect useRef hook, got: {:?}",
+            counter.annotations
         );
     }
 }

@@ -101,15 +101,25 @@ pub(super) fn build_graph(
                 let complexity = func.complexity.unwrap_or(1);
                 let address_taken = result.address_taken.contains(&func.name);
 
-                func_nodes.push(
-                    CodeNode::new(NodeKind::Function, &func.name, &relative_str)
-                        .with_qualified_name(&func.qualified_name)
-                        .with_lines(func.line_start, func.line_end)
-                        .with_property("is_async", func.is_async)
-                        .with_property("complexity", complexity as i64)
-                        .with_property("loc", loc as i64)
-                        .with_property("address_taken", address_taken),
-                );
+                let mut func_node = CodeNode::new(NodeKind::Function, &func.name, &relative_str)
+                    .with_qualified_name(&func.qualified_name)
+                    .with_lines(func.line_start, func.line_end)
+                    .with_property("is_async", func.is_async)
+                    .with_property("complexity", complexity as i64)
+                    .with_property("loc", loc as i64)
+                    .with_property("address_taken", address_taken);
+                if let Some(ref doc) = func.doc_comment {
+                    func_node = func_node.with_property("doc_comment", doc.as_str());
+                }
+                if !func.annotations.is_empty() {
+                    func_node = func_node.with_property(
+                        "annotations",
+                        serde_json::Value::Array(
+                            func.annotations.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
+                        ),
+                    );
+                }
+                func_nodes.push(func_node);
                 edges.push((
                     relative_str.clone(),
                     func.qualified_name.clone(),
@@ -119,12 +129,22 @@ pub(super) fn build_graph(
 
             // Class nodes
             for class in &result.classes {
-                class_nodes.push(
-                    CodeNode::new(NodeKind::Class, &class.name, &relative_str)
-                        .with_qualified_name(&class.qualified_name)
-                        .with_lines(class.line_start, class.line_end)
-                        .with_property("methodCount", class.methods.len() as i64),
-                );
+                let mut class_node = CodeNode::new(NodeKind::Class, &class.name, &relative_str)
+                    .with_qualified_name(&class.qualified_name)
+                    .with_lines(class.line_start, class.line_end)
+                    .with_property("methodCount", class.methods.len() as i64);
+                if let Some(ref doc) = class.doc_comment {
+                    class_node = class_node.with_property("doc_comment", doc.as_str());
+                }
+                if !class.annotations.is_empty() {
+                    class_node = class_node.with_property(
+                        "annotations",
+                        serde_json::Value::Array(
+                            class.annotations.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
+                        ),
+                    );
+                }
+                class_nodes.push(class_node);
                 edges.push((
                     relative_str.clone(),
                     class.qualified_name.clone(),
@@ -251,15 +271,25 @@ pub(super) fn build_graph_chunked(
                     let complexity = func.complexity.unwrap_or(1);
                     let address_taken = result.address_taken.contains(&func.name);
 
-                    func_nodes.push(
-                        CodeNode::new(NodeKind::Function, &func.name, &relative_str)
-                            .with_qualified_name(&func.qualified_name)
-                            .with_lines(func.line_start, func.line_end)
-                            .with_property("is_async", func.is_async)
-                            .with_property("complexity", complexity as i64)
-                            .with_property("loc", loc as i64)
-                            .with_property("address_taken", address_taken),
-                    );
+                    let mut func_node = CodeNode::new(NodeKind::Function, &func.name, &relative_str)
+                        .with_qualified_name(&func.qualified_name)
+                        .with_lines(func.line_start, func.line_end)
+                        .with_property("is_async", func.is_async)
+                        .with_property("complexity", complexity as i64)
+                        .with_property("loc", loc as i64)
+                        .with_property("address_taken", address_taken);
+                    if let Some(ref doc) = func.doc_comment {
+                        func_node = func_node.with_property("doc_comment", doc.as_str());
+                    }
+                    if !func.annotations.is_empty() {
+                        func_node = func_node.with_property(
+                            "annotations",
+                            serde_json::Value::Array(
+                                func.annotations.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
+                            ),
+                        );
+                    }
+                    func_nodes.push(func_node);
                     edges.push((
                         relative_str.clone(),
                         func.qualified_name.clone(),
@@ -269,12 +299,22 @@ pub(super) fn build_graph_chunked(
 
                 // Class nodes
                 for class in &result.classes {
-                    class_nodes.push(
-                        CodeNode::new(NodeKind::Class, &class.name, &relative_str)
-                            .with_qualified_name(&class.qualified_name)
-                            .with_lines(class.line_start, class.line_end)
-                            .with_property("methodCount", class.methods.len() as i64),
-                    );
+                    let mut class_node = CodeNode::new(NodeKind::Class, &class.name, &relative_str)
+                        .with_qualified_name(&class.qualified_name)
+                        .with_lines(class.line_start, class.line_end)
+                        .with_property("methodCount", class.methods.len() as i64);
+                    if let Some(ref doc) = class.doc_comment {
+                        class_node = class_node.with_property("doc_comment", doc.as_str());
+                    }
+                    if !class.annotations.is_empty() {
+                        class_node = class_node.with_property(
+                            "annotations",
+                            serde_json::Value::Array(
+                                class.annotations.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
+                            ),
+                        );
+                    }
+                    class_nodes.push(class_node);
                     edges.push((
                         relative_str.clone(),
                         class.qualified_name.clone(),

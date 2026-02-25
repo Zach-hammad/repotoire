@@ -13,11 +13,11 @@
 | 2026-02-25 | `405c3f0` | **Dead code removed (1,894 lines).** Deleted `queries.rs`, `schema.rs`, `unified.rs`, `compact_store.rs`, `pipeline/mod.rs`, and the no-op `--compact` CLI flag. Resolves all CompactGraphStore, dead Kuzu/Cypher, and pipeline stub findings. |
 | 2026-02-25 | `c39fc72` | **Pipeline hardening.** Added `validate_file()` with symlink rejection, path traversal protection (canonicalize+starts_with), and 2MB file size pre-filtering. Integrated into all 3 file collection paths. Exposed `--since` CLI flag. Resolves pipeline security findings #314-316 and --since finding #310. |
 | 2026-02-25 | `33ef8f1` | **Framework-aware scoring.** Wired `ProjectType` into `GraphScorer` bonus calculations. Modularity, cohesion, and complexity bonus thresholds now scale by coupling/complexity multipliers. Resolves finding #6. |
+| 2026-02-25 | `b7c9cd9` | **Parser feature gaps implemented.** Added `doc_comment` and `annotations` fields to Function/Class models. Go: doc comments, goroutine detection (`is_async`), channel ops annotation. Java: Javadoc extraction, annotation extraction. TypeScript: JSDoc extraction, React component detection, hook call collection. Wired into graph builder. 12 new tests. Resolves finding #3. |
 
 ### Current Status
 
-- **Findings #1-7:** RESOLVED (all except #3)
-- **Finding #3 (parser feature gaps):** OPEN — 7 parser features still unimplemented (JSDoc, Javadoc, Go doc comments, Java annotations, React patterns, Go goroutines/channels)
+- **Findings #1-7:** ALL RESOLVED
 
 ## Summary
 
@@ -35,7 +35,7 @@
 
 2. ~~**8 hybrid detectors (Ruff, Pylint, Mypy, Bandit, Radon, Jscpd, Vulture, Semgrep) are documented but replaced by 100+ native Rust detectors.**~~ **RESOLVED** (be9c77e) — CLAUDE.md now documents native Rust detectors.
 
-3. **Parser feature claims (JSDoc, Javadoc, React patterns, Go channels/goroutines) are not implemented.** OPEN — 7 specific parser features still unimplemented. Old false claims removed from CLAUDE.md (be9c77e) but features themselves not yet built.
+3. ~~**Parser feature claims (JSDoc, Javadoc, React patterns, Go channels/goroutines) are not implemented.**~~ **RESOLVED** — All 7 parser features implemented: Go doc comments + goroutine detection + channel ops, Java Javadoc + annotations, TypeScript JSDoc + React component/hook detection. 12 new tests added.
 
 4. ~~**Incremental analysis operates at the wrong layer.**~~ **RESOLVED** (be9c77e) — CLAUDE.md now correctly describes the findings-level cache with SipHash and local JSON files.
 

@@ -171,6 +171,12 @@ pub struct Function {
     pub complexity: Option<u32>,
     /// Maximum nesting depth within this function
     pub max_nesting: Option<u32>,
+    /// Doc comment (Javadoc, JSDoc, Go doc, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc_comment: Option<String>,
+    /// Annotations/decorators (e.g., Java @Override, @Deprecated)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<String>,
 }
 
 /// A class in the code graph
@@ -183,6 +189,12 @@ pub struct Class {
     pub line_end: u32,
     pub methods: Vec<String>,
     pub bases: Vec<String>,
+    /// Doc comment (Javadoc, JSDoc, Go doc, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc_comment: Option<String>,
+    /// Annotations/decorators (e.g., Java @Override, @Deprecated)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<String>,
 }
 
 /// A file in the code graph
