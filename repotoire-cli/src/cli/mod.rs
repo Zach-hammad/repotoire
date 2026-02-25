@@ -133,6 +133,10 @@ pub enum Commands {
         /// Verify HIGH findings with LLM to filter false positives (requires API key)
         #[arg(long)]
         verify: bool,
+
+        /// Only analyze files changed since this commit/branch/tag
+        #[arg(long)]
+        since: Option<String>,
     },
 
     /// View findings from last analysis
@@ -328,6 +332,7 @@ pub fn run(cli: Cli) -> Result<()> {
             no_emoji,
             explain_score,
             verify,
+            since,
         }) => {
             // Deprecation warning for --thorough
             if thorough {
@@ -366,8 +371,8 @@ pub fn run(cli: Cli) -> Result<()> {
                 cli.workers,
                 fail_on,
                 no_emoji,
-                false,
-                None,
+                since.is_some(),
+                since,
                 explain_score,
                 verify,
                 effective_skip_graph,

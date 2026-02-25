@@ -14,8 +14,62 @@ use ignore::WalkBuilder;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 
+/// Maximum file size to accept for analysis (2MB, matching parser guardrail).
+const MAX_ANALYSIS_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Validate a file for analysis: reject symlinks, out-of-boundary paths, and oversized files.
+///
+/// Returns `Some(canonical_path)` if the file passes all checks, `None` otherwise.
+fn validate_file(path: &Path, repo_canonical: &Path) -> Option<PathBuf> {
+    // 1. Reject symlinks
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() {
+                tracing::warn!("Skipping symlink: {}", path.display());
+                return None;
+            }
+            // 2. Check file size
+            if meta.len() > MAX_ANALYSIS_FILE_BYTES {
+                tracing::warn!(
+                    "Skipping oversized file: {} ({:.1}MB exceeds {}MB limit)",
+                    path.display(),
+                    meta.len() as f64 / (1024.0 * 1024.0),
+                    MAX_ANALYSIS_FILE_BYTES / (1024 * 1024),
+                );
+                return None;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Cannot stat file {}: {}", path.display(), e);
+            return None;
+        }
+    }
+
+    // 3. Canonicalize and check boundary
+    match path.canonicalize() {
+        Ok(canonical) => {
+            if !canonical.starts_with(repo_canonical) {
+                tracing::warn!(
+                    "Skipping file outside repository boundary: {} (resolves to {})",
+                    path.display(),
+                    canonical.display(),
+                );
+                return None;
+            }
+            Some(canonical)
+        }
+        Err(e) => {
+            tracing::warn!("Cannot canonicalize {}: {}", path.display(), e);
+            None
+        }
+    }
+}
+
 /// Quick file list collection (no git, no incremental checking) for cache validation
 pub(crate) fn collect_file_list(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
+    let repo_canonical = repo_path.canonicalize().with_context(|| {
+        format!("Cannot canonicalize repository path: {}", repo_path.display())
+    })?;
     let effective = exclude.effective_patterns();
     let mut files = Vec::new();
 
@@ -42,7 +96,9 @@ pub(crate) fn collect_file_list(repo_path: &Path, exclude: &ExcludeConfig) -> Re
                     continue;
                 }
             }
-            files.push(path.to_path_buf());
+            if let Some(validated) = validate_file(path, &repo_canonical) {
+                files.push(validated);
+            }
         }
     }
 
@@ -123,6 +179,9 @@ pub(super) fn collect_files_for_analysis(
 
 /// Collect all source files in the repository, respecting .gitignore
 fn collect_source_files(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
+    let repo_canonical = repo_path.canonicalize().with_context(|| {
+        format!("Cannot canonicalize repository path: {}", repo_path.display())
+    })?;
     let effective = exclude.effective_patterns();
     let mut files = Vec::new();
 
@@ -153,7 +212,9 @@ fn collect_source_files(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec
                         continue;
                     }
                 }
-                files.push(path.to_path_buf());
+                if let Some(validated) = validate_file(path, &repo_canonical) {
+                    files.push(validated);
+                }
             }
         }
     }
@@ -173,6 +234,10 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
         );
     }
 
+    let repo_canonical = repo_path.canonicalize().with_context(|| {
+        format!("Cannot canonicalize repository path: {}", repo_path.display())
+    })?;
+
     let output = Command::new("git")
         .args(["diff", "--name-only", since, "HEAD"])
         .current_dir(repo_path)
@@ -188,8 +253,14 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
     let mut files: Vec<PathBuf> = stdout
         .lines()
         .filter(|l| !l.is_empty())
-        .map(|l| repo_path.join(l))
-        .filter(|p| p.exists())
+        .filter_map(|l| {
+            let joined = repo_path.join(l);
+            if joined.exists() {
+                validate_file(&joined, &repo_canonical)
+            } else {
+                None
+            }
+        })
         .collect();
 
     // Also get untracked files
@@ -203,8 +274,12 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
             let new_files = String::from_utf8_lossy(&out.stdout);
             for line in new_files.lines().filter(|l| !l.is_empty()) {
                 let path = repo_path.join(line);
-                if path.exists() && !files.contains(&path) {
-                    files.push(path);
+                if path.exists() {
+                    if let Some(validated) = validate_file(&path, &repo_canonical) {
+                        if !files.contains(&validated) {
+                            files.push(validated);
+                        }
+                    }
                 }
             }
         }
@@ -236,4 +311,66 @@ fn get_cached_findings_for_unchanged(
         cached.extend(incremental_cache.cached_findings(file));
     }
     cached
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_validate_file_accepts_normal_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.py");
+        fs::write(&file, "print('hello')").unwrap();
+        let repo_canonical = dir.path().canonicalize().unwrap();
+        assert!(validate_file(&file, &repo_canonical).is_some());
+    }
+
+    #[test]
+    fn test_validate_file_rejects_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        let repo_canonical = dir.path().canonicalize().unwrap();
+        let fake = dir.path().join("nope.py");
+        assert!(validate_file(&fake, &repo_canonical).is_none());
+    }
+
+    #[test]
+    fn test_validate_file_rejects_oversized() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("big.py");
+        let data = vec![b'x'; 2 * 1024 * 1024 + 1];
+        fs::write(&file, &data).unwrap();
+        let repo_canonical = dir.path().canonicalize().unwrap();
+        assert!(validate_file(&file, &repo_canonical).is_none());
+    }
+
+    #[test]
+    fn test_validate_file_rejects_symlink() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real.py");
+        fs::write(&real, "x = 1").unwrap();
+        let link = dir.path().join("link.py");
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            let repo_canonical = dir.path().canonicalize().unwrap();
+            assert!(validate_file(&link, &repo_canonical).is_none());
+        }
+    }
+
+    #[test]
+    fn test_validate_file_rejects_outside_boundary() {
+        let parent = TempDir::new().unwrap();
+        let repo = parent.path().join("repo");
+        fs::create_dir(&repo).unwrap();
+        let outside = parent.path().join("secret.py");
+        fs::write(&outside, "password = 'hunter2'").unwrap();
+
+        let repo_canonical = repo.canonicalize().unwrap();
+        let traversal_path = repo.join("..").join("secret.py");
+        assert!(validate_file(&traversal_path, &repo_canonical).is_none());
+    }
 }
