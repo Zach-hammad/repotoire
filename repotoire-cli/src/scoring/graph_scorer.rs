@@ -195,17 +195,34 @@ fn classify_pillar(category: &str, detector: &str, is_security: bool) -> Pillar 
 pub struct GraphScorer<'a> {
     graph: &'a GraphStore,
     config: &'a ProjectConfig,
+    repo_path: &'a std::path::Path,
 }
 
 impl<'a> GraphScorer<'a> {
-    pub fn new(graph: &'a GraphStore, config: &'a ProjectConfig) -> Self {
-        Self { graph, config }
+    pub fn new(
+        graph: &'a GraphStore,
+        config: &'a ProjectConfig,
+        repo_path: &'a std::path::Path,
+    ) -> Self {
+        Self {
+            graph,
+            config,
+            repo_path,
+        }
     }
 
     /// Calculate complete health score with breakdown
     pub fn calculate(&self, findings: &[Finding]) -> ScoreBreakdown {
         // Compute graph metrics first
         let metrics = self.compute_graph_metrics();
+
+        let project_type = self.config.project_type(self.repo_path);
+        debug!(
+            "Scoring with project type {:?} (coupling mult: {:.1}x, complexity mult: {:.1}x)",
+            project_type,
+            project_type.coupling_multiplier(),
+            project_type.complexity_multiplier(),
+        );
 
         // Calculate bonuses from graph analysis
         let modularity_bonus = self.calculate_modularity_bonus(&metrics);
@@ -503,17 +520,27 @@ impl<'a> GraphScorer<'a> {
 
     /// Calculate modularity bonus (low coupling is good)
     fn calculate_modularity_bonus(&self, metrics: &GraphMetrics) -> f64 {
-        // Coupling of 0.3 or less gets full bonus
-        // Coupling of 0.7 or more gets no bonus
-        let coupling_score = 1.0 - ((metrics.avg_coupling - 0.3) / 0.4).clamp(0.0, 1.0);
+        let cm = self.config.project_type(self.repo_path).coupling_multiplier();
+        // Scale thresholds by coupling multiplier:
+        // - Web (1.0x): full bonus at ≤0.3, none at ≥0.7
+        // - Compiler (3.0x): full bonus at ≤0.9, none at ≥1.0
+        let full_threshold = (0.3 * cm).min(1.0);
+        let zero_threshold = (0.7 * cm).min(1.0);
+        let range = (zero_threshold - full_threshold).max(0.01);
+        let coupling_score =
+            1.0 - ((metrics.avg_coupling - full_threshold) / range).clamp(0.0, 1.0);
         coupling_score * MAX_MODULARITY_BONUS
     }
 
     /// Calculate cohesion bonus (high cohesion is good)
     fn calculate_cohesion_bonus(&self, metrics: &GraphMetrics) -> f64 {
-        // Cohesion of 0.7 or more gets full bonus
-        // Cohesion of 0.3 or less gets no bonus
-        let cohesion_score = ((metrics.avg_cohesion - 0.3) / 0.4).clamp(0.0, 1.0);
+        let cm = self.config.project_type(self.repo_path).coupling_multiplier();
+        // High-coupling project types expect less cohesion
+        let full_threshold = (0.7 / cm).max(0.15);
+        let zero_threshold = (0.3 / cm).max(0.05);
+        let range = (full_threshold - zero_threshold).max(0.01);
+        let cohesion_score =
+            ((metrics.avg_cohesion - zero_threshold) / range).clamp(0.0, 1.0);
         cohesion_score * MAX_COHESION_BONUS
     }
 
@@ -526,9 +553,15 @@ impl<'a> GraphScorer<'a> {
 
     /// Calculate complexity distribution bonus
     fn calculate_complexity_bonus(&self, metrics: &GraphMetrics) -> f64 {
-        // 90%+ simple functions = full bonus
-        // 50% simple = no bonus
-        let score = ((metrics.simple_function_ratio - 0.5) / 0.4).clamp(0.0, 1.0);
+        let xm = self.config.project_type(self.repo_path).complexity_multiplier();
+        // Scale thresholds by complexity multiplier:
+        // - Web (1.0x): full bonus at 90%+ simple, none at 50%
+        // - Kernel (2.0x): full bonus at 45%+ simple, none at 25%
+        let full_threshold = (0.9 / xm).max(0.3);
+        let zero_threshold = (0.5 / xm).max(0.1);
+        let range = (full_threshold - zero_threshold).max(0.01);
+        let score =
+            ((metrics.simple_function_ratio - zero_threshold) / range).clamp(0.0, 1.0);
         score * MAX_COMPLEXITY_DIST_BONUS
     }
 
@@ -712,13 +745,22 @@ impl<'a> GraphScorer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ProjectType;
     use crate::graph::GraphStore;
+    use tempfile::TempDir;
+
+    fn make_config(project_type: Option<ProjectType>) -> (TempDir, ProjectConfig) {
+        let dir = TempDir::new().unwrap();
+        let mut config = ProjectConfig::default();
+        config.project_type = project_type;
+        (dir, config)
+    }
 
     #[test]
     fn test_empty_codebase() {
         let graph = GraphStore::in_memory();
-        let config = ProjectConfig::default();
-        let scorer = GraphScorer::new(&graph, &config);
+        let (dir, config) = make_config(None);
+        let scorer = GraphScorer::new(&graph, &config, dir.path());
 
         let breakdown = scorer.calculate(&[]);
 
@@ -729,8 +771,8 @@ mod tests {
     #[test]
     fn test_critical_finding_caps_grade() {
         let graph = GraphStore::in_memory();
-        let config = ProjectConfig::default();
-        let scorer = GraphScorer::new(&graph, &config);
+        let (dir, config) = make_config(None);
+        let scorer = GraphScorer::new(&graph, &config, dir.path());
 
         let findings = vec![Finding {
             severity: Severity::Critical,
@@ -761,15 +803,19 @@ mod tests {
         graph.add_node(CodeNode::file("src/main.rs"));
         graph.add_node(CodeNode::file("src/lib.rs"));
         graph.add_node(CodeNode::file("tests/test_main.rs")); // Test file
-        graph.add_node(CodeNode::function("main", "src/main.rs").with_property("complexity", 5i64));
-        graph
-            .add_node(CodeNode::function("helper", "src/lib.rs").with_property("complexity", 3i64));
         graph.add_node(
-            CodeNode::function("test_main", "tests/test_main.rs").with_property("complexity", 2i64),
+            CodeNode::function("main", "src/main.rs").with_property("complexity", 5i64),
+        );
+        graph.add_node(
+            CodeNode::function("helper", "src/lib.rs").with_property("complexity", 3i64),
+        );
+        graph.add_node(
+            CodeNode::function("test_main", "tests/test_main.rs")
+                .with_property("complexity", 2i64),
         );
 
-        let config = ProjectConfig::default();
-        let scorer = GraphScorer::new(&graph, &config);
+        let (dir, config) = make_config(None);
+        let scorer = GraphScorer::new(&graph, &config, dir.path());
 
         let metrics = scorer.compute_graph_metrics();
 
@@ -782,5 +828,80 @@ mod tests {
             metrics.test_file_ratio
         );
         assert_eq!(metrics.simple_function_ratio, 1.0); // All functions have complexity < 10
+    }
+
+    #[test]
+    fn test_compiler_gets_lenient_modularity_bonus() {
+        let graph = GraphStore::in_memory();
+        let (dir, compiler_config) = make_config(Some(ProjectType::Compiler));
+        let compiler_scorer = GraphScorer::new(&graph, &compiler_config, dir.path());
+
+        let (_, web_config) = make_config(Some(ProjectType::Web));
+        let web_scorer = GraphScorer::new(&graph, &web_config, dir.path());
+
+        // 60% cross-module coupling: bad for web, ok for compiler
+        let metrics = GraphMetrics {
+            avg_coupling: 0.6,
+            avg_cohesion: 0.4,
+            ..Default::default()
+        };
+
+        let compiler_bonus = compiler_scorer.calculate_modularity_bonus(&metrics);
+        let web_bonus = web_scorer.calculate_modularity_bonus(&metrics);
+
+        assert!(
+            compiler_bonus > web_bonus,
+            "Compiler bonus ({:.4}) should be > web bonus ({:.4}) at 60% coupling",
+            compiler_bonus,
+            web_bonus
+        );
+    }
+
+    #[test]
+    fn test_kernel_gets_lenient_complexity_bonus() {
+        let graph = GraphStore::in_memory();
+        let (dir, kernel_config) = make_config(Some(ProjectType::Kernel));
+        let kernel_scorer = GraphScorer::new(&graph, &kernel_config, dir.path());
+
+        let (_, web_config) = make_config(Some(ProjectType::Web));
+        let web_scorer = GraphScorer::new(&graph, &web_config, dir.path());
+
+        // Only 55% simple functions: bad for web, ok for kernel
+        let metrics = GraphMetrics {
+            simple_function_ratio: 0.55,
+            ..Default::default()
+        };
+
+        let kernel_bonus = kernel_scorer.calculate_complexity_bonus(&metrics);
+        let web_bonus = web_scorer.calculate_complexity_bonus(&metrics);
+
+        assert!(
+            kernel_bonus > web_bonus,
+            "Kernel bonus ({:.4}) should be > web bonus ({:.4}) at 55% simple",
+            kernel_bonus,
+            web_bonus
+        );
+    }
+
+    #[test]
+    fn test_web_default_thresholds_unchanged() {
+        let graph = GraphStore::in_memory();
+        let (dir, config) = make_config(Some(ProjectType::Web));
+        let scorer = GraphScorer::new(&graph, &config, dir.path());
+
+        let metrics = GraphMetrics {
+            avg_coupling: 0.5,
+            avg_cohesion: 0.5,
+            simple_function_ratio: 0.7,
+            ..Default::default()
+        };
+
+        // Coupling 0.5 is between 0.3 (full) and 0.7 (none) — should get 50% bonus
+        let mod_bonus = scorer.calculate_modularity_bonus(&metrics);
+        assert!(
+            (mod_bonus - 0.05).abs() < 0.001,
+            "Expected ~0.05, got {}",
+            mod_bonus
+        );
     }
 }

@@ -234,7 +234,7 @@ pub fn run(
     );
 
     // Phase 5: Calculate scores and build report
-    let score_result = calculate_scores(&graph, &env.project_config, &findings);
+    let score_result = calculate_scores(&graph, &env.project_config, &findings, &env.repo_path);
 
     let report = build_health_report(
         &score_result,
@@ -274,6 +274,7 @@ pub fn run(
         &score_result,
         &graph,
         &env.project_config,
+        &env.repo_path,
     )?;
 
     // Cache results for fast path on next run (report.2 = all_findings, since findings was drained by build_health_report)
@@ -536,6 +537,7 @@ fn generate_reports(
     score_result: &ScoreResult,
     graph: &Arc<GraphStore>,
     project_config: &crate::config::ProjectConfig,
+    repo_path: &Path,
 ) -> Result<()> {
     let (report, _, all_findings) = report_data;
     let displayed_findings = findings.len();
@@ -552,7 +554,7 @@ fn generate_reports(
     )?;
 
     if explain_score {
-        let scorer = crate::scoring::GraphScorer::new(graph, project_config);
+        let scorer = crate::scoring::GraphScorer::new(graph, project_config, repo_path);
         let explanation = scorer.explain(&score_result.breakdown);
         match format {
             "json" => {

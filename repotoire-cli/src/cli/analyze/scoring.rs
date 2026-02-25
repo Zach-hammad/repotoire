@@ -15,8 +15,9 @@ pub(super) fn calculate_scores(
     graph: &Arc<GraphStore>,
     project_config: &ProjectConfig,
     findings: &[Finding],
+    repo_path: &std::path::Path,
 ) -> ScoreResult {
-    let scorer = GraphScorer::new(graph, project_config);
+    let scorer = GraphScorer::new(graph, project_config, repo_path);
     let breakdown = scorer.calculate(findings);
 
     // Log graph metrics
