@@ -4,171 +4,104 @@ This file provides essential guidance to Claude Code (claude.ai/code) and develo
 
 ## Project Overview
 
-Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a FalkorDB knowledge graph combining:
-- **Structural analysis** (AST parsing)
-- **Semantic understanding** (NLP + AI)
-- **Relational patterns** (graph algorithms)
+Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a **petgraph in-memory graph with redb persistence** combining:
+- **Structural analysis** (tree-sitter AST parsing across 9 languages)
+- **Relational patterns** (graph algorithms via petgraph)
 
-This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems.
+This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. All 114 detectors are pure Rust — no external tool dependencies.
 
 ## Development Rules
 
-- **Always use `uv` for package management** - Never use `pip` directly. Use `uv pip install`, `uv run`, etc.
-- **Run tests with**: `uv run pytest`
-- **Run commands with**: `uv run <command>`
+- **Build with**: `cargo build` (debug) or `cargo build --release` (optimized)
+- **Run tests with**: `cargo test`
+- **Run the CLI with**: `cargo run -- <command>` or the installed `repotoire` binary
+- **Check compilation with**: `cargo check`
+- **Format code with**: `cargo fmt`
+- **Lint with**: `cargo clippy`
 
 ## Development Setup
 
 ### Installation
 
 ```bash
-# Install with development dependencies
-uv pip install -e ".[dev]"
+# Build from source
+cd repotoire-cli
+cargo build --release
 
-# Install with all optional dependencies
-pip install -e ".[dev,gds,all-languages,config]"
+# Install locally
+cargo install --path repotoire-cli
 
-# Download spaCy model for NLP features
-python -m spacy download en_core_web_lg
+# Or install via cargo-binstall (prebuilt binaries)
+cargo binstall repotoire
 ```
-
-### Cloud Setup
-
-Set your API key and start developing:
-
-```bash
-export REPOTOIRE_API_KEY=your_dev_key  # Get from repotoire.com/settings/api-keys
-repotoire ingest .
-repotoire analyze .
-```
-
-### TimescaleDB Setup (Optional)
-
-TimescaleDB provides historical metrics tracking for trend analysis and regression detection. Start with Docker:
-
-```bash
-cd docker/timescaledb
-docker compose up -d
-```
-
-Configure connection:
-```bash
-export REPOTOIRE_TIMESCALE_URI="postgresql://repotoire:repotoire-dev-password@localhost:5432/repotoire_metrics"
-```
-
-Track metrics during analysis:
-```bash
-repotoire analyze /path/to/repo --track-metrics
-```
-
-See [docs/TIMESCALEDB_METRICS.md](docs/TIMESCALEDB_METRICS.md) for complete documentation.
-
-### Git + Graphiti Integration (Optional)
-
-Graphiti provides temporal knowledge graph integration for git history, enabling natural language queries about code evolution.
-
-Install dependencies:
-```bash
-pip install repotoire[graphiti]
-export OPENAI_API_KEY="sk-..."
-```
-
-Ingest git history:
-```bash
-repotoire historical ingest-git /path/to/repo --max-commits 500
-```
-
-Query code evolution:
-```bash
-repotoire historical query "When did we add authentication?" /path/to/repo
-```
-
-See [docs/GIT_GRAPHITI.md](docs/GIT_GRAPHITI.md) for complete documentation.
-
-### Auto-Fix: AI-Powered Code Fixing (Optional)
-
-Repotoire provides AI-powered automatic code fixing with human-in-the-loop approval, using GPT-4o and RAG for intelligent, evidence-based fixes.
-
-Install dependencies:
-```bash
-pip install repotoire[autofix]
-export OPENAI_API_KEY="sk-..."
-```
-
-Generate fixes for detected issues:
-```bash
-# Ingest codebase with embeddings for RAG
-repotoire ingest /path/to/repo --generate-embeddings
-
-# Auto-fix issues with interactive review
-repotoire auto-fix /path/to/repo
-
-# Fix critical issues with auto-approve
-repotoire auto-fix /path/to/repo --severity critical --auto-approve-high
-```
-
-See [docs/AUTO_FIX.md](docs/AUTO_FIX.md) for complete documentation.
-
-### E2B Sandbox: Secure Isolated Execution (Optional)
-
-Repotoire uses [E2B](https://e2b.dev) cloud sandboxes to securely run tests, analysis tools, and MCP skills in isolation, protecting your host system and secrets.
-
-Install and configure:
-```bash
-pip install repotoire[sandbox]
-export E2B_API_KEY="e2b_xxx_your_key"
-```
-
-Run with sandbox:
-```bash
-# Analysis tools run in sandbox automatically
-repotoire analyze /path/to/repo
-
-# Run tests in sandbox during auto-fix
-repotoire auto-fix /path/to/repo --sandbox-tests
-
-# View sandbox metrics and costs
-repotoire sandbox-stats --period 7
-```
-
-**Security features:**
-- Firecracker microVM isolation (separate filesystem, network, processes)
-- Automatic secret filtering (`.env`, `*.key`, `credentials.json` never uploaded)
-- Resource limits (CPU, memory, timeout)
-- Audit logging for all operations
-
-**Custom templates** provide pre-installed tools for faster startup (~5-10s vs ~30-60s):
-```bash
-cd e2b-templates/repotoire-analyzer
-e2b template build
-export E2B_SANDBOX_TEMPLATE="repotoire-analyzer"
-```
-
-See [docs/SANDBOX.md](docs/SANDBOX.md) for complete documentation.
 
 ### Common Commands
 
 ```bash
-# Run tests
-pytest
-
-# Run tests with coverage
-pytest --cov=repotoire --cov-report=html
-
-# Format and lint
-black repotoire tests
-ruff check repotoire tests
-mypy repotoire
-
-# Ingest codebase
-repotoire ingest /path/to/repo
-
 # Analyze codebase health
-repotoire analyze /path/to/repo -o report.html --format html
+repotoire analyze /path/to/repo
 
-# Validate configuration
-repotoire validate
+# Analyze with specific output format
+repotoire analyze /path/to/repo --format html --output report.html
+repotoire analyze /path/to/repo --format sarif --output results.sarif.json
+
+# Initialize config file
+repotoire init
+
+# Query the code graph
+repotoire graph /path/to/repo
+
+# Show graph statistics
+repotoire stats /path/to/repo
+
+# View findings from last analysis
+repotoire findings /path/to/repo
+
+# Generate a fix for a finding
+repotoire fix /path/to/repo
+
+# Check environment setup
+repotoire doctor
+
+# Watch for changes and re-analyze
+repotoire watch /path/to/repo
+
+# Calibrate adaptive thresholds
+repotoire calibrate /path/to/repo
+
+# Clean cached analysis data
+repotoire clean /path/to/repo
+
+# Start MCP server
+repotoire serve
 ```
+
+### CLI Commands (16 total)
+
+| Command | Description |
+|---------|-------------|
+| `analyze` | Analyze codebase for issues |
+| `findings` | View findings from last analysis |
+| `fix` | Generate fix for a finding (AI-powered or rule-based) |
+| `graph` | Query the code graph directly |
+| `stats` | Show graph statistics |
+| `status` | Show analysis status |
+| `init` | Initialize repository config |
+| `doctor` | Check environment setup |
+| `watch` | Watch for file changes and re-analyze |
+| `calibrate` | Calibrate adaptive thresholds from your codebase |
+| `clean` | Remove cached analysis data |
+| `version` | Show version info |
+| `serve` | Start MCP server for AI assistant integration |
+| `config` | Manage configuration (init, show, set) |
+| `feedback` | Label findings as true/false positives |
+| `train` | Train the classifier on labeled data |
+
+### Global Flags
+
+- `--path` (default: `.`) — Path to repository
+- `--log-level` (default: `info`) — Log level: error, warn, info, debug, trace
+- `--workers` (default: `8`) — Number of parallel workers (1-64)
 
 ### MCP Server (Claude Code Integration)
 
@@ -230,313 +163,111 @@ See [repotoire-cli/docs/MCP.md](repotoire-cli/docs/MCP.md) for complete document
 ### Core Pipeline Flow
 
 ```
-Codebase → Parser (AST) → Entities + Relationships → FalkorDB Graph → Detectors → Analysis Engine → Health Report → CLI/Reports
+Codebase → Parsers (tree-sitter) → Entities + Relationships → petgraph Graph → Detectors (rayon parallel) → Scoring → Reports
 ```
 
 ### System Components
 
-**Graph Schema**: Nodes (File, Module, Class, Function, Variable, Attribute, Concept), Relationships (IMPORTS, CALLS, CONTAINS, INHERITS, USES, DEFINES, DESCRIBES), unique constraints on qualified names
+**Graph Schema**: Nodes (`File`, `Function`, `Class`, `Module`, `Variable`, `Commit`), Relationships (`Calls`, `Imports`, `Contains`, `Inherits`, `Uses`, `ModifiedIn`), qualified names as unique keys
 
 **Core Modules**:
-1. **Parsers** (`repotoire/parsers/`): `CodeParser` abstract base, `PythonParser` (AST), future TypeScript/Java (tree-sitter)
-2. **Graph Layer** (`repotoire/graph/`): `FalkorDBClient` (connection pooling, retry logic, batch ops), `GraphSchema` (constraints, indexes, vector indexes)
-3. **Pipeline** (`repotoire/pipeline/`): `IngestionPipeline` orchestrates scan → parse → batch (100) → load with security validation
-4. **Detectors** (`repotoire/detectors/`): Graph-based (Cypher queries) + 8 hybrid detectors (Ruff, Pylint, Mypy, Bandit, Radon, Jscpd, Vulture, Semgrep)
 
-**Hybrid Detector Suite** (Production-Ready):
+1. **Parsers** (`repotoire-cli/src/parsers/`): 9 tree-sitter parsers — Python, TypeScript/JavaScript (with TSX), Rust, Go, Java, C#, C, C++, plus a lightweight fallback parser. Cross-language nesting depth enrichment via brace/indent counting. 2MB file size guardrail. Header file (`.h`) dispatch heuristic for C vs C++.
 
-| Detector | Tool | Purpose | Performance |
-|----------|------|---------|-------------|
-| RuffLintDetector | ruff | General linting (400+ rules) | ~1s |
-| PylintDetector | pylint | Specialized checks (11 rules) | ~1min (22 cores) |
-| MypyDetector | mypy | Type checking | ~10s |
-| BanditDetector | bandit | Security | ~5s |
-| RadonDetector | radon | Complexity metrics | ~5s |
-| JscpdDetector | jscpd | Duplicate code | ~5-10s |
-| VultureDetector | vulture | Dead code | ~2-5s |
-| SemgrepDetector | semgrep | Advanced security (OWASP) | ~5-15s |
+2. **Graph Layer** (`repotoire-cli/src/graph/`): `GraphStore` — petgraph `DiGraph<CodeNode, CodeEdge>` with redb (embedded ACID database) persistence. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. `CompactGraphStore` alternative backend using compact nodes (32 bytes vs ~200 bytes). `GraphQuery` trait (19 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection.
 
-5. **Models** (`repotoire/models.py`): Entity hierarchy (File, Class, Function), Relationships, Findings, CodebaseHealth, severity levels
-6. **CLI** (`repotoire/cli.py`): Commands (ingest, analyze, validate, auto-fix), Rich UI (colors, trees, progress bars)
-7. **Reporters** (`repotoire/reporters/`): HTML (Jinja2 templates, code snippets), JSON, terminal output
-8. **Config** (`repotoire/config.py`): YAML/JSON/TOML support, hierarchical search, env var interpolation
-9. **Validation** (`repotoire/validation.py`): Path/URI/credential validation with helpful error messages
-10. **Auto-Fix** (`repotoire/autofix/`): AI-powered code fixing with GPT-4o + RAG, human-in-the-loop approval, evidence-based justification, git integration
-11. **Sandbox** (`repotoire/sandbox/`): E2B cloud sandbox integration for secure test/tool/skill execution with secret filtering, metrics, and alerts
+3. **Pipeline** (`repotoire-cli/src/cli/analyze/`): Walk files → parse (tree-sitter, parallel via rayon) → batch insert into in-memory graph → run detectors. Streaming/bounded pipeline modes for large repos (20k+ files). Configurable batch sizes.
 
-**Total Analysis Time**: ~3-4 minutes (6x faster than original 12+ minutes)
+4. **Detectors** (`repotoire-cli/src/detectors/`): 114 pure Rust detectors across 14 categories. No external tool dependencies — all analysis runs in-process. Detectors run in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs.
+
+5. **Scoring** (`repotoire-cli/src/scoring/`): Three-pillar scoring — Structure (40%), Quality (30%), Architecture (30%). Density-based penalty normalization (penalties scaled by kLOC). Graph-derived bonuses (modularity, cohesion, clean deps, complexity distribution, test coverage). Compound smell escalation. 13 grade levels (A+ through F). Score floor at 5.0, cap at 99.9 with medium+ findings. Security multiplier (default 3x).
+
+6. **CLI** (`repotoire-cli/src/cli/`): clap 4 with derive, 16 commands. Progress bars via indicatif. Terminal styling via console.
+
+7. **Reporters** (`repotoire-cli/src/reporters/`): 5 output formats — text (default, colored terminal), JSON, HTML (standalone), SARIF 2.1.0 (GitHub Code Scanning compatible), Markdown.
+
+8. **Config** (`repotoire-cli/src/config/`): TOML (`repotoire.toml`), JSON (`.repotoirerc.json`), YAML (`.repotoire.yaml`). Per-detector settings, scoring weights, path exclusions, project type detection (web, library, framework, CLI, etc.). User config at `~/.config/repotoire/config.toml`.
+
+9. **Calibration** (`repotoire-cli/src/calibrate/`): Adaptive threshold system — collects metric distributions from parsed code, builds `StyleProfile` with percentile breakpoints (p50/p75/p90/p95), `ThresholdResolver` with floor/ceiling guardrails. N-gram surprisal model for anomaly detection.
+
+10. **Models** (`repotoire-cli/src/models.rs`): `Finding` (with severity, CWE IDs, confidence, affected files), `Severity` levels (Critical, High, Medium, Low, Info).
+
+### Detector Suite (114 Pure Rust Detectors)
+
+All detectors are built-in Rust with zero external dependencies. Grouped by category:
+
+| Category | Count | Examples |
+|----------|-------|---------|
+| **Security** | 24 | SQL injection, XSS, SSRF, command injection, path traversal, secrets, insecure crypto, JWT weak, CORS misconfig, NoSQL injection, log injection, XXE, prototype pollution, insecure TLS, cleartext credentials |
+| **Code Quality** | 25 | Empty catch, deep nesting, magic numbers, dead store, debug code, commented code, duplicate code, unreachable code, mutable default args, broad exceptions, boolean traps, inconsistent returns |
+| **Code Smells** (graph-based) | 11 | God class, feature envy, data clumps, inappropriate intimacy, lazy class, message chain, middle man, refused bequest, dead code, long parameters, circular dependencies |
+| **Architecture** (graph-based) | 6 | Architectural bottleneck, degree centrality, influential code, module cohesion, core utility, shotgun surgery |
+| **AI-Specific** | 6 | AI boilerplate, AI churn, AI complexity spike, AI duplicate block, AI missing tests, AI naming pattern |
+| **ML/Data Science** | 8 | Unsafe torch.load, NaN equality, missing zero_grad, deprecated PyTorch API, chained indexing, missing random seed |
+| **Rust-Specific** | 7 | Unwrap without context, unsafe without SAFETY comment, clone in hot path, missing #[must_use], unnecessary Box\<dyn\>, mutex poisoning risk, panic density |
+| **Async/Promise** | 4 | Sync-in-async, missing await, unhandled promise, callback hell |
+| **Framework-Specific** | 3 | React hooks violations, Django security, Express.js security |
+| **Performance** | 3 | N+1 queries, regex in loop, sync-in-async |
+| **Testing** | 1 | Test code in production |
+| **CI/CD** | 1 | GitHub Actions injection |
+| **Dependency Audit** | 1 | Multi-ecosystem vulnerability audit via OSV.dev API |
+| **Predictive** | 1 | N-gram surprisal anomaly detection (conditional) |
+
+**Cross-Detector Infrastructure**: Voting engine (multi-detector consensus), health score delta calculator (fix impact estimation), risk analyzer (compound risk assessment), root cause analyzer, incremental cache, content classifier, context HMM, data flow / SSA taint analysis, function/class context inference, framework detection for FP reduction, AST fingerprinting.
+
+**Inline Suppression**: `// repotoire:ignore` (all detectors) or `// repotoire:ignore[detector-name]` (targeted). Supports `#`, `//`, `/*`, `--` comment styles.
 
 ## Design Decisions (Key Points)
 
-### Why FalkorDB?
-- Redis-based graph database with native graph storage
-- Cypher for expressive pattern matching
-- High performance with in-memory processing
-- Production-ready with Redis ecosystem compatibility
+### Why petgraph + redb?
+- **petgraph**: In-memory directed graph with mature algorithm library (SCC, BFS, DFS)
+- **redb**: Embedded ACID key-value store — zero network overhead, no external database to manage
+- Together they provide fast in-process graph analysis with optional on-disk persistence
+- No Docker, no Redis, no connection pooling — just a single binary
 
-### Why Batch Processing?
-- Memory efficiency (prevents loading entire codebase)
-- Network optimization (reduces round-trips)
-- Progress tracking and error recovery
+### Why Pure Rust Detectors?
+- **Zero dependencies**: No Python, Node, or external tools to install
+- **Performance**: All analysis runs in-process with rayon parallelism
+- **Consistency**: Single binary deployment, same behavior everywhere
+- **Depth**: SSA-based taint analysis for security detectors, graph queries for architecture detectors
 
 ### Why Qualified Names as IDs?
 - Human readable (e.g., `module.Class.method`)
 - Globally unique, no collisions
-- Fast direct lookups in FalkorDB
+- Fast direct lookups via HashMap
 
 ### Why Three-Category Scoring?
 - Holistic view: Structure (40%) + Quality (30%) + Architecture (30%)
 - Maps to specific, actionable improvements
-- Industry-standard approach
-
-### Why Hybrid Detectors?
-- **Accuracy**: External tools (ruff, mypy) use AST/semantic analysis (0% false positives)
-- **Context**: Graph enrichment adds relationships, metrics, file complexity
-- **Performance**: External tools often faster than pure Cypher queries
-- **Actionability**: Auto-fix suggestions from mature tooling
+- Density-normalized: penalties scale by kLOC so project size doesn't bias scores
 
 ## Incremental Analysis
 
-Repotoire provides **10-100x faster re-analysis** through intelligent incremental analysis that only processes changed files and their dependents.
+Repotoire provides faster re-analysis through a findings-level cache that skips re-running detectors on unchanged files.
 
 ### How It Works
 
-1. **Hash-based Change Detection**: MD5 hashes stored in FalkorDB detect file modifications
-2. **Dependency-Aware Analysis**: Graph queries find files that import changed files
-3. **Selective Re-ingestion**: Only affected files are re-parsed and updated
-4. **Graph Cleanup**: Deleted files automatically removed from knowledge graph
+1. **SipHash Content Hashing**: Each file's content is hashed with `DefaultHasher` (SipHash) and compared to the cached hash
+2. **Findings Cache**: Detector results for unchanged files are loaded from a local JSON cache file (`~/.cache/repotoire/<repo-hash>/incremental/findings_cache.json`)
+3. **Auto-Incremental Mode**: When a warm cache exists, incremental mode activates automatically
+4. **Binary Version Invalidation**: Cache is automatically invalidated when the Repotoire binary version changes
+5. **Cache Schema Versioning**: Internal `CACHE_VERSION` triggers rebuild on schema changes
 
-### Usage
+### What Is and Isn't Cached
 
-```bash
-# Incremental analysis (enabled by default)
-repotoire ingest /path/to/repo
+- **Cached**: Per-file detector findings, parse results (skip tree-sitter re-parsing), graph-level detector results, health scores
+- **Not cached**: The graph itself — petgraph is always rebuilt from scratch on every run
+- **Pruning**: Stale entries for deleted files are automatically removed
 
-# Force full re-analysis
-repotoire ingest /path/to/repo --force-full
-```
+### Fast Path
 
-### Performance Example
+When no files have changed, the analyze command can return fully cached scores and findings without running any detectors or rebuilding the graph.
 
-```
-Codebase: 1,234 files
-Changed: 10 files (0.8%)
-Dependent files: 19 files (via IMPORTS)
+### Key Files
 
-Processing: 29 files (2.3% of codebase)
-Time: 8 seconds (vs 5 minutes full analysis)
-Speedup: 37.5x
-```
-
-### Key Features
-
-- **Automatic dependency resolution**: Finds files that import changed files (up to 3 hops)
-- **Bidirectional impact**: Tracks both upstream and downstream dependencies
-- **Safe deletion**: Removes nodes for deleted files from graph
-- **Preserves embeddings**: Reuses expensive vector embeddings for unchanged entities
-- **Transaction safety**: Rollback on failure
-
-### Implementation
-
-See `repotoire/pipeline/ingestion.py`:
-- `_find_dependent_files()`: Graph query to find import relationships
-- `ingest(incremental=True)`: Main incremental ingestion logic
-- `get_file_metadata()`: Hash-based change detection
-
-For complete documentation, see [docs/INCREMENTAL_ANALYSIS.md](docs/INCREMENTAL_ANALYSIS.md).
-
-## Pre-commit Hook Integration
-
-Repotoire integrates with the [pre-commit](https://pre-commit.com) framework to automatically check code quality before commits are finalized. This provides **instant feedback** and prevents critical issues from entering the codebase.
-
-### How It Works
-
-1. **Staged Files Only**: Analyzes only files in the git staging area (`git diff --cached`)
-2. **Incremental Analysis**: Uses hash-based change detection for sub-5-second performance
-3. **Configurable Thresholds**: Block commits based on severity level (critical, high, medium, low)
-4. **Rich Feedback**: Clear, emoji-annotated terminal output with fix suggestions
-5. **Bypass Option**: Use `git commit --no-verify` to override in emergencies
-
-### Installation
-
-Add to your `.pre-commit-config.yaml`:
-
-```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: repotoire-check
-        name: Repotoire Code Quality Check
-        entry: uv run repotoire-pre-commit
-        language: system
-        pass_filenames: true
-        types: [python]
-        require_serial: true
-        stages: [commit]
-        # Optional: Fail on high or medium severity (default: critical)
-        # args: [--fail-on=high]
-```
-
-Install pre-commit hooks:
-```bash
-pre-commit install
-```
-
-### Configuration Options
-
-The `repotoire-pre-commit` command accepts these arguments:
-
-- `--fail-on {critical,high,medium,low}`: Minimum severity to fail commit (default: critical)
-- `--falkordb-host HOST`: FalkorDB host (default: localhost)
-- `--falkordb-password PASSWORD`: FalkorDB password (or use `FALKORDB_PASSWORD` env var)
-- `--skip-ingestion`: Skip ingestion and only run analysis (for cached data)
-
-Example with custom configuration:
-```yaml
-args: [--fail-on=high, --falkordb-host=localhost]
-```
-
-### Environment Variables
-
-Set environment variables for FalkorDB authentication:
-```bash
-export FALKORDB_PASSWORD=your-password
-export FALKORDB_HOST=localhost  # Optional
-export FALKORDB_PORT=6379  # Optional
-```
-
-### Usage Example
-
-```bash
-# Stage some files
-git add src/module.py
-
-# Commit (pre-commit hook runs automatically)
-git commit -m "Add new feature"
-
-# Output:
-# 🔍 Checking 1 staged file(s)...
-#    Analyzing code...
-#
-# 📊 Found 2 issue(s) in staged files:
-#
-# 🟡 [MEDIUM] Complex function detected
-#    Files: src/module.py
-#    Function calculate_score has cyclomatic complexity of 15
-#    💡 Fix: Break into smaller functions
-#
-# 🟢 [LOW] Missing docstring
-#    Files: src/module.py
-#    Function helper lacks documentation
-#
-# ⚠️  Warning: Found 2 issue(s) below 'critical' threshold
-# ✅ Commit allowed
-```
-
-### Performance
-
-- **Fast**: Typically <5 seconds for small commits (1-5 files)
-- **Scalable**: Uses incremental analysis (only changed files + dependencies)
-- **Efficient**: Hash-based change detection avoids redundant processing
-
-### Bypass in Emergencies
-
-If you need to commit despite failing checks:
-```bash
-git commit --no-verify -m "Hotfix: emergency production issue"
-```
-
-### Implementation
-
-See `repotoire/hooks/pre_commit.py`:
-- `get_staged_files()`: Detects staged Python files via git
-- `format_finding_output()`: Formats findings with emoji icons
-- `main()`: Entry point with argument parsing and exit codes
-
-Tests: `tests/integration/test_pre_commit_hook.py` (19 tests covering all functionality)
-
-## RAG (Retrieval-Augmented Generation)
-
-Repotoire includes a complete RAG system for natural language code intelligence. See [docs/RAG_API.md](docs/RAG_API.md) for comprehensive documentation.
-
-### Quick Start
-
-```bash
-# Option 1: OpenAI backend (high quality, paid)
-export OPENAI_API_KEY="sk-..."
-repotoire ingest /path/to/repo --generate-embeddings
-
-# Option 2: DeepInfra backend (cheap, high-quality Qwen3)
-export DEEPINFRA_API_KEY="..."
-repotoire ingest /path/to/repo --generate-embeddings --embedding-backend deepinfra
-
-# Option 3: Local backend (free, no API key required)
-pip install repotoire[local-embeddings]
-repotoire ingest /path/to/repo --generate-embeddings --embedding-backend local
-
-# Query via API
-python -m repotoire.api.app
-curl -X POST "http://localhost:8000/api/v1/code/search" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "authentication functions", "top_k": 5}'
-```
-
-### Embedding Backends
-
-| Aspect | OpenAI | DeepInfra | Local (Qwen3-0.6B) |
-|--------|--------|-----------|---------------------|
-| Model | text-embedding-3-small | Qwen3-Embedding-8B | Qwen3-Embedding-0.6B |
-| Quality | Great | Best (MTEB-Code #1) | Excellent |
-| Cost | $0.02/1M tokens | ~$0.01/1M tokens | $0 |
-| Latency | 50-150ms | 30-100ms | 5-20ms |
-| Dependencies | API key | API key | +1.5GB model |
-| Dimensions | 1536 | 4096 | 1024 |
-
-**Note**: Local backend falls back to all-MiniLM-L6-v2 (384 dims) on low-memory systems (<4GB RAM).
-
-### Configuration
-
-Via CLI:
-```bash
-# Local (free, high quality)
-repotoire ingest /path/to/repo --generate-embeddings --embedding-backend local
-
-# DeepInfra (cheap API, best quality)
-repotoire ingest /path/to/repo --generate-embeddings --embedding-backend deepinfra
-
-# OpenAI (high quality)
-repotoire ingest /path/to/repo --generate-embeddings --embedding-backend openai
-```
-
-Via config file (`.repotoirerc` or `falkor.toml`):
-```yaml
-embeddings:
-  backend: "deepinfra"  # or "openai", "local"
-  model: "Qwen/Qwen3-Embedding-8B"  # optional, uses backend default if not set
-```
-
-### Key Components
-- **CodeEmbedder**: Supports OpenAI (1536d), DeepInfra (4096d), and local (1024d) backends
-- **GraphRAGRetriever**: Hybrid vector + graph search
-- **FastAPI Endpoints**: `/search`, `/ask`, `/embeddings/status`
-- **Vector Indexes**: FalkorDB native vector support (dimensions auto-configured)
-
-### Performance
-
-**OpenAI backend:**
-- **Embedding**: ~10-20 entities/sec, ~$0.02/1M tokens
-- **Query**: <2s total (vector search + GPT-4o generation)
-- **Cost**: ~$0.10 for 10k files (one-time), $0.0075/query
-
-**DeepInfra backend:**
-- **Embedding**: ~20-40 entities/sec, ~$0.01/1M tokens
-- **Query**: <1.5s total
-- **Cost**: ~$0.05 for 10k files (one-time)
-
-**Local backend:**
-- **Embedding**: ~20-50 entities/sec, $0
-- **Query**: <1s total (no network latency)
-- **Cost**: Free (one-time ~1.5GB model download for Qwen3-0.6B)
+- `repotoire-cli/src/detectors/incremental_cache.rs` — `IncrementalCache` with SipHash, version tracking, pruning
+- `repotoire-cli/src/cli/analyze/setup.rs` — Auto-incremental mode detection
+- `repotoire-cli/src/cli/analyze/mod.rs` — Fast-path cached result return
 
 ## Formal Verification (Lean 4)
 
@@ -575,76 +306,76 @@ lean/
 
 ## Extension Points
 
-For detailed examples and step-by-step guides, see the relevant documentation files.
-
 ### Adding a New Language Parser
-1. Create `repotoire/parsers/{language}_parser.py`
-2. Inherit from `CodeParser`, implement `parse()`, `extract_entities()`, `extract_relationships()`
-3. Register in `IngestionPipeline.__init__()`
-4. Add tests in `tests/unit/parsers/`
+1. Create `repotoire-cli/src/parsers/{language}.rs`
+2. Add the tree-sitter grammar crate to `Cargo.toml`
+3. Implement the parser function returning `ParseResult` (entities, relationships, imports)
+4. Register the file extension mapping in `repotoire-cli/src/parsers/mod.rs`
+5. Add tests as inline `#[test]` modules
 
 ### Adding a New Detector
-1. Create `repotoire/detectors/{detector_name}.py`
-2. Inherit from `CodeSmellDetector`, implement `detect() → List[Finding]`
-3. Write Cypher query or call external tool
-4. Register in `AnalysisEngine.detectors` list
-5. Add tests in `tests/unit/detectors/`
-
-### Adding a Hybrid Detector (External Tool + Graph)
-1. Run external tool (subprocess), parse JSON/text output
-2. Group findings by file, enrich with graph context
-3. Create `Finding` objects with combined metadata
-4. Pass `repository_path` via detector_config
+1. Create `repotoire-cli/src/detectors/{detector_name}.rs`
+2. Implement the `Detector` trait: `fn name()`, `fn detect(&self, graph, files) -> Vec<Finding>`
+3. Register in `repotoire-cli/src/detectors/mod.rs` — add `mod`, `pub use`, and add to `default_detectors_full()`
+4. Add tests as inline `#[test]` modules
 
 ### Adding a New Report Format
-1. Create `repotoire/reporters/{format}_reporter.py`
-2. Implement `generate(health: CodebaseHealth, output_path: Path)`
-3. Add to CLI's format choices in `analyze` command
+1. Create `repotoire-cli/src/reporters/{format}.rs`
+2. Implement the reporter function
+3. Add to the `--format` CLI flag choices in `repotoire-cli/src/cli/mod.rs`
 
 ## Troubleshooting
 
-**Common Issues**: FalkorDB connection failures, ingestion performance, parser errors, missing findings, configuration not loading, memory issues.
+**Common Issues**:
 
-**Quick Fixes**:
-- Connection: `repotoire validate`, check `docker ps | grep falkordb`, verify host/port settings
-- Performance: Increase batch size, filter test files, increase Redis memory
-- Errors: Check Python version, UTF-8 encoding, review skipped files
-
-See full troubleshooting guide in project documentation.
+- **Tree-sitter grammar errors**: Ensure the correct grammar crate version in `Cargo.toml`. Tree-sitter API versions must match across all grammar crates.
+- **Large repository memory**: For repos with 20k+ files, the compact graph backend (`CompactGraphStore`) reduces memory by 60-70%. Files >2MB are silently skipped by parsers.
+- **Stale cache results**: Run `repotoire clean /path/to/repo` to clear cached data, or the cache auto-invalidates on binary version change.
+- **Missing findings**: Check if files are excluded by `.gitignore`, `.repotoireignore`, or built-in exclusions (vendor, node_modules, dist, minified files).
 
 ## Testing
 
-**Organization**: `tests/unit/` (component tests), `tests/integration/` (end-to-end)
+**Organization**: Inline `#[test]` modules within source files, plus `repotoire-cli/tests/` for integration tests.
 
-**Commands**: `pytest` (all), `pytest --cov=repotoire --cov-report=html` (coverage), `pytest -n auto` (parallel)
+**Commands**:
+```bash
+# Run all tests
+cargo test
+
+# Run tests with output
+cargo test -- --nocapture
+
+# Run a specific test
+cargo test test_name
+
+# Run tests in a specific module
+cargo test detectors::god_class
+```
 
 ## Current Status
 
-### Completed Features ✅
-- Core architecture and models
-- FalkorDB client with retry logic and connection pooling
-- Ingestion pipeline with security validation
-- **Incremental analysis** (10-100x faster re-analysis with dependency tracking)
-- **Pre-commit hooks integration** (instant code quality checks before commits)
-- **TimescaleDB metrics tracking** (historical trends, regression detection, period comparison)
-- **Auto-fix system** (AI-powered code fixing with GPT-4o + RAG, human-in-the-loop, evidence-based)
-- **E2B Sandbox** (secure isolated execution for tests, tools, and MCP skills with secret filtering)
-- CLI interface with Rich formatting
-- 8 hybrid detectors + graph detectors
-- Health scoring framework (Structure/Quality/Architecture)
-- Configuration management (YAML, JSON, TOML)
-- HTML report generation with code snippets
-- RAG system with OpenAI embeddings
-- **Graph detectors** (feature envy, data clumps, god class, inappropriate intimacy, etc.)
-- **TypeScript/JavaScript support** (tree-sitter parser with JSDoc, React patterns, nesting tracking)
-- **Java support** (tree-sitter parser with Javadoc, annotations, interfaces, enums)
-- **Go support** (tree-sitter parser with doc comments, structs, interfaces, methods, goroutines, channels)
-- **GitHub Checks integration** (automatic PR analysis with check runs)
+### Implemented
+- Pure Rust CLI (93k+ lines) with clap 4
+- petgraph in-memory graph with redb persistence
+- String interning via lasso for memory efficiency
+- 9 tree-sitter language parsers (Python, TypeScript/JavaScript, Rust, Go, Java, C#, C, C++, lightweight fallback)
+- 114 pure Rust detectors across 14 categories — zero external tool dependencies
+- SSA-based taint analysis for security detectors
+- Three-pillar health scoring with density normalization and graph-derived bonuses
+- Compound smell escalation (arXiv:2509.03896)
+- Adaptive threshold calibration with n-gram surprisal
+- Findings-level incremental cache with auto-detection
+- 5 report formats (text, JSON, HTML, SARIF 2.1.0, Markdown)
+- MCP server (rmcp SDK, stdio + HTTP transports, 13 tools)
+- Git history integration via git2 (churn, blame, commits)
+- File watching with real-time re-analysis
+- Inline suppression (`repotoire:ignore` / `repotoire:ignore[detector]`)
+- Cross-detector analysis (voting engine, risk analyzer, root cause analyzer, health delta calculator)
+- Project type detection with framework-aware detector thresholds
+- `.repotoireignore` support
+- Formal verification of scoring algorithms (Lean 4)
 
-### In Progress 🚧
-- Additional graph detectors
-
-### Planned Features 📋
+### Planned
 - Web dashboard
 - IDE plugins (VS Code, JetBrains)
 - GitHub Actions integration
@@ -653,138 +384,89 @@ See full troubleshooting guide in project documentation.
 
 ## Dependencies
 
-### Core
-- **falkordb** (>=1.0.0): FalkorDB graph database client
-- **click** (>=8.1.0): CLI framework
-- **rich** (>=13.0.0): Terminal formatting
-- **pydantic** (>=2.0.0): Data validation
-- **networkx** (>=3.2.0): Graph algorithms
-- **jinja2** (>=3.1.0): HTML templates
+### Core (from Cargo.toml)
+- **petgraph** (0.7): In-memory directed graph
+- **redb** (2.4): Embedded ACID key-value store for graph persistence
+- **clap** (4): CLI framework with derive macros
+- **serde** / **serde_json** (1): Serialization
+- **rayon** (1.11): Data parallelism for detectors and parsing
+- **anyhow** / **thiserror**: Error handling
+- **lasso** (0.7.3): Thread-safe string interning
 
-### AI/NLP
-- **spacy** (>=3.7.0): Natural language processing
-- **openai** (>=1.0.0): GPT-4o and embeddings
+### Parsing
+- **tree-sitter** (0.25): Incremental parsing framework
+- **tree-sitter-python** (0.25), **tree-sitter-javascript** (0.25), **tree-sitter-typescript** (0.23), **tree-sitter-rust** (0.24), **tree-sitter-go** (0.25), **tree-sitter-java** (0.23), **tree-sitter-c-sharp** (0.23), **tree-sitter-c** (0.24), **tree-sitter-cpp** (0.23)
 
-### Configuration
-- **pyyaml** (>=6.0): YAML support
-- **tomli** (>=2.0.0): TOML support (Python <3.11)
+### MCP Server
+- **rmcp** (0.16): MCP protocol SDK (server, macros, stdio + HTTP transport)
+- **tokio** (1): Async runtime
+- **axum** (0.8): HTTP framework for streamable HTTP transport
+- **schemars** (1.0): JSON Schema generation for MCP tool parameters
 
-### Optional
-- **networkx** (>=3.0.0): Graph algorithms (alternative to FalkorDB native)
-- **tree-sitter** (>=0.20.0): Multi-language parsing
-- **sentence-transformers** (>=2.2.0): Local embeddings (free, no API key)
-- **e2b** (>=0.17.0): E2B cloud sandbox for secure execution
+### Git
+- **git2** (0.20): libgit2 bindings for git history analysis
+
+### Terminal UI
+- **indicatif** (0.17): Progress bars
+- **console** (0.15): Terminal styling
+- **ratatui** (0.30): TUI framework
+- **crossterm** (0.29): Terminal backend
+
+### Misc
+- **regex** (1): Regular expressions
+- **ignore** (0.4): .gitignore-aware file walking
+- **dashmap** (6): Concurrent hashmap
+- **toml** (0.8): TOML config parsing
+- **ureq** (3): Sync HTTP client (AI API calls, OSV.dev dependency audit)
+- **chrono** (0.4): Date/time
+- **memmap2** (0.9): Memory-mapped file access
+- **crossbeam-channel** (0.5): Parallel pipeline channels
+- **rustc-hash** (2): Fast hashing
+- **notify** (7) / **notify-debouncer-full** (0.4): File watching
+- **dirs** (6): Platform directory paths
 
 ### Development
-- **pytest** (>=7.4.0): Testing framework
-- **pytest-cov** (>=4.1.0): Coverage reporting
-- **black** (>=23.0.0): Code formatting
-- **ruff** (>=0.1.0): Linting
-- **mypy** (>=1.7.0): Type checking
+- **tempfile** (3): Temporary files for tests
 
 ## Performance
 
-### Scalability
-| Codebase Size | Ingestion Time | Analysis Time |
-|---------------|----------------|---------------|
-| <1k files | <1 minute | Sub-second |
-| 1k-10k files | 5-15 minutes | 10-60 seconds |
-| 10k-100k files | 30-60 minutes | 1-10 minutes |
-| >100k files | Chunking recommended | Incremental |
-
 ### Memory Usage
-- **Batch size**: Larger (500) = faster but more memory
-- **FalkorDB/Redis memory**: Default 512MB, increase for large codebases
-- **Python process**: ~100-500MB depending on batch size
+- **In-memory graph**: petgraph holds all nodes and edges in memory. No external database needed.
+- **Standard backend**: ~200 bytes per node
+- **Compact backend**: ~32 bytes per node (via string interning with lasso, 60-70% savings)
+- **Parser guardrail**: Files >2MB are silently skipped to prevent memory/time issues
 
-### FalkorDB Connection Pool
-
-**Env vars**: `FALKORDB_HOST`, `FALKORDB_PORT`, `FALKORDB_PASSWORD`, `FALKORDB_MAX_CONNECTIONS`
-
-**Guidelines**: Dev (pool=20, timeout=60s), Staging (pool=100, timeout=30s), Production (pool=200, timeout=15s)
-
-## Multi-Tenant Architecture (REPO-600)
-
-Repotoire uses **defense-in-depth** for multi-tenant data isolation with two independent layers:
-
-### Layer 1: Graph-Level Isolation
-- Each organization gets a separate FalkorDB graph (e.g., `repotoire_org_abc123`)
-- Graph selection happens at connection time via `GraphClientFactory`
-- Complete physical separation - no cross-tenant queries possible
-
-### Layer 2: Node-Level Filtering
-- Every node has a `tenantId` property (organization UUID)
-- Every query includes tenant filtering via `QueryBuilder.with_tenant()` or `_get_isolation_filter()`
-- FalkorDB indexes on `tenantId` for all 8 node types ensure fast filtering
-- Defense against misconfigured graph selection
-
-### Automatic Tenant Resolution
-The CLI automatically resolves tenant from authenticated user for better UX:
-```
-CLI request → API key validation → org_id from response → TenantContext
-```
-
-No `--tenant-id` flag needed - just `repotoire ingest ./repo`. Override available for multi-org users.
-
-### Key Components
-| Component | File | Purpose |
-|-----------|------|---------|
-| TenantContext | `tenant/context.py` | Async-safe ContextVar for tenant propagation |
-| TenantContextManager | `tenant/context.py` | Context manager for CLI/API tenant scope |
-| QueryBuilder.with_tenant() | `graph/queries/builders.py` | Automatic tenant filtering in queries |
-| CodeSmellDetector.tenant_id | `detectors/base.py` | Tenant property for all detectors |
-| _get_tenant_from_auth() | `cli/__init__.py` | Auto-resolve tenant from API key |
-
-### Adding Tenant Filtering to New Code
-```python
-# Option 1: Use QueryBuilder (preferred)
-query, params = (QueryBuilder()
-    .match("(n:File)")
-    .with_tenant("n")  # Automatically adds tenantId filter
-    .where("n.language = $lang")
-    .return_("n.filePath")
-    .build({"lang": "python"}))
-
-# Option 2: Use detector base class methods
-filter_clause = self._get_isolation_filter("n")  # Returns "AND n.tenantId = $tenant_id AND n.repoId = $repo_id"
-params = self._get_query_params(extra_param="value")  # Includes tenant_id automatically
-
-# Option 3: Inject into existing queries
-query, params = inject_tenant_filter(raw_query, existing_params, node_alias="n")
-```
+### Parallelism
+- **Parsing**: File parsing runs in parallel via rayon
+- **Detection**: All detectors run in parallel via rayon
+- **Configurable workers**: `--workers` flag (default: 8, max: 64)
 
 ## Security Considerations
 
-### Input Validation
-- All file paths validated before access
-- Symlinks rejected by default
-- File size limits enforced (10MB default)
-- Repository boundary checks prevent traversal attacks
+### MCP Path Traversal Protection
+- The MCP `get_file` handler (`repotoire-cli/src/mcp/tools/files.rs`) validates that requested file paths stay within the repository boundary
+- Prevents directory traversal attacks via `../` in MCP tool calls
+
+### Parser Guardrails
+- Files larger than 2MB are silently skipped during parsing (`repotoire-cli/src/parsers/mod.rs`)
+- Built-in exclusions: vendor, node_modules, dist, third-party, minified files
 
 ### Credential Management
-- Never commit passwords to version control
-- Use environment variables: `${FALKORDB_PASSWORD}`
-- Restrict config file permissions: `chmod 600 .repotoirerc`
-- Use secure connections in production (TLS/SSL)
-
-### FalkorDB Access Control
-- Use dedicated Redis ACL user for Repotoire
-- Limit permissions to necessary graph operations
-- Enable authentication and TLS for production
+- API keys configured via environment variables or user config (`~/.config/repotoire/config.toml`)
+- Never commit credentials to version control
+- Restrict config file permissions: `chmod 600 ~/.config/repotoire/config.toml`
 
 ## References
 
-- [FalkorDB Documentation](https://docs.falkordb.com/)
-- [Python AST Documentation](https://docs.python.org/3/library/ast.html)
-- [Cypher Query Language](https://docs.falkordb.com/cypher/)
-- [Click Framework](https://click.palletsprojects.com/)
-- [Rich Terminal Library](https://rich.readthedocs.io/)
+- [petgraph Documentation](https://docs.rs/petgraph/)
+- [redb Documentation](https://docs.rs/redb/)
 - [Tree-sitter](https://tree-sitter.github.io/)
+- [clap Framework](https://docs.rs/clap/)
+- [rmcp (MCP SDK)](https://docs.rs/rmcp/)
+- [rayon (Data Parallelism)](https://docs.rs/rayon/)
 
 ---
 
-**For user-facing documentation**, see [README.md](README.md) and [CONFIG.md](CONFIG.md).
-**For RAG/AI features**, see [docs/RAG_API.md](docs/RAG_API.md).
-**For auto-fix features**, see [docs/AUTO_FIX.md](docs/AUTO_FIX.md).
-**For sandbox/security**, see [docs/SANDBOX.md](docs/SANDBOX.md).
-**For contributing**, see CONTRIBUTING.md (planned).
+**For user-facing documentation**, see [README.md](README.md).
+**For MCP server details**, see [repotoire-cli/docs/MCP.md](repotoire-cli/docs/MCP.md).
+**For formal verification**, see [docs/VERIFICATION.md](docs/VERIFICATION.md).
