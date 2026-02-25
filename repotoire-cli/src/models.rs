@@ -51,7 +51,7 @@ impl std::fmt::Display for Severity {
 }
 
 /// Deserialize a HashMap that may be `null` in JSON (treat null as empty map)
-fn deserialize_null_as_empty_map<'de, D>(
+fn deserialize_null_as_empty_map<'de, D>( // repotoire:ignore[surprisal]
     deserializer: D,
 ) -> Result<std::collections::HashMap<String, String>, D::Error>
 where

@@ -64,6 +64,17 @@ impl SurprisalDetector {
             }
 
             let func_lines = &lines[start..end];
+
+            // Respect inline suppression (check function lines + line before function)
+            let prev_before_func = if start > 0 { lines.get(start - 1).copied() } else { None };
+            let suppressed = func_lines.iter().enumerate().any(|(i, line)| {
+                let prev = if i > 0 { Some(func_lines[i - 1]) } else { prev_before_func };
+                super::is_line_suppressed_for(line, prev, "surprisal")
+            });
+            if suppressed {
+                continue;
+            }
+
             let (avg_surprisal, max_surprisal, peak_line) = self.model.function_surprisal(func_lines);
 
             if avg_surprisal <= 0.0 {

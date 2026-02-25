@@ -321,6 +321,7 @@ impl PillarWeights {
 
     /// Normalize weights to sum to 1.0
     pub fn normalize(&mut self) {
+        // repotoire:ignore[surprisal]
         let sum = self.structure + self.quality + self.architecture;
         if sum > 0.0 {
             self.structure /= sum;

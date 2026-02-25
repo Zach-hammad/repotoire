@@ -199,6 +199,7 @@ pub struct GraphScorer<'a> {
 }
 
 impl<'a> GraphScorer<'a> {
+    // repotoire:ignore[surprisal] — constructor with many parameters is expected for scorer
     pub fn new(
         graph: &'a GraphStore,
         config: &'a ProjectConfig,
