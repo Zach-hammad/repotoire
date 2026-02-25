@@ -31,6 +31,10 @@ const DEFAULT_SIMILARITY_THRESHOLD: f64 = 0.70; // 70% AST similarity
 const DEFAULT_MIN_CLUSTER_SIZE: usize = 3;
 const DEFAULT_MIN_LOC: usize = 5;
 const DEFAULT_MAX_FINDINGS: usize = 50;
+/// Single-linkage clustering can create "galaxy clusters" where transitively
+/// linked functions merge into one massive group. Cap cluster size to keep
+/// findings actionable.
+const MAX_CLUSTER_SIZE: usize = 50;
 
 /// Patterns commonly detected in boilerplate
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -160,10 +164,10 @@ fn cluster_by_similarity(
         clusters_map.entry(root).or_default().push(i);
     }
 
-    // Convert to function lists, filter by minimum size
+    // Convert to function lists, filter by minimum size and cap maximum
     clusters_map
         .into_values()
-        .filter(|indices| indices.len() >= min_cluster_size)
+        .filter(|indices| indices.len() >= min_cluster_size && indices.len() <= MAX_CLUSTER_SIZE)
         .map(|indices| indices.into_iter().map(|i| functions[i].clone()).collect())
         .collect()
 }
