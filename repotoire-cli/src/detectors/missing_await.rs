@@ -52,15 +52,11 @@ impl MissingAwaitDetector {
         async_funcs
     }
 
-    /// Check if a line is an async function/method DECLARATION (not a call)
+    /// Check if a line is an async function/method DECLARATION (not a call).
+    /// Matches patterns like `async function foo()`, `const foo = async () =>`,
+    /// `export async function`, and Python's `async def`.
     fn is_async_declaration(line: &str) -> bool {
         let trimmed = line.trim();
-        // async function foo() {
-        // async foo() {
-        // const foo = async () => {
-        // const foo = async function() {
-        // export async function foo() {
-        // async def foo():  (Python)
         trimmed.contains("async function ")
             || trimmed.contains("async def ")
             || trimmed.contains("= async (")
