@@ -4,9 +4,24 @@
 **Scope:** Detectors, Parsers, Graph, Pipeline, Scoring
 **Method:** Documentation-vs-Code Diff (CLAUDE.md + README.md + docs/ vs repotoire-cli/src/)
 
+## Remediation Log
+
+| Date | Commit | What was fixed |
+|------|--------|----------------|
+| 2026-02-25 | `be9c77e` | **CLAUDE.md full rewrite.** Removed all Python/FalkorDB references. Documented actual Rust architecture (petgraph+redb, 114 native detectors, 9 parsers, findings-level cache). Resolves findings #1, #2, #4, #7 and all doc-vs-code mismatches for detectors, graph, and pipeline sections. |
+| 2026-02-25 | `de351c6` | **Scoring weight inconsistencies fixed** across 4 locations: `explain()` reads from config dynamically, `health_delta.rs` gets `from_weights()` constructor, `init.rs` template corrected to 0.40/0.30/0.30, `scoring/mod.rs` doc comment updated. Resolves finding #5. |
+| 2026-02-25 | `405c3f0` | **Dead code removed (1,894 lines).** Deleted `queries.rs`, `schema.rs`, `unified.rs`, `compact_store.rs`, `pipeline/mod.rs`, and the no-op `--compact` CLI flag. Resolves all CompactGraphStore, dead Kuzu/Cypher, and pipeline stub findings. |
+| 2026-02-25 | `c39fc72` | **Pipeline hardening.** Added `validate_file()` with symlink rejection, path traversal protection (canonicalize+starts_with), and 2MB file size pre-filtering. Integrated into all 3 file collection paths. Exposed `--since` CLI flag. Resolves pipeline security findings #314-316 and --since finding #310. |
+
+### Current Status
+
+- **Findings #1-5, #7:** RESOLVED
+- **Finding #3 (parser feature gaps):** OPEN — 7 parser features still unimplemented (JSDoc, Javadoc, Go doc comments, Java annotations, React patterns, Go goroutines/channels)
+- **Finding #6 (framework-aware scoring):** OPEN — ProjectType feeds detectors but scoring module ignores it
+
 ## Summary
 
-### Totals
+### Totals (original audit, before remediation)
 
 | Status | Detectors | Parsers | Graph | Pipeline | Scoring | **Total** |
 |--------|-----------|---------|-------|----------|---------|-----------|
@@ -16,19 +31,19 @@
 
 ### Top-Level Findings
 
-1. **CLAUDE.md describes the Python/FalkorDB architecture; the Rust CLI uses petgraph + redb.** This is the single largest documentation mismatch. Every reference to FalkorDB, Redis, Cypher, connection pooling, retry logic, and vector indexes describes infrastructure that does not exist in the Rust codebase. The graph layer works but on a completely different stack.
+1. ~~**CLAUDE.md describes the Python/FalkorDB architecture; the Rust CLI uses petgraph + redb.**~~ **RESOLVED** (be9c77e) — CLAUDE.md fully rewritten to describe actual Rust architecture.
 
-2. **8 hybrid detectors (Ruff, Pylint, Mypy, Bandit, Radon, Jscpd, Vulture, Semgrep) are documented but replaced by 100+ native Rust detectors.** The Python-era external tool wrappers were fully removed. The Rust codebase has pure-Rust replacements covering the same functionality and much more, but 95+ of these detectors are completely undocumented.
+2. ~~**8 hybrid detectors (Ruff, Pylint, Mypy, Bandit, Radon, Jscpd, Vulture, Semgrep) are documented but replaced by 100+ native Rust detectors.**~~ **RESOLVED** (be9c77e) — CLAUDE.md now documents native Rust detectors.
 
-3. **Parser feature claims (JSDoc, Javadoc, React patterns, Go channels/goroutines) are not implemented.** 7 specific parser features documented in CLAUDE.md have no corresponding implementation. Additionally, 4 entire language parsers (C#, C++, C, Rust) and the tree-sitter Python parser are undocumented.
+3. **Parser feature claims (JSDoc, Javadoc, React patterns, Go channels/goroutines) are not implemented.** OPEN — 7 specific parser features still unimplemented. Old false claims removed from CLAUDE.md (be9c77e) but features themselves not yet built.
 
-4. **Incremental analysis operates at the wrong layer.** CLAUDE.md describes graph-level incremental re-ingestion with MD5 hashing, FalkorDB storage, and dependency-aware 3-hop traversal. The actual implementation is a findings-level cache using SipHash and local JSON files. The graph is always rebuilt from scratch. The `--force-full` and `--incremental` flags don't exist.
+4. ~~**Incremental analysis operates at the wrong layer.**~~ **RESOLVED** (be9c77e) — CLAUDE.md now correctly describes the findings-level cache with SipHash and local JSON files.
 
-5. **Scoring weight values are inconsistent across 3 locations.** The actual defaults (0.40/0.30/0.30) are correct in config, but `explain()` displays 0.33/0.34/0.33 and `repotoire init` suggests inverted values (0.30/0.40/0.30). Severity penalty values in the doc comment are also stale.
+5. ~~**Scoring weight values are inconsistent across 3 locations.**~~ **RESOLVED** (de351c6) — All 4 locations now read from config or use correct values.
 
-6. **Framework-aware scoring is not implemented.** `ProjectType` detection exists and feeds into detector thresholds, but the scoring module itself has zero awareness of frameworks.
+6. **Framework-aware scoring is not implemented.** OPEN — `ProjectType` detection exists and feeds into detector thresholds, but the scoring module itself has zero awareness of frameworks.
 
-7. **The codebase has far more capability than documentation suggests.** 138+ features, detectors, and infrastructure modules exist in code but are not documented anywhere. This includes sophisticated systems like compound smell escalation, density-based normalization, n-gram surprisal detection, and a complete compact graph backend with string interning.
+7. ~~**The codebase has far more capability than documentation suggests.**~~ **RESOLVED** (be9c77e) — CLAUDE.md now documents the actual architecture. Individual detector-level documentation remains incomplete but architectural coverage is accurate.
 
 ### Root Cause
 
@@ -44,6 +59,9 @@ The only `std::process` reference in the detectors directory is a regex literal 
 (matching `std::process::exit` in user code), not an actual subprocess invocation.
 
 ### Documented but Missing
+
+> **RESOLVED** (be9c77e): These 8 detectors were removed from CLAUDE.md. The false documentation
+> claiming they exist has been corrected. The native Rust replacements are now documented instead.
 
 These 8 detectors are listed in the CLAUDE.md "Hybrid Detector Suite" table (lines 248-257) but
 do NOT exist in Rust. They were Python-era external-tool wrappers that have been fully removed.
@@ -251,11 +269,10 @@ anywhere in CLAUDE.md. Grouped by category as organized in mod.rs.
 
 ## 3. Graph Layer
 
-**Backend Mismatch:** CLAUDE.md describes a FalkorDB (Redis-based) graph database with Cypher queries,
-connection pooling, retry logic, and vector indexes. The Rust CLI uses an entirely different stack:
-**petgraph** (in-memory directed graph) + **redb** (embedded ACID key-value store for persistence).
-There is zero FalkorDB code in the Rust codebase. The Kuzu references in `schema.rs` and `queries.rs`
-are commented-out dead code from an earlier migration.
+**Backend Mismatch:** ~~CLAUDE.md describes a FalkorDB (Redis-based) graph database with Cypher queries,
+connection pooling, retry logic, and vector indexes.~~ **RESOLVED** (be9c77e, 405c3f0): CLAUDE.md
+rewritten to describe petgraph+redb. Dead code (`schema.rs`, `queries.rs`, `unified.rs`,
+`compact_store.rs`) deleted in 405c3f0 (1,894 lines removed).
 
 **Actual dependencies** (from `Cargo.toml`): `petgraph = "0.7"`, `redb = "2.4"`, `lasso = "0.7.3"` (string interning).
 
@@ -273,7 +290,7 @@ are commented-out dead code from an earlier migration.
 - [MISSING] **Unique constraints on qualified names** — source: store.rs:145-163, doc: CLAUDE.md "unique constraints on qualified names". GraphStore enforces uniqueness at the application level (HashMap lookup in add_node), but there are no database-level constraints. redb tables use string keys but don't enforce uniqueness beyond the key-value model.
 - [MISSING] **Multi-tenant node-level filtering (tenantId)** — source: (absent), doc: CLAUDE.md "REPO-600 Multi-Tenant Architecture" / "Every node has a tenantId property". CodeNode in store_models.rs has no `tenant_id` field. DetectorConfig (detectors/base.rs:87-89) has a `repo_id` field but it is `#[allow(dead_code)]` and never used for graph-level filtering.
 - [MISSING] **Graph-level isolation per org** — source: (absent), doc: CLAUDE.md "Each organization gets a separate FalkorDB graph". GraphStore creates a single `graph.redb` file. No org-scoped graph selection.
-- [MISSING] **find_call_cycles on CompactGraphStore** — source: unified.rs:277 calls `g.find_call_cycles()` on CompactGraphStore, but compact_store.rs has no such method. This is latent dead code (unified.rs is not in mod.rs) but would fail to compile if re-enabled.
+- [~~MISSING~~] **find_call_cycles on CompactGraphStore** — ~~source: unified.rs:277 calls `g.find_call_cycles()` on CompactGraphStore, but compact_store.rs has no such method.~~ **RESOLVED** (405c3f0): Both `unified.rs` and `compact_store.rs` deleted.
 
 ### Documented but Partial
 
@@ -282,22 +299,22 @@ are commented-out dead code from an earlier migration.
 - [PARTIAL] **Batch operations** — source: store.rs:166-187 `add_nodes_batch()`, store.rs:336-349 `add_edges_batch()`, doc: CLAUDE.md "batch ops". Both exist and work. However, these are petgraph in-memory batch insertions (single lock acquisition), not network-batched FalkorDB operations as implied.
 - [PARTIAL] **Multi-hop traversal** — source: mcp/tools/graph.rs:200-310, doc: CLAUDE.md MCP tools "Multi-hop graph traversal (call chains, imports, inheritance)". The graph store itself has no multi-hop API. The MCP layer implements `handle_trace_dependencies()` with BFS traversal up to configurable `max_depth` (default 3), using iterative calls to `get_callers`/`get_callees`/`get_importers`.
 - [PARTIAL] **Change impact analysis** — source: mcp/tools/graph.rs:343-430, doc: CLAUDE.md MCP tools "Change impact analysis (what breaks if I modify X?)". Implements `handle_analyze_impact()` with direct/transitive dependent counting and risk scoring. Works but depends on GraphStore concretely, not via the GraphQuery trait.
-- [PARTIAL] **Cycle detection** — source: store.rs:567-666, doc: CLAUDE.md mentions circular dependency detection. Implements Tarjan SCC-based cycle detection for both imports (`find_import_cycles`) and calls (`find_call_cycles`), plus BFS-based `find_minimal_cycle`. However, `find_call_cycles` is only on `GraphStore`, not on `CompactGraphStore` or in the `GraphQuery` trait, so it is unavailable when using the compact backend.
-- [PARTIAL] **CompactGraphStore edge support** — source: compact_store.rs:231-233, doc: (undocumented feature). The compact store explicitly skips `Inherits`, `Uses`, and `ModifiedIn` edges in `add_edges_batch()`, meaning inheritance queries, uses-relationships, and git-commit edges return empty results when the compact backend is active.
+- [PARTIAL] **Cycle detection** — source: store.rs:567-666, doc: CLAUDE.md mentions circular dependency detection. Implements Tarjan SCC-based cycle detection for both imports (`find_import_cycles`) and calls (`find_call_cycles`), plus BFS-based `find_minimal_cycle`. ~~However, `find_call_cycles` is only on `GraphStore`, not on `CompactGraphStore` or in the `GraphQuery` trait, so it is unavailable when using the compact backend.~~ **PARTIALLY RESOLVED** (405c3f0): CompactGraphStore deleted, so the trait gap is moot.
+- [~~PARTIAL~~] ~~**CompactGraphStore edge support**~~ — **RESOLVED** (405c3f0): CompactGraphStore deleted. The edge-dropping bug no longer exists.
 
 ### Undocumented
 
 - [UNDOCUMENTED] **redb persistence layer** — source: store.rs:33-36, store.rs:730-823. GraphStore uses redb (embedded ACID database) for on-disk persistence with NODES_TABLE and EDGES_TABLE. Not mentioned in CLAUDE.md, which only describes FalkorDB.
 - [UNDOCUMENTED] **petgraph as graph engine** — source: Cargo.toml:68 `petgraph = "0.7"`, store.rs:8. The entire graph is a petgraph `DiGraph<CodeNode, CodeEdge>`. CLAUDE.md does not mention petgraph.
 - [UNDOCUMENTED] **String interning via lasso** — source: interner.rs:1-340. Uses the `lasso` crate (`ThreadedRodeo`) for thread-safe string interning with ~66% memory savings. Includes `CompactNode` (32 bytes vs ~200 bytes), `CompactEdge` (16 bytes), `ReadOnlyInterner` for frozen read-only access. CLAUDE.md does not mention lasso or the interning infrastructure.
-- [UNDOCUMENTED] **CompactGraphStore** — source: compact_store.rs:1-799. A complete alternative graph backend using string interning for 60-70% memory reduction. Implements `GraphQuery` trait. Has separate petgraph instance for algorithms. Not mentioned in CLAUDE.md.
-- [UNDOCUMENTED] **UnifiedGraph abstraction** — source: unified.rs:1-323. Enum dispatching to either `GraphStore` (standard) or `CompactGraphStore` (compact). Implements `GraphQuery`. Dead code (not in mod.rs) but fully implemented.
+- [~~UNDOCUMENTED~~] **CompactGraphStore** — **RESOLVED** (405c3f0): Deleted (798 lines). Was unused dead code with edge-dropping bug.
+- [~~UNDOCUMENTED~~] **UnifiedGraph abstraction** — **RESOLVED** (405c3f0): Deleted (322 lines). Was dead code not in mod.rs.
 - [UNDOCUMENTED] **GraphQuery trait** — source: traits.rs:1-77. 19-method trait providing a backend-agnostic query interface (get_functions, get_callers, find_import_cycles, etc.). Implemented by GraphStore, CompactGraphStore, and UnifiedGraph (the latter two via dead code paths).
 - [UNDOCUMENTED] **NodeKind::Commit** — source: store_models.rs:12. Commit node type exists for git history integration but is not listed in CLAUDE.md's node types.
 - [UNDOCUMENTED] **EdgeKind::ModifiedIn** — source: store_models.rs:123. Relationship type for git-commit associations. Not listed in CLAUDE.md's relationship types.
 - [UNDOCUMENTED] **Lazy loading mode** — source: store.rs:61-74 `new_lazy()`. GraphStore supports a lazy-loading mode that avoids loading all data into memory. Field exists but is marked `#[allow(dead_code)]` with comment "Config field for future lazy loading support".
-- [UNDOCUMENTED] **Dead Kuzu schema (13 node tables, 30 relationship tables)** — source: schema.rs (commented out in mod.rs:21). Contains rich schema definitions far exceeding what the active store_models.rs implements, including ExternalClass, ExternalFunction, BuiltinFunction, Type, Component, Domain node tables and OVERRIDES, DECORATES, TESTS, DATA_FLOWS_TO, SIMILAR_TO, RETURNS, HAS_PARAMETER, SUBTYPES relationship tables. All dead code.
-- [UNDOCUMENTED] **Dead Cypher queries (20+ queries)** — source: queries.rs (commented out in mod.rs:20). Pre-built queries for call graphs, inheritance, complexity, imports, code smells, architecture, and statistics. All dead code.
+- [~~UNDOCUMENTED~~] **Dead Kuzu schema** — **RESOLVED** (405c3f0): Deleted `schema.rs` (325 lines).
+- [~~UNDOCUMENTED~~] **Dead Cypher queries** — **RESOLVED** (405c3f0): Deleted `queries.rs` (289 lines).
 - [UNDOCUMENTED] **Node property access helpers** — source: store_models.rs:79-93. CodeNode provides `get_i64()`, `get_f64()`, `get_str()`, `get_bool()` convenience methods for accessing the generic properties HashMap. Not documented.
 - [UNDOCUMENTED] **Fan-in/fan-out metrics** — source: store.rs:462-515. GraphStore provides `fan_in()`, `fan_out()`, `call_fan_in()`, `call_fan_out()` methods. Used by detectors but not described in CLAUDE.md's graph layer documentation.
 
@@ -307,20 +324,20 @@ are commented-out dead code from an earlier migration.
 
 - [MISSING] `--force-full` CLI flag — source: not found in `repotoire-cli/src/cli/mod.rs`, doc: CLAUDE.md "Force full re-analysis" section. CLAUDE.md documents `repotoire ingest /path/to/repo --force-full` but the Rust CLI has no `--force-full` flag. The `incremental` parameter in `analyze::run()` is hardcoded to `false` at `cli/mod.rs:374`; there is no user-facing override to force a full re-analysis.
 - [MISSING] `--incremental` CLI flag — source: `cli/mod.rs:374` (hardcoded `false`), doc: CLAUDE.md "Incremental Analysis" section. CLAUDE.md documents `repotoire ingest /path/to/repo` with incremental enabled by default, but the Analyze command definition (`cli/mod.rs:63-140`) does not expose an `--incremental` flag. The internal `incremental` parameter is always `false` from CLI; incremental mode only activates via auto-detection of a warm cache (`cli/analyze/setup.rs:120-136`).
-- [MISSING] `--since` CLI flag — source: `cli/mod.rs:375` (hardcoded `None`), doc: CLAUDE.md (implied by `files.rs` since-mode code). The `since` parameter is hardcoded to `None` at dispatch. The code in `cli/analyze/files.rs:65-82` handles `--since` mode but it is unreachable from CLI.
+- [~~MISSING~~] `--since` CLI flag — ~~source: `cli/mod.rs:375` (hardcoded `None`)~~ **RESOLVED** (c39fc72): `--since` flag exposed in CLI, wired through to `analyze::run()`.
 - [MISSING] Graph-level incremental re-ingestion with dependency-aware 3-hop traversal — source: not found in `repotoire-cli/src/`, doc: CLAUDE.md "Incremental Analysis" section (`_find_dependent_files()`, `ingest(incremental=True)`, `get_file_metadata()`). CLAUDE.md describes graph queries that find import relationships up to 3 hops and selectively re-ingest only affected files. No such functions exist in the Rust codebase. The documented Python methods (`_find_dependent_files()`, `ingest(incremental=True)`, `get_file_metadata()`) reference the legacy Python implementation that was never ported.
 - [MISSING] MD5 content hashing for file change detection — source: `detectors/incremental_cache.rs:269-289` (uses `DefaultHasher`, not MD5), doc: CLAUDE.md "Hash-based Change Detection: MD5 hashes stored in FalkorDB". The actual implementation uses `std::collections::hash_map::DefaultHasher` (SipHash), not MD5. Additionally, hashes are stored in a local JSON file (`findings_cache.json`), not in FalkorDB. The comment in `cache/paths.rs:52` explicitly notes: "Stable cross-version hash (#33). Using DefaultHasher instead of md5 crate."
 - [MISSING] FalkorDB graph storage for file hashes — source: `detectors/incremental_cache.rs:157-180` (JSON cache on disk), doc: CLAUDE.md "MD5 hashes stored in FalkorDB". File hashes are stored in `~/.cache/repotoire/<repo-hash>/incremental/findings_cache.json`, not in FalkorDB. The Rust CLI uses a local `GraphStore` (petgraph-based, in-memory), not FalkorDB.
-- [MISSING] Security: symlink rejection — source: not found in `repotoire-cli/src/`, doc: CLAUDE.md "Security Considerations" section ("Symlinks rejected by default"). Grep for `symlink` and `is_symlink` across the entire `src/` tree returns zero results. No symlink validation exists.
-- [MISSING] Security: file size limits (10MB default) — source: not found in `repotoire-cli/src/`, doc: CLAUDE.md "Security Considerations" section ("File size limits enforced, 10MB default"). Grep for `file_size`, `max_size`, `size_limit`, `10MB`, `10485760` returns no file-size enforcement code. Note: the parser module has a 2MB file skip guardrail (`parsers/mod.rs:66-76`) but this is undocumented and different from the claimed 10MB limit.
-- [MISSING] Security: repository boundary checks in analysis pipeline — source: only in `mcp/tools/files.rs:22-45`, doc: CLAUDE.md "Security Considerations" section ("Repository boundary checks prevent traversal attacks"). Path traversal protection exists only in the MCP `get_file` handler; the main analysis pipeline (`cli/analyze/files.rs`, `detectors/mod.rs:565-599`) does not perform boundary checks.
+- [~~MISSING~~] Security: symlink rejection — **RESOLVED** (c39fc72): `validate_file()` rejects symlinks via `symlink_metadata()` in all 3 file collection paths.
+- [~~MISSING~~] Security: file size limits — **RESOLVED** (c39fc72): `validate_file()` enforces 2MB limit at file collection time (matching parser guardrail). Files are now rejected before reaching parsers.
+- [~~MISSING~~] Security: repository boundary checks in analysis pipeline — **RESOLVED** (c39fc72): `validate_file()` canonicalizes paths and checks `starts_with(repo_canonical)` in all 3 file collection paths, including the git-output path that was vulnerable to `../../` traversal.
 - [MISSING] Performance: 37.5x speedup claim — source: not found, doc: CLAUDE.md "Performance Example" section. The documented example ("29 files in 8 seconds vs 5 minutes full analysis, 37.5x speedup") references graph-level incremental re-ingestion that does not exist in the Rust codebase. The actual incremental system (findings-level cache) can skip re-running detectors but still re-parses all files and rebuilds the graph on every run.
 
 ### Documented but Partial
 
 - [PARTIAL] Pipeline flow: scan -> parse -> batch -> load — source: `cli/analyze/mod.rs:1-10`, `cli/analyze/graph.rs:171-179`, `parsers/streaming.rs:519-593`, doc: CLAUDE.md "Core Pipeline Flow" section. The Rust pipeline follows: walk files -> parse (tree-sitter) -> batch insert into in-memory graph -> run detectors, which matches the documented flow structurally. However, the documented batch size of 100 is not the actual default; `streaming.rs:527` uses a configurable `batch_size` parameter, and `lightweight_parser.rs:124` recommends 500-2000. The `streaming_engine.rs:80` detector batch size defaults to 10.
 - [PARTIAL] Incremental analysis (hash-based change detection) — source: `detectors/incremental_cache.rs:1-873`, doc: CLAUDE.md "Incremental Analysis" section. The Rust codebase implements findings-level incremental caching, not graph-level incremental re-ingestion. `IncrementalCache` hashes files with `DefaultHasher`, compares to cached hashes, and skips detector re-runs for unchanged files. This is a fundamentally different (and more limited) system than what CLAUDE.md describes: (1) no dependency-aware traversal of affected files, (2) no selective graph re-ingestion, (3) graph is always rebuilt from scratch, (4) only detector findings are cached.
-- [PARTIAL] Pipeline module (`pipeline/mod.rs`) — source: `pipeline/mod.rs:1-138`, doc: CLAUDE.md "Pipeline" section. The module is marked `#![allow(dead_code)]` at line 10 with the comment "Module under development - structs/helpers used in tests only". The `Pipeline` struct holds a `GraphStore` reference and configuration but contains no actual orchestration logic (no `run()`, `ingest()`, or `analyze()` method). The real pipeline logic lives in `cli/analyze/mod.rs` and its sub-modules. This module is essentially a stub.
+- [~~PARTIAL~~] Pipeline module (`pipeline/mod.rs`) — **RESOLVED** (405c3f0): Dead stub module deleted (138 lines).
 
 ### Undocumented
 
@@ -341,12 +358,13 @@ are commented-out dead code from an earlier migration.
 
 ### Documented but Partial
 
-- [PARTIAL] Three-category scoring (Structure 40%, Quality 30%, Architecture 30%) — source: `config/project_config.rs:305-313`, doc: CLAUDE.md line 288. The **actual defaults** are correct at `0.4/0.3/0.3`. However, three separate places disagree:
-  1. The `explain()` function in `scoring/graph_scorer.rs:629` hardcodes the formula display as `"Structure x 0.33 + Quality x 0.34 + Architecture x 0.33"` — this does not reflect the actual default weights used in computation (line 322-323 reads from `config.scoring.pillar_weights`).
-  2. The `cli/init.rs:41` template shows users `structure = 0.30, quality = 0.40, architecture = 0.30` — inverted from the actual defaults (Structure gets the highest weight in code, but the template shows Quality highest).
-  3. The `detectors/health_delta.rs:187-189` hardcodes its own weights as `0.40/0.30/0.30` independently — correct values but duplicated rather than reading from config, risking drift.
+- [~~PARTIAL~~] Three-category scoring (Structure 40%, Quality 30%, Architecture 30%) — **RESOLVED** (de351c6): All 4 locations fixed:
+  1. `explain()` now reads weights dynamically from `self.config.scoring.pillar_weights`.
+  2. `cli/init.rs` template corrected to `0.40/0.30/0.30`.
+  3. `health_delta.rs` now has `from_weights(&PillarWeights)` constructor.
+  4. `scoring/mod.rs` doc comment updated with correct values and formula.
 - [PARTIAL] Grade mapping (A-F) — source: `scoring/graph_scorer.rs:585-611`, doc: CLAUDE.md line 558 ("Grade Coverage" in Lean proofs section). Implementation uses A+/A/A-/B+/B/B-/C+/C/C-/D+/D/D-/F (13 grades with +/- modifiers), which is more granular than the documented "A-F" claim. The grade is purely score-based with no severity caps (confirmed by comment at line 581-583 and test at line 740-748). Lean proofs in `lean/Repotoire/HealthScore.lean` verify boundary correctness, but CLAUDE.md does not mention the +/- modifiers.
-- [PARTIAL] Severity penalty weights — source: `scoring/graph_scorer.rs:233-240`, doc: `scoring/mod.rs:27-30`. The doc comment in `mod.rs` claims Critical=10, High=5, Medium=1.5, Low=0.3. Actual implementation uses Critical=8, High=4, Medium=1, Low=0.2. The doc comment is stale.
+- [~~PARTIAL~~] Severity penalty weights — **RESOLVED** (de351c6): Doc comment in `scoring/mod.rs` updated to match actual values (Critical=8, High=4, Medium=1, Low=0.2).
 - [PARTIAL] Adaptive thresholds per codebase — source: `calibrate/` module (all 5 files), doc: CLAUDE.md does not explicitly document adaptive thresholds as a scoring feature, but references configurable thresholds. The `calibrate/` module is fully implemented: `collector.rs` gathers metric distributions from parsed code (excluding test/generated/vendor files), `profile.rs` defines `StyleProfile` with p50/p75/p90/p95 percentiles, `resolver.rs` provides `ThresholdResolver` with floor/ceiling guardrails (never below default, capped at 5x default), and `ngram.rs` provides surprisal-based anomaly detection. These feed into **detector thresholds** (e.g., `deep_nesting.rs`, `long_parameter.rs`, `long_methods.rs`, `architectural_bottleneck.rs`), NOT into the scoring formula itself. The calibrate module is fully wired (used by detectors via `DetectorContext.adaptive`, loaded from `.repotoire/style-profile.json`, CLI `repotoire calibrate` command exists at `cli/mod.rs:435`).
 
 ### Undocumented
@@ -358,4 +376,4 @@ are commented-out dead code from an earlier migration.
 - [UNDOCUMENTED] Security multiplier (default 3.0x) — source: `config/project_config.rs:257-277`, used in `scoring/graph_scorer.rs:262-266`. Security-related findings receive a configurable multiplier (default 3x) on their penalty. Detection is broad: checks category, detector name, and CWE ID presence (`is_security_finding()` at line 544-559). Documented only in `scoring/mod.rs:31` doc comment, not in CLAUDE.md.
 - [UNDOCUMENTED] Pillar weight normalization — source: `scoring/graph_scorer.rs:314-321`. If user-configured pillar weights do not sum to 1.0, they are automatically normalized with a warning. Validation (`is_valid()`) and normalization (`normalize()`) are implemented in `config/project_config.rs:315-331`.
 - [UNDOCUMENTED] N-gram surprisal detector — source: `calibrate/ngram.rs`, `detectors/surprisal.rs`. A full token n-gram language model that learns project coding patterns and flags statistically unusual code (high entropy lines). Based on Ray & Hellendoorn 2015. Requires running `repotoire calibrate` first. Not mentioned in CLAUDE.md's detector list or scoring documentation.
-- [UNDOCUMENTED] `init.rs` template weight inversion bug — source: `cli/init.rs:41`. The config template shown to users via `repotoire init` suggests `structure = 0.30, quality = 0.40, architecture = 0.30`, which inverts the actual defaults (`structure = 0.40, quality = 0.30, architecture = 0.30`). Users who uncomment the template will get different weights than the default behavior.
+- [~~UNDOCUMENTED~~] `init.rs` template weight inversion bug — **RESOLVED** (de351c6): Template corrected to `structure = 0.40, quality = 0.30, architecture = 0.30`.
