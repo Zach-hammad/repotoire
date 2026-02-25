@@ -156,8 +156,9 @@ impl Detector for DeepNestingDetector {
                 let mut current_depth = 0;
                 let mut max_line = 0;
 
-                for (i, line) in content.lines().enumerate() {
-                    for ch in line.chars() {
+                let line_braces = structural_braces_multiline(&content);
+                for (i, braces) in line_braces.iter().enumerate() {
+                    for &ch in braces {
                         if ch == '{' {
                             current_depth += 1;
                             if current_depth > max_depth {
@@ -305,6 +306,101 @@ impl Detector for DeepNestingDetector {
     }
 }
 
+/// Extract structural braces from each line of a file, properly handling
+/// multi-line strings, raw strings, and comments.
+/// Returns a Vec of brace-chars per line (indexed by line number).
+fn structural_braces_multiline(content: &str) -> Vec<Vec<char>> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result: Vec<Vec<char>> = vec![Vec::new(); lines.len()];
+    let mut in_string = false;
+    let mut string_quote = '"';
+    let mut in_block_comment = false;
+    let mut in_raw_string = false;
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        let mut chars = line.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            // Inside a raw string (r#"..."#), skip until closing "#
+            if in_raw_string {
+                if ch == '"' && chars.peek() == Some(&'#') {
+                    chars.next(); // consume #
+                    in_raw_string = false;
+                }
+                continue;
+            }
+
+            // Inside a block comment
+            if in_block_comment {
+                if ch == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    in_block_comment = false;
+                }
+                continue;
+            }
+
+            // Inside a string literal
+            if in_string {
+                if ch == '\\' {
+                    chars.next(); // skip escaped character
+                } else if ch == string_quote {
+                    in_string = false;
+                }
+                continue;
+            }
+
+            match ch {
+                // Raw string: r#"..."#
+                'r' if chars.peek() == Some(&'#') => {
+                    let mut peek_chars = chars.clone();
+                    peek_chars.next(); // skip #
+                    if peek_chars.peek() == Some(&'"') {
+                        chars.next(); // consume #
+                        chars.next(); // consume "
+                        in_raw_string = true;
+                    }
+                }
+                '"' | '`' => {
+                    in_string = true;
+                    string_quote = ch;
+                }
+                '\'' => {
+                    // In Rust, 'x' is a char literal (skip it).
+                    // In Python/JS, 'x' is a string (skip it).
+                    // Either way, skip the quoted content.
+                    in_string = true;
+                    string_quote = ch;
+                }
+                // Block comments
+                '/' if chars.peek() == Some(&'*') => {
+                    chars.next();
+                    in_block_comment = true;
+                }
+                // Line comments — rest of line is not structural
+                '/' if chars.peek() == Some(&'/') => break,
+                // Python/Ruby line comments (only at start of meaningful content)
+                '#' if line.trim_start().starts_with('#') && result[line_idx].is_empty() => break,
+                '{' | '}' => result[line_idx].push(ch),
+                _ => {}
+            }
+        }
+
+        // Regular strings don't span lines (only raw strings and block comments do)
+        if in_string {
+            in_string = false;
+        }
+    }
+    result
+}
+
+/// Extract only structural braces from a single line (for unit tests).
+/// Does not handle multi-line strings.
+#[cfg(test)]
+fn structural_braces(line: &str) -> Vec<char> {
+    let result = structural_braces_multiline(line);
+    result.into_iter().flat_map(|v| v).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,5 +440,63 @@ mod tests {
             "Should not detect deep nesting for shallow code, but got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_structural_braces_skips_format_strings() {
+        let empty: Vec<char> = vec![];
+        // format!("{}", x) should not count the {} inside the string
+        assert_eq!(structural_braces(r#"format!("{}", x)"#), empty);
+        assert_eq!(structural_braces(r#"println!("hello {}", name)"#), empty);
+        // Escaped braces in format strings: {{}} should not count
+        assert_eq!(structural_braces(r#"format!("{{escaped}}")"#), empty);
+    }
+
+    #[test]
+    fn test_structural_braces_counts_real_braces() {
+        assert_eq!(structural_braces("if x {"), vec!['{']);
+        assert_eq!(structural_braces("}"), vec!['}']);
+        assert_eq!(structural_braces("fn main() {"), vec!['{']);
+        assert_eq!(
+            structural_braces("match x { Some(y) => { y } }"),
+            vec!['{', '{', '}', '}']
+        );
+    }
+
+    #[test]
+    fn test_structural_braces_skips_comments() {
+        let empty: Vec<char> = vec![];
+        // Braces in comments should be ignored
+        assert_eq!(structural_braces("// if x {"), empty);
+        assert_eq!(structural_braces("let x = 1; // {"), empty);
+        assert_eq!(structural_braces("# python {"), empty);
+    }
+
+    #[test]
+    fn test_structural_braces_mixed() {
+        // Real brace + format string brace
+        assert_eq!(
+            structural_braces(r#"if x { println!("{}", y); }"#),
+            vec!['{', '}']
+        );
+    }
+
+    #[test]
+    fn test_multiline_raw_string_skips_css_braces() {
+        // Simulates embedded CSS in a raw string (like html.rs)
+        let content = "const CSS: &str = r#\"\n.body { color: red; }\n.header { padding: 1rem; }\n\"#;\nfn main() {\n}\n";
+        let braces = structural_braces_multiline(content);
+        // Lines: [0] r#" opener, [1] .body { }, [2] .header { }, [3] "#;, [4] fn main() {, [5] }
+        // Only lines 4 and 5 should have structural braces
+        let all_braces: Vec<char> = braces.into_iter().flat_map(|v| v).collect();
+        assert_eq!(all_braces, vec!['{', '}']);
+    }
+
+    #[test]
+    fn test_multiline_block_comment_skips_braces() {
+        let content = "fn foo() {\n/* this { has } braces */\nlet x = 1;\n}\n";
+        let braces = structural_braces_multiline(content);
+        let all_braces: Vec<char> = braces.into_iter().flat_map(|v| v).collect();
+        assert_eq!(all_braces, vec!['{', '}']);
     }
 }

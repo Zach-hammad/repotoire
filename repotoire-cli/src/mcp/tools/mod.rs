@@ -7,4 +7,4 @@ pub mod ai;
 pub mod analysis;
 pub mod evolution;
 pub mod files;
-pub mod graph;
+pub mod graph_queries;

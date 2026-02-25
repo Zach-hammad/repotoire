@@ -151,7 +151,7 @@ impl RepotoireServer {
         let state = self.state.clone();
         let result = tokio::task::spawn_blocking(move || {
             let mut state = state.blocking_write();
-            super::tools::graph::handle_query_graph(&mut state, &params)
+            super::tools::graph_queries::handle_query_graph(&mut state, &params)
         })
         .await
         .map_err(|e| McpError::internal_error(e.to_string(), None))?
@@ -172,7 +172,7 @@ impl RepotoireServer {
         let state = self.state.clone();
         let result = tokio::task::spawn_blocking(move || {
             let mut state = state.blocking_write();
-            super::tools::graph::handle_trace_dependencies(&mut state, &params)
+            super::tools::graph_queries::handle_trace_dependencies(&mut state, &params)
         })
         .await
         .map_err(|e| McpError::internal_error(e.to_string(), None))?
@@ -193,7 +193,7 @@ impl RepotoireServer {
         let state = self.state.clone();
         let result = tokio::task::spawn_blocking(move || {
             let mut state = state.blocking_write();
-            super::tools::graph::handle_analyze_impact(&mut state, &params)
+            super::tools::graph_queries::handle_analyze_impact(&mut state, &params)
         })
         .await
         .map_err(|e| McpError::internal_error(e.to_string(), None))?
