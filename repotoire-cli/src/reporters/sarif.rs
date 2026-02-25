@@ -234,42 +234,42 @@ fn build_sarif(report: &HealthReport) -> SarifReport {
         .map(|(i, f)| build_result(f, i))
         .collect();
 
+    let driver = SarifDriver {
+        name: "Repotoire".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        information_uri: "https://repotoire.com".to_string(),
+        rules,
+    };
+    let run = SarifRun {
+        tool: SarifTool { driver },
+        results,
+        invocations: vec![build_invocation(report)],
+        original_uri_base_ids: None,
+    };
     SarifReport {
         schema: SARIF_SCHEMA.to_string(),
         version: SARIF_VERSION.to_string(),
-        runs: vec![SarifRun {
-            tool: SarifTool {
-                driver: SarifDriver {
-                    name: "Repotoire".to_string(),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    information_uri: "https://repotoire.com".to_string(),
-                    rules,
-                },
-            },
-            results,
-            invocations: vec![build_invocation(report)],
-            original_uri_base_ids: None,
-        }],
+        runs: vec![run],
     }
 }
 
 /// Build a SARIF rule from a detector
 fn build_invocation(report: &HealthReport) -> SarifInvocation {
+    let message_text = format!(
+        "Analysis complete. Grade: {}, Score: {:.1}/100",
+        report.grade, report.overall_score
+    );
+    let notification = SarifNotification {
+        level: "note".to_string(),
+        message: SarifMessage { text: message_text },
+        descriptor: SarifDescriptor {
+            id: "summary".to_string(),
+        },
+    };
     SarifInvocation {
         execution_successful: true,
         end_time_utc: Utc::now().to_rfc3339(),
-        tool_execution_notifications: vec![SarifNotification {
-            level: "note".to_string(),
-            message: SarifMessage {
-                text: format!(
-                    "Analysis complete. Grade: {}, Score: {:.1}/100",
-                    report.grade, report.overall_score
-                ),
-            },
-            descriptor: SarifDescriptor {
-                id: "summary".to_string(),
-            },
-        }],
+        tool_execution_notifications: vec![notification],
     }
 }
 

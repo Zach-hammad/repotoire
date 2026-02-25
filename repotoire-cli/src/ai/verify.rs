@@ -60,11 +60,7 @@ impl FindingVerifier {
         // Read code context
         let code_context = match self.read_code_context(finding) {
             Ok(ctx) => ctx,
-            Err(e) => {
-                return VerifyResult::Error {
-                    message: e.to_string(),
-                }
-            }
+            Err(e) => return VerifyResult::Error { message: e.to_string() },
         };
 
         // Build verification prompt
@@ -141,34 +137,39 @@ FALSE_POSITIVE: <brief reason>"#,
 
         if response.starts_with("TRUE_POSITIVE:") {
             let reason = response.strip_prefix("TRUE_POSITIVE:").unwrap_or("").trim();
-            VerifyResult::TruePositive {
+            return VerifyResult::TruePositive {
                 reason: reason.to_string(),
-            }
-        } else if response.starts_with("FALSE_POSITIVE:") {
+            };
+        }
+        if response.starts_with("FALSE_POSITIVE:") {
             let reason = response
                 .strip_prefix("FALSE_POSITIVE:")
                 .unwrap_or("")
                 .trim();
-            VerifyResult::FalsePositive {
+            return VerifyResult::FalsePositive {
                 reason: reason.to_string(),
-            }
-        } else {
-            // Try to infer from content
-            let lower = response.to_lowercase();
-            if lower.contains("false positive") || lower.contains("not a real") {
-                VerifyResult::FalsePositive {
-                    reason: response.to_string(),
-                }
-            } else if lower.contains("true positive") || lower.contains("real issue") {
-                VerifyResult::TruePositive {
-                    reason: response.to_string(),
-                }
-            } else {
-                // Default to keeping the finding (conservative)
-                VerifyResult::TruePositive {
-                    reason: "Unable to parse response, keeping finding".to_string(),
-                }
-            }
+            };
+        }
+        // Try to infer from content
+        infer_verify_result(response)
+    }
+}
+
+/// Infer verification result from unstructured LLM response text.
+fn infer_verify_result(response: &str) -> VerifyResult {
+    let lower = response.to_lowercase();
+    if lower.contains("false positive") || lower.contains("not a real") {
+        VerifyResult::FalsePositive {
+            reason: response.to_string(),
+        }
+    } else if lower.contains("true positive") || lower.contains("real issue") {
+        VerifyResult::TruePositive {
+            reason: response.to_string(),
+        }
+    } else {
+        // Default to keeping the finding (conservative)
+        VerifyResult::TruePositive {
+            reason: "Unable to parse response, keeping finding".to_string(),
         }
     }
 }

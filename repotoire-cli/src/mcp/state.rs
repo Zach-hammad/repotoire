@@ -84,10 +84,9 @@ impl HandlerState {
                 {
                     continue;
                 }
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
-                    model.train_on_tokens(&tokens);
-                }
+                let Ok(content) = std::fs::read_to_string(path) else { continue; };
+                let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
+                model.train_on_tokens(&tokens);
             }
             if model.is_confident() {
                 tracing::info!("MCP: Learned coding patterns ({} tokens, {} vocabulary)",

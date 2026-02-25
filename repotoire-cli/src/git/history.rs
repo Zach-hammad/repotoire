@@ -238,21 +238,20 @@ impl GitHistory {
             // Process each file in the diff
             diff.foreach(
                 &mut |delta, _| {
-                    if let Some(path) = delta.new_file().path() {
-                        let path_str = path.to_string_lossy().to_string();
-                        let entry = churn_map.entry(path_str).or_default();
-                        entry.commit_count += 1;
+                    let Some(path) = delta.new_file().path() else { return true; };
+                    let path_str = path.to_string_lossy().to_string();
+                    let entry = churn_map.entry(path_str).or_default();
+                    entry.commit_count += 1;
 
-                        // Track authors
-                        if !entry.authors.contains(&author) {
-                            entry.authors.push(author.clone());
-                        }
+                    // Track authors
+                    if !entry.authors.contains(&author) {
+                        entry.authors.push(author.clone());
+                    }
 
-                        // Update last modified if this is newer
-                        if entry.last_modified.is_none() {
-                            entry.last_modified = Some(timestamp.clone());
-                            entry.last_author = Some(author.clone());
-                        }
+                    // Update last modified if this is newer
+                    if entry.last_modified.is_none() {
+                        entry.last_modified = Some(timestamp.clone());
+                        entry.last_author = Some(author.clone());
                     }
                     true
                 },
@@ -346,12 +345,8 @@ impl GitHistory {
         let mut files = Vec::new();
         tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
             if entry.kind() == Some(git2::ObjectType::Blob) {
-                let path = if dir.is_empty() {
-                    entry.name().unwrap_or("").to_string()
-                } else {
-                    format!("{}{}", dir, entry.name().unwrap_or(""))
-                };
-                files.push(path);
+                let name = entry.name().unwrap_or("");
+                files.push(format!("{dir}{name}"));
             }
             git2::TreeWalkResult::Ok
         })?;

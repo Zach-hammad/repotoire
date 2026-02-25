@@ -46,26 +46,28 @@ pub fn escalate_compound_smells(findings: &mut [Finding]) {
 
         let detector_count = unique_detectors.len();
 
-        if detector_count >= 2 {
-            // Mark as compound smell (for prioritization in UI/reports)
-            for &idx in indices {
-                // Add metadata without changing severity
-                if !findings[idx].description.starts_with("[COMPOUND") {
-                    findings[idx].description = format!(
-                        "[COMPOUND: {} co-located issues] {}",
-                        detector_count, findings[idx].description
-                    );
-                    // Boost confidence for compound smells, clamped to 1.0 (#67)
-                    findings[idx].confidence =
-                        Some((findings[idx].confidence.unwrap_or(0.7) + 0.1).min(1.0));
-                }
-            }
-            debug!(
-                "Marked {} findings as compound smell ({} detectors)",
-                indices.len(),
-                detector_count
-            );
+        if detector_count < 2 {
+            continue;
         }
+        // Mark as compound smell (for prioritization in UI/reports)
+        for &idx in indices {
+            if findings[idx].description.starts_with("[COMPOUND") {
+                continue;
+            }
+            // Add metadata without changing severity
+            findings[idx].description = format!(
+                "[COMPOUND: {} co-located issues] {}",
+                detector_count, findings[idx].description
+            );
+            // Boost confidence for compound smells, clamped to 1.0 (#67)
+            findings[idx].confidence =
+                Some((findings[idx].confidence.unwrap_or(0.7) + 0.1).min(1.0));
+        }
+        debug!(
+            "Marked {} findings as compound smell ({} detectors)",
+            indices.len(),
+            detector_count
+        );
     }
 }
 
@@ -726,14 +728,15 @@ impl<'a> GraphScorer<'a> {
             if !active_bonuses.is_empty() {
                 lines.push("- Bonuses (additive, capped at 50% of penalty):".to_string());
                 for (name, value) in &active_bonuses {
-                    lines.push(format!("  - {}: +{:.1} pts", name, value * 100.0));
+                    let pts = value * 100.0;
+                    lines.push(format!("  - {name}: +{pts:.1} pts"));
                 }
-                if capped < total_bonus {
-                    lines.push(format!(
-                        "  - *(capped from {:.1} to {:.1} pts)*",
-                        total_bonus, capped
-                    ));
-                }
+            }
+            if capped < total_bonus {
+                lines.push(format!(
+                    "  - *(capped from {:.1} to {:.1} pts)*",
+                    total_bonus, capped
+                ));
             }
             lines.push(format!("- Final: {:.1}", pillar.final_score));
             lines.push(format!("- Findings: {}\n", pillar.finding_count));

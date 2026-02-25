@@ -178,11 +178,9 @@ pub(super) fn parse_files_chunked(
                 }
 
                 // Try cache first
-                if let Ok(cache_guard) = cache.lock() {
-                    if let Some(cached) = cache_guard.cached_parse(file_path) {
-                        cache_hits.fetch_add(1, Ordering::Relaxed);
-                        return Some((file_path.clone(), cached));
-                    }
+                if let Some(cached) = cache.lock().ok().and_then(|g| g.cached_parse(file_path)) {
+                    cache_hits.fetch_add(1, Ordering::Relaxed);
+                    return Some((file_path.clone(), cached));
                 }
 
                 // Parse and cache

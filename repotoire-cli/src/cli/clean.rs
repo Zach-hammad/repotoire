@@ -52,29 +52,23 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
     let mut removed = 0;
     for (kind, dir) in &to_remove {
         // For legacy .repotoire dirs, preserve style-profile.json
-        if kind == "Legacy" {
+        // For legacy dirs, save style-profile.json before removal
+        let profile_backup = (kind == "Legacy").then(|| {
             let profile = dir.join("style-profile.json");
-            let profile_backup = profile
-                .exists()
-                .then(|| std::fs::read(&profile).ok())
-                .flatten();
-            if let Err(e) = std::fs::remove_dir_all(dir) {
-                eprintln!("Failed to remove {}: {}", dir.display(), e);
-                continue;
-            }
-            // Restore style profile if it existed
-            if let Some(data) = profile_backup {
-                let _ = std::fs::create_dir_all(dir);
-                let _ = std::fs::write(&profile, data);
-                println!("Removed: {} (preserved style-profile.json)", dir.display());
-            } else {
-                println!("Removed: {}", dir.display());
-            }
+            profile.exists().then(|| std::fs::read(&profile).ok()).flatten()
+        }).flatten();
+
+        if let Err(e) = std::fs::remove_dir_all(dir) {
+            eprintln!("Failed to remove {}: {}", dir.display(), e);
+            continue;
+        }
+
+        // Restore style profile if it existed
+        if let Some(data) = profile_backup {
+            let _ = std::fs::create_dir_all(dir);
+            let _ = std::fs::write(dir.join("style-profile.json"), data);
+            println!("Removed: {} (preserved style-profile.json)", dir.display());
         } else {
-            if let Err(e) = std::fs::remove_dir_all(dir) {
-                eprintln!("Failed to remove {}: {}", dir.display(), e);
-                continue;
-            }
             println!("Removed: {}", dir.display());
         }
         removed += 1;

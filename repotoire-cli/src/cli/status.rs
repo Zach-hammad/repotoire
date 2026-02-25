@@ -27,28 +27,30 @@ pub fn run(path: &Path) -> Result<()> {
 
         // Try to get stats from cached JSON (faster than loading graph)
         let stats_path = crate::cache::graph_stats_path(&repo_path);
-        if let Ok(stats_json) = std::fs::read_to_string(&stats_path) {
-            if let Ok(stats) = serde_json::from_str::<serde_json::Value>(&stats_json) {
-                let file_count = stats
-                    .get("total_files")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                let func_count = stats
-                    .get("total_functions")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                let class_count = stats
-                    .get("total_classes")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+        if let Ok(stats) = std::fs::read_to_string(&stats_path)
+            .ok()
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
+            .ok_or(())
+        {
+            let file_count = stats
+                .get("total_files")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let func_count = stats
+                .get("total_functions")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let class_count = stats
+                .get("total_classes")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
 
-                println!(
-                    "      {} files, {} functions, {} classes",
-                    style(file_count).cyan(),
-                    style(func_count).cyan(),
-                    style(class_count).cyan()
-                );
-            }
+            println!(
+                "      {} files, {} functions, {} classes",
+                style(file_count).cyan(),
+                style(func_count).cyan(),
+                style(class_count).cyan()
+            );
         }
     } else {
         println!(

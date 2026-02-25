@@ -107,10 +107,8 @@ impl FpClassifier {
         let mut hidden = vec![0.0f32; self.hidden_size];
         for (i, h) in hidden.iter_mut().enumerate() {
             let mut sum = self.b1[i];
-            for (j, &x) in features.values.iter().enumerate() {
-                if j < self.w1[i].len() {
-                    sum += self.w1[i][j] * x;
-                }
+            for (&x, &w) in features.values.iter().zip(self.w1[i].iter()) {
+                sum += w * x;
             }
             *h = sum.max(0.0); // ReLU
         }
@@ -155,10 +153,8 @@ impl FpClassifier {
             let mut hidden = vec![0.0f32; self.hidden_size];
             for (i, h) in hidden.iter_mut().enumerate() {
                 let mut sum = self.b1[i];
-                for (j, &x) in feat.values.iter().enumerate() {
-                    if j < self.w1[i].len() {
-                        sum += self.w1[i][j] * x;
-                    }
+                for (&x, &w) in feat.values.iter().zip(self.w1[i].iter()) {
+                    sum += w * x;
                 }
                 *h = sum.max(0.0);
             }

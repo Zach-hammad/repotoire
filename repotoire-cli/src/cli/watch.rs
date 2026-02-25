@@ -54,10 +54,9 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !WATCH_EXTENSIONS.contains(&ext) { continue; }
             if is_ignored_path(path, &repo_path) { continue; }
-            if let Ok(content) = std::fs::read_to_string(path) {
-                let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
-                model.train_on_tokens(&tokens);
-            }
+            let Ok(content) = std::fs::read_to_string(path) else { continue; };
+            let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
+            model.train_on_tokens(&tokens);
         }
         if model.is_confident() {
             if !quiet {

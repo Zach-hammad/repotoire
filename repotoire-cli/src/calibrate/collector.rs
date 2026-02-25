@@ -129,20 +129,18 @@ pub fn collect_metrics(
     );
 
     for kind in MetricKind::all() {
-        if let Some(dist) = metrics.get(kind) {
-            if dist.confident {
-                info!(
-                    "  {}: mean={:.1}, p50={:.0}, p90={:.0}, p95={:.0}, max={:.0} (n={})",
-                    kind.name(),
-                    dist.mean,
-                    dist.p50,
-                    dist.p90,
-                    dist.p95,
-                    dist.max,
-                    dist.count
-                );
-            }
-        }
+        let Some(dist) = metrics.get(kind) else { continue; };
+        if !dist.confident { continue; }
+        info!(
+            "  {}: mean={:.1}, p50={:.0}, p90={:.0}, p95={:.0}, max={:.0} (n={})",
+            kind.name(),
+            dist.mean,
+            dist.p50,
+            dist.p90,
+            dist.p95,
+            dist.max,
+            dist.count
+        );
     }
 
     StyleProfile {

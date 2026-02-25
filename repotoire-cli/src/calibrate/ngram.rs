@@ -90,42 +90,21 @@ impl NgramModel {
 
                 // String literals → normalize to <STR>
                 '"' | '\'' | '`' => {
-                    let quote = ch;
                     chars.next();
-                    while let Some(&c) = chars.peek() {
-                        chars.next();
-                        if c == quote { break; }
-                        if c == '\\' { chars.next(); } // skip escaped
-                    }
+                    consume_string_literal(&mut chars, ch);
                     tokens.push("<STR>".to_string());
                 }
 
                 // Numbers → normalize to <NUM>
                 '0'..='9' => {
-                    while chars.peek().is_some_and(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == 'x' || *c == '_') {
-                        chars.next();
-                    }
+                    consume_number(&mut chars);
                     tokens.push("<NUM>".to_string());
                 }
 
                 // Identifiers and keywords
                 'a'..='z' | 'A'..='Z' | '_' => {
-                    let mut word = String::new();
-                    while chars.peek().is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_') {
-                        if let Some(c) = chars.next() {
-                            word.push(c);
-                        }
-                    }
-                    // Keep keywords as-is, normalize identifiers by pattern
-                    if is_keyword(&word) {
-                        tokens.push(word);
-                    } else if word.chars().all(|c| c.is_uppercase() || c == '_') {
-                        tokens.push("<CONST>".to_string()); // SCREAMING_CASE constant
-                    } else if word.starts_with(|c: char| c.is_uppercase()) {
-                        tokens.push("<TYPE>".to_string()); // PascalCase type
-                    } else {
-                        tokens.push("<ID>".to_string()); // snake_case / camelCase identifier
-                    }
+                    let word = consume_identifier(&mut chars);
+                    tokens.push(classify_identifier(word));
                 }
 
                 // Operators and punctuation — keep as-is (they carry structure)
@@ -259,6 +238,49 @@ impl NgramModel {
 impl Default for NgramModel {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Consume a numeric literal (digits, hex prefix, underscores, decimal point).
+fn consume_number(chars: &mut std::iter::Peekable<std::str::Chars>) {
+    while chars
+        .peek()
+        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == 'x' || *c == '_')
+    {
+        chars.next();
+    }
+}
+
+/// Consume a string literal (everything up to and including the closing quote).
+fn consume_string_literal(chars: &mut std::iter::Peekable<std::str::Chars>, quote: char) {
+    while let Some(&c) = chars.peek() {
+        chars.next();
+        if c == quote { break; }
+        if c == '\\' { chars.next(); } // skip escaped char
+    }
+}
+
+/// Consume an identifier (alphanumeric + underscore sequence) and return it.
+fn consume_identifier(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
+    let mut word = String::new();
+    while chars.peek().is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_') {
+        if let Some(c) = chars.next() {
+            word.push(c);
+        }
+    }
+    word
+}
+
+/// Classify an identifier as keyword, constant, type, or generic identifier token.
+fn classify_identifier(word: String) -> String {
+    if is_keyword(&word) {
+        word
+    } else if word.chars().all(|c| c.is_uppercase() || c == '_') {
+        "<CONST>".to_string()
+    } else if word.starts_with(|c: char| c.is_uppercase()) {
+        "<TYPE>".to_string()
+    } else {
+        "<ID>".to_string()
     }
 }
 

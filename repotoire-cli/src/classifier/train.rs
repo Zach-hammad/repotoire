@@ -126,12 +126,9 @@ pub fn train(config: &TrainConfig) -> Result<TrainResult, String> {
             epoch_loss += loss * chunk.len() as f32;
 
             // Count correct
-            for (f, label) in chunk {
-                let pred = model.predict(f);
-                if pred.is_true_positive == *label {
-                    correct += 1;
-                }
-            }
+            correct += chunk.iter()
+                .filter(|(f, label)| model.predict(f).is_true_positive == *label)
+                .count();
         }
 
         train_loss = epoch_loss / train_data.len() as f32;
@@ -144,9 +141,7 @@ pub fn train(config: &TrainConfig) -> Result<TrainResult, String> {
 
             for (f, label) in val_data {
                 let pred = model.predict(f);
-                if pred.is_true_positive == *label {
-                    correct += 1;
-                }
+                correct += usize::from(pred.is_true_positive == *label);
                 // Cross-entropy loss
                 let prob = if *label {
                     pred.tp_probability

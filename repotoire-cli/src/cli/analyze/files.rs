@@ -274,12 +274,10 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
             let new_files = String::from_utf8_lossy(&out.stdout);
             for line in new_files.lines().filter(|l| !l.is_empty()) {
                 let path = repo_path.join(line);
-                if path.exists() {
-                    if let Some(validated) = validate_file(&path, &repo_canonical) {
-                        if !files.contains(&validated) {
-                            files.push(validated);
-                        }
-                    }
+                if !path.exists() { continue; }
+                let Some(validated) = validate_file(&path, &repo_canonical) else { continue; };
+                if !files.contains(&validated) {
+                    files.push(validated);
                 }
             }
         }

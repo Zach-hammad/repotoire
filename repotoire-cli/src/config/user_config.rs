@@ -43,12 +43,12 @@ impl UserConfig {
         let mut config = UserConfig::default();
 
         // Load user config
-        if let Some(path) = Self::user_config_path().filter(|p| p.exists()) {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(user_config) = toml::from_str::<UserConfig>(&content) {
-                    config.merge(user_config);
-                }
-            }
+        if let Some(user_config) = Self::user_config_path()
+            .filter(|p| p.exists())
+            .and_then(|p| std::fs::read_to_string(&p).ok())
+            .and_then(|content| toml::from_str::<UserConfig>(&content).ok())
+        {
+            config.merge(user_config);
         }
 
         // Environment variables override everything

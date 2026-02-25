@@ -425,13 +425,12 @@ impl ModuleLookup {
 
                 // TypeScript/JavaScript patterns
                 for ext in &[".ts", ".tsx", ".js", ".jsx", ".mjs"] {
-                    if relative_str.ends_with(ext) {
-                        let base = relative_str.trim_end_matches(ext);
-                        patterns.push(base.to_string());
-                        // index.ts -> parent dir name
-                        if base.ends_with("/index") {
-                            patterns.push(base.trim_end_matches("/index").to_string());
-                        }
+                    if !relative_str.ends_with(ext) { continue; }
+                    let base = relative_str.trim_end_matches(ext);
+                    patterns.push(base.to_string());
+                    // index.ts -> parent dir name
+                    if base.ends_with("/index") {
+                        patterns.push(base.trim_end_matches("/index").to_string());
                     }
                 }
 
@@ -522,11 +521,12 @@ impl ModuleLookup {
         // Final fallback: check all patterns for partial matches
         if matches.is_empty() {
             for (pattern, candidates) in &self.by_pattern {
-                if pattern.contains(clean_import) || clean_import.contains(pattern.as_str()) {
-                    for (path, _) in candidates {
-                        if !matches.contains(path) {
-                            matches.push(path.clone());
-                        }
+                if !pattern.contains(clean_import) && !clean_import.contains(pattern.as_str()) {
+                    continue;
+                }
+                for (path, _) in candidates {
+                    if !matches.contains(path) {
+                        matches.push(path.clone());
                     }
                 }
             }

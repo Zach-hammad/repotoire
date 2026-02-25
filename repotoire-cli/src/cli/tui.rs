@@ -56,11 +56,7 @@ impl AgentTask {
         };
         match child.try_wait() {
             Ok(Some(status)) => {
-                self.status = if status.success() {
-                    AgentStatus::Completed(true)
-                } else {
-                    AgentStatus::Failed(format!("Exit code: {:?}", status.code()))
-                };
+                self.status = agent_status_from_exit(status);
                 self.child = None;
                 true
             }
@@ -88,18 +84,19 @@ impl AgentTask {
 
     /// Cancel/kill the running agent process
     fn cancel(&mut self) -> bool {
-        if let Some(ref mut child) = self.child {
-            match child.kill() {
-                Ok(()) => {
-                    self.status = AgentStatus::Failed("Cancelled by user".to_string());
-                    self.child = None;
-                    true
-                }
-                Err(_) => false,
-            }
-        } else {
-            false
-        }
+        let Some(ref mut child) = self.child else { return false; };
+        if child.kill().is_err() { return false; }
+        self.status = AgentStatus::Failed("Cancelled by user".to_string());
+        self.child = None;
+        true
+    }
+}
+
+fn agent_status_from_exit(status: std::process::ExitStatus) -> AgentStatus {
+    if status.success() {
+        AgentStatus::Completed(true)
+    } else {
+        AgentStatus::Failed(format!("Exit code: {:?}", status.code()))
     }
 }
 

@@ -694,53 +694,47 @@ fn display_rule_fix(
     // Auto-apply logic
     let should_apply = options.apply || options.auto;
 
-    if rule_fix.auto_applicable && rule_fix.patch.is_some() {
-        if should_apply {
-            // Confirm unless --auto is set
-            let confirmed = if options.auto {
-                true
-            } else {
-                confirm("Apply this fix?")?
-            };
+    if rule_fix.auto_applicable && rule_fix.patch.is_some() && !should_apply {
+        term.write_line(&format!(
+            "{} This fix can be auto-applied.",
+            style("💡").cyan()
+        ))?;
+        term.write_line(&format!(
+            "   Run {}\n",
+            style(format!("repotoire fix {} --apply", index)).cyan()
+        ))?;
+    } else if rule_fix.auto_applicable && rule_fix.patch.is_some() && should_apply {
+        let confirmed = if options.auto { true } else { confirm("Apply this fix?")? };
 
-            if confirmed {
-                let file_path = finding
-                    .affected_files
-                    .first()
-                    .ok_or_else(|| anyhow::anyhow!("No file path in finding"))?;
-
-                match apply_rule_fix(path, file_path, finding, rule_fix) {
-                    Ok(()) => {
-                        term.write_line(&format!(
-                            "{} Fix applied successfully!",
-                            style("✓").green().bold()
-                        ))?;
-                        term.write_line(&format!(
-                            "   Re-run analysis to verify: {}\n",
-                            style("repotoire analyze").cyan()
-                        ))?;
-                    }
-                    Err(e) => {
-                        term.write_line(&format!(
-                            "{} Failed to apply fix: {}",
-                            style("✗").red().bold(),
-                            e
-                        ))?;
-                        term.write_line("Please apply the changes manually.\n")?;
-                    }
-                }
-            } else {
-                term.write_line(&format!("\n{} Fix not applied.\n", style("ℹ️").dim()))?;
-            }
+        if !confirmed {
+            term.write_line(&format!("\n{} Fix not applied.\n", style("ℹ️").dim()))?;
         } else {
-            term.write_line(&format!(
-                "{} This fix can be auto-applied.",
-                style("💡").cyan()
-            ))?;
-            term.write_line(&format!(
-                "   Run {}\n",
-                style(format!("repotoire fix {} --apply", index)).cyan()
-            ))?;
+            let file_path = finding
+                .affected_files
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("No file path in finding"))?;
+
+            let applied = apply_rule_fix(path, file_path, finding, rule_fix);
+            match applied {
+                Ok(()) => {
+                    term.write_line(&format!(
+                        "{} Fix applied successfully!",
+                        style("✓").green().bold()
+                    ))?;
+                    term.write_line(&format!(
+                        "   Re-run analysis to verify: {}\n",
+                        style("repotoire analyze").cyan()
+                    ))?;
+                }
+                Err(e) => {
+                    term.write_line(&format!(
+                        "{} Failed to apply fix: {}",
+                        style("✗").red().bold(),
+                        e
+                    ))?;
+                    term.write_line("Please apply the changes manually.\n")?;
+                }
+            }
         }
     } else if !should_apply {
         // AI upgrade suggestion for non-applicable fixes

@@ -353,21 +353,18 @@ pub(super) fn score_web_markers(repo_path: &Path) -> u32 {
     let requirements = repo_path.join("requirements.txt");
     let pyproject = repo_path.join("pyproject.toml");
     for file_path in [requirements, pyproject] {
-        if file_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let web_deps = [
-                    "flask",
-                    "django",
-                    "fastapi",
-                    "starlette",
-                    "tornado",
-                    "sanic",
-                ];
-                for dep in web_deps {
-                    if content.contains(dep) {
-                        score += 4;
-                    }
-                }
+        let Ok(content) = std::fs::read_to_string(&file_path) else { continue; };
+        let web_deps = [
+            "flask",
+            "django",
+            "fastapi",
+            "starlette",
+            "tornado",
+            "sanic",
+        ];
+        for dep in web_deps {
+            if content.contains(dep) {
+                score += 4;
             }
         }
     }
@@ -424,34 +421,29 @@ pub(super) fn score_datascience_markers(repo_path: &Path) -> u32 {
     // Check for ML/DS dependencies
     let requirements = repo_path.join("requirements.txt");
     let pyproject = repo_path.join("pyproject.toml");
+    let ml_deps = [
+        "numpy",
+        "pandas",
+        "scikit-learn",
+        "sklearn",
+        "tensorflow",
+        "torch",
+        "pytorch",
+        "keras",
+        "xgboost",
+        "lightgbm",
+        "transformers",
+        "matplotlib",
+        "seaborn",
+        "plotly",
+        "jupyter",
+        "scipy",
+    ];
     for file_path in [requirements, pyproject] {
-        if file_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let ml_deps = [
-                    "numpy",
-                    "pandas",
-                    "scikit-learn",
-                    "sklearn",
-                    "tensorflow",
-                    "torch",
-                    "pytorch",
-                    "keras",
-                    "xgboost",
-                    "lightgbm",
-                    "transformers",
-                    "matplotlib",
-                    "seaborn",
-                    "plotly",
-                    "jupyter",
-                    "scipy",
-                ];
-                for dep in ml_deps {
-                    if content.contains(dep) {
-                        score += 2;
-                    }
-                }
-            }
-        }
+        let Ok(content) = std::fs::read_to_string(&file_path) else {
+            continue;
+        };
+        score += 2 * ml_deps.iter().filter(|dep| content.contains(*dep)).count() as u32;
     }
 
     // Check for data/models directories

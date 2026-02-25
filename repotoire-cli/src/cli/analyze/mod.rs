@@ -184,17 +184,16 @@ pub fn run(
     {
         let mut model = crate::calibrate::NgramModel::new();
         for (path, _pr) in &parse_result.parse_results {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                // Skip test/vendor files (same as calibration)
-                let path_lower = path.to_string_lossy().to_lowercase();
-                if path_lower.contains("/test") || path_lower.contains("/vendor")
-                    || path_lower.contains("/node_modules") || path_lower.contains("/generated")
-                {
-                    continue;
-                }
-                let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
-                model.train_on_tokens(&tokens);
+            // Skip test/vendor files (same as calibration)
+            let path_lower = path.to_string_lossy().to_lowercase();
+            if path_lower.contains("/test") || path_lower.contains("/vendor")
+                || path_lower.contains("/node_modules") || path_lower.contains("/generated")
+            {
+                continue;
             }
+            let Ok(content) = std::fs::read_to_string(path) else { continue; };
+            let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
+            model.train_on_tokens(&tokens);
         }
         if model.is_confident() {
             if !env.quiet_mode {

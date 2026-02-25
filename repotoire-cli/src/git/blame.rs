@@ -189,19 +189,19 @@ impl GitBlame {
             }
 
             // Check disk cache first
-            {
-                let dc = disk_cache
-                    .read()
-                    .expect("git disk cache lock poisoned");
-                let cached = dc
-                    .is_valid(file_path, &repo_path)
-                    .then(|| dc.files.get(file_path))
-                    .flatten();
-                if let Some(cached) = cached {
-                    mem_cache.insert(file_path.clone(), cached.entries.clone());
-                    cache_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    return;
-                }
+            let dc = disk_cache
+                .read()
+                .expect("git disk cache lock poisoned");
+            let cached_entries = dc
+                .is_valid(file_path, &repo_path)
+                .then(|| dc.files.get(file_path))
+                .flatten()
+                .map(|c| c.entries.clone());
+            drop(dc);
+            if let Some(entries) = cached_entries {
+                mem_cache.insert(file_path.clone(), entries);
+                cache_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return;
             }
 
             // Compute fresh blame

@@ -63,16 +63,10 @@ impl ThresholdResolver {
 
     /// Get the source label for a metric threshold
     pub fn source(&self, kind: MetricKind) -> &'static str {
-        match &self.profile {
-            Some(p) => {
-                if p.get(kind).is_some_and(|d| d.confident) {
-                    "adaptive"
-                } else {
-                    "default"
-                }
-            }
-            None => "default",
-        }
+        let is_adaptive = self.profile.as_ref()
+            .and_then(|p| p.get(kind))
+            .is_some_and(|d| d.confident);
+        if is_adaptive { "adaptive" } else { "default" }
     }
 
     /// Build explainability metadata for a finding.

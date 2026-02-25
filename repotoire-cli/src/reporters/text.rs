@@ -108,9 +108,9 @@ pub fn render(report: &HealthReport) -> Result<String> {
             let sev_tag = severity_tag(&finding.severity);
 
             // Truncate title if too long — use chars() to avoid UTF-8 panic (#8)
+            let title: String = finding.title.chars().take(35).collect();
             let title = if finding.title.chars().count() > 38 {
-                let truncated: String = finding.title.chars().take(35).collect();
-                format!("{}...", truncated)
+                format!("{}...", title)
             } else {
                 finding.title.clone()
             };

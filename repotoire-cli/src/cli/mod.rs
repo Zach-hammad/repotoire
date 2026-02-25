@@ -535,22 +535,16 @@ pub fn run(cli: Cli) -> Result<()> {
 
             println!("🧠 Training classifier...\n");
 
-            match train(&config) {
-                Ok(result) => {
-                    println!("\n✅ Training complete!");
-                    println!("   Epochs: {}", result.epochs);
-                    println!("   Train accuracy: {:.1}%", result.train_accuracy * 100.0);
-                    if let Some(val_acc) = result.val_accuracy {
-                        println!("   Val accuracy:   {:.1}%", val_acc * 100.0);
-                    }
-                    println!("   Model saved to: {}", result.model_path.display());
-                    println!("\n   The trained model will be used automatically with --verify.");
-                    Ok(())
-                }
-                Err(e) => {
-                    anyhow::bail!("Training failed: {}", e);
-                }
+            let result = train(&config).map_err(|e| anyhow::anyhow!("Training failed: {}", e))?;
+            println!("\n✅ Training complete!");
+            println!("   Epochs: {}", result.epochs);
+            println!("   Train accuracy: {:.1}%", result.train_accuracy * 100.0);
+            if let Some(val_acc) = result.val_accuracy {
+                println!("   Val accuracy:   {:.1}%", val_acc * 100.0);
             }
+            println!("   Model saved to: {}", result.model_path.display());
+            println!("\n   The trained model will be used automatically with --verify.");
+            Ok(())
         }
 
         None => {
