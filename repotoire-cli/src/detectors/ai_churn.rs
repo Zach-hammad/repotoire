@@ -494,7 +494,7 @@ impl Detector for AIChurnDetector {
             }
 
             // Commits are sorted newest-first. The last one is the creation commit.
-            let creation_commit = commits.last().unwrap();
+            let creation_commit = commits.last().expect("commits has >= 2 elements");
             let created_at = chrono::DateTime::parse_from_rfc3339(&creation_commit.timestamp)
                 .ok()
                 .map(|dt| dt.with_timezone(&Utc));

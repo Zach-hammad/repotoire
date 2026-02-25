@@ -79,12 +79,13 @@ pub(crate) fn mutex_unwrap() -> &'static Regex {
 /// Check if a line is in a test context
 pub(crate) fn is_test_context(_line: &str, content: &str, line_idx: usize) -> bool {
     let lines: Vec<&str> = content.lines().collect();
-    let start = line_idx.saturating_sub(50);
-    for i in start..=line_idx {
+    // Scan all preceding lines — #[cfg(test)] may be hundreds of lines above
+    for i in (0..=line_idx).rev() {
         if let Some(prev_line) = lines.get(i) {
-            if prev_line.contains("#[test]")
-                || prev_line.contains("#[cfg(test)]")
-                || prev_line.contains("mod tests")
+            let trimmed = prev_line.trim();
+            if trimmed.contains("#[test]")
+                || trimmed.contains("#[cfg(test)]")
+                || trimmed.starts_with("mod tests")
             {
                 return true;
             }
