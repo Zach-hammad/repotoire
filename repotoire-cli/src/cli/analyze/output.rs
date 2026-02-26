@@ -208,7 +208,7 @@ pub(super) fn check_fail_threshold(fail_on: &Option<String>, report: &HealthRepo
 
 /// Load post-processed findings from last_findings.json cache
 /// Returns None if the cache file doesn't exist or can't be parsed
-pub(super) fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>> {
+pub fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>> {
     let findings_cache = repotoire_dir.join("last_findings.json");
     let data = std::fs::read_to_string(&findings_cache).ok()?;
     let json: serde_json::Value = serde_json::from_str(&data).ok()?;
@@ -303,7 +303,7 @@ pub(super) fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>>
 }
 
 /// Cache analysis results for other commands
-pub(super) fn cache_results(
+pub fn cache_results(
     repotoire_dir: &Path,
     report: &HealthReport,
     all_findings: &[Finding],
