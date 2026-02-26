@@ -1,3 +1,5 @@
+// Clippy: deny unwrap_used in production code — use expect() or ? instead
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 // Clippy: allow indexed loops in ML/numerical code (classifier, HMM)
 #![allow(clippy::needless_range_loop)]
 // Clippy: allow enum variant naming (ContextFile etc. — domain-meaningful)

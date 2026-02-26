@@ -546,19 +546,19 @@ mod tests {
     #[test]
     fn test_sarif_valid_structure() {
         let report = crate::reporters::tests::test_report();
-        let sarif_str = render(&report).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&sarif_str).unwrap();
+        let sarif_str = render(&report).expect("render SARIF");
+        let parsed: serde_json::Value = serde_json::from_str(&sarif_str).expect("parse SARIF JSON");
         assert_eq!(parsed["version"], "2.1.0");
         assert!(parsed["$schema"].as_str().is_some());
-        assert!(!parsed["runs"].as_array().unwrap().is_empty());
+        assert!(!parsed["runs"].as_array().expect("runs array").is_empty());
     }
 
     #[test]
     fn test_sarif_has_results() {
         let report = crate::reporters::tests::test_report();
-        let sarif_str = render(&report).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&sarif_str).unwrap();
-        let results = parsed["runs"][0]["results"].as_array().unwrap();
+        let sarif_str = render(&report).expect("render SARIF");
+        let parsed: serde_json::Value = serde_json::from_str(&sarif_str).expect("parse SARIF JSON");
+        let results = parsed["runs"][0]["results"].as_array().expect("results array");
         assert!(!results.is_empty());
     }
 

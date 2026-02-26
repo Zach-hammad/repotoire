@@ -333,11 +333,12 @@ impl GitBlame {
             let line_count = hunk.lines_in_hunk() as u32;
 
             // Merge consecutive hunks from same commit
-            if current_hash.as_ref() == Some(&hash) && current_entry.is_some() {
-                let entry = current_entry.as_mut().unwrap();
-                entry.line_end = line_no + line_count - 1;
-                entry.line_count = entry.line_end - entry.line_start + 1;
-                continue;
+            if current_hash.as_ref() == Some(&hash) {
+                if let Some(entry) = current_entry.as_mut() {
+                    entry.line_end = line_no + line_count - 1;
+                    entry.line_count = entry.line_end - entry.line_start + 1;
+                    continue;
+                }
             }
 
             // Save previous entry

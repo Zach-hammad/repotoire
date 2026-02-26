@@ -226,23 +226,23 @@ mod tests {
             },
             ..Default::default()
         };
-        let json = serde_json::to_string(&finding).unwrap();
-        let back: Finding = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&finding).expect("serialize finding");
+        let back: Finding = serde_json::from_str(&json).expect("deserialize finding");
         assert_eq!(back.id, "test-1");
-        assert_eq!(back.threshold_metadata.get("key").unwrap(), "value");
+        assert_eq!(back.threshold_metadata.get("key").expect("key exists"), "value");
     }
 
     #[test]
     fn test_finding_deserialize_null_threshold_metadata() {
         let json = r#"{"id":"t1","detector":"D","severity":"high","title":"T","description":"","affected_files":[],"threshold_metadata":null}"#;
-        let finding: Finding = serde_json::from_str(json).unwrap();
+        let finding: Finding = serde_json::from_str(json).expect("deserialize finding with null metadata");
         assert!(finding.threshold_metadata.is_empty());
     }
 
     #[test]
     fn test_finding_deserialize_missing_threshold_metadata() {
         let json = r#"{"id":"t1","detector":"D","severity":"high","title":"T","description":"","affected_files":[]}"#;
-        let finding: Finding = serde_json::from_str(json).unwrap();
+        let finding: Finding = serde_json::from_str(json).expect("deserialize finding with missing metadata");
         assert!(finding.threshold_metadata.is_empty());
     }
 

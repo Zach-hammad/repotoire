@@ -663,7 +663,7 @@ mod tests {
             100,
         );
 
-        let fix = fix_deep_nesting(&finding).unwrap();
+        let fix = fix_deep_nesting(&finding).expect("generate deep nesting fix");
         assert!(fix.title.contains("Reduce nesting"));
         assert!(fix.steps.iter().any(|s| s.contains("guard clauses")));
     }

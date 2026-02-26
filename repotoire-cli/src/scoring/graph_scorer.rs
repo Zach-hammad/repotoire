@@ -747,7 +747,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn make_config(project_type: Option<ProjectType>) -> (TempDir, ProjectConfig) {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("create temp dir");
         let mut config = ProjectConfig::default();
         config.project_type = project_type;
         (dir, config)

@@ -410,8 +410,8 @@ mod tests {
         let classifier = FpClassifier::new(10, 8);
         let path = std::path::Path::new("/tmp/test_classifier.json");
 
-        classifier.save(path).unwrap();
-        let loaded = FpClassifier::load(path).unwrap();
+        classifier.save(path).expect("save classifier");
+        let loaded = FpClassifier::load(path).expect("load classifier");
 
         assert_eq!(classifier.input_size, loaded.input_size);
         assert_eq!(classifier.hidden_size, loaded.hidden_size);

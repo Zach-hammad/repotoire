@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn test_html_render_valid() {
         let report = test_report();
-        let html_str = render(&report).unwrap();
+        let html_str = render(&report).expect("render HTML");
         assert!(html_str.contains("<!DOCTYPE html>") || html_str.contains("<html"));
         assert!(html_str.contains("</html>"));
     }
@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn test_html_contains_score() {
         let report = test_report();
-        let html_str = render(&report).unwrap();
+        let html_str = render(&report).expect("render HTML");
         assert!(html_str.contains("85")); // score
         assert!(html_str.contains("B")); // grade
     }
@@ -631,7 +631,7 @@ mod tests {
         let mut report = test_report();
         report.findings.clear();
         report.findings_summary = Default::default();
-        let html_str = render(&report).unwrap();
+        let html_str = render(&report).expect("render HTML");
         assert!(html_str.contains("</html>"));
     }
 }

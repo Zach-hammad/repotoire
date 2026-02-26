@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_record_and_load() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("create temp dir");
         let path = dir.path().join("test_feedback.jsonl");
         let collector = FeedbackCollector::with_path(&path);
 
@@ -242,12 +242,12 @@ mod tests {
 
         collector
             .record(&finding, true, Some("Real issue".into()))
-            .unwrap();
+            .expect("record true positive");
         collector
             .record(&finding, false, Some("Not a problem".into()))
-            .unwrap();
+            .expect("record false positive");
 
-        let loaded = collector.load_all().unwrap();
+        let loaded = collector.load_all().expect("load feedback records");
         assert_eq!(loaded.len(), 2);
         assert!(loaded[0].is_true_positive);
         assert!(!loaded[1].is_true_positive);

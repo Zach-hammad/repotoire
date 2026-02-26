@@ -40,14 +40,14 @@ fn test_edges() {
 
 #[test]
 fn test_persistence() {
-    let dir = tempdir().unwrap();
+    let dir = tempdir().expect("create temp dir");
     let path = dir.path().join("test.db");
 
     // Create and save
     {
-        let store = GraphStore::new(&path).unwrap();
+        let store = GraphStore::new(&path).expect("create graph store");
         store.add_node(CodeNode::file("test.py"));
-        store.save().unwrap();
+        store.save().expect("save graph store");
         // Explicit drop to release lock before reopening
         drop(store);
     }
@@ -57,7 +57,7 @@ fn test_persistence() {
 
     // Reload and verify
     {
-        let store = GraphStore::new(&path).unwrap();
+        let store = GraphStore::new(&path).expect("reload graph store");
         assert_eq!(store.get_files().len(), 1);
     }
 }
@@ -181,7 +181,7 @@ fn test_minimal_cycle() {
 
     let cycle = store.find_minimal_cycle("a.py", EdgeKind::Imports);
     assert!(cycle.is_some(), "Should find cycle through a.py");
-    let cycle = cycle.unwrap();
+    let cycle = cycle.expect("cycle should exist");
     assert_eq!(cycle.len(), 3, "Minimal cycle should have 3 nodes");
     assert_eq!(cycle[0], "a.py", "Cycle should start with a.py");
 }

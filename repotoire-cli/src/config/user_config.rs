@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_load_returns_defaults_without_file() {
-        let config = UserConfig::load().unwrap();
+        let config = UserConfig::load().expect("load user config");
         // Should not crash even without a config file on disk
         assert!(!config.use_ollama());
     }
@@ -186,7 +186,7 @@ backend = "ollama"
 ollama_url = "http://localhost:11434"
 ollama_model = "codellama"
 "#;
-        let config: UserConfig = toml::from_str(toml_str).unwrap();
+        let config: UserConfig = toml::from_str(toml_str).expect("parse ollama config");
         assert_eq!(config.ai.anthropic_api_key.as_deref(), Some("sk-test-123"));
         assert_eq!(config.ai.backend.as_deref(), Some("ollama"));
         assert_eq!(
@@ -206,7 +206,7 @@ ollama_model = "codellama"
 anthropic_api_key = "sk-ant-abc"
 backend = "claude"
 "#;
-        let config: UserConfig = toml::from_str(toml_str).unwrap();
+        let config: UserConfig = toml::from_str(toml_str).expect("parse claude config");
         assert!(config.has_ai_key());
         assert!(!config.use_ollama());
         assert_eq!(config.ai_backend(), "claude");
@@ -216,7 +216,7 @@ backend = "claude"
     #[test]
     fn test_toml_parsing_minimal() {
         let toml_str = "";
-        let config: UserConfig = toml::from_str(toml_str).unwrap();
+        let config: UserConfig = toml::from_str(toml_str).expect("parse minimal config");
         assert!(!config.has_ai_key());
         assert_eq!(config.ai_backend(), "claude");
     }

@@ -323,55 +323,55 @@ mod tests {
 
     #[test]
     fn test_validate_file_accepts_normal_file() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("create temp dir");
         let file = dir.path().join("test.py");
-        fs::write(&file, "print('hello')").unwrap();
-        let repo_canonical = dir.path().canonicalize().unwrap();
+        fs::write(&file, "print('hello')").expect("write test file");
+        let repo_canonical = dir.path().canonicalize().expect("canonicalize path");
         assert!(validate_file(&file, &repo_canonical).is_some());
     }
 
     #[test]
     fn test_validate_file_rejects_nonexistent() {
-        let dir = TempDir::new().unwrap();
-        let repo_canonical = dir.path().canonicalize().unwrap();
+        let dir = TempDir::new().expect("create temp dir");
+        let repo_canonical = dir.path().canonicalize().expect("canonicalize path");
         let fake = dir.path().join("nope.py");
         assert!(validate_file(&fake, &repo_canonical).is_none());
     }
 
     #[test]
     fn test_validate_file_rejects_oversized() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("create temp dir");
         let file = dir.path().join("big.py");
         let data = vec![b'x'; 2 * 1024 * 1024 + 1];
-        fs::write(&file, &data).unwrap();
-        let repo_canonical = dir.path().canonicalize().unwrap();
+        fs::write(&file, &data).expect("write oversized file");
+        let repo_canonical = dir.path().canonicalize().expect("canonicalize path");
         assert!(validate_file(&file, &repo_canonical).is_none());
     }
 
     #[test]
     fn test_validate_file_rejects_symlink() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("create temp dir");
         let real = dir.path().join("real.py");
-        fs::write(&real, "x = 1").unwrap();
+        fs::write(&real, "x = 1").expect("write real file");
         let link = dir.path().join("link.py");
 
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink(&real, &link).unwrap();
-            let repo_canonical = dir.path().canonicalize().unwrap();
+            std::os::unix::fs::symlink(&real, &link).expect("create symlink");
+            let repo_canonical = dir.path().canonicalize().expect("canonicalize path");
             assert!(validate_file(&link, &repo_canonical).is_none());
         }
     }
 
     #[test]
     fn test_validate_file_rejects_outside_boundary() {
-        let parent = TempDir::new().unwrap();
+        let parent = TempDir::new().expect("create temp dir");
         let repo = parent.path().join("repo");
-        fs::create_dir(&repo).unwrap();
+        fs::create_dir(&repo).expect("create repo dir");
         let outside = parent.path().join("secret.py");
-        fs::write(&outside, "password = 'hunter2'").unwrap();
+        fs::write(&outside, "password = 'hunter2'").expect("write outside file");
 
-        let repo_canonical = repo.canonicalize().unwrap();
+        let repo_canonical = repo.canonicalize().expect("canonicalize path");
         let traversal_path = repo.join("..").join("secret.py");
         assert!(validate_file(&traversal_path, &repo_canonical).is_none());
     }

@@ -25,18 +25,18 @@ mod tests {
     #[test]
     fn test_json_render_valid() {
         let report = test_report();
-        let json_str = render(&report).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        let json_str = render(&report).expect("render JSON");
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("parse JSON");
         assert_eq!(parsed["grade"], "B");
-        assert!(!parsed["findings"].as_array().unwrap().is_empty());
+        assert!(!parsed["findings"].as_array().expect("findings array").is_empty());
     }
 
     #[test]
     fn test_json_render_compact() {
         let report = test_report();
-        let json_str = render_compact(&report).unwrap();
+        let json_str = render_compact(&report).expect("render compact JSON");
         assert!(!json_str.contains('\n'));
-        let _: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        let _: serde_json::Value = serde_json::from_str(&json_str).expect("parse compact JSON");
     }
 
     #[test]
@@ -44,8 +44,8 @@ mod tests {
         let mut report = test_report();
         report.findings.clear();
         report.findings_summary = Default::default();
-        let json_str = render(&report).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-        assert_eq!(parsed["findings"].as_array().unwrap().len(), 0);
+        let json_str = render(&report).expect("render JSON");
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("parse JSON");
+        assert_eq!(parsed["findings"].as_array().expect("findings array").len(), 0);
     }
 }

@@ -365,8 +365,8 @@ mod tests {
         let thresholds = CategoryThresholds::default();
         let path = std::path::Path::new("/tmp/test_thresholds.json");
 
-        thresholds.save(path).unwrap();
-        let loaded = CategoryThresholds::load(path).unwrap();
+        thresholds.save(path).expect("save thresholds");
+        let loaded = CategoryThresholds::load(path).expect("load thresholds");
 
         // Check a specific value
         let orig = thresholds.get("SQLInjectionDetector");

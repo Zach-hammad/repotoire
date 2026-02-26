@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn test_markdown_render_has_header() {
         let report = test_report();
-        let md = render(&report).unwrap();
+        let md = render(&report).expect("render markdown");
         assert!(md.contains("# "));
         assert!(md.contains("Grade: B"));
         assert!(md.contains("85.0/100"));
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn test_markdown_render_has_findings() {
         let report = test_report();
-        let md = render(&report).unwrap();
+        let md = render(&report).expect("render markdown");
         assert!(md.contains("Test finding"));
         assert!(md.contains("src/main.rs"));
     }
@@ -330,14 +330,14 @@ mod tests {
         let mut report = test_report();
         report.findings.clear();
         report.findings_summary = Default::default();
-        let md = render(&report).unwrap();
+        let md = render(&report).expect("render markdown");
         assert!(md.contains("No issues found"));
     }
 
     #[test]
     fn test_markdown_has_table_of_contents() {
         let report = test_report();
-        let md = render(&report).unwrap();
+        let md = render(&report).expect("render markdown");
         assert!(md.contains("## Table of Contents"));
     }
 }

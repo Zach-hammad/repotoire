@@ -294,7 +294,7 @@ mod tests {
         let explanation = resolver.explain(MetricKind::Complexity, 55.0, 10.0);
         assert_eq!(explanation.threshold_source, "adaptive");
         assert!(explanation.percentile_info.is_some());
-        let info = explanation.percentile_info.unwrap();
+        let info = explanation.percentile_info.expect("percentile info present");
         assert!(info.contains("p90="));
         assert!(info.contains("p95="));
         assert!(info.contains("mean="));
