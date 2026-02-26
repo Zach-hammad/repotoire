@@ -497,3 +497,37 @@ class NoDecorators {
         create_user.annotations
     );
 }
+
+#[test]
+fn test_callback_argument_detection() {
+    let code = r#"
+function handler(req, res) {
+    res.send('ok');
+}
+
+function transform(item) {
+    return item.name;
+}
+
+app.get('/path', handler);
+items.map(transform);
+"#;
+    let path = PathBuf::from("test.js");
+    let result = parse_source(code, &path, "js").expect("should parse callback arguments");
+
+    // "handler" should appear as a callee (called by module scope via app.get)
+    let handler_called = result.calls.iter().any(|(_, callee)| callee == "handler");
+    assert!(
+        handler_called,
+        "handler should be in calls list as callback arg. Calls: {:?}",
+        result.calls
+    );
+
+    // "transform" should appear as a callee (called by module scope via items.map)
+    let transform_called = result.calls.iter().any(|(_, callee)| callee == "transform");
+    assert!(
+        transform_called,
+        "transform should be in calls list as callback arg. Calls: {:?}",
+        result.calls
+    );
+}

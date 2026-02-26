@@ -861,7 +861,28 @@ fn extract_calls_recursive(
 
         if let Some(func_node) = node.child_by_field_name("function") {
             if let Some(callee) = extract_call_target(&func_node, source) {
-                result.calls.push((caller, callee));
+                result.calls.push((caller.clone(), callee));
+            }
+        }
+
+        // Check arguments for function references (callbacks)
+        // e.g., app.get('/path', handler) -> handler is a callback call edge
+        if let Some(args_node) = node.child_by_field_name("arguments") {
+            let mut arg_cursor = args_node.walk();
+            for arg in args_node.children(&mut arg_cursor) {
+                if arg.kind() == "identifier" {
+                    let arg_name = arg.utf8_text(source).unwrap_or("");
+                    // Skip common non-function identifiers
+                    if !arg_name.is_empty()
+                        && arg_name != "undefined"
+                        && arg_name != "null"
+                        && arg_name != "true"
+                        && arg_name != "false"
+                        && arg_name != "this"
+                    {
+                        result.calls.push((caller.clone(), arg_name.to_string()));
+                    }
+                }
             }
         }
     }
