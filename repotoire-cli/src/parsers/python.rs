@@ -9,6 +9,28 @@ use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
+/// Extract decorator names from a `decorated_definition` node.
+fn extract_decorators(node: &Node, source: &[u8]) -> Vec<String> {
+    let mut decorators = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "decorator" {
+            let mut inner_cursor = child.walk();
+            for inner in child.children(&mut inner_cursor) {
+                if inner.kind() != "@" && inner.kind() != "comment" {
+                    let text = inner.utf8_text(source).unwrap_or("");
+                    let name = text.split('(').next().unwrap_or(text).trim();
+                    if !name.is_empty() {
+                        decorators.push(name.to_string());
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    decorators
+}
+
 /// Parse a Python file and extract all code entities
 pub fn parse(path: &Path) -> Result<ParseResult> {
     let source = std::fs::read_to_string(path)
@@ -117,6 +139,16 @@ fn extract_functions(
             let line_end = node.end_position().row as u32 + 1;
             let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
 
+            let annotations = if let Some(parent) = node.parent() {
+                if parent.kind() == "decorated_definition" {
+                    extract_decorators(&parent, source)
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            };
+
             result.functions.push(Function {
                 name: name.clone(),
                 qualified_name,
@@ -129,7 +161,7 @@ fn extract_functions(
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
                 doc_comment: None,
-                annotations: vec![],
+                annotations,
             });
         }
     }
@@ -204,6 +236,16 @@ fn parse_function_node(
     let line_end = node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
 
+    let annotations = if let Some(parent) = node.parent() {
+        if parent.kind() == "decorated_definition" {
+            extract_decorators(&parent, source)
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
     Some(Function {
         name,
         qualified_name,
@@ -216,7 +258,7 @@ fn parse_function_node(
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
         doc_comment: None,
-        annotations: vec![],
+        annotations,
     })
 }
 
@@ -322,6 +364,16 @@ fn parse_class_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
     // Extract method names
     let methods = extract_methods(node, source);
 
+    let annotations = if let Some(parent) = node.parent() {
+        if parent.kind() == "decorated_definition" {
+            extract_decorators(&parent, source)
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
     Some(Class {
         name,
         qualified_name,
@@ -331,7 +383,7 @@ fn parse_class_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         methods,
         bases,
         doc_comment: None,
-        annotations: vec![],
+        annotations,
     })
 }
 
@@ -883,11 +935,11 @@ class MyClass:
     @property
     def value(self):
         return self._value
-    
+
     @staticmethod
     def create():
         return MyClass()
-    
+
     @classmethod
     def from_string(cls, s):
         return cls()
@@ -901,6 +953,79 @@ class MyClass:
             3,
             "Expected 3 methods (value, create, from_string), got {:?}",
             class.methods
+        );
+    }
+
+    #[test]
+    fn test_decorator_extraction() {
+        let code = r#"
+@app.route('/users')
+def get_users():
+    return []
+
+@login_required
+@cache(timeout=300)
+def admin_page():
+    pass
+
+class MyModel:
+    pass
+
+@dataclass
+class UserDTO:
+    name: str
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(code, &path).expect("should parse decorators");
+
+        // get_users should have annotation "app.route"
+        let get_users = result
+            .functions
+            .iter()
+            .find(|f| f.name == "get_users")
+            .unwrap();
+        assert!(
+            get_users
+                .annotations
+                .iter()
+                .any(|a| a.contains("app.route")),
+            "get_users should have app.route annotation, got: {:?}",
+            get_users.annotations
+        );
+
+        // admin_page should have two annotations
+        let admin = result
+            .functions
+            .iter()
+            .find(|f| f.name == "admin_page")
+            .unwrap();
+        assert!(
+            admin.annotations.len() >= 2,
+            "admin_page should have 2+ annotations, got: {:?}",
+            admin.annotations
+        );
+
+        // MyModel should have no annotations
+        let my_model = result
+            .classes
+            .iter()
+            .find(|c| c.name == "MyModel")
+            .unwrap();
+        assert!(my_model.annotations.is_empty());
+
+        // UserDTO should have @dataclass annotation
+        let user_dto = result
+            .classes
+            .iter()
+            .find(|c| c.name == "UserDTO")
+            .unwrap();
+        assert!(
+            user_dto
+                .annotations
+                .iter()
+                .any(|a| a.contains("dataclass")),
+            "UserDTO should have dataclass annotation, got: {:?}",
+            user_dto.annotations
         );
     }
 }
