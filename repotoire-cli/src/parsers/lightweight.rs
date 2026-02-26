@@ -52,6 +52,9 @@ pub struct LightweightFunctionInfo {
     pub is_async: bool,
     /// Cyclomatic complexity
     pub complexity: u16,
+    /// Whether this function has decorators/annotations (1 byte flag)
+    #[serde(default)]
+    pub has_annotations: bool,
 }
 
 impl LightweightFunctionInfo {
@@ -290,6 +293,7 @@ impl LightweightFileInfo {
                 param_count: f.parameters.len().min(255) as u8,
                 is_async: f.is_async,
                 complexity: f.complexity.unwrap_or(1).min(65535) as u16,
+                has_annotations: !f.annotations.is_empty(),
             })
             .collect();
 
@@ -402,6 +406,7 @@ mod tests {
             param_count: 2,
             is_async: false,
             complexity: 5,
+            has_annotations: false,
         };
         assert_eq!(func.loc(), 11);
     }

@@ -87,6 +87,8 @@ pub struct FunctionInfo {
     pub return_type: Option<String>,
     /// Maximum nesting depth within this function
     pub max_nesting: Option<u32>,
+    /// Whether this function has decorators/annotations
+    pub has_annotations: bool,
 }
 
 /// Lightweight class info
@@ -121,16 +123,20 @@ impl ParsedFileInfo {
         let functions: Vec<FunctionInfo> = result
             .functions
             .into_iter()
-            .map(|f| FunctionInfo {
-                name: f.name,
-                qualified_name: f.qualified_name,
-                line_start: f.line_start,
-                line_end: f.line_end,
-                is_async: f.is_async,
-                complexity: f.complexity.unwrap_or(1),
-                parameters: f.parameters,
-                return_type: f.return_type,
-                max_nesting: f.max_nesting,
+            .map(|f| {
+                let has_annotations = !f.annotations.is_empty();
+                FunctionInfo {
+                    name: f.name,
+                    qualified_name: f.qualified_name,
+                    line_start: f.line_start,
+                    line_end: f.line_end,
+                    is_async: f.is_async,
+                    complexity: f.complexity.unwrap_or(1),
+                    parameters: f.parameters,
+                    return_type: f.return_type,
+                    max_nesting: f.max_nesting,
+                    has_annotations,
+                }
             })
             .collect();
 

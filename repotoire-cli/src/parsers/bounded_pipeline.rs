@@ -32,7 +32,7 @@ use crate::parsers::lightweight::{LightweightFileInfo, LightweightParseStats};
 use crate::parsers::parse_file_lightweight;
 use anyhow::Result;
 use crossbeam_channel::bounded;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -138,6 +138,9 @@ struct FlushingGraphBuilder {
     edge_buffer: Vec<(String, String, CodeEdge)>,
     edge_flush_threshold: usize,
 
+    // Track synthetic dispatcher nodes already created
+    created_dispatchers: HashSet<String>,
+
     // Stats
     stats: BoundedPipelineStats,
 }
@@ -184,6 +187,7 @@ impl FlushingGraphBuilder {
             module_lookup: ModuleLookupCompact::default(),
             edge_buffer: Vec::with_capacity(edge_flush_threshold.min(10_000)),
             edge_flush_threshold,
+            created_dispatchers: HashSet::new(),
             stats: BoundedPipelineStats::default(),
         }
     }
@@ -238,6 +242,32 @@ impl FlushingGraphBuilder {
                 func.qualified_name.clone(),
                 CodeEdge::contains(),
             ));
+
+            // Synthetic Calls edge for decorated functions
+            if func.has_annotations {
+                let module_qn =
+                    crate::cli::analyze::graph::module_qn_from_path(&relative);
+                let dispatcher_qn =
+                    format!("{}.__decorator_dispatch__", module_qn);
+
+                if self.created_dispatchers.insert(dispatcher_qn.clone()) {
+                    let dispatcher_node = CodeNode::new(
+                        NodeKind::Function,
+                        "__decorator_dispatch__",
+                        &relative,
+                    )
+                    .with_qualified_name(&dispatcher_qn)
+                    .with_property("synthetic", true);
+                    self.graph.add_node(dispatcher_node);
+                    self.stats.nodes_added += 1;
+                }
+
+                self.edge_buffer.push((
+                    dispatcher_qn,
+                    func.qualified_name.clone(),
+                    CodeEdge::calls(),
+                ));
+            }
         }
 
         // Add class nodes + edges
