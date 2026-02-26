@@ -88,8 +88,7 @@ lean/lake-manifest.json
 .vercel
 .env.production.local
 
-# Benchmark files
-benchmarks/
+# Benchmark files (allow benchmarks/ dir but exclude Python bench files)
 **/bench_*.py
 
 # Claude Code (keep architecture-patterns.json for documentation)
