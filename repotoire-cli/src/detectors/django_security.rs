@@ -674,4 +674,109 @@ mod tests {
             raw_sql_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn test_raw_sql_with_fstring_is_critical() {
+        // cursor.execute(f"SELECT ... {user_input}") should be Critical severity
+        // because the f-string indicates user input interpolation.
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "views.py",
+            "def search_users(request):\n    name = request.GET['name']\n    cursor.execute(f\"SELECT * FROM users WHERE name = '{name}'\")\n    return JsonResponse({'results': cursor.fetchall()})\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        let raw_sql: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("Raw SQL"))
+            .collect();
+        assert!(!raw_sql.is_empty(), "Should detect raw SQL with f-string");
+        assert!(
+            raw_sql.iter().any(|f| f.severity == Severity::Critical),
+            "Raw SQL with f-string interpolation should be Critical. Got: {:?}",
+            raw_sql
+                .iter()
+                .map(|f| (&f.title, &f.severity))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_parameterized_query_still_detected_but_not_critical() {
+        // cursor.execute("SELECT ... WHERE id=%s", [id]) is parameterized —
+        // the detector still flags cursor.execute but at Medium severity
+        // (no f-string/request. interpolation markers).
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "queries.py",
+            "def get_user(user_id):\n    cursor = connection.cursor()\n    cursor.execute(\"SELECT * FROM users WHERE id = %s\", [user_id])\n    return cursor.fetchone()\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        let raw_sql: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("Raw SQL"))
+            .collect();
+        assert!(
+            !raw_sql.is_empty(),
+            "Parameterized cursor.execute is still flagged as raw SQL"
+        );
+        assert!(
+            !raw_sql.iter().any(|f| f.severity == Severity::Critical),
+            "Parameterized query without user input markers should NOT be Critical. Got: {:?}",
+            raw_sql
+                .iter()
+                .map(|f| (&f.title, &f.severity))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_safe_orm_rendering_no_findings() {
+        // Standard Django ORM queries and template rendering should be clean.
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "views.py",
+            "from django.shortcuts import render\nfrom .models import Article\n\ndef article_list(request):\n    articles = Article.objects.filter(published=True).order_by('-date')\n    return render(request, 'articles/list.html', {'articles': articles})\n\ndef article_detail(request, pk):\n    article = Article.objects.get(pk=pk)\n    return render(request, 'articles/detail.html', {'article': article})\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "Safe ORM queries and template rendering should produce no findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_hardcoded_secret_key_in_settings() {
+        let store = GraphStore::in_memory();
+        let detector = DjangoSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "settings.py",
+            "SECRET_KEY = 'django-insecure-abc123xyz789def456ghi'\nDEBUG = False\nALLOWED_HOSTS = ['example.com']\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("SECRET_KEY")),
+            "Should detect hardcoded SECRET_KEY in production settings. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("SECRET_KEY") && f.severity == Severity::Critical),
+            "Hardcoded SECRET_KEY should be Critical severity"
+        );
+    }
 }

@@ -507,4 +507,113 @@ mod tests {
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn test_express_app_without_helmet_or_rate_limit() {
+        // An Express app with many routes but no helmet or rate limiting
+        // should produce findings for both.
+        let store = GraphStore::in_memory();
+        let detector = ExpressSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "server.js",
+            "const express = require('express');\nconst app = express();\n\napp.get('/api/users', (req, res) => res.json([]));\napp.post('/api/users', (req, res) => res.json({}));\napp.get('/api/posts', (req, res) => res.json([]));\napp.put('/api/posts/:id', (req, res) => res.json({}));\napp.delete('/api/posts/:id', (req, res) => res.json({}));\napp.get('/api/comments', (req, res) => res.json([]));\n\napp.listen(3000);\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        assert!(
+            findings.iter().any(|f| f.title.contains("helmet")),
+            "Should flag missing helmet. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("rate limiting")),
+            "Should flag missing rate limiting for app with >5 routes. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_express_with_helmet_no_helmet_finding() {
+        // An Express app with helmet() installed should NOT produce a helmet finding.
+        let store = GraphStore::in_memory();
+        let detector = ExpressSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "app.js",
+            "const express = require('express');\nconst helmet = require('helmet');\nconst app = express();\napp.use(helmet());\n\napp.get('/api/data', (req, res) => res.json({ ok: true }));\napp.listen(3000);\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        assert!(
+            !findings.iter().any(|f| f.title.contains("helmet")),
+            "Should NOT flag helmet when it is installed. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_express_with_cors_has_cors_detected() {
+        // An Express app using cors() should have has_cors = true,
+        // so the security score includes CORS points.
+        let store = GraphStore::in_memory();
+        let detector = ExpressSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "app.js",
+            "const express = require('express');\nconst cors = require('cors');\nconst app = express();\napp.use(cors({ origin: 'https://example.com' }));\n\napp.get('/api/data', (req, res) => res.json({ ok: true }));\napp.listen(3000);\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        // CORS is detected, so it shouldn't appear in "missing" list.
+        // The detector doesn't produce a specific "CORS" finding — it only tracks
+        // CORS presence for the security score. Verify no CORS-related finding exists.
+        assert!(
+            !findings.iter().any(|f| f.title.to_lowercase().contains("cors")),
+            "Should not produce a CORS finding when cors middleware is present. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_express_missing_error_handler_with_many_routes() {
+        // An Express app with >3 routes and no error handler should be flagged.
+        let store = GraphStore::in_memory();
+        let detector = ExpressSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "app.js",
+            "const express = require('express');\nconst app = express();\n\napp.get('/a', (req, res) => res.json({}));\napp.get('/b', (req, res) => res.json({}));\napp.get('/c', (req, res) => res.json({}));\napp.get('/d', (req, res) => res.json({}));\n\napp.listen(3000);\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("error handler")),
+            "Should detect missing global error handler for app with >3 routes. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_express_with_error_handler_no_error_finding() {
+        // An Express app with a proper error handler should not produce that finding.
+        let store = GraphStore::in_memory();
+        let detector = ExpressSecurityDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+            "app.js",
+            "const express = require('express');\nconst app = express();\n\napp.get('/a', (req, res) => res.json({}));\napp.get('/b', (req, res) => res.json({}));\napp.get('/c', (req, res) => res.json({}));\napp.get('/d', (req, res) => res.json({}));\n\napp.use((err, req, res, next) => {\n  console.error(err.stack);\n  res.status(500).json({ error: 'Internal server error' });\n});\n\napp.listen(3000);\n",
+        )]);
+        let findings = detector
+            .detect(&store, &files)
+            .expect("detection should succeed");
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.title.contains("error handler")),
+            "Should NOT flag error handler when one is present. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
 }
