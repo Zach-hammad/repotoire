@@ -45,6 +45,11 @@ repotoire analyze /path/to/repo
 repotoire analyze /path/to/repo --format html --output report.html
 repotoire analyze /path/to/repo --format sarif --output results.sarif.json
 
+# Diff analysis (what changed since main)
+repotoire diff main
+repotoire diff main --format json
+repotoire diff main --fail-on high
+
 # Initialize config file
 repotoire init
 
@@ -76,11 +81,12 @@ repotoire clean /path/to/repo
 repotoire serve
 ```
 
-### CLI Commands (16 total)
+### CLI Commands (17 total)
 
 | Command | Description |
 |---------|-------------|
 | `analyze` | Analyze codebase for issues |
+| `diff` | Compare findings between two analysis states |
 | `findings` | View findings from last analysis |
 | `fix` | Generate fix for a finding (AI-powered or rule-based) |
 | `graph` | Query the code graph directly |
@@ -138,13 +144,14 @@ repotoire serve --http-port 8080
 }
 ```
 
-**Available tools (13):**
+**Available tools (14):**
 
 | Tool | Tier | Description |
 |------|------|-------------|
 | `repotoire_analyze` | FREE | Run code analysis, return findings by severity |
 | `repotoire_get_findings` | FREE | Get findings with filtering and pagination |
 | `repotoire_get_hotspots` | FREE | Get files ranked by issue density |
+| `repotoire_diff` | FREE | Compare findings between refs (new, fixed, score delta) |
 | `repotoire_query_graph` | FREE | Query code entities (functions, classes, files, callers, callees) |
 | `repotoire_trace_dependencies` | FREE | Multi-hop graph traversal (call chains, imports, inheritance) |
 | `repotoire_analyze_impact` | FREE | Change impact analysis (what breaks if I modify X?) |
@@ -182,7 +189,7 @@ Codebase → Parsers (tree-sitter) → Entities + Relationships → petgraph Gra
 
 5. **Scoring** (`repotoire-cli/src/scoring/`): Three-pillar scoring — Structure (40%), Quality (30%), Architecture (30%). Density-based penalty normalization (penalties scaled by kLOC). Graph-derived bonuses (modularity, cohesion, clean deps, complexity distribution, test coverage). Compound smell escalation. 13 grade levels (A+ through F). Score floor at 5.0, cap at 99.9 with medium+ findings. Security multiplier (default 3x).
 
-6. **CLI** (`repotoire-cli/src/cli/`): clap 4 with derive, 16 commands. Progress bars via indicatif. Terminal styling via console.
+6. **CLI** (`repotoire-cli/src/cli/`): clap 4 with derive, 17 commands. Progress bars via indicatif. Terminal styling via console.
 
 7. **Reporters** (`repotoire-cli/src/reporters/`): 5 output formats — text (default, colored terminal), JSON, HTML (standalone), SARIF 2.1.0 (GitHub Code Scanning compatible), Markdown.
 
@@ -366,7 +373,7 @@ cargo test detectors::god_class
 - Adaptive threshold calibration with n-gram surprisal
 - Findings-level incremental cache with auto-detection
 - 5 report formats (text, JSON, HTML, SARIF 2.1.0, Markdown)
-- MCP server (rmcp SDK, stdio + HTTP transports, 13 tools)
+- MCP server (rmcp SDK, stdio + HTTP transports, 14 tools)
 - Git history integration via git2 (churn, blame, commits)
 - File watching with real-time re-analysis
 - Inline suppression (`repotoire:ignore` / `repotoire:ignore[detector]`)

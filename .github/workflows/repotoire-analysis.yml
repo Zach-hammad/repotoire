@@ -36,6 +36,14 @@ jobs:
           cd repotoire-cli
           ./target/release/repotoire analyze --format sarif --output ../results.sarif.json
 
+      - name: Run Diff Analysis (PRs only)
+        if: github.event_name == 'pull_request'
+        run: |
+          repotoire diff ${{ github.event.pull_request.base.sha }} \
+            --format sarif --output diff-results.sarif.json \
+            --fail-on high
+        continue-on-error: true
+
       - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         if: always()
