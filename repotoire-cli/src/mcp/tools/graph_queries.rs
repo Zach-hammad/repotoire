@@ -491,17 +491,18 @@ pub fn handle_analyze_impact(
 mod tests {
     use super::*;
     use crate::graph::store::{CodeEdge, CodeNode, GraphStore};
+    use anyhow::Result;
     use std::sync::Arc;
     use tempfile::tempdir;
 
     /// Build a HandlerState backed by a pre-populated in-memory graph.
-    fn state_with_graph(graph: GraphStore) -> (HandlerState, Arc<GraphStore>) {
-        let dir = tempdir().unwrap();
+    fn state_with_graph(graph: GraphStore) -> Result<(HandlerState, Arc<GraphStore>)> {
+        let dir = tempdir()?;
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let arc = Arc::new(graph);
         // Inject graph directly (bypasses lazy init)
         state.set_graph(arc.clone());
-        (state, arc)
+        Ok((state, arc))
     }
 
     /// Helper to build a small call-graph:
@@ -532,52 +533,55 @@ mod tests {
     // ── query_graph tests ────────────────────────────────────────────────────
 
     #[test]
-    fn test_query_graph_functions() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_functions() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Functions,
             name: None,
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         assert_eq!(result["total_count"], 4);
-        assert!(!result["has_more"].as_bool().unwrap());
+        assert!(!result["has_more"].as_bool().expect("expected bool for has_more"));
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callers() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callers() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callers,
             name: Some("foo::b".to_string()),
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         // a calls b
         assert_eq!(result["total_count"], 1);
-        let items = result["results"].as_array().unwrap();
+        let items = result["results"].as_array().expect("expected results array");
         assert_eq!(items[0]["qualified_name"], "foo::a");
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callees() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callees() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callees,
             name: Some("foo::b".to_string()),
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         // b calls c and d
         assert_eq!(result["total_count"], 2);
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callers_missing_name() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callers_missing_name() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callers,
             name: None,
@@ -587,27 +591,29 @@ mod tests {
         let result = handle_query_graph(&mut state, &params);
         assert!(result.is_err());
         assert!(result
-            .unwrap_err()
+            .expect_err("expected missing name error")
             .to_string()
             .contains("Missing required 'name'"));
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_stats() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_stats() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Stats,
             name: None,
             limit: None,
             offset: None,
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         assert_eq!(result["total_count"], 1);
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_pagination() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_pagination() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         // Limit to 2, offset 0
         let params = QueryGraphParams {
             query_type: GraphQueryType::Functions,
@@ -615,10 +621,10 @@ mod tests {
             limit: Some(2),
             offset: Some(0),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         assert_eq!(result["returned"], 2);
         assert_eq!(result["total_count"], 4);
-        assert!(result["has_more"].as_bool().unwrap());
+        assert!(result["has_more"].as_bool().expect("expected bool for has_more"));
 
         // Offset past results
         let params = QueryGraphParams {
@@ -627,70 +633,74 @@ mod tests {
             limit: Some(10),
             offset: Some(100),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         assert_eq!(result["returned"], 0);
-        assert!(!result["has_more"].as_bool().unwrap());
+        assert!(!result["has_more"].as_bool().expect("expected bool for has_more"));
+        Ok(())
     }
 
     // ── trace_dependencies tests ─────────────────────────────────────────────
 
     #[test]
-    fn test_trace_dependencies_both() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_trace_dependencies_both() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = TraceDependenciesParams {
             name: "foo::b".to_string(),
             direction: Some(TraceDirection::Both),
             max_depth: Some(3),
             kind: Some(TraceKind::Calls),
         };
-        let result = handle_trace_dependencies(&mut state, &params).unwrap();
+        let result = handle_trace_dependencies(&mut state, &params)?;
 
         assert_eq!(result["root"], "foo::b");
         // Upstream: a calls b
-        let upstream = result["upstream"].as_array().unwrap();
+        let upstream = result["upstream"].as_array().expect("expected upstream array");
         assert_eq!(upstream.len(), 1);
         assert_eq!(upstream[0]["name"], "foo::a");
         assert_eq!(upstream[0]["depth"], 1);
 
         // Downstream: b calls c, d
-        let downstream = result["downstream"].as_array().unwrap();
+        let downstream = result["downstream"].as_array().expect("expected downstream array");
         assert_eq!(downstream.len(), 2);
+        Ok(())
     }
 
     #[test]
-    fn test_trace_dependencies_upstream_only() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_trace_dependencies_upstream_only() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = TraceDependenciesParams {
             name: "bar::c".to_string(),
             direction: Some(TraceDirection::Upstream),
             max_depth: Some(5),
             kind: Some(TraceKind::Calls),
         };
-        let result = handle_trace_dependencies(&mut state, &params).unwrap();
+        let result = handle_trace_dependencies(&mut state, &params)?;
 
         // c <- b <- a  (2 upstream nodes)
-        let upstream = result["upstream"].as_array().unwrap();
+        let upstream = result["upstream"].as_array().expect("expected upstream array");
         assert_eq!(upstream.len(), 2);
-        let downstream = result["downstream"].as_array().unwrap();
+        let downstream = result["downstream"].as_array().expect("expected downstream array");
         assert!(downstream.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn test_trace_dependencies_not_found() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_trace_dependencies_not_found() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = TraceDependenciesParams {
             name: "nonexistent".to_string(),
             direction: None,
             max_depth: None,
             kind: None,
         };
-        let result = handle_trace_dependencies(&mut state, &params).unwrap();
+        let result = handle_trace_dependencies(&mut state, &params)?;
         assert!(result.get("error").is_some());
+        Ok(())
     }
 
     #[test]
-    fn test_trace_dependencies_short_name() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_trace_dependencies_short_name() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         // Use short name "b" — should resolve to foo::b
         let params = TraceDependenciesParams {
             name: "b".to_string(),
@@ -698,40 +708,42 @@ mod tests {
             max_depth: Some(1),
             kind: Some(TraceKind::Calls),
         };
-        let result = handle_trace_dependencies(&mut state, &params).unwrap();
+        let result = handle_trace_dependencies(&mut state, &params)?;
         assert_eq!(result["root"], "foo::b");
-        let downstream = result["downstream"].as_array().unwrap();
+        let downstream = result["downstream"].as_array().expect("expected downstream array");
         assert_eq!(downstream.len(), 2);
+        Ok(())
     }
 
     // ── analyze_impact tests ─────────────────────────────────────────────────
 
     #[test]
-    fn test_analyze_impact_function_scope() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_analyze_impact_function_scope() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = AnalyzeImpactParams {
             target: "foo::b".to_string(),
             scope: Some(ImpactScope::Function),
             name: Some("foo::b".to_string()),
         };
-        let result = handle_analyze_impact(&mut state, &params).unwrap();
+        let result = handle_analyze_impact(&mut state, &params)?;
 
         // Only 'a' calls 'b', so direct = 1
         assert_eq!(result["direct_dependents"], 1);
         // No further callers of 'a', so transitive = 1 as well
         assert_eq!(result["transitive_dependents"], 1);
         assert_eq!(result["risk_score"], "low");
+        Ok(())
     }
 
     #[test]
-    fn test_analyze_impact_file_scope() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_analyze_impact_file_scope() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = AnalyzeImpactParams {
             target: "src/bar.rs".to_string(),
             scope: Some(ImpactScope::File),
             name: None,
         };
-        let result = handle_analyze_impact(&mut state, &params).unwrap();
+        let result = handle_analyze_impact(&mut state, &params)?;
 
         // Nodes in bar.rs: bar::c, bar::d, src/bar.rs
         // Who depends on them?
@@ -740,15 +752,16 @@ mod tests {
         //   src/bar.rs <- src/foo.rs (import)
         // Direct: foo::b, src/foo.rs
         // Transitive: foo::b, foo::a, src/foo.rs
-        assert!(result["direct_dependents"].as_u64().unwrap() >= 1);
-        assert!(result["transitive_dependents"].as_u64().unwrap() >= 1);
-        let affected = result["affected_files"].as_array().unwrap();
+        assert!(result["direct_dependents"].as_u64().expect("expected u64") >= 1);
+        assert!(result["transitive_dependents"].as_u64().expect("expected u64") >= 1);
+        let affected = result["affected_files"].as_array().expect("expected affected_files array");
         assert!(affected.iter().any(|f| f.as_str() == Some("src/foo.rs")));
+        Ok(())
     }
 
     #[test]
-    fn test_analyze_impact_not_found() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_analyze_impact_not_found() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = AnalyzeImpactParams {
             target: "nonexistent".to_string(),
             scope: Some(ImpactScope::Function),
@@ -756,10 +769,11 @@ mod tests {
         };
         let result = handle_analyze_impact(&mut state, &params);
         assert!(result.is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_analyze_impact_high_risk() {
+    fn test_analyze_impact_high_risk() -> Result<()> {
         // Build a graph with >20 transitive dependents
         let g = GraphStore::in_memory();
         g.add_node(CodeNode::function("root", "root.rs").with_qualified_name("root"));
@@ -768,20 +782,21 @@ mod tests {
             g.add_node(CodeNode::function(&name, "callers.rs").with_qualified_name(&name));
             g.add_edge_by_name(&name, "root", CodeEdge::calls());
         }
-        let (mut state, _g) = state_with_graph(g);
+        let (mut state, _g) = state_with_graph(g)?;
 
         let params = AnalyzeImpactParams {
             target: "root".to_string(),
             scope: Some(ImpactScope::Function),
             name: Some("root".to_string()),
         };
-        let result = handle_analyze_impact(&mut state, &params).unwrap();
+        let result = handle_analyze_impact(&mut state, &params)?;
         assert_eq!(result["risk_score"], "high");
         assert_eq!(result["direct_dependents"], 25);
+        Ok(())
     }
 
     #[test]
-    fn test_analyze_impact_strongly_connected() {
+    fn test_analyze_impact_strongly_connected() -> Result<()> {
         // Build a cycle: a -> b -> a
         let g = GraphStore::in_memory();
         g.add_node(CodeNode::function("a", "cycle.rs").with_qualified_name("a"));
@@ -789,54 +804,57 @@ mod tests {
         g.add_edge_by_name("a", "b", CodeEdge::calls());
         g.add_edge_by_name("b", "a", CodeEdge::calls());
 
-        let (mut state, _g) = state_with_graph(g);
+        let (mut state, _g) = state_with_graph(g)?;
 
         let params = AnalyzeImpactParams {
             target: "a".to_string(),
             scope: Some(ImpactScope::Function),
             name: Some("a".to_string()),
         };
-        let result = handle_analyze_impact(&mut state, &params).unwrap();
-        assert!(result["strongly_connected"].as_bool().unwrap());
+        let result = handle_analyze_impact(&mut state, &params)?;
+        assert!(result["strongly_connected"].as_bool().expect("expected bool for strongly_connected"));
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callers_nonexistent_node() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callers_nonexistent_node() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callers,
             name: Some("nonexistent::func".to_string()),
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         // Should return an error JSON instead of silent empty results
         assert!(result.get("error").is_some());
-        let err_msg = result["error"].as_str().unwrap();
+        let err_msg = result["error"].as_str().expect("expected error string");
         assert!(err_msg.contains("nonexistent::func"));
         assert!(err_msg.contains("not found"));
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callees_nonexistent_node() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callees_nonexistent_node() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callees,
             name: Some("nonexistent::func".to_string()),
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         // Should return an error JSON instead of silent empty results
         assert!(result.get("error").is_some());
-        let err_msg = result["error"].as_str().unwrap();
+        let err_msg = result["error"].as_str().expect("expected error string");
         assert!(err_msg.contains("nonexistent::func"));
         assert!(err_msg.contains("not found"));
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callers_existing_node_no_callers() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callers_existing_node_no_callers() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         // foo::a has no callers (it's the root), but it exists in the graph
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callers,
@@ -844,15 +862,16 @@ mod tests {
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         // Should return normal results (empty list), NOT an error
         assert!(result.get("error").is_none());
         assert_eq!(result["total_count"], 0);
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callers_empty_name() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callers_empty_name() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callers,
             name: Some("".into()),
@@ -862,11 +881,12 @@ mod tests {
         let result = handle_query_graph(&mut state, &params);
         // Empty name should be treated as missing
         assert!(result.is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callees_empty_name() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callees_empty_name() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callees,
             name: Some("".into()),
@@ -876,11 +896,12 @@ mod tests {
         let result = handle_query_graph(&mut state, &params);
         // Empty name should be treated as missing
         assert!(result.is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_query_graph_callees_existing_node_no_callees() {
-        let (mut state, _g) = state_with_graph(build_call_graph());
+    fn test_query_graph_callees_existing_node_no_callees() -> Result<()> {
+        let (mut state, _g) = state_with_graph(build_call_graph())?;
         // bar::c has no callees (it's a leaf), but it exists in the graph
         let params = QueryGraphParams {
             query_type: GraphQueryType::Callees,
@@ -888,9 +909,10 @@ mod tests {
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_query_graph(&mut state, &params).unwrap();
+        let result = handle_query_graph(&mut state, &params)?;
         // Should return normal results (empty list), NOT an error
         assert!(result.get("error").is_none());
         assert_eq!(result["total_count"], 0);
+        Ok(())
     }
 }

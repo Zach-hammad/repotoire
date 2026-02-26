@@ -244,22 +244,24 @@ pub fn handle_get_hotspots(state: &mut HandlerState, params: &GetHotspotsParams)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
     #[test]
-    fn test_handle_get_hotspots_no_findings_file() {
-        let dir = tempdir().unwrap();
+    fn test_handle_get_hotspots_no_findings_file() -> Result<()> {
+        let dir = tempdir()?;
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetHotspotsParams { limit: None };
-        let result = handle_get_hotspots(&mut state, &params).unwrap();
+        let result = handle_get_hotspots(&mut state, &params)?;
         assert!(result.get("error").is_some());
         assert!(result.get("hint").is_some());
+        Ok(())
     }
 
     #[test]
-    fn test_handle_get_findings_no_findings_file_no_graph() {
-        let dir = tempdir().unwrap();
+    fn test_handle_get_findings_no_findings_file_no_graph() -> Result<()> {
+        let dir = tempdir()?;
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFindingsParams {
             severity: None,
@@ -271,13 +273,14 @@ mod tests {
         // initialize the graph store. This may succeed (empty analysis)
         // or fail. Either way it should not panic.
         let _result = handle_get_findings(&mut state, &params);
+        Ok(())
     }
 
     #[test]
-    fn test_handle_get_findings_cached() {
-        let dir = tempdir().unwrap();
+    fn test_handle_get_findings_cached() -> Result<()> {
+        let dir = tempdir()?;
         let repotoire_dir = dir.path().join(".repotoire");
-        std::fs::create_dir_all(&repotoire_dir).unwrap();
+        std::fs::create_dir_all(&repotoire_dir)?;
         std::fs::write(
             repotoire_dir.join("last_findings.json"),
             r#"{"findings":[
@@ -285,8 +288,7 @@ mod tests {
                 {"severity":"low","detector":"test","affected_files":["b.rs"]},
                 {"severity":"high","detector":"other","affected_files":["c.rs"]}
             ]}"#,
-        )
-        .unwrap();
+        )?;
 
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
 
@@ -297,7 +299,7 @@ mod tests {
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_get_findings(&mut state, &params).unwrap();
+        let result = handle_get_findings(&mut state, &params)?;
         assert_eq!(result["total_count"], 3);
         assert_eq!(result["returned"], 3);
         assert_eq!(result["has_more"], false);
@@ -309,7 +311,7 @@ mod tests {
             limit: Some(10),
             offset: Some(0),
         };
-        let result = handle_get_findings(&mut state, &params).unwrap();
+        let result = handle_get_findings(&mut state, &params)?;
         assert_eq!(result["total_count"], 2);
 
         // Pagination
@@ -319,7 +321,7 @@ mod tests {
             limit: Some(2),
             offset: Some(0),
         };
-        let result = handle_get_findings(&mut state, &params).unwrap();
+        let result = handle_get_findings(&mut state, &params)?;
         assert_eq!(result["returned"], 2);
         assert_eq!(result["has_more"], true);
 
@@ -330,16 +332,17 @@ mod tests {
             limit: Some(10),
             offset: Some(3),
         };
-        let result = handle_get_findings(&mut state, &params).unwrap();
+        let result = handle_get_findings(&mut state, &params)?;
         assert_eq!(result["returned"], 0);
         assert_eq!(result["has_more"], false);
+        Ok(())
     }
 
     #[test]
-    fn test_handle_get_hotspots_cached() {
-        let dir = tempdir().unwrap();
+    fn test_handle_get_hotspots_cached() -> Result<()> {
+        let dir = tempdir()?;
         let repotoire_dir = dir.path().join(".repotoire");
-        std::fs::create_dir_all(&repotoire_dir).unwrap();
+        std::fs::create_dir_all(&repotoire_dir)?;
         std::fs::write(
             repotoire_dir.join("last_findings.json"),
             r#"{"findings":[
@@ -347,31 +350,31 @@ mod tests {
                 {"severity":"medium","affected_files":["a.rs"]},
                 {"severity":"low","affected_files":["b.rs"]}
             ]}"#,
-        )
-        .unwrap();
+        )?;
 
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetHotspotsParams { limit: Some(1) };
-        let result = handle_get_hotspots(&mut state, &params).unwrap();
+        let result = handle_get_hotspots(&mut state, &params)?;
 
-        let hotspots = result["hotspots"].as_array().unwrap();
+        let hotspots = result["hotspots"].as_array()
+            .expect("expected hotspots array");
         assert_eq!(hotspots.len(), 1);
         // a.rs has 2 findings, should be first
         assert_eq!(hotspots[0]["file_path"], "a.rs");
         assert_eq!(hotspots[0]["finding_count"], 2);
+        Ok(())
     }
 
     #[test]
-    fn test_handle_get_findings_malformed_cache() {
-        let dir = tempdir().unwrap();
+    fn test_handle_get_findings_malformed_cache() -> Result<()> {
+        let dir = tempdir()?;
         let repotoire_dir = dir.path().join(".repotoire");
-        std::fs::create_dir_all(&repotoire_dir).unwrap();
+        std::fs::create_dir_all(&repotoire_dir)?;
         // Write JSON without the required "findings" key
         std::fs::write(
             repotoire_dir.join("last_findings.json"),
             r#"{"version": 1, "detectors": []}"#,
-        )
-        .unwrap();
+        )?;
 
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFindingsParams {
@@ -382,9 +385,10 @@ mod tests {
         };
         let result = handle_get_findings(&mut state, &params);
         assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
+        let err_msg = result.expect_err("expected malformed cache error").to_string();
         assert!(err_msg.contains("malformed"));
         assert!(err_msg.contains("findings"));
+        Ok(())
     }
 
     #[test]
@@ -402,23 +406,23 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_get_hotspots_malformed_cache() {
-        let dir = tempdir().unwrap();
+    fn test_handle_get_hotspots_malformed_cache() -> Result<()> {
+        let dir = tempdir()?;
         let repotoire_dir = dir.path().join(".repotoire");
-        std::fs::create_dir_all(&repotoire_dir).unwrap();
+        std::fs::create_dir_all(&repotoire_dir)?;
         // Write JSON without the required "findings" key
         std::fs::write(
             repotoire_dir.join("last_findings.json"),
             r#"{"version": 1, "detectors": []}"#,
-        )
-        .unwrap();
+        )?;
 
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetHotspotsParams { limit: None };
         let result = handle_get_hotspots(&mut state, &params);
         assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
+        let err_msg = result.expect_err("expected malformed cache error").to_string();
         assert!(err_msg.contains("malformed"));
         assert!(err_msg.contains("findings"));
+        Ok(())
     }
 }

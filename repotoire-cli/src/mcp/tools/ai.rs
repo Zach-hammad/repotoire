@@ -268,59 +268,65 @@ fn handle_generate_fix_local(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
     use tempfile::tempdir;
 
     /// Helper: create a HandlerState with no API key and no AI backend.
-    fn free_state() -> (HandlerState, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+    fn free_state() -> Result<(HandlerState, tempfile::TempDir)> {
+        let dir = tempdir()?;
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
         // Ensure no PRO or BYOK keys leak from the test environment
         state.api_key = None;
         state.ai_backend = None;
-        (state, dir)
+        Ok((state, dir))
     }
 
     // ── PRO-gate tests ──────────────────────────────────────────────────────
 
     #[test]
-    fn test_search_code_requires_pro() {
-        let (state, _dir) = free_state();
+    fn test_search_code_requires_pro() -> Result<()> {
+        let (state, _dir) = free_state()?;
         let params = SearchCodeParams {
             query: "authentication functions".to_string(),
             top_k: None,
             entity_types: None,
         };
-        let result = handle_search_code(&state, &params).unwrap();
+        let result = handle_search_code(&state, &params)?;
 
-        let error = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let error = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(error.contains("PRO subscription"), "Expected PRO error, got: {}", error);
         assert!(result.get("hint").is_some(), "Expected actionable hint");
         assert!(result.get("upgrade_url").is_some(), "Expected upgrade URL");
+        Ok(())
     }
 
     #[test]
-    fn test_ask_requires_pro() {
-        let (state, _dir) = free_state();
+    fn test_ask_requires_pro() -> Result<()> {
+        let (state, _dir) = free_state()?;
         let params = AskParams {
             question: "How does authentication work?".to_string(),
             top_k: None,
         };
-        let result = handle_ask(&state, &params).unwrap();
+        let result = handle_ask(&state, &params)?;
 
-        let error = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let error = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(error.contains("PRO subscription"), "Expected PRO error, got: {}", error);
         assert!(result.get("hint").is_some(), "Expected actionable hint");
+        Ok(())
     }
 
     #[test]
-    fn test_generate_fix_requires_ai_or_pro() {
-        let (state, _dir) = free_state();
+    fn test_generate_fix_requires_ai_or_pro() -> Result<()> {
+        let (state, _dir) = free_state()?;
         let params = GenerateFixParams {
             finding_id: "1".to_string(),
         };
-        let result = handle_generate_fix(&state, &params).unwrap();
+        let result = handle_generate_fix(&state, &params)?;
 
-        let error = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let error = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(
             error.contains("API key"),
             "Expected API key requirement error, got: {}",
@@ -328,78 +334,86 @@ mod tests {
         );
         assert!(result.get("hint").is_some(), "Expected actionable hint");
         assert!(result.get("docs").is_some(), "Expected documentation link");
+        Ok(())
     }
 
     // ── generate_fix_local edge cases ───────────────────────────────────────
 
     #[test]
-    fn test_generate_fix_local_invalid_index() {
-        let (mut state, dir) = free_state();
+    fn test_generate_fix_local_invalid_index() -> Result<()> {
+        let (mut state, dir) = free_state()?;
         state.ai_backend = Some(LlmBackend::Ollama);
 
         // Create findings file with one finding
         let repotoire_dir = dir.path().join(".repotoire");
-        std::fs::create_dir_all(&repotoire_dir).unwrap();
+        std::fs::create_dir_all(&repotoire_dir)?;
         std::fs::write(
             repotoire_dir.join("last_findings.json"),
             r#"{"findings":[{"id":"f1","detector":"test","severity":"high","title":"Test issue","description":"desc","affected_files":["a.rs"]}]}"#,
-        ).unwrap();
+        )?;
 
         // Index 0 is invalid (1-based)
         let params = GenerateFixParams {
             finding_id: "0".to_string(),
         };
-        let result = handle_generate_fix(&state, &params).unwrap();
-        let error = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_generate_fix(&state, &params)?;
+        let error = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(error.contains("must be a number"), "Expected index error, got: {}", error);
 
         // Non-numeric is invalid
         let params = GenerateFixParams {
             finding_id: "abc".to_string(),
         };
-        let result = handle_generate_fix(&state, &params).unwrap();
-        let error = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_generate_fix(&state, &params)?;
+        let error = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(error.contains("must be a number"), "Expected index error, got: {}", error);
+        Ok(())
     }
 
     #[test]
-    fn test_generate_fix_local_index_out_of_range() {
-        let (mut state, dir) = free_state();
+    fn test_generate_fix_local_index_out_of_range() -> Result<()> {
+        let (mut state, dir) = free_state()?;
         state.ai_backend = Some(LlmBackend::Ollama);
 
         let repotoire_dir = dir.path().join(".repotoire");
-        std::fs::create_dir_all(&repotoire_dir).unwrap();
+        std::fs::create_dir_all(&repotoire_dir)?;
         std::fs::write(
             repotoire_dir.join("last_findings.json"),
             r#"{"findings":[{"id":"f1","detector":"test","severity":"high","title":"Test","description":"desc","affected_files":[]}]}"#,
-        ).unwrap();
+        )?;
 
         let params = GenerateFixParams {
             finding_id: "99".to_string(),
         };
-        let result = handle_generate_fix(&state, &params).unwrap();
-        let error = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_generate_fix(&state, &params)?;
+        let error = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(
             error.contains("Invalid finding index: 99"),
             "Expected out-of-range error, got: {}",
             error
         );
+        Ok(())
     }
 
     #[test]
-    fn test_generate_fix_local_no_findings_file() {
-        let (mut state, _dir) = free_state();
+    fn test_generate_fix_local_no_findings_file() -> Result<()> {
+        let (mut state, _dir) = free_state()?;
         state.ai_backend = Some(LlmBackend::Ollama);
 
         let params = GenerateFixParams {
             finding_id: "1".to_string(),
         };
-        let result = handle_generate_fix(&state, &params).unwrap();
-        let error = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_generate_fix(&state, &params)?;
+        let error = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(
             error.contains("No findings available"),
             "Expected no-findings error, got: {}",
             error
         );
+        Ok(())
     }
 }

@@ -152,26 +152,29 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_handler_state_new() {
-        let dir = tempdir().unwrap();
+    fn test_handler_state_new() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), false);
         assert!(!state.is_pro()); // No API key in test env
+        Ok(())
     }
 
     #[test]
-    fn test_handler_state_force_local() {
-        let dir = tempdir().unwrap();
+    fn test_handler_state_force_local() -> Result<()> {
+        let dir = tempdir()?;
         // Even if REPOTOIRE_API_KEY is set in env, force_local should suppress it
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         assert!(state.api_key.is_none());
         assert!(!state.is_pro());
+        Ok(())
     }
 
     #[test]
-    fn test_mode_description_free() {
-        let dir = tempdir().unwrap();
+    fn test_mode_description_free() -> Result<()> {
+        let dir = tempdir()?;
         let mut state = HandlerState::new(dir.path().to_path_buf(), true);
         state.ai_backend = None;
         assert_eq!(state.mode_description(), "FREE");
+        Ok(())
     }
 }

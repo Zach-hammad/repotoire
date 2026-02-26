@@ -389,22 +389,24 @@ impl ServerHandler for RepotoireServer {
 mod tests {
     use super::*;
     use crate::graph::store::{CodeEdge, CodeNode, GraphStore};
+    use anyhow::Result;
     use std::sync::Arc;
     use tempfile::tempdir;
 
     #[test]
-    fn test_server_construction() {
-        let dir = tempdir().unwrap();
+    fn test_server_construction() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         let server = RepotoireServer::new(state);
 
         // Verify the server can be cloned (required for rmcp)
         let _cloned = server.clone();
+        Ok(())
     }
 
     #[test]
-    fn test_server_info() {
-        let dir = tempdir().unwrap();
+    fn test_server_info() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         let server = RepotoireServer::new(state);
 
@@ -413,6 +415,7 @@ mod tests {
         assert_eq!(info.protocol_version, ProtocolVersion::V_2025_03_26);
         assert!(info.capabilities.tools.is_some());
         assert!(info.instructions.is_some());
+        Ok(())
     }
 
     #[test]
@@ -437,8 +440,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_tool_router_has_all_tools() {
-        let dir = tempdir().unwrap();
+    async fn test_tool_router_has_all_tools() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         let server = RepotoireServer::new(state);
 
@@ -483,6 +486,7 @@ mod tests {
                 tool_names
             );
         }
+        Ok(())
     }
 
     // ── Helper ──────────────────────────────────────────────────────────────
@@ -504,8 +508,8 @@ mod tests {
     // ── New integration tests ───────────────────────────────────────────────
 
     #[test]
-    fn test_all_tools_have_descriptions() {
-        let dir = tempdir().unwrap();
+    fn test_all_tools_have_descriptions() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         let server = RepotoireServer::new(state);
 
@@ -516,18 +520,19 @@ mod tests {
             let desc = tool
                 .description
                 .as_ref()
-                .expect(&format!("Tool '{}' is missing a description", tool.name));
+                .unwrap_or_else(|| panic!("Tool '{}' is missing a description", tool.name));
             assert!(
                 !desc.is_empty(),
                 "Tool '{}' has an empty description",
                 tool.name
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn test_tool_names_follow_convention() {
-        let dir = tempdir().unwrap();
+    fn test_tool_names_follow_convention() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         let server = RepotoireServer::new(state);
 
@@ -541,17 +546,17 @@ mod tests {
                 tool.name
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_analyze_tool_works() {
-        let dir = tempdir().unwrap();
+    async fn test_analyze_tool_works() -> Result<()> {
+        let dir = tempdir()?;
         // Write a small Rust file so detectors have something to analyze
         std::fs::write(
             dir.path().join("main.rs"),
             "fn main() {\n    println!(\"hello\");\n}\n",
-        )
-        .unwrap();
+        )?;
 
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         let server = RepotoireServer::new(state);
@@ -564,7 +569,7 @@ mod tests {
             .await;
 
         assert!(result.is_ok(), "analyze should succeed: {:?}", result.err());
-        let call_result = result.unwrap();
+        let call_result = result.expect("analyze should succeed");
         let text = extract_text(&call_result);
         let json: serde_json::Value =
             serde_json::from_str(text).expect("Response should be valid JSON");
@@ -578,13 +583,14 @@ mod tests {
             json.get("by_severity").is_some(),
             "Response missing 'by_severity'"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_get_file_tool_works() {
-        let dir = tempdir().unwrap();
+    async fn test_get_file_tool_works() -> Result<()> {
+        let dir = tempdir()?;
         let file_content = "line one\nline two\nline three\n";
-        std::fs::write(dir.path().join("sample.txt"), file_content).unwrap();
+        std::fs::write(dir.path().join("sample.txt"), file_content)?;
 
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         let server = RepotoireServer::new(state);
@@ -599,7 +605,7 @@ mod tests {
             .await;
 
         assert!(result.is_ok(), "get_file should succeed: {:?}", result.err());
-        let call_result = result.unwrap();
+        let call_result = result.expect("get_file should succeed");
         let text = extract_text(&call_result);
         let json: serde_json::Value =
             serde_json::from_str(text).expect("Response should be valid JSON");
@@ -622,11 +628,12 @@ mod tests {
             content.contains("line two"),
             "File content should contain 'line two'"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_query_graph_tool_works() {
-        let dir = tempdir().unwrap();
+    async fn test_query_graph_tool_works() -> Result<()> {
+        let dir = tempdir()?;
 
         // Build an in-memory graph with test data
         let graph = GraphStore::in_memory();
@@ -657,7 +664,7 @@ mod tests {
             "query_graph should succeed: {:?}",
             result.err()
         );
-        let call_result = result.unwrap();
+        let call_result = result.expect("query_graph should succeed");
         let text = extract_text(&call_result);
         let json: serde_json::Value =
             serde_json::from_str(text).expect("Response should be valid JSON");
@@ -673,11 +680,12 @@ mod tests {
             results
         );
         assert_eq!(json["total_count"], 2);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_list_detectors_tool_works() {
-        let dir = tempdir().unwrap();
+    async fn test_list_detectors_tool_works() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), true);
         let server = RepotoireServer::new(state);
 
@@ -688,7 +696,7 @@ mod tests {
             "list_detectors should succeed: {:?}",
             result.err()
         );
-        let call_result = result.unwrap();
+        let call_result = result.expect("list_detectors should succeed");
         let text = extract_text(&call_result);
         let json: serde_json::Value =
             serde_json::from_str(text).expect("Response should be valid JSON");
@@ -724,5 +732,6 @@ mod tests {
                 "Detector missing 'category'"
             );
         }
+        Ok(())
     }
 }

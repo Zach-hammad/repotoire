@@ -367,19 +367,20 @@ fn handle_recent_commits(repo_path: &std::path::Path, limit: usize) -> Result<Va
 mod tests {
     use super::*;
     use crate::graph::store::{CodeNode, GraphStore};
+    use anyhow::Result;
     use std::sync::Arc;
     use tempfile::tempdir;
 
     /// Build a HandlerState pointing at a non-git temporary directory.
-    fn state_non_git() -> (HandlerState, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+    fn state_non_git() -> Result<(HandlerState, tempfile::TempDir)> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), false);
-        (state, dir)
+        Ok((state, dir))
     }
 
     /// Build a HandlerState with a pre-populated graph for function_history tests.
-    fn state_with_graph_and_function() -> (HandlerState, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+    fn state_with_graph_and_function() -> Result<(HandlerState, tempfile::TempDir)> {
+        let dir = tempdir()?;
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
 
         let graph = GraphStore::in_memory();
@@ -390,14 +391,14 @@ mod tests {
         graph.add_node(func);
 
         state.set_graph(Arc::new(graph));
-        (state, dir)
+        Ok((state, dir))
     }
 
     // ── Not a git repo ──────────────────────────────────────────────────────
 
     #[test]
-    fn test_not_a_git_repo() {
-        let (mut state, _dir) = state_non_git();
+    fn test_not_a_git_repo() -> Result<()> {
+        let (mut state, _dir) = state_non_git()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::RecentCommits,
             file: None,
@@ -406,17 +407,19 @@ mod tests {
             line_end: None,
             limit: None,
         };
-        let result = handle_query_evolution(&mut state, &params).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_query_evolution(&mut state, &params)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(err.contains("Not a git repository"), "got: {}", err);
+        Ok(())
     }
 
     // ── Missing file parameter ──────────────────────────────────────────────
 
     #[test]
-    fn test_file_churn_missing_file() {
+    fn test_file_churn_missing_file() -> Result<()> {
         // We test the inner handler directly to avoid the git-repo check
-        let dir = tempdir().unwrap();
+        let dir = tempdir()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::FileChurn,
             file: None,
@@ -425,14 +428,16 @@ mod tests {
             line_end: None,
             limit: None,
         };
-        let result = handle_file_churn(dir.path(), &params).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_file_churn(dir.path(), &params)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(err.contains("file_churn requires"), "got: {}", err);
+        Ok(())
     }
 
     #[test]
-    fn test_file_commits_missing_file() {
-        let dir = tempdir().unwrap();
+    fn test_file_commits_missing_file() -> Result<()> {
+        let dir = tempdir()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::FileCommits,
             file: None,
@@ -441,14 +446,16 @@ mod tests {
             line_end: None,
             limit: None,
         };
-        let result = handle_file_commits(dir.path(), &params, 20).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_file_commits(dir.path(), &params, 20)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(err.contains("file_commits requires"), "got: {}", err);
+        Ok(())
     }
 
     #[test]
-    fn test_file_ownership_missing_file() {
-        let dir = tempdir().unwrap();
+    fn test_file_ownership_missing_file() -> Result<()> {
+        let dir = tempdir()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::FileOwnership,
             file: None,
@@ -457,16 +464,18 @@ mod tests {
             line_end: None,
             limit: None,
         };
-        let result = handle_file_ownership(dir.path(), &params).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_file_ownership(dir.path(), &params)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(err.contains("file_ownership requires"), "got: {}", err);
+        Ok(())
     }
 
     // ── Missing name parameter for function_history ─────────────────────────
 
     #[test]
-    fn test_function_history_missing_file() {
-        let (mut state, _dir) = state_with_graph_and_function();
+    fn test_function_history_missing_file() -> Result<()> {
+        let (mut state, _dir) = state_with_graph_and_function()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::FunctionHistory,
             file: None,
@@ -476,18 +485,20 @@ mod tests {
             limit: None,
         };
         // Bypass git check — call inner handler directly
-        let result = handle_function_history(&mut state, &params, 20).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_function_history(&mut state, &params, 20)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(
             err.contains("function_history requires the `file`"),
             "got: {}",
             err
         );
+        Ok(())
     }
 
     #[test]
-    fn test_function_history_missing_name() {
-        let (mut state, _dir) = state_with_graph_and_function();
+    fn test_function_history_missing_name() -> Result<()> {
+        let (mut state, _dir) = state_with_graph_and_function()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::FunctionHistory,
             file: Some("src/lib.rs".to_string()),
@@ -496,18 +507,20 @@ mod tests {
             line_end: None,
             limit: None,
         };
-        let result = handle_function_history(&mut state, &params, 20).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_function_history(&mut state, &params, 20)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(
             err.contains("function_history requires the `name`"),
             "got: {}",
             err
         );
+        Ok(())
     }
 
     #[test]
-    fn test_function_history_not_in_graph() {
-        let (mut state, _dir) = state_with_graph_and_function();
+    fn test_function_history_not_in_graph() -> Result<()> {
+        let (mut state, _dir) = state_with_graph_and_function()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::FunctionHistory,
             file: Some("src/lib.rs".to_string()),
@@ -516,16 +529,18 @@ mod tests {
             line_end: None,
             limit: None,
         };
-        let result = handle_function_history(&mut state, &params, 20).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_function_history(&mut state, &params, 20)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(err.contains("not found"), "got: {}", err);
+        Ok(())
     }
 
     // ── Missing line_start/line_end for entity_blame ────────────────────────
 
     #[test]
-    fn test_entity_blame_missing_file() {
-        let dir = tempdir().unwrap();
+    fn test_entity_blame_missing_file() -> Result<()> {
+        let dir = tempdir()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::EntityBlame,
             file: None,
@@ -534,14 +549,16 @@ mod tests {
             line_end: Some(10),
             limit: None,
         };
-        let result = handle_entity_blame(dir.path(), &params).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_entity_blame(dir.path(), &params)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(err.contains("entity_blame requires the `file`"), "got: {}", err);
+        Ok(())
     }
 
     #[test]
-    fn test_entity_blame_missing_line_start() {
-        let dir = tempdir().unwrap();
+    fn test_entity_blame_missing_line_start() -> Result<()> {
+        let dir = tempdir()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::EntityBlame,
             file: Some("test.py".to_string()),
@@ -550,18 +567,20 @@ mod tests {
             line_end: Some(10),
             limit: None,
         };
-        let result = handle_entity_blame(dir.path(), &params).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_entity_blame(dir.path(), &params)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(
             err.contains("entity_blame requires the `line_start`"),
             "got: {}",
             err
         );
+        Ok(())
     }
 
     #[test]
-    fn test_entity_blame_missing_line_end() {
-        let dir = tempdir().unwrap();
+    fn test_entity_blame_missing_line_end() -> Result<()> {
+        let dir = tempdir()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::EntityBlame,
             file: Some("test.py".to_string()),
@@ -570,20 +589,22 @@ mod tests {
             line_end: None,
             limit: None,
         };
-        let result = handle_entity_blame(dir.path(), &params).unwrap();
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_entity_blame(dir.path(), &params)?;
+        let err = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field");
         assert!(
             err.contains("entity_blame requires the `line_end`"),
             "got: {}",
             err
         );
+        Ok(())
     }
 
     // ── Empty file param treated as missing ─────────────────────────────────
 
     #[test]
-    fn test_file_churn_empty_file() {
-        let dir = tempdir().unwrap();
+    fn test_file_churn_empty_file() -> Result<()> {
+        let dir = tempdir()?;
         let params = QueryEvolutionParams {
             query_type: EvolutionQueryType::FileChurn,
             file: Some(String::new()),
@@ -592,7 +613,8 @@ mod tests {
             line_end: None,
             limit: None,
         };
-        let result = handle_file_churn(dir.path(), &params).unwrap();
+        let result = handle_file_churn(dir.path(), &params)?;
         assert!(result.get("error").is_some());
+        Ok(())
     }
 }

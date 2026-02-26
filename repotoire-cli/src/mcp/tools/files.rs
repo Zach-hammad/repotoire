@@ -188,25 +188,27 @@ pub fn handle_list_detectors(state: &HandlerState) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
     use tempfile::tempdir;
 
     #[test]
-    fn test_get_file_not_found() {
-        let dir = tempdir().unwrap();
+    fn test_get_file_not_found() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
             file_path: "nonexistent.txt".to_string(),
             start_line: None,
             end_line: None,
         };
-        let result = handle_get_file(&state, &params).unwrap();
+        let result = handle_get_file(&state, &params)?;
         assert!(result.get("error").is_some());
+        Ok(())
     }
 
     #[test]
-    fn test_get_file_success() {
-        let dir = tempdir().unwrap();
-        std::fs::write(dir.path().join("test.txt"), "line1\nline2\nline3").unwrap();
+    fn test_get_file_success() -> Result<()> {
+        let dir = tempdir()?;
+        std::fs::write(dir.path().join("test.txt"), "line1\nline2\nline3")?;
 
         let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
@@ -214,19 +216,20 @@ mod tests {
             start_line: None,
             end_line: None,
         };
-        let result = handle_get_file(&state, &params).unwrap();
+        let result = handle_get_file(&state, &params)?;
 
         assert_eq!(result.get("total_lines").and_then(|v| v.as_u64()), Some(3));
         assert_eq!(
             result.get("showing_lines").and_then(|v| v.as_str()),
             Some("1-3")
         );
+        Ok(())
     }
 
     #[test]
-    fn test_get_file_line_range() {
-        let dir = tempdir().unwrap();
-        std::fs::write(dir.path().join("test.txt"), "line1\nline2\nline3\nline4\nline5").unwrap();
+    fn test_get_file_line_range() -> Result<()> {
+        let dir = tempdir()?;
+        std::fs::write(dir.path().join("test.txt"), "line1\nline2\nline3\nline4\nline5")?;
 
         let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
@@ -234,7 +237,7 @@ mod tests {
             start_line: Some(2),
             end_line: Some(4),
         };
-        let result = handle_get_file(&state, &params).unwrap();
+        let result = handle_get_file(&state, &params)?;
 
         assert_eq!(result.get("total_lines").and_then(|v| v.as_u64()), Some(5));
         assert_eq!(
@@ -245,48 +248,54 @@ mod tests {
             result.get("showing_lines").and_then(|v| v.as_str()),
             Some("2-4")
         );
+        Ok(())
     }
 
     #[test]
-    fn test_get_file_path_traversal() {
-        let dir = tempdir().unwrap();
+    fn test_get_file_path_traversal() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
             file_path: "../../../etc/passwd".to_string(),
             start_line: None,
             end_line: None,
         };
-        let result = handle_get_file(&state, &params).unwrap();
-        let error = result.get("error").and_then(|v| v.as_str()).unwrap();
+        let result = handle_get_file(&state, &params)?;
+        let error = result.get("error").and_then(|v| v.as_str())
+            .expect("expected error field in response");
         assert!(
             error.contains("Access denied") || error.contains("File not found"),
             "Expected access denied or file not found, got: {}",
             error
         );
+        Ok(())
     }
 
     #[test]
-    fn test_get_file_nonexistent() {
-        let dir = tempdir().unwrap();
+    fn test_get_file_nonexistent() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), false);
         let params = GetFileParams {
             file_path: "does_not_exist.rs".into(),
             start_line: None,
             end_line: None,
         };
-        let result = handle_get_file(&state, &params).unwrap();
+        let result = handle_get_file(&state, &params)?;
         assert!(result.get("error").is_some());
+        Ok(())
     }
 
     #[test]
-    fn test_list_detectors() {
-        let dir = tempdir().unwrap();
+    fn test_list_detectors() -> Result<()> {
+        let dir = tempdir()?;
         let state = HandlerState::new(dir.path().to_path_buf(), false);
-        let result = handle_list_detectors(&state).unwrap();
+        let result = handle_list_detectors(&state)?;
 
-        let detectors = result.get("detectors").and_then(|v| v.as_array()).unwrap();
+        let detectors = result.get("detectors").and_then(|v| v.as_array())
+            .expect("expected detectors array");
         assert!(!detectors.is_empty());
-        assert!(result.get("count").and_then(|v| v.as_u64()).unwrap() > 0);
+        assert!(result.get("count").and_then(|v| v.as_u64())
+            .expect("expected count field") > 0);
 
         // Each detector should have name, description, category
         for d in detectors {
@@ -294,5 +303,6 @@ mod tests {
             assert!(d.get("description").is_some());
             assert!(d.get("category").is_some());
         }
+        Ok(())
     }
 }
