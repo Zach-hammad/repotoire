@@ -1,0 +1,56 @@
+name: 'Repotoire Code Analysis'
+description: 'Analyze code health with Repotoire and upload results to GitHub Code Scanning'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Path to the repository to analyze'
+    required: false
+    default: '.'
+  sarif-file:
+    description: 'Output SARIF file path'
+    required: false
+    default: 'repotoire-results.sarif.json'
+  version:
+    description: 'Repotoire version to install (e.g. "0.1.0"). Defaults to latest.'
+    required: false
+    default: ''
+  fail-on:
+    description: 'Fail if findings at this severity or above exist (critical, high, medium, low)'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install Repotoire
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          cargo install repotoire --version "${{ inputs.version }}" --locked 2>/dev/null || \
+            cargo install repotoire --version "${{ inputs.version }}"
+        else
+          cargo install repotoire --locked 2>/dev/null || \
+            cargo install repotoire
+        fi
+
+    - name: Run Analysis
+      shell: bash
+      run: |
+        ARGS="analyze ${{ inputs.path }} --format sarif --output ${{ inputs.sarif-file }}"
+        if [ -n "${{ inputs.fail-on }}" ]; then
+          ARGS="$ARGS --fail-on ${{ inputs.fail-on }}"
+        fi
+        repotoire $ARGS
+
+    - name: Upload SARIF to GitHub Code Scanning
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: repotoire

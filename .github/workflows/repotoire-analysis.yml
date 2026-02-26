@@ -1,0 +1,44 @@
+name: Repotoire Code Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  security-events: write
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze Code Health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git analysis
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: repotoire-cli
+
+      - name: Build Repotoire
+        run: cd repotoire-cli && cargo build --release
+
+      - name: Run Analysis (SARIF)
+        run: |
+          cd repotoire-cli
+          ./target/release/repotoire analyze --format sarif --output ../results.sarif.json
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif.json
+          category: repotoire
