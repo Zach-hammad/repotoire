@@ -281,8 +281,12 @@ impl Detector for GlobalVariablesDetector {
                         // Any indented declaration is inside a function, block, or class method —
                         // JSX's {{ }} braces would break brace-counting, so indentation is safer.
                         let at_module_scope = !line.starts_with(' ') && !line.starts_with('\t');
+                        // Skip CommonJS require() — `var x = require('...')` is the standard
+                        // Node.js import pattern, not a mutable global.
+                        let is_require = trimmed.contains("require(");
                         at_module_scope
                             && (trimmed.starts_with("var ") || trimmed.starts_with("let "))
+                            && !is_require
                     };
 
                     if is_global {

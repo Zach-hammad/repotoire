@@ -300,9 +300,12 @@ impl Detector for GeneratorMisuseDetector {
                             }
 
                             // Skip resource management patterns (try/yield/finally)
-                            if Self::is_resource_management_yield(&lines, i, indent)
-                                && Self::has_framework_yield_import(&content)
-                            {
+                            // or any single-yield function in a FastAPI/Starlette file
+                            // (single-yield generators are the idiomatic DI pattern)
+                            if Self::has_framework_yield_import(&content) {
+                                continue;
+                            }
+                            if Self::is_resource_management_yield(&lines, i, indent) {
                                 continue;
                             }
 

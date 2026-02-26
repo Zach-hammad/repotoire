@@ -1,0 +1,1770 @@
+{
+  "overall_score": 88.52332989787313,
+  "grade": "B+",
+  "structure_score": 98.19638339735782,
+  "quality_score": 64.14925512976666,
+  "architecture_score": 100.0,
+  "findings": [
+    {
+      "id": "8e2c4d53b6e7c585",
+      "detector": "InsecureCookieDetector",
+      "severity": "critical",
+      "title": "Cookie missing HttpOnly flags",
+      "description": "[COMPOUND: 2 co-located issues] Cookie is missing security flags that protect against common attacks.\n\n**Analysis:**\n🔐 remember-me/login cookie - high value target\n❌ Missing: HttpOnly, Secure, SameSite",
+      "affected_files": [
+        "/tmp/express/examples/cookies/index.js"
+      ],
+      "line_start": 43,
+      "line_end": 43,
+      "suggested_fix": "```javascript\nres.cookie('cookie_name', value, {\nhttpOnly: true,  // Prevents JavaScript access\nsecure: true,    // HTTPS only\nsameSite: 'lax'  // CSRF protection\n});\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1004",
+      "why_it_matters": "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n• **Secure** ensures cookies are only sent over HTTPS\n• **SameSite** prevents CSRF attacks by controlling cross-site requests",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "8138cb4ebe1bd283",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "high",
+      "title": "XSS: innerHTML assignment",
+      "description": "**Direct innerHTML assignment can lead to XSS vulnerabilities**\n\n**Location**: test/res.redirect.js:115\n\n**Code snippet**:\n```\nvar xss = 'javascript:eval(document.body.innerHTML=`<p>XSS</p>`);';\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-79: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.",
+      "affected_files": [
+        "test/res.redirect.js"
+      ],
+      "line_start": 115,
+      "line_end": 115,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Use textContent for text** (auto-escapes):\n```javascript\n// Instead of:\nelement.innerHTML = userInput;\n\n// Use:\nelement.textContent = userInput;\n```\n\n2. **Use DOM APIs for structure**:\n```javascript\nconst span = document.createElement('span');\nspan.textContent = userInput;\nelement.appendChild(span);\n```\n\n3. **If HTML is required**, sanitize first:\n```javascript\nimport DOMPurify from 'dompurify';\nelement.innerHTML = DOMPurify.sanitize(userInput);\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": null
+    },
+    {
+      "id": "548cdc977f5c9bf7",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 11\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/lib/application.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "c910cbdcd971ca82",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 7\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/error-pages/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "e736f97bc280d49e",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 6\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/vhost/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "f161095481cacadd",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "high",
+      "title": "XSS: innerHTML assignment",
+      "description": "**Direct innerHTML assignment can lead to XSS vulnerabilities**\n\n**Location**: test/res.redirect.js:116\n\n**Code snippet**:\n```\nvar encodedXss = 'javascript:eval(document.body.innerHTML=%60%3Cp%3EXSS%3C/p%3E%60);';\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-79: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.",
+      "affected_files": [
+        "test/res.redirect.js"
+      ],
+      "line_start": 116,
+      "line_end": 116,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Use textContent for text** (auto-escapes):\n```javascript\n// Instead of:\nelement.innerHTML = userInput;\n\n// Use:\nelement.textContent = userInput;\n```\n\n2. **Use DOM APIs for structure**:\n```javascript\nconst span = document.createElement('span');\nspan.textContent = userInput;\nelement.appendChild(span);\n```\n\n3. **If HTML is required**, sanitize first:\n```javascript\nimport DOMPurify from 'dompurify';\nelement.innerHTML = DOMPurify.sanitize(userInput);\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": null
+    },
+    {
+      "id": "2af34d23e9b84a04",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 20%\n🛣️ Routes: 9\n❌ Missing: helmet, rate-limit, body-parser-limit",
+      "affected_files": [
+        "/tmp/express/examples/auth/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "e53022681f4c7bab",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 8\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/mvc/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "c8154815f62f12de",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 9\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/view-locals/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "0e65f232e719087a",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "8 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 2 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/request.js"
+      ],
+      "line_start": 47,
+      "line_end": 62,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "c9cc2f84b977b936",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "8 lines of commented code",
+      "description": "[COMPOUND: 2 co-located issues] Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 3 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/application.js"
+      ],
+      "line_start": 264,
+      "line_end": 293,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "e405492bcf46c322",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Unreachable code after return",
+      "description": "[COMPOUND: 3 co-located issues] Code after return/throw/exit will never execute:\n```\nreturn function (res) {\nassert.strictEqual(Object.keys(JSON.parse(res.text)).length, count)\n```",
+      "affected_files": [
+        "test/express.urlencoded.js"
+      ],
+      "line_start": 826,
+      "line_end": 826,
+      "suggested_fix": "Remove unreachable code or fix control flow logic.",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Unreachable code indicates logic errors and adds confusion.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "2ad2fd80c630365b",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "14 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 5 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/response.js"
+      ],
+      "line_start": 336,
+      "line_end": 370,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "dac6f37ba3fd82dd",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "8 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 6 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/request.js"
+      ],
+      "line_start": 146,
+      "line_end": 170,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "9e9dd37827e92ce2",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 16 functions with error_handling (63% similar)",
+      "description": "[COMPOUND: 2 co-located issues] Found 16 functions with 63% AST similarity that lack a shared abstraction.\n\n**Functions:** View, onaborted, ondirectory, onerror, onend ... and 11 more\n\n**Files:** /tmp/express/examples/auth/index.js, /tmp/express/examples/error/index.js, /tmp/express/examples/route-middleware/index.js ... and 4 more files\n\n**Patterns detected:** error_handling\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/express/examples/web-service/index.js",
+        "/tmp/express/examples/error/index.js",
+        "/tmp/express/examples/auth/index.js",
+        "/tmp/express/lib/view.js",
+        "/tmp/express/examples/view-locals/index.js",
+        "/tmp/express/lib/response.js",
+        "/tmp/express/examples/route-middleware/index.js"
+      ],
+      "line_start": 52,
+      "line_end": 95,
+      "suggested_fix": "**Suggested abstraction: Error handling decorator**\n\n```python\ndef handle_errors(error_handler=None):\n    def decorator(func):\n        @wraps(func)\n        def wrapper(*args, **kwargs):\n            try:\n                return func(*args, **kwargs)\n            except Exception as e:\n                if error_handler:\n                    return error_handler(e)\n                raise\n        return wrapper\n    return decorator\n```\n\nApply `@handle_errors()` to consolidate the try/except pattern.",
+      "estimated_effort": "Large (1-2 days)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "f3d8aa1197ee0790",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "8 lines of commented code",
+      "description": "[COMPOUND: 2 co-located issues] Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 5 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/application.js"
+      ],
+      "line_start": 578,
+      "line_end": 597,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "3028f20f9634da29",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "13 lines of commented code",
+      "description": "[COMPOUND: 2 co-located issues] Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 1 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/request.js"
+      ],
+      "line_start": 244,
+      "line_end": 268,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "d83e7987b60d49ec",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 3 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/view-constructor/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "a66ae78e5e406886",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 4 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/session/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "cd7e6a71525cd493",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/online/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "64b01b93e595c1c7",
+      "detector": "PathTraversalDetector",
+      "severity": "medium",
+      "title": "Path traversal in file download",
+      "description": "[Non-production path] File download/send function with user-controlled path. Attackers could download arbitrary files from the server.",
+      "affected_files": [
+        "examples/downloads/index.js"
+      ],
+      "line_start": 27,
+      "line_end": 27,
+      "suggested_fix": "Use res.download() with { root: '/safe/base/dir' } option, or validate resolved path is within allowed directory.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-22",
+      "why_it_matters": "Attackers could download sensitive configuration files, source code, or credentials from the server.",
+      "confidence": null
+    },
+    {
+      "id": "a9e26e423fc36119",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Unreachable code after return",
+      "description": "Code after return/throw/exit will never execute:\n```\nreturn key[0] === '_'\n? undefined\n```",
+      "affected_files": [
+        "test/res.json.js"
+      ],
+      "line_start": 149,
+      "line_end": 149,
+      "suggested_fix": "Remove unreachable code or fix control flow logic.",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Unreachable code indicates logic errors and adds confusion.",
+      "confidence": null
+    },
+    {
+      "id": "128bbb3c0945e6f7",
+      "detector": "SingleCharNamesDetector",
+      "severity": "medium",
+      "title": "Single-character variable: b",
+      "description": "[COMPOUND: 3 co-located issues] Single-letter names reduce code readability.\n\n⚠️ Module-level single-char variable.",
+      "affected_files": [
+        "/tmp/express/examples/resource/index.js"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Use a descriptive name that explains the variable's purpose instead of `b`.\nGood names answer: What does this represent?",
+      "estimated_effort": "2 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "Single-letter variables make code harder to understand, especially when debugging or reviewing. They force readers to track variable purpose through context.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "efc84e86278366f6",
+      "detector": "SingleCharNamesDetector",
+      "severity": "medium",
+      "title": "Single-character variable: u",
+      "description": "[COMPOUND: 2 co-located issues] Single-letter names reduce code readability.\n\n⚠️ Module-level single-char variable.",
+      "affected_files": [
+        "/tmp/express/lib/response.js"
+      ],
+      "line_start": 845,
+      "line_end": 845,
+      "suggested_fix": "Use a descriptive name that explains the variable's purpose instead of `u`.\nGood names answer: What does this represent?",
+      "estimated_effort": "2 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "Single-letter variables make code harder to understand, especially when debugging or reviewing. They force readers to track variable purpose through context.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "dd527936da410d4a",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 4 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 3\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/session/redis.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "77021654b2c08f1c",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "6 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 3 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/response.js"
+      ],
+      "line_start": 649,
+      "line_end": 663,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "2b02d445232a7972",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 3 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 3\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/params/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "705189aa663fc7f6",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "20 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 2 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/request.js"
+      ],
+      "line_start": 86,
+      "line_end": 126,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "26d56e7dbc0d07a2",
+      "detector": "GlobalVariablesDetector",
+      "severity": "medium",
+      "title": "Global mutable variable: users",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'users' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 17 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/resource/index.js"
+      ],
+      "line_start": 30,
+      "line_end": 30,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "87fa431fe3e0bf0d",
+      "detector": "GlobalVariablesDetector",
+      "severity": "medium",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 13 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/index.js"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "0d2fe092b7efd43d",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "8 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 2 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/response.js"
+      ],
+      "line_start": 485,
+      "line_end": 502,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "71674a93af4e5c95",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 3 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 5\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/resource/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "237d464157c2b7bf",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (default) | Actual: 5",
+      "affected_files": [
+        "/tmp/express/lib/application.js"
+      ],
+      "line_start": 74,
+      "line_end": 74,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "threshold_source": "default",
+        "actual_value": "5"
+      }
+    },
+    {
+      "id": "288d06549f723aea",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 1\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/mvc/lib/boot.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "911cd4b9595a7ea2",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 3 functions with async, try_except (85% similar)",
+      "description": "Found 3 functions with 85% AST similarity that lack a shared abstraction.\n\n**Functions:** tryRender, tryStat, initializeRedis\n\n**Files:** /tmp/express/examples/search/index.js, /tmp/express/lib/application.js, /tmp/express/lib/view.js\n\n**Patterns detected:** async, try_except, error_handling\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/express/lib/view.js",
+        "/tmp/express/examples/search/index.js",
+        "/tmp/express/lib/application.js"
+      ],
+      "line_start": 625,
+      "line_end": 631,
+      "suggested_fix": "**Suggested abstraction: Error handling decorator**\n\n```python\ndef handle_errors(error_handler=None):\n    def decorator(func):\n        @wraps(func)\n        def wrapper(*args, **kwargs):\n            try:\n                return func(*args, **kwargs)\n            except Exception as e:\n                if error_handler:\n                    return error_handler(e)\n                raise\n        return wrapper\n    return decorator\n```\n\nApply `@handle_errors()` to consolidate the try/except pattern.",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": null
+    },
+    {
+      "id": "785658e0d2049b16",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Unreachable code after return",
+      "description": "Code after return/throw/exit will never execute:\n```\nreturn key[0] === '_'\n? undefined\n```",
+      "affected_files": [
+        "test/res.jsonp.js"
+      ],
+      "line_start": 293,
+      "line_end": 293,
+      "suggested_fix": "Remove unreachable code or fix control flow logic.",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Unreachable code indicates logic errors and adds confusion.",
+      "confidence": null
+    },
+    {
+      "id": "0742582007a7d5a9",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1047 lines",
+      "description": "File exceeds recommended size (1047 lines > 800 threshold).\n\n**Analysis:**\n📏 1047 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1047 | Default would be: 800 | Profile: p90=205, p95=323, mean=103.8, n=119",
+      "affected_files": [
+        "/tmp/express/lib/response.js"
+      ],
+      "line_start": 1,
+      "line_end": 1047,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "1047",
+        "effective_threshold": "800",
+        "default_threshold": "800",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "7b08d0011a0e11d4",
+      "detector": "SingleCharNamesDetector",
+      "severity": "medium",
+      "title": "Single-character variable: a",
+      "description": "[COMPOUND: 3 co-located issues] Single-letter names reduce code readability.\n\n⚠️ Module-level single-char variable.",
+      "affected_files": [
+        "/tmp/express/examples/resource/index.js"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Use a descriptive name that explains the variable's purpose instead of `a`.\nGood names answer: What does this represent?",
+      "estimated_effort": "2 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "Single-letter variables make code harder to understand, especially when debugging or reviewing. They force readers to track variable purpose through context.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "31e256844ed2c1a5",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "5 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 1 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/express/lib/application.js"
+      ],
+      "line_start": 337,
+      "line_end": 350,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "852dd9275fce9068",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Unreachable code after return",
+      "description": "[COMPOUND: 2 co-located issues] Code after return/throw/exit will never execute:\n```\nreturn function (res) {\nvar headers = res.headers[key.toLowerCase()]\n```",
+      "affected_files": [
+        "test/res.append.js"
+      ],
+      "line_start": 109,
+      "line_end": 109,
+      "suggested_fix": "Remove unreachable code or fix control flow logic.",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Unreachable code indicates logic errors and adds confusion.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "abbb6253d554516d",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 4 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "/tmp/express/examples/cookie-sessions/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "2e96969de7ffe437",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 7 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/vhost/index.js"
+      ],
+      "line_start": 44,
+      "line_end": 44,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "ed8e20102c9c57fd",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/session/redis.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "a9db7fdd3ec9f4f2",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/online/index.js"
+      ],
+      "line_start": 14,
+      "line_end": 14,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "a941d58b5ad30400",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 5 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/session/redis.js"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "aaaa3b15158f788a",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 4 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/resource/index.js"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "8c0c8f5c5a3252e5",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: db",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'db' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 2 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/controllers/user-pet/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "f89336ef27a2ab2f",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: online",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'online' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 7 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/online/index.js"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "3c43c15d6d94005d",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: path",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'path' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/view-constructor/github-view.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "65f1787107b06978",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 2 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/session/index.js"
+      ],
+      "line_start": 10,
+      "line_end": 10,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "5c35d912006cf5e5",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/lib/boot.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "4bcae0ef3c2d4581",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: https",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'https' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/view-constructor/github-view.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "580511b27dd1d883",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: users",
+      "description": "Global mutable state 'users' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/db.js"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": null
+    },
+    {
+      "id": "cd5a6840a48e7106",
+      "detector": "DeadStoreDetector",
+      "severity": "low",
+      "title": "Dead store: types",
+      "description": "Variable 'types' is assigned but never read afterward.\n\n```\ntypes: normalizeTypes(keys).map(function (o) { return o.value })\n```",
+      "affected_files": [
+        "lib/response.js"
+      ],
+      "line_start": 589,
+      "line_end": 589,
+      "suggested_fix": "Options:\n1. Remove the unused assignment\n2. Use the variable 'types' in subsequent code\n3. If intentional, prefix with underscore: _types",
+      "estimated_effort": "5 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-563",
+      "why_it_matters": "Dead stores indicate logic errors or leftover code. They add confusion and may hide bugs.",
+      "confidence": null
+    },
+    {
+      "id": "e805956b791351f8",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: db",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'db' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 2 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/controllers/user/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "3e1dce3a292d54ee",
+      "detector": "CommentedCodeDetector",
+      "severity": "low",
+      "title": "18 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n📊 4 of 5 referenced functions missing - probably outdated",
+      "affected_files": [
+        "/tmp/express/lib/response.js"
+      ],
+      "line_start": 523,
+      "line_end": 568,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "30c9b26d1c803fed",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: cookieSession",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'cookieSession' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/cookie-sessions/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "e3be3c45ff9ef9d9",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: session",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'session' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 10 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/session/redis.js"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "c13d987f0fbaa6e0",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: RedisStore",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'RedisStore' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/session/redis.js"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "3ac232f9b53427ef",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: session",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'session' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 9 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/index.js"
+      ],
+      "line_start": 10,
+      "line_end": 10,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "ab2f22e9734f850c",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: logger",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'logger' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/session/redis.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "485ab508215a6e15",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: GithubView",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'GithubView' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/view-constructor/index.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "da1764ed2d028fdb",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 4 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/view-constructor/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "c897294f7e898989",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 7 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/view-constructor/index.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "8cd22bf96adb7439",
+      "detector": "CommentedCodeDetector",
+      "severity": "low",
+      "title": "6 lines of commented code",
+      "description": "Large block of commented code should be removed.",
+      "affected_files": [
+        "/tmp/express/lib/response.js"
+      ],
+      "line_start": 84,
+      "line_end": 96,
+      "suggested_fix": "Delete commented code (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "2625c9560f74eab2",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: createError",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'createError' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 2 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/params/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "dee91c0d088d0115",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: fs",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'fs' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 2 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/lib/boot.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "d9259fde58eca9f5",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: session",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'session' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 8 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/session/index.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "d00fc4001ba5f714",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: logger",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'logger' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/index.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "6cd4fa4f101d2849",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: md",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'md' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 7 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/view-constructor/index.js"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "598a1f90ac345f8c",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 4 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "2e4018e85ad9d1a3",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/resource/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "b4d73b5e79f39813",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: redis",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'redis' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 5 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/online/index.js"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "77516d4823e84b26",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: logger",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'logger' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/vhost/index.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "ffd63dd1fd977227",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: main",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'main' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 5 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/vhost/index.js"
+      ],
+      "line_start": 21,
+      "line_end": 21,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "859b24b73984fc84",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: db",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'db' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/online/index.js"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "06ab77ca6f02cbcb",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/vhost/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "033bce0b314e5579",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: pets",
+      "description": "Global mutable state 'pets' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 7 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/db.js"
+      ],
+      "line_start": 5,
+      "line_end": 5,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": null
+    },
+    {
+      "id": "0dcdc2bfa6580742",
+      "detector": "DeadCodeDetector",
+      "severity": "low",
+      "title": "Unused function: expectKeyCount",
+      "description": "[COMPOUND: 3 co-located issues] Function 'expectKeyCount' is never called in the codebase. It has complexity 2.\n\n**Confidence:** 70% (graph analysis only)\n**Recommendation:** Review before removing",
+      "affected_files": [
+        "test/express.urlencoded.js"
+      ],
+      "line_start": 824,
+      "line_end": null,
+      "suggested_fix": "**REVIEW REQUIRED** (confidence: 70%)\n1. Remove the function from express.urlencoded.js\n2. Check for dynamic calls (getattr, eval) that might use it\n3. Verify it's not an API endpoint or callback",
+      "estimated_effort": "Small (30-60 minutes)",
+      "category": "dead_code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Dead code increases maintenance burden, confuses developers, and can hide bugs. Removing unused code improves readability and reduces the codebase size.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "6534024ae22c3905",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: statSync",
+      "affected_files": [
+        "/tmp/express/lib/view.js"
+      ],
+      "line_start": 202,
+      "line_end": 202,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": null
+    },
+    {
+      "id": "0477d842667ca780",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: db",
+      "description": "Global mutable state 'db' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/controllers/pet/index.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": null
+    },
+    {
+      "id": "8bca8177b40dce8d",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: users",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'users' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 6 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/params/index.js"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "0db99d0285ae9197",
+      "detector": "AIBoilerplateDetector",
+      "severity": "low",
+      "title": "Boilerplate: 3 functions with crud (72% similar)",
+      "description": "[COMPOUND: 2 co-located issues] Found 3 functions with 72% AST similarity that lack a shared abstraction.\n\n**Functions:** createApplication, createETagGenerator, format\n\n**Files:** /tmp/express/examples/content-negotiation/index.js, /tmp/express/lib/express.js, /tmp/express/lib/utils.js\n\n**Patterns detected:** crud\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/express/lib/utils.js",
+        "/tmp/express/examples/content-negotiation/index.js",
+        "/tmp/express/lib/express.js"
+      ],
+      "line_start": 36,
+      "line_end": 56,
+      "suggested_fix": "**Suggested abstraction: Generic CRUD handler or base class**\n\n```python\nclass BaseCRUDHandler:\n    model = None  # Override in subclass\n    \n    def create(self, data): ...\n    def read(self, id): ...\n    def update(self, id, data): ...\n    def delete(self, id): ...\n```\n\nOr use a factory function to generate endpoints.",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "7989e6ff0647810d",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: User",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'User' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/resource/index.js"
+      ],
+      "line_start": 41,
+      "line_end": 41,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "374c6a16e7afff35",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 4 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/online/index.js"
+      ],
+      "line_start": 25,
+      "line_end": 25,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "5e62a54072d4043e",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/session/index.js"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "8bdcd808bf561dfa",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: path",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'path' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 2 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/index.js"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "27b1276a022276b2",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: methodOverride",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'methodOverride' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/index.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "7ebff42ce9d52f75",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: redirect",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'redirect' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/vhost/index.js"
+      ],
+      "line_start": 35,
+      "line_end": 35,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "a7bfbf08fa4f5d7b",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/cookie-sessions/index.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "92f0920a90260199",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 4 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/cookie-sessions/index.js"
+      ],
+      "line_start": 10,
+      "line_end": 10,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "d119482727c0a6e5",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: extname",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'extname' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/view-constructor/github-view.js"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "0b7b67887fd0d6cc",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: express",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'express' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 1 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/params/index.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "61900c17070b0763",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: vhost",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'vhost' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 4 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/vhost/index.js"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "41602285e920c391",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: app",
+      "description": "[COMPOUND: 3 co-located issues] Global mutable state 'app' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 6 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/params/index.js"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "2ca5b88edd057fc3",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: path",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'path' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "/tmp/express/examples/mvc/lib/boot.js"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7999999999999999
+    }
+  ],
+  "findings_summary": {
+    "critical": 1,
+    "high": 8,
+    "medium": 32,
+    "low": 55,
+    "info": 0,
+    "total": 96
+  },
+  "total_files": 141,
+  "total_functions": 127,
+  "total_classes": 0,
+  "total_loc": 21346
+}

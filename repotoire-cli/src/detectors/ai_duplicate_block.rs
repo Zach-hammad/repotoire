@@ -267,7 +267,7 @@ impl AIDuplicateBlockDetector {
         // Build description
         let mut description = format!(
             "Functions '{}' and '{}' have {}% AST similarity, \
-             indicating AI-generated copy-paste patterns.\n\n\
+             indicating structural duplication.\n\n\
              **{}** ({} LOC): `{}`\n\
              **{}** ({} LOC): `{}`\n\n",
             func1.name,
@@ -285,7 +285,7 @@ impl AIDuplicateBlockDetector {
             let avg_generic = (func1.generic_ratio + func2.generic_ratio) / 2.0;
             description.push_str(&format!(
                 "⚠️ **Generic naming detected**: {:.0}% of identifiers \
-                 use generic names (result, temp, data, etc.), a common AI pattern.\n\n",
+                 use generic names (result, temp, data, etc.), suggesting low-effort duplication.\n\n",
                 avg_generic * 100.0
             ));
         }
@@ -315,7 +315,7 @@ impl AIDuplicateBlockDetector {
             detector: "AIDuplicateBlockDetector".to_string(),
             severity,
             title: format!(
-                "AI-style duplicate: {} ≈ {} ({}% AST)",
+                "Structural duplicate: {} ≈ {} ({}% AST)",
                 func1.name, func2.name, similarity_pct
             ),
             description,
