@@ -429,6 +429,11 @@ fn parse_impl_method(
         )
     };
 
+    let mut annotations = extract_rust_attributes(node, source);
+    if has_pub_visibility(node) {
+        annotations.push("exported".to_string());
+    }
+
     Some(Function {
         name,
         qualified_name,
@@ -441,7 +446,7 @@ fn parse_impl_method(
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
         doc_comment: None,
-        annotations: extract_rust_attributes(node, source),
+        annotations,
     })
 }
 
@@ -875,6 +880,46 @@ pub fn no_attrs() {}
                 .all(|a| a == "exported"),
             "no_attrs should only have 'exported' (no #[attr]), got: {:?}",
             no_attrs_fn.annotations
+        );
+    }
+
+    #[test]
+    fn test_impl_method_export_detection() {
+        let code = r#"
+struct MyStruct;
+
+impl MyStruct {
+    pub fn public_method(&self) -> i32 {
+        42
+    }
+
+    fn private_method(&self) -> i32 {
+        0
+    }
+}
+"#;
+        let result = parse_source(code, Path::new("test.rs")).expect("should parse");
+
+        let public = result
+            .functions
+            .iter()
+            .find(|f| f.name == "public_method")
+            .unwrap();
+        assert!(
+            public.annotations.iter().any(|a| a == "exported"),
+            "pub impl method should be exported, got: {:?}",
+            public.annotations
+        );
+
+        let private = result
+            .functions
+            .iter()
+            .find(|f| f.name == "private_method")
+            .unwrap();
+        assert!(
+            !private.annotations.iter().any(|a| a == "exported"),
+            "private impl method should NOT be exported, got: {:?}",
+            private.annotations
         );
     }
 }

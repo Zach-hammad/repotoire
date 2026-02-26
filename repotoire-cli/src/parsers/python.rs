@@ -59,6 +59,7 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
     // Extract all entities
     extract_functions(&root, source_bytes, path, &mut result)?;
     extract_classes(&root, source_bytes, path, &mut result)?;
+    extract_class_methods(&root, source_bytes, path, &mut result)?;
     extract_imports(&root, source_bytes, &mut result)?;
     extract_calls(&root, source_bytes, path, &mut result)?;
 
@@ -76,6 +77,13 @@ fn annotate_exports(root: &Node, source: &[u8], result: &mut ParseResult) {
     let all_names = extract_dunder_all(root, source);
 
     for func in &mut result.functions {
+        // Skip class methods — they're not individually importable.
+        // Methods have qualified names like "path::ClassName.method:line".
+        let name_part = func.qualified_name.rsplit("::").next().unwrap_or("");
+        if name_part.contains('.') {
+            continue;
+        }
+
         let is_exported = if let Some(ref names) = all_names {
             names.contains(&func.name)
         } else {
@@ -545,6 +553,134 @@ fn extract_methods(class_node: &Node, source: &[u8]) -> Vec<String> {
     methods
 }
 
+/// Find a class definition node by name in the AST.
+fn find_class_node<'a>(node: &Node<'a>, source: &[u8], class_name: &str) -> Option<Node<'a>> {
+    if node.kind() == "class_definition" {
+        if let Some(name_node) = node.child_by_field_name("name") {
+            if let Ok(name) = name_node.utf8_text(source) {
+                if name == class_name {
+                    return Some(*node);
+                }
+            }
+        }
+    }
+
+    if node.kind() == "decorated_definition" {
+        for child in node.children(&mut node.walk()) {
+            if child.kind() == "class_definition" {
+                if let Some(name_node) = child.child_by_field_name("name") {
+                    if let Ok(name) = name_node.utf8_text(source) {
+                        if name == class_name {
+                            return Some(child);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for child in node.children(&mut node.walk()) {
+        if let Some(found) = find_class_node(&child, source, class_name) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+/// Extract methods from all classes as full Function entries.
+///
+/// This ensures class methods are first-class citizens in the graph,
+/// making them visible to all detectors (dead code, complexity, etc.).
+fn extract_class_methods(
+    root: &Node,
+    source: &[u8],
+    path: &Path,
+    result: &mut ParseResult,
+) -> Result<()> {
+    // Collect class names first to avoid borrow conflict with result
+    let class_names: Vec<String> = result.classes.iter().map(|c| c.name.clone()).collect();
+
+    for class_name in &class_names {
+        let Some(class_node) = find_class_node(root, source, class_name) else {
+            continue;
+        };
+        let Some(body) = class_node.child_by_field_name("body") else {
+            continue;
+        };
+
+        for child in body.children(&mut body.walk()) {
+            let func_node = if child.kind() == "function_definition"
+                || child.kind() == "async_function_definition"
+            {
+                Some(child)
+            } else if child.kind() == "decorated_definition" {
+                child.children(&mut child.walk()).find(|c| {
+                    c.kind() == "function_definition" || c.kind() == "async_function_definition"
+                })
+            } else {
+                None
+            };
+
+            let Some(func) = func_node else {
+                continue;
+            };
+
+            // Detect async: check node kind first, then fall back to source text.
+            // tree-sitter Python may fold `async def` into `function_definition`.
+            let is_async = func.kind() == "async_function_definition"
+                || func
+                    .utf8_text(source)
+                    .map_or(false, |t| t.trim_start().starts_with("async"));
+            let Some(name_node) = func.child_by_field_name("name") else {
+                continue;
+            };
+            let Ok(name) = name_node.utf8_text(source) else {
+                continue;
+            };
+
+            let params_node = func.child_by_field_name("parameters");
+            let parameters = extract_parameters(params_node, source);
+            let return_type = func
+                .child_by_field_name("return_type")
+                .and_then(|n| n.utf8_text(source).ok())
+                .map(|s| s.to_string());
+
+            let line_start = func.start_position().row as u32 + 1;
+            let line_end = func.end_position().row as u32 + 1;
+            let qualified_name =
+                format!("{}::{}.{}:{}", path.display(), class_name, name, line_start);
+
+            let annotations = if let Some(parent) = func.parent() {
+                if parent.kind() == "decorated_definition" {
+                    extract_decorators(&parent, source)
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            };
+
+            result.functions.push(Function {
+                name: name.to_string(),
+                qualified_name,
+                file_path: path.to_path_buf(),
+                line_start,
+                line_end,
+                parameters,
+                return_type,
+                is_async,
+                complexity: Some(calculate_complexity(&func, source)),
+                max_nesting: None,
+                doc_comment: None,
+                annotations,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Extract import statements from the AST
 fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Result<()> {
     let mut cursor = root.walk();
@@ -596,10 +732,10 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
 
 /// Extract function calls from the AST
 fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
-    // Build a map of function/method locations for call extraction
+    // Build a map of function/method locations for call extraction.
+    // Both module-level functions AND class methods are in result.functions.
     let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
 
-    // Add all functions to the scope map
     for func in &result.functions {
         scope_map.insert(
             (func.line_start, func.line_end),
@@ -607,88 +743,10 @@ fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResu
         );
     }
 
-    // Add all methods to the scope map
-    for class in &result.classes {
-        // Re-parse to get method line numbers
-        let class_methods = extract_method_ranges(root, source, path, &class.name);
-        for (method_name, start, end) in class_methods {
-            let qualified = format!(
-                "{}::{}:{}.{}:{}",
-                path.display(),
-                class.name,
-                class.line_start,
-                method_name,
-                start
-            );
-            scope_map.insert((start, end), qualified);
-        }
-    }
-
     // Now walk the tree to find all calls
     extract_calls_recursive(root, source, path, &scope_map, result);
 
     Ok(())
-}
-
-/// Extract method ranges from a class for call tracking
-fn extract_method_ranges(
-    root: &Node,
-    source: &[u8],
-    _path: &Path,
-    class_name: &str,
-) -> Vec<(String, u32, u32)> {
-    let mut methods = Vec::new();
-
-    // Find the class
-    fn find_class<'a>(node: &Node<'a>, source: &[u8], class_name: &str) -> Option<Node<'a>> {
-        if node.kind() == "class_definition" {
-            if let Some(name_node) = node.child_by_field_name("name") {
-                if let Ok(name) = name_node.utf8_text(source) {
-                    if name == class_name {
-                        return Some(*node);
-                    }
-                }
-            }
-        }
-
-        for child in node.children(&mut node.walk()) {
-            if let Some(found) = find_class(&child, source, class_name) {
-                return Some(found);
-            }
-        }
-
-        None
-    }
-
-    if let Some(class_node) = find_class(root, source, class_name) {
-        if let Some(body) = class_node.child_by_field_name("body") {
-            for child in body.children(&mut body.walk()) {
-                let func_node = if child.kind() == "function_definition"
-                    || child.kind() == "async_function_definition"
-                {
-                    Some(child)
-                } else if child.kind() == "decorated_definition" {
-                    child.children(&mut child.walk()).find(|c| {
-                        c.kind() == "function_definition" || c.kind() == "async_function_definition"
-                    })
-                } else {
-                    None
-                };
-
-                if let Some(func) = func_node {
-                    if let Some(name_node) = func.child_by_field_name("name") {
-                        if let Ok(name) = name_node.utf8_text(source) {
-                            let start = func.start_position().row as u32 + 1;
-                            let end = func.end_position().row as u32 + 1;
-                            methods.push((name.to_string(), start, end));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    methods
 }
 
 /// Recursively extract calls from the AST
@@ -1227,6 +1285,178 @@ class UserDTO:
                 .any(|a| a.contains("dataclass")),
             "UserDTO should have dataclass annotation, got: {:?}",
             user_dto.annotations
+        );
+    }
+
+    #[test]
+    fn test_class_methods_as_function_entries() {
+        let source = r#"
+class MyClass:
+    def __init__(self, value):
+        self._value = value
+
+    def process(self, data):
+        return data * self._value
+
+    async def fetch(self, url):
+        return await http.get(url)
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(source, &path).expect("should parse class methods");
+
+        // Methods should appear in result.functions
+        let method_names: Vec<&str> = result.functions.iter().map(|f| f.name.as_str()).collect();
+        assert!(
+            method_names.contains(&"__init__"),
+            "missing __init__, got: {:?}",
+            method_names
+        );
+        assert!(
+            method_names.contains(&"process"),
+            "missing process, got: {:?}",
+            method_names
+        );
+        assert!(
+            method_names.contains(&"fetch"),
+            "missing fetch, got: {:?}",
+            method_names
+        );
+
+        // Check qualified name format: path::ClassName.method:line
+        let init = result
+            .functions
+            .iter()
+            .find(|f| f.name == "__init__")
+            .unwrap();
+        assert!(
+            init.qualified_name.contains("MyClass.__init__"),
+            "expected ClassName.method format, got: {}",
+            init.qualified_name
+        );
+
+        // Check async detection
+        let fetch = result
+            .functions
+            .iter()
+            .find(|f| f.name == "fetch")
+            .unwrap();
+        assert!(fetch.is_async, "fetch should be async");
+
+        // Check parameters include self
+        assert!(init.parameters.contains(&"self".to_string()));
+        assert!(init.parameters.contains(&"value".to_string()));
+    }
+
+    #[test]
+    fn test_decorated_class_methods_as_function_entries() {
+        let source = r#"
+class MyView:
+    @property
+    def value(self):
+        return self._value
+
+    @staticmethod
+    def create():
+        return MyView()
+
+    @app.route('/api')
+    async def handle(self):
+        pass
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(source, &path).expect("should parse decorated methods");
+
+        let value = result
+            .functions
+            .iter()
+            .find(|f| f.name == "value")
+            .unwrap();
+        assert!(
+            value.annotations.iter().any(|a| a == "property"),
+            "value should have @property, got: {:?}",
+            value.annotations
+        );
+
+        let create = result
+            .functions
+            .iter()
+            .find(|f| f.name == "create")
+            .unwrap();
+        assert!(
+            create.annotations.iter().any(|a| a == "staticmethod"),
+            "create should have @staticmethod, got: {:?}",
+            create.annotations
+        );
+
+        let handle = result
+            .functions
+            .iter()
+            .find(|f| f.name == "handle")
+            .unwrap();
+        assert!(handle.is_async, "handle should be async");
+        assert!(
+            handle.annotations.iter().any(|a| a.contains("app.route")),
+            "handle should have @app.route, got: {:?}",
+            handle.annotations
+        );
+    }
+
+    #[test]
+    fn test_class_methods_not_individually_exported() {
+        let source = r#"
+__all__ = ['MyClass']
+
+class MyClass:
+    def process(self):
+        pass
+
+    def _internal(self):
+        pass
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(source, &path).expect("should parse");
+
+        // Class methods should NOT be marked as exported individually
+        let process = result
+            .functions
+            .iter()
+            .find(|f| f.name == "process")
+            .unwrap();
+        assert!(
+            !process.annotations.iter().any(|a| a == "exported"),
+            "class method 'process' should not be individually exported, got: {:?}",
+            process.annotations
+        );
+    }
+
+    #[test]
+    fn test_class_methods_have_complexity() {
+        let source = r#"
+class Handler:
+    def handle(self, request):
+        if request.method == "GET":
+            if request.user:
+                return self.get(request)
+            else:
+                return self.unauthorized()
+        elif request.method == "POST":
+            return self.post(request)
+        return self.not_found()
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(source, &path).expect("should parse");
+
+        let handle = result
+            .functions
+            .iter()
+            .find(|f| f.name == "handle")
+            .unwrap();
+        let complexity = handle.complexity.expect("method should have complexity");
+        // Base(1) + if(1) + if(1) + elif(1) = 4 minimum
+        assert!(
+            complexity >= 4,
+            "handle should have complexity >= 4, got: {}",
+            complexity
         );
     }
 }
