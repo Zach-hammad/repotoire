@@ -116,7 +116,7 @@ fn extract_functions(
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
                 doc_comment: None,
-                annotations: vec![],
+                annotations: extract_rust_attributes(&node, source),
             });
         }
     }
@@ -231,7 +231,7 @@ fn parse_struct_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         methods: vec![],
         bases: vec![],
         doc_comment: None,
-        annotations: vec![],
+        annotations: extract_rust_attributes(node, source),
     })
 }
 
@@ -253,7 +253,7 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         methods: vec![],
         bases: vec![],
         doc_comment: None,
-        annotations: vec![],
+        annotations: extract_rust_attributes(node, source),
     })
 }
 
@@ -281,7 +281,7 @@ fn parse_trait_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         methods,
         bases,
         doc_comment: None,
-        annotations: vec![],
+        annotations: extract_rust_attributes(node, source),
     })
 }
 
@@ -421,7 +421,7 @@ fn parse_impl_method(
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
         doc_comment: None,
-        annotations: vec![],
+        annotations: extract_rust_attributes(node, source),
     })
 }
 
@@ -529,6 +529,28 @@ fn extract_call_target(node: &Node, source: &[u8]) -> Option<String> {
         }
         _ => node.utf8_text(source).ok().map(|s| s.to_string()),
     }
+}
+
+/// Extract attributes from preceding sibling `attribute_item` nodes.
+fn extract_rust_attributes(node: &Node, source: &[u8]) -> Vec<String> {
+    let mut attrs = Vec::new();
+    let mut sibling = node.prev_sibling();
+    while let Some(sib) = sibling {
+        if sib.kind() == "attribute_item" {
+            let text = sib.utf8_text(source).unwrap_or("");
+            let inner = text.trim_start_matches("#[").trim_end_matches(']').trim();
+            if !inner.is_empty() {
+                attrs.push(inner.to_string());
+            }
+        } else if sib.kind() == "line_comment" || sib.kind() == "block_comment" {
+            // Skip comments between attributes and definition
+        } else {
+            break;
+        }
+        sibling = sib.prev_sibling();
+    }
+    attrs.reverse(); // Preserve declaration order
+    attrs
 }
 
 /// Calculate cyclomatic complexity of a function
@@ -674,5 +696,64 @@ trait MyTrait: Clone + Send {
         assert_eq!(trait_def.name, "MyTrait");
         assert!(trait_def.methods.contains(&"required_method".to_string()));
         assert!(trait_def.methods.contains(&"provided_method".to_string()));
+    }
+
+    #[test]
+    fn test_attribute_extraction() {
+        let code = r#"
+#[test]
+fn test_something() {
+    assert!(true);
+}
+
+#[derive(Debug, Clone)]
+struct MyStruct {
+    field: i32,
+}
+
+#[tokio::main]
+async fn main() {
+    println!("hello");
+}
+
+pub fn no_attrs() {}
+"#;
+        let result = parse_source(code, Path::new("test.rs")).expect("should parse");
+
+        let test_fn = result
+            .functions
+            .iter()
+            .find(|f| f.name == "test_something")
+            .unwrap();
+        assert!(
+            test_fn.annotations.iter().any(|a| a.contains("test")),
+            "test_something should have #[test] annotation, got: {:?}",
+            test_fn.annotations
+        );
+
+        let main_fn = result.functions.iter().find(|f| f.name == "main").unwrap();
+        assert!(
+            main_fn.annotations.iter().any(|a| a.contains("tokio::main")),
+            "main should have #[tokio::main] annotation, got: {:?}",
+            main_fn.annotations
+        );
+
+        let my_struct = result
+            .classes
+            .iter()
+            .find(|c| c.name == "MyStruct")
+            .unwrap();
+        assert!(
+            my_struct.annotations.iter().any(|a| a.contains("derive")),
+            "MyStruct should have #[derive] annotation, got: {:?}",
+            my_struct.annotations
+        );
+
+        let no_attrs_fn = result
+            .functions
+            .iter()
+            .find(|f| f.name == "no_attrs")
+            .unwrap();
+        assert!(no_attrs_fn.annotations.is_empty());
     }
 }
