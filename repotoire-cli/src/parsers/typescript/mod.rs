@@ -449,6 +449,7 @@ fn extract_classes(
             };
 
             let doc_comment = extract_jsdoc_comment(&node, source);
+            let annotations = extract_ts_decorators(&node, source);
 
             result.classes.push(Class {
                 name: name.clone(),
@@ -459,12 +460,92 @@ fn extract_classes(
                 methods,
                 bases,
                 doc_comment,
-                annotations: vec![],
+                annotations,
             });
         }
     }
 
     Ok(())
+}
+
+/// Extract decorator names from direct children of a node.
+///
+/// Used for class-level decorators where `decorator` nodes are children of `class_declaration`.
+/// The decorator AST structure is: `decorator` -> `@` + expression (identifier or call_expression).
+/// For `@Controller('/users')`, this extracts `"Controller"`.
+/// For `@Injectable`, this extracts `"Injectable"`.
+fn extract_ts_decorators(node: &Node, source: &[u8]) -> Vec<String> {
+    let mut decorators = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "decorator" {
+            if let Some(name) = extract_decorator_name(&child, source) {
+                decorators.push(name);
+            }
+        }
+    }
+    decorators
+}
+
+/// Extract decorator names from preceding siblings of a node within a class_body.
+///
+/// Method/field decorators in TypeScript appear as sibling nodes in `class_body`,
+/// not as children of the `method_definition`. We walk backwards through siblings
+/// collecting consecutive `decorator` nodes.
+fn extract_preceding_decorators(node: &Node, source: &[u8]) -> Vec<String> {
+    let mut decorators = Vec::new();
+    let mut sibling = node.prev_sibling();
+    while let Some(sib) = sibling {
+        if sib.kind() == "decorator" {
+            if let Some(name) = extract_decorator_name(&sib, source) {
+                decorators.push(name);
+            }
+            sibling = sib.prev_sibling();
+        } else {
+            break;
+        }
+    }
+    // Reverse so decorators appear in source order (we walked backwards)
+    decorators.reverse();
+    decorators
+}
+
+/// Extract the name from a single decorator node.
+///
+/// Handles both simple decorators (`@Injectable` -> identifier) and
+/// call decorators (`@Controller('/users')` -> call_expression with identifier).
+fn extract_decorator_name(decorator_node: &Node, source: &[u8]) -> Option<String> {
+    let mut inner_cursor = decorator_node.walk();
+    for inner in decorator_node.children(&mut inner_cursor) {
+        match inner.kind() {
+            "@" | "comment" => continue,
+            "call_expression" => {
+                // @Decorator(args) — get the function name from the call
+                if let Some(func_node) = inner.child_by_field_name("function") {
+                    let text = func_node.utf8_text(source).unwrap_or("");
+                    if !text.is_empty() {
+                        return Some(text.to_string());
+                    }
+                }
+            }
+            "identifier" | "member_expression" => {
+                // @SimpleDecorator or @namespace.Decorator (no call args)
+                let text = inner.utf8_text(source).unwrap_or("");
+                if !text.is_empty() {
+                    return Some(text.to_string());
+                }
+            }
+            _ => {
+                // Fallback: try to get text, strip leading @ and call args
+                let text = inner.utf8_text(source).unwrap_or("");
+                let name = text.split('(').next().unwrap_or(text).trim();
+                if !name.is_empty() {
+                    return Some(name.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Extract heritage (extends/implements) from a class
@@ -626,6 +707,9 @@ fn parse_arrow_field_node(
     let line_end = field_node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}.{}:{}", path.display(), class_name, name, line_start);
 
+    // Field decorators are preceding siblings in the class_body
+    let annotations = extract_preceding_decorators(field_node, source);
+
     Some(Function {
         name,
         qualified_name,
@@ -638,7 +722,7 @@ fn parse_arrow_field_node(
         complexity: Some(calculate_complexity(arrow_node, source)),
         max_nesting: None,
         doc_comment: None,
-        annotations: vec![],
+        annotations,
     })
 }
 
@@ -662,6 +746,9 @@ fn parse_method_node(
     let line_end = node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}.{}:{}", path.display(), class_name, name, line_start);
 
+    // Method decorators are preceding siblings in the class_body, not children
+    let annotations = extract_preceding_decorators(node, source);
+
     Some(Function {
         name,
         qualified_name,
@@ -674,7 +761,7 @@ fn parse_method_node(
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
         doc_comment: None,
-        annotations: vec![],
+        annotations,
     })
 }
 

@@ -428,3 +428,72 @@ function Counter() {
         counter.annotations
     );
 }
+
+#[test]
+fn test_decorator_extraction_ts() {
+    let code = r#"
+@Controller('/users')
+class UserController {
+    @Get('/')
+    getUsers() {
+        return [];
+    }
+
+    @Post('/create')
+    createUser() {
+        return {};
+    }
+}
+
+class NoDecorators {
+    hello() {}
+}
+"#;
+    let path = PathBuf::from("test.ts");
+    let result = parse_source(code, &path, "ts").expect("should parse decorated TypeScript");
+
+    let controller = result
+        .classes
+        .iter()
+        .find(|c| c.name == "UserController")
+        .expect("should find UserController class");
+    assert!(
+        controller.annotations.iter().any(|a| a.contains("Controller")),
+        "UserController should have @Controller annotation, got: {:?}",
+        controller.annotations
+    );
+
+    let no_dec = result
+        .classes
+        .iter()
+        .find(|c| c.name == "NoDecorators")
+        .expect("should find NoDecorators class");
+    assert!(
+        no_dec.annotations.is_empty(),
+        "NoDecorators should have no annotations, got: {:?}",
+        no_dec.annotations
+    );
+
+    // Check method-level decorators
+    let get_users = result
+        .functions
+        .iter()
+        .find(|f| f.name == "getUsers")
+        .expect("should find getUsers method");
+    assert!(
+        get_users.annotations.iter().any(|a| a.contains("Get")),
+        "getUsers should have @Get annotation, got: {:?}",
+        get_users.annotations
+    );
+
+    let create_user = result
+        .functions
+        .iter()
+        .find(|f| f.name == "createUser")
+        .expect("should find createUser method");
+    assert!(
+        create_user.annotations.iter().any(|a| a.contains("Post")),
+        "createUser should have @Post annotation, got: {:?}",
+        create_user.annotations
+    );
+}
