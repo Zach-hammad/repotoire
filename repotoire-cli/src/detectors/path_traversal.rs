@@ -376,4 +376,70 @@ mod tests {
         let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect real path traversal with request.GET");
     }
+
+    #[test]
+    fn test_detects_path_join_with_req_params_js() {
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("download.js", "const path = require('path');\n\nfunction getFile(req, res) {\n    const filePath = path.join('/uploads', req.params.filename);\n    res.sendFile(filePath);\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect path.join with req.params user input in JS"
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-22")),
+            "Finding should have CWE-22"
+        );
+    }
+
+    #[test]
+    fn test_detects_readfile_with_request_query_ts() {
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("serve.ts", "import fs from 'fs';\n\nfunction serveFile(req: Request, res: Response) {\n    const name = req.query.file;\n    const data = readFileSync('/data/' + req.query.file);\n    res.send(data);\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect readFileSync with req.query in TypeScript"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_path_traversal_in_comment() {
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("safe.py", "# Vulnerable: open(request.GET['file'], 'r')\ndef read_config():\n    with open('config.json', 'r') as f:\n        return f.read()\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "Path traversal pattern in a comment should not produce findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_detects_sendfile_with_user_input_js() {
+        let store = GraphStore::in_memory();
+        let detector = PathTraversalDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("server.js", "const express = require('express');\n\napp.get('/download', (req, res) => {\n    const file = req.query.file;\n    res.sendFile(req.query.file);\n});\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect sendFile with user-controlled req.query"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.to_lowercase().contains("path traversal")),
+            "Finding should mention path traversal. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
 }

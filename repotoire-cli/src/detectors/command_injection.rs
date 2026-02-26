@@ -471,4 +471,79 @@ mod tests {
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn test_detects_subprocess_shell_true_python() {
+        let store = GraphStore::in_memory();
+        let detector = CommandInjectionDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("run.py", "import subprocess\n\ndef execute(user_input):\n    subprocess.call(\"grep \" + user_input, shell=True)\n"),
+        ]);
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect subprocess.call with shell=True and user input"
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-78")),
+            "Finding should have CWE-78"
+        );
+    }
+
+    #[test]
+    fn test_detects_child_process_exec_with_template_js() {
+        let store = GraphStore::in_memory();
+        let detector = CommandInjectionDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handler.js", "const { exec } = require('child_process');\n\nfunction runCommand(req, res) {\n    const userId = req.params.id;\n    child_process.exec(`find /data -user ${userId}`);\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect child_process.exec with template literal interpolation"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.to_lowercase().contains("command injection")),
+            "Finding should mention command injection. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_exec_in_comment() {
+        let store = GraphStore::in_memory();
+        let detector = CommandInjectionDetector::new("/mock/repo");
+        // The command_injection detector uses masked_content. In masked mode,
+        // comments are NOT stripped by MockFileProvider (only Python triple-quoted strings are).
+        // However, os.system in a JS/TS comment line won't have user input patterns,
+        // so it should not fire the risky check.
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("safe.js", "// Dangerous example: os.system(user_input) - never do this\nfunction safeFunc() {\n    return 42;\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "os.system in a comment should not produce findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_detects_go_exec_command() {
+        let store = GraphStore::in_memory();
+        let detector = CommandInjectionDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("handler.go", "package main\n\nimport (\n\t\"os/exec\"\n\t\"net/http\"\n)\n\nfunc runCmd(w http.ResponseWriter, r *http.Request) {\n\tcmd := r.FormValue(\"command\")\n\texec.Command(cmd)\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect exec.Command with user input from r.FormValue"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("Go exec.Command")),
+            "Finding should mention Go exec.Command. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
 }

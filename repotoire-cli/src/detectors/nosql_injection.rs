@@ -407,4 +407,66 @@ mod tests {
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn test_detects_find_with_req_body_in_js() {
+        let store = GraphStore::in_memory();
+        let detector = NosqlInjectionDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("controller.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function login(req, res) {\n    const user = await User.findOne(req.body);\n    if (user) res.json(user);\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect MongoDB findOne with unsanitized req.body"
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-943")),
+            "Finding should have CWE-943"
+        );
+    }
+
+    #[test]
+    fn test_detects_aggregate_with_user_input_ts() {
+        let store = GraphStore::in_memory();
+        let detector = NosqlInjectionDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("analytics.ts", "import mongoose from 'mongoose';\nconst Order = mongoose.model('Order');\n\nasync function getStats(req: Request, res: Response) {\n    const pipeline = req.body.pipeline;\n    const results = await Order.aggregate(req.body.pipeline);\n    res.json(results);\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect MongoDB aggregate with user-controlled pipeline from req.body"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_sanitized_query() {
+        let store = GraphStore::in_memory();
+        let detector = NosqlInjectionDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("safe_controller.js", "const mongoose = require('mongoose');\nconst sanitize = require('mongo-sanitize');\nconst User = mongoose.model('User');\n\nasync function login(req, res) {\n    const clean = sanitize(req.body);\n    const user = await User.findOne(clean);\n    res.json(user);\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "Sanitized MongoDB query should not produce findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_array_find() {
+        let store = GraphStore::in_memory();
+        let detector = NosqlInjectionDetector::new("/mock/repo");
+        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("utils.js", "const mongoose = require('mongoose');\n\nfunction findItem(items, id) {\n    return items.find(item => item.id === id);\n}\n"),
+        ]);
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "Array.find() should not be flagged as NoSQL injection, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
 }
