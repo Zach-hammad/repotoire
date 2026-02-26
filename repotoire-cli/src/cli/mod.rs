@@ -36,7 +36,26 @@ fn parse_workers(s: &str) -> Result<usize, String> {
 /// 100% LOCAL - No account needed. No data leaves your machine.
 #[derive(Parser, Debug)]
 #[command(name = "repotoire")]
-#[command(version, about, long_about = None)]
+#[command(
+    version,
+    about = "Graph-powered code health analysis — detect code smells, security issues, and architectural debt across 9 languages",
+    long_about = "Repotoire builds a knowledge graph of your codebase and runs 114 pure Rust \
+detectors to find code smells, security vulnerabilities, and architectural issues \
+that traditional linters miss.\n\n\
+100% LOCAL — No account needed. No data leaves your machine.\n\n\
+Run without a subcommand to analyze the current directory:\n  \
+repotoire .\n\n\
+Supported languages: Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++",
+    after_help = "\
+Examples:
+  repotoire .                          Analyze current directory
+  repotoire analyze . --format json    JSON output for scripting
+  repotoire findings --severity high   Show only high+ findings
+  repotoire graph . functions          List all functions in the graph
+  repotoire serve                      Start MCP server for AI assistants
+
+Documentation: https://github.com/repotoire/repotoire"
+)]
 pub struct Cli {
     /// Path to repository (default: current directory)
     #[arg(global = true, default_value = ".")]
@@ -56,10 +75,22 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Initialize repository for analysis
+    /// Initialize a repotoire.toml config file with example settings
     Init,
 
-    /// Analyze codebase for issues
+    /// Analyze codebase for issues (runs all 114 detectors by default)
+    #[command(after_help = "\
+Examples:
+  repotoire analyze .                                Analyze current directory
+  repotoire analyze /path/to/repo                    Analyze a specific repo
+  repotoire analyze . --format json                  JSON output for scripting
+  repotoire analyze . --format sarif -o results.sarif.json   SARIF for GitHub Code Scanning
+  repotoire analyze . --format html -o report.html   Standalone HTML report
+  repotoire analyze . --severity high                Only show high/critical findings
+  repotoire analyze . --since main                   Only files changed since main branch
+  repotoire analyze . --fail-on high                 Exit code 1 if high+ findings (CI mode)
+  repotoire analyze . --lite                         Fast mode for huge repos (skips graph + git)
+  repotoire analyze . --explain-score                Show full scoring breakdown")]
     Analyze {
         /// Output format: text, json, sarif, html, markdown (or md)
         #[arg(long, short = 'f', default_value = "text", value_parser = ["text", "json", "sarif", "html", "markdown", "md"])]
@@ -139,7 +170,17 @@ pub enum Commands {
         since: Option<String>,
     },
 
-    /// View findings from last analysis
+    /// View findings from last analysis (paginated, 20 per page by default)
+    #[command(after_help = "\
+Examples:
+  repotoire findings .                               List findings (page 1, 20 per page)
+  repotoire findings . --page 2                      View page 2
+  repotoire findings . --per-page 50                 Show 50 findings per page
+  repotoire findings . --per-page 0                  Show all findings (no pagination)
+  repotoire findings . --severity high               Only high/critical findings
+  repotoire findings . 5                             Show details for finding #5
+  repotoire findings . --json                        JSON output for scripting
+  repotoire findings . -i                            Interactive TUI mode")]
     Findings {
         /// Finding index to show details (e.g., `findings 5` or `findings --index 5`)
         #[arg(long, short = 'n')]
@@ -174,7 +215,14 @@ pub enum Commands {
         interactive: bool,
     },
 
-    /// Generate fix for a finding (AI-powered or rule-based)
+    /// Generate a fix for a finding (AI-powered with API key, or rule-based with --no-ai)
+    #[command(after_help = "\
+Examples:
+  repotoire fix . 3                                  Generate fix for finding #3 (AI-powered)
+  repotoire fix . 3 --no-ai                          Rule-based fix only (no API key needed)
+  repotoire fix . 3 --dry-run                        Preview fix without applying
+  repotoire fix . 3 --apply                          Apply fix directly to source files
+  repotoire fix . --auto                             Apply all available fixes without prompts")]
     Fix {
         /// Finding index to fix (optional, interactive selection if omitted)
         #[arg(default_value = "0")]
@@ -197,7 +245,16 @@ pub enum Commands {
         auto: bool,
     },
 
-    /// Query the code graph directly
+    /// Query the code knowledge graph (functions, classes, files, calls, imports)
+    #[command(after_help = "\
+Examples:
+  repotoire graph . functions                        List all functions in the graph
+  repotoire graph . classes                          List all classes
+  repotoire graph . files                            List all parsed files
+  repotoire graph . calls                            Show function call relationships
+  repotoire graph . imports                          Show import relationships
+  repotoire graph . stats                            Show graph node/edge counts
+  repotoire graph . functions --format json           JSON output for scripting")]
     Graph {
         /// Query keyword: functions, classes, files, calls, imports, stats
         query: String,
@@ -207,19 +264,23 @@ pub enum Commands {
         format: String,
     },
 
-    /// Show graph statistics
+    /// Show graph statistics (node counts, edge counts, language breakdown)
+    #[command(after_help = "\
+Examples:
+  repotoire stats .                                  Show graph stats for current directory
+  repotoire stats /path/to/repo                      Show graph stats for a specific repo")]
     Stats,
 
-    /// Show analysis status
+    /// Show analysis status (last run time, cached results, file counts)
     Status,
 
-    /// Check environment setup
+    /// Check environment setup (API keys, dependencies, config)
     Doctor,
 
-    /// Watch for file changes and analyze in real-time
+    /// Watch for file changes and re-analyze in real-time (debounced, incremental)
     ///
     /// Monitors your codebase for saves and runs detectors on changed files.
-    /// Catches AI-generated code issues as they happen.
+    /// Uses debouncing to avoid re-running on every keystroke.
     Watch {
         /// Only show high/critical findings
         #[arg(long)]
@@ -232,17 +293,17 @@ pub enum Commands {
     /// from your style, not arbitrary numbers.
     Calibrate,
 
-    /// Remove cached analysis data for a repository
+    /// Remove cached analysis data for a repository (findings cache, graph data)
     Clean {
         /// Preview what would be removed without deleting
         #[arg(long)]
         dry_run: bool,
     },
 
-    /// Show version info
+    /// Show version information
     Version,
 
-    /// Start MCP server for AI assistant integration
+    /// Start MCP server for AI assistant integration (Claude Code, Cursor, etc.)
     Serve {
         /// Force local-only mode (disable PRO API features)
         #[arg(long)]
@@ -253,13 +314,13 @@ pub enum Commands {
         http_port: Option<u16>,
     },
 
-    /// Manage configuration
+    /// Manage configuration (init, show, or set config values)
     Config {
         #[command(subcommand)]
         action: ConfigAction,
     },
 
-    /// Label findings as true/false positives for training
+    /// Label findings as true/false positives (used to train the classifier)
     Feedback {
         /// Finding index to label
         index: usize,
@@ -277,7 +338,7 @@ pub enum Commands {
         reason: Option<String>,
     },
 
-    /// Train the classifier on labeled data
+    /// Train the false-positive classifier on labeled feedback data
     Train {
         /// Number of training epochs
         #[arg(long, default_value = "100")]
