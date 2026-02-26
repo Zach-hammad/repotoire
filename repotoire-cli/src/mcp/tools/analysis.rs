@@ -249,29 +249,35 @@ pub fn handle_diff(state: &mut HandlerState, params: &DiffParams) -> Result<Valu
     use crate::cli::diff::{diff_findings, format_json};
 
     let repo_path = state.repo_path.clone();
-    let repotoire_dir = repo_path.join(".repotoire");
+    let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
+        .map_err(|e| anyhow::anyhow!("Failed to resolve cache directory: {}", e))?;
 
-    // Load baseline
-    let baseline = crate::cli::analyze::output::load_cached_findings(&repotoire_dir)
-        .ok_or_else(|| anyhow::anyhow!("No baseline found. Run repotoire_analyze first."))?;
+    // Load baseline from snapshot (saved by previous analyze run)
+    let baseline_path = repotoire_dir.join("baseline_findings.json");
+    let baseline = if baseline_path.exists() {
+        crate::cli::analyze::output::load_cached_findings_from(&baseline_path)
+    } else {
+        crate::cli::analyze::output::load_cached_findings(&repotoire_dir)
+    }
+    .ok_or_else(|| anyhow::anyhow!(
+        "No baseline found. Run repotoire_analyze twice: once for baseline, once after changes."
+    ))?;
 
     let score_before = {
-        let path = repotoire_dir.join("last_health.json");
+        let path = if baseline_path.exists() {
+            repotoire_dir.join("baseline_health.json")
+        } else {
+            repotoire_dir.join("last_health.json")
+        };
         std::fs::read_to_string(&path)
             .ok()
             .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
             .and_then(|j| j.get("health_score").and_then(|v| v.as_f64()))
     };
 
-    // Run fresh analysis (reuse existing handle_analyze)
-    let analyze_params = crate::mcp::params::AnalyzeParams {
-        incremental: Some(true),
-    };
-    let _ = handle_analyze(state, &analyze_params)?;
-
-    // Load head findings
+    // Load current findings (from last analyze run — no re-analysis needed)
     let head = crate::cli::analyze::output::load_cached_findings(&repotoire_dir)
-        .unwrap_or_default();
+        .ok_or_else(|| anyhow::anyhow!("No current analysis found. Run repotoire_analyze first."))?;
 
     let score_after = {
         let path = repotoire_dir.join("last_health.json");

@@ -206,11 +206,22 @@ pub(super) fn check_fail_threshold(fail_on: &Option<String>, report: &HealthRepo
     Ok(())
 }
 
+/// Load findings from a specific JSON file path.
+/// Returns None if the file doesn't exist or can't be parsed.
+pub fn load_cached_findings_from(path: &Path) -> Option<Vec<Finding>> {
+    load_findings_from_file(path)
+}
+
 /// Load post-processed findings from last_findings.json cache
 /// Returns None if the cache file doesn't exist or can't be parsed
 pub fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>> {
-    let findings_cache = repotoire_dir.join("last_findings.json");
-    let data = std::fs::read_to_string(&findings_cache).ok()?;
+    load_findings_from_file(&repotoire_dir.join("last_findings.json"))
+}
+
+/// Load findings from a specific JSON file path.
+/// Shared implementation for both `load_cached_findings` and `load_cached_findings_from`.
+fn load_findings_from_file(path: &Path) -> Option<Vec<Finding>> {
+    let data = std::fs::read_to_string(path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&data).ok()?;
 
     // Version check: reject stale findings from different binary version
@@ -296,19 +307,33 @@ pub fn load_cached_findings(repotoire_dir: &Path) -> Option<Vec<Finding>> {
     }
 
     tracing::debug!(
-        "Loaded {} post-processed findings from cache",
-        findings.len()
+        "Loaded {} post-processed findings from {}",
+        findings.len(),
+        path.display()
     );
     Some(findings)
 }
 
-/// Cache analysis results for other commands
+/// Cache analysis results for other commands.
+///
+/// Before writing new results, snapshots the current cache as baseline
+/// for `repotoire diff` to compare against.
 pub fn cache_results(
     repotoire_dir: &Path,
     report: &HealthReport,
     all_findings: &[Finding],
 ) -> Result<()> {
     use std::fs;
+
+    // Snapshot current cache as diff baseline (before overwriting)
+    let findings_cache = repotoire_dir.join("last_findings.json");
+    let health_cache = repotoire_dir.join("last_health.json");
+    if findings_cache.exists() {
+        let _ = fs::copy(&findings_cache, repotoire_dir.join("baseline_findings.json"));
+    }
+    if health_cache.exists() {
+        let _ = fs::copy(&health_cache, repotoire_dir.join("baseline_health.json"));
+    }
 
     let health_cache = repotoire_dir.join("last_health.json");
     let health_json = serde_json::json!({

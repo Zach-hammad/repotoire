@@ -277,7 +277,6 @@ pub fn run(
     fail_on: Option<String>,
     no_emoji: bool,
     output: Option<&Path>,
-    workers: usize,
 ) -> Result<()> {
     let start = Instant::now();
     let repo_path = repo_path
@@ -292,50 +291,40 @@ pub fn run(
         );
     }
 
-    let repotoire_dir = super::analyze::cache_path(&repo_path);
+    let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
+        .context("Failed to create cache directory")?;
 
-    // 1. Load baseline findings from cache
-    let baseline = super::analyze::output::load_cached_findings(&repotoire_dir).context(
-        "No baseline analysis found. Run 'repotoire analyze' first to establish a baseline.",
+    // 1. Load baseline findings from snapshot (saved by a previous `analyze`)
+    let baseline_path = repotoire_dir.join("baseline_findings.json");
+    let baseline = if baseline_path.exists() {
+        super::analyze::output::load_cached_findings_from(&baseline_path)
+    } else {
+        // Fall back to last_findings.json if no snapshot exists yet
+        super::analyze::output::load_cached_findings(&repotoire_dir)
+    }
+    .context(
+        "No baseline found. Run 'repotoire analyze' to establish a baseline, then run it again after making changes.",
     )?;
 
-    // Load baseline score
-    let score_before = load_cached_score(&repotoire_dir);
+    let score_before = load_score_from(
+        &if baseline_path.exists() {
+            repotoire_dir.join("baseline_health.json")
+        } else {
+            repotoire_dir.join("last_health.json")
+        },
+    );
 
-    // 2. Determine changed files count
+    // 2. Load current findings from cache (from the most recent `analyze` run)
+    let head = super::analyze::output::load_cached_findings(&repotoire_dir).context(
+        "No current analysis found. Run 'repotoire analyze' to generate findings.",
+    )?;
+    let score_after = load_cached_score(&repotoire_dir);
+
+    // 3. Determine changed files count
     let effective_base = base_ref.as_deref().unwrap_or("HEAD~1");
     let files_changed = count_changed_files(&repo_path, effective_base);
 
-    // 3. Run fresh analysis on HEAD (changed files only if base_ref given)
-    let since = base_ref.clone();
-    let incremental = since.is_some();
-    super::analyze::run(
-        &repo_path,
-        "json",  // internal format (we format output ourselves)
-        None,    // no output file (we capture from cache)
-        None,    // no severity filter (we diff all)
-        None,    // no top limit
-        1,       // page
-        0,       // per_page = 0 (all findings)
-        vec![],  // no skip_detector
-        false,   // no external tools (speed)
-        false,   // no_git = false
-        workers,
-        None,    // no fail_on for the internal run
-        true,    // no_emoji (suppress internal output)
-        incremental,
-        since,
-        false,   // explain_score
-        false,   // verify
-        false,   // skip_graph
-        0,       // max_files
-    )?;
-
-    // 4. Load head findings from cache (just written by analyze)
-    let head = super::analyze::output::load_cached_findings(&repotoire_dir).unwrap_or_default();
-    let score_after = load_cached_score(&repotoire_dir);
-
-    // 5. Diff
+    // 4. Diff
     let base_label = base_ref.as_deref().unwrap_or("cached");
     let result = diff_findings(
         &baseline,
@@ -347,7 +336,7 @@ pub fn run(
         score_after,
     );
 
-    // 6. Output
+    // 5. Output
     let output_str = match format {
         "json" => format_json(&result),
         "sarif" => format_sarif(&result)?,
@@ -361,7 +350,7 @@ pub fn run(
         println!("{}", output_str);
     }
 
-    // 7. Summary (text mode only)
+    // 6. Summary (text mode only)
     if format != "json" && format != "sarif" {
         let elapsed = start.elapsed();
         let prefix = if no_emoji { "" } else { "✨ " };
@@ -374,7 +363,7 @@ pub fn run(
         );
     }
 
-    // 8. Fail-on threshold (new findings only)
+    // 7. Fail-on threshold (new findings only)
     if let Some(ref threshold) = fail_on {
         let new_summary = FindingsSummary::from_findings(&result.new_findings);
         let should_fail = match threshold.to_lowercase().as_str() {
@@ -405,8 +394,12 @@ pub fn run(
 
 /// Load cached health score from last_health.json.
 fn load_cached_score(repotoire_dir: &Path) -> Option<f64> {
-    let path = repotoire_dir.join("last_health.json");
-    let data = std::fs::read_to_string(&path).ok()?;
+    load_score_from(&repotoire_dir.join("last_health.json"))
+}
+
+/// Load health score from a specific JSON file.
+fn load_score_from(path: &Path) -> Option<f64> {
+    let data = std::fs::read_to_string(path).ok()?;
     let json_val: serde_json::Value = serde_json::from_str(&data).ok()?;
     json_val.get("health_score").and_then(|v| v.as_f64())
 }

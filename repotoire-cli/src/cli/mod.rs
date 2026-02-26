@@ -172,14 +172,21 @@ Examples:
     },
 
     /// Compare findings between two analysis states (shows new, fixed, score delta)
+    ///
+    /// Compares baseline (previous analyze) vs current (latest analyze).
+    /// Each `repotoire analyze` auto-snapshots findings as the next diff baseline.
     #[command(after_help = "\
+Workflow:
+  repotoire analyze .          # Run 1: establishes baseline
+  # ... make changes ...
+  repotoire analyze .          # Run 2: snapshots run 1 as baseline, generates new findings
+  repotoire diff               # Instant: compares baseline vs current (~10ms)
+
 Examples:
-  repotoire diff main                    Diff HEAD vs main branch
-  repotoire diff v1.0.0                  Diff HEAD vs a tag
-  repotoire diff                         Diff HEAD vs last cached analysis
-  repotoire diff main --format json      JSON output for CI
-  repotoire diff main --fail-on high     Exit 1 if new high+ findings
-  repotoire diff main --format sarif     SARIF with only new findings")]
+  repotoire diff                         Diff latest vs previous analysis
+  repotoire diff --format json           JSON output for CI
+  repotoire diff --fail-on high          Exit 1 if new high+ findings
+  repotoire diff --format sarif          SARIF with only new findings")]
     Diff {
         /// Git ref for baseline (branch, tag, commit). Omit to use last cached analysis.
         #[arg(value_name = "BASE_REF")]
@@ -487,7 +494,6 @@ pub fn run(cli: Cli) -> Result<()> {
             fail_on,
             no_emoji,
             output.as_deref(),
-            cli.workers,
         ),
 
         Some(Commands::Findings {
