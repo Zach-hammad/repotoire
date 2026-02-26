@@ -104,6 +104,11 @@ fn extract_functions(
             let line_end = node.end_position().row as u32 + 1;
             let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
 
+            let mut annotations = extract_rust_attributes(&node, source);
+            if has_pub_visibility(&node) {
+                annotations.push("exported".to_string());
+            }
+
             result.functions.push(Function {
                 name: name.clone(),
                 qualified_name,
@@ -116,7 +121,7 @@ fn extract_functions(
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
                 doc_comment: None,
-                annotations: extract_rust_attributes(&node, source),
+                annotations,
             });
         }
     }
@@ -222,6 +227,11 @@ fn parse_struct_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
     let line_end = node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
 
+    let mut annotations = extract_rust_attributes(node, source);
+    if has_pub_visibility(node) {
+        annotations.push("exported".to_string());
+    }
+
     Some(Class {
         name,
         qualified_name,
@@ -231,7 +241,7 @@ fn parse_struct_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         methods: vec![],
         bases: vec![],
         doc_comment: None,
-        annotations: extract_rust_attributes(node, source),
+        annotations,
     })
 }
 
@@ -244,6 +254,11 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
     let line_end = node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
 
+    let mut annotations = extract_rust_attributes(node, source);
+    if has_pub_visibility(node) {
+        annotations.push("exported".to_string());
+    }
+
     Some(Class {
         name,
         qualified_name,
@@ -253,7 +268,7 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         methods: vec![],
         bases: vec![],
         doc_comment: None,
-        annotations: extract_rust_attributes(node, source),
+        annotations,
     })
 }
 
@@ -272,6 +287,11 @@ fn parse_trait_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
     // Extract supertraits (bounds)
     let bases = extract_trait_bounds(node, source);
 
+    let mut annotations = extract_rust_attributes(node, source);
+    if has_pub_visibility(node) {
+        annotations.push("exported".to_string());
+    }
+
     Some(Class {
         name,
         qualified_name,
@@ -281,7 +301,7 @@ fn parse_trait_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         methods,
         bases,
         doc_comment: None,
-        annotations: extract_rust_attributes(node, source),
+        annotations,
     })
 }
 
@@ -531,6 +551,16 @@ fn extract_call_target(node: &Node, source: &[u8]) -> Option<String> {
     }
 }
 
+/// Check if a node has a `pub` visibility modifier (pub, pub(crate), pub(super), etc.)
+fn has_pub_visibility(node: &Node) -> bool {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "visibility_modifier" {
+            return true;
+        }
+    }
+    false
+}
+
 /// Extract attributes from preceding sibling `attribute_item` nodes.
 fn extract_rust_attributes(node: &Node, source: &[u8]) -> Vec<String> {
     let mut attrs = Vec::new();
@@ -699,6 +729,89 @@ trait MyTrait: Clone + Send {
     }
 
     #[test]
+    fn test_export_detection_rust() {
+        let code = r#"
+pub fn public_func() {}
+
+fn private_func() {}
+
+pub struct PublicStruct {}
+
+struct PrivateStruct {}
+
+pub enum PublicEnum { A, B }
+
+pub trait PublicTrait {}
+"#;
+        let path = PathBuf::from("test.rs");
+        let result = parse_source(code, &path).expect("should parse Rust exports");
+
+        let public = result
+            .functions
+            .iter()
+            .find(|f| f.name == "public_func")
+            .unwrap();
+        assert!(
+            public.annotations.iter().any(|a| a == "exported"),
+            "pub fn should be exported, annotations: {:?}",
+            public.annotations
+        );
+
+        let private = result
+            .functions
+            .iter()
+            .find(|f| f.name == "private_func")
+            .unwrap();
+        assert!(
+            !private.annotations.iter().any(|a| a == "exported"),
+            "private fn should NOT be exported"
+        );
+
+        let pub_struct = result
+            .classes
+            .iter()
+            .find(|c| c.name == "PublicStruct")
+            .unwrap();
+        assert!(
+            pub_struct.annotations.iter().any(|a| a == "exported"),
+            "pub struct should be exported, annotations: {:?}",
+            pub_struct.annotations
+        );
+
+        let priv_struct = result
+            .classes
+            .iter()
+            .find(|c| c.name == "PrivateStruct")
+            .unwrap();
+        assert!(
+            !priv_struct.annotations.iter().any(|a| a == "exported"),
+            "private struct should NOT be exported"
+        );
+
+        let pub_enum = result
+            .classes
+            .iter()
+            .find(|c| c.name == "PublicEnum")
+            .unwrap();
+        assert!(
+            pub_enum.annotations.iter().any(|a| a == "exported"),
+            "pub enum should be exported, annotations: {:?}",
+            pub_enum.annotations
+        );
+
+        let pub_trait = result
+            .classes
+            .iter()
+            .find(|c| c.name == "PublicTrait")
+            .unwrap();
+        assert!(
+            pub_trait.annotations.iter().any(|a| a == "exported"),
+            "pub trait should be exported, annotations: {:?}",
+            pub_trait.annotations
+        );
+    }
+
+    #[test]
     fn test_attribute_extraction() {
         let code = r#"
 #[test]
@@ -754,6 +867,14 @@ pub fn no_attrs() {}
             .iter()
             .find(|f| f.name == "no_attrs")
             .unwrap();
-        assert!(no_attrs_fn.annotations.is_empty());
+        // no_attrs has no #[attribute] annotations, but it is `pub` so it has "exported"
+        assert!(
+            no_attrs_fn
+                .annotations
+                .iter()
+                .all(|a| a == "exported"),
+            "no_attrs should only have 'exported' (no #[attr]), got: {:?}",
+            no_attrs_fn.annotations
+        );
     }
 }

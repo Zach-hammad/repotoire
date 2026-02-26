@@ -499,6 +499,95 @@ class NoDecorators {
 }
 
 #[test]
+fn test_export_detection_ts() {
+    let code = r#"
+export function publicFunc() {}
+
+function privateFunc() {}
+
+export class PublicClass {}
+
+class PrivateClass {}
+"#;
+    let path = PathBuf::from("test.ts");
+    let result = parse_source(code, &path, "ts").expect("should parse TS exports");
+
+    let public = result
+        .functions
+        .iter()
+        .find(|f| f.name == "publicFunc")
+        .unwrap();
+    assert!(
+        public.annotations.iter().any(|a| a == "exported"),
+        "export function should be exported, annotations: {:?}",
+        public.annotations
+    );
+
+    let private = result
+        .functions
+        .iter()
+        .find(|f| f.name == "privateFunc")
+        .unwrap();
+    assert!(
+        !private.annotations.iter().any(|a| a == "exported"),
+        "non-export function should NOT be exported"
+    );
+
+    let public_class = result
+        .classes
+        .iter()
+        .find(|c| c.name == "PublicClass")
+        .unwrap();
+    assert!(
+        public_class.annotations.iter().any(|a| a == "exported"),
+        "export class should be exported, annotations: {:?}",
+        public_class.annotations
+    );
+
+    let private_class = result
+        .classes
+        .iter()
+        .find(|c| c.name == "PrivateClass")
+        .unwrap();
+    assert!(
+        !private_class.annotations.iter().any(|a| a == "exported"),
+        "non-export class should NOT be exported"
+    );
+}
+
+#[test]
+fn test_export_detection_js_default() {
+    let code = r#"
+export default function mainHandler() {}
+
+function helperFunc() {}
+"#;
+    let path = PathBuf::from("test.js");
+    let result = parse_source(code, &path, "js").expect("should parse JS default exports");
+
+    let main = result
+        .functions
+        .iter()
+        .find(|f| f.name == "mainHandler")
+        .unwrap();
+    assert!(
+        main.annotations.iter().any(|a| a == "exported"),
+        "export default function should be exported, annotations: {:?}",
+        main.annotations
+    );
+
+    let helper = result
+        .functions
+        .iter()
+        .find(|f| f.name == "helperFunc")
+        .unwrap();
+    assert!(
+        !helper.annotations.iter().any(|a| a == "exported"),
+        "non-export function should NOT be exported"
+    );
+}
+
+#[test]
 fn test_callback_argument_detection() {
     let code = r#"
 function handler(req, res) {

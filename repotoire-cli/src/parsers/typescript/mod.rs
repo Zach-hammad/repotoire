@@ -262,6 +262,9 @@ fn extract_functions(
                 annotations.push("react:component".to_string());
             }
             collect_hook_calls(&node, source, &mut annotations);
+            if is_inside_export(&node) {
+                annotations.push("exported".to_string());
+            }
 
             result.functions.push(Function {
                 name: name.clone(),
@@ -286,6 +289,27 @@ fn extract_functions(
 /// Check if a node is inside a class body
 fn is_inside_class(node: &Node) -> bool {
     super::is_inside_ancestor(node, "class_body")
+}
+
+/// Check if a node (or its variable declaration ancestor) is inside an export statement.
+///
+/// Handles:
+/// - `export function foo() {}` — parent is export_statement
+/// - `export default function foo() {}` — parent is export_statement
+/// - `export const foo = () => {}` — ancestor chain: arrow_function -> variable_declarator -> lexical_declaration -> export_statement
+fn is_inside_export(node: &Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "export_statement" => return true,
+            // Keep climbing through variable declarators and declarations
+            "variable_declarator" | "lexical_declaration" | "variable_declaration" => {
+                current = parent.parent();
+            }
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Check if function has async modifier
@@ -449,7 +473,10 @@ fn extract_classes(
             };
 
             let doc_comment = extract_jsdoc_comment(&node, source);
-            let annotations = extract_ts_decorators(&node, source);
+            let mut annotations = extract_ts_decorators(&node, source);
+            if is_inside_export(&node) {
+                annotations.push("exported".to_string());
+            }
 
             result.classes.push(Class {
                 name: name.clone(),

@@ -99,6 +99,15 @@ fn extract_functions(
             if contains_channel_ops(&node) {
                 annotations.push("go:uses_channels".to_string());
             }
+            // Go export convention: capitalized first letter = exported
+            if name
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
+                annotations.push("exported".to_string());
+            }
 
             result.functions.push(Function {
                 name: name.clone(),
@@ -187,6 +196,15 @@ fn extract_methods(
             let mut annotations = Vec::new();
             if contains_channel_ops(&node) {
                 annotations.push("go:uses_channels".to_string());
+            }
+            // Go export convention: capitalized first letter = exported
+            if name
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
+                annotations.push("exported".to_string());
             }
 
             result.functions.push(Function {
@@ -334,6 +352,17 @@ fn extract_structs_and_interfaces(
 
             let doc_comment = extract_doc_comment(&node, source);
 
+            // Go export convention: capitalized first letter = exported
+            let mut annotations = Vec::new();
+            if name
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
+                annotations.push("exported".to_string());
+            }
+
             result.classes.push(Class {
                 name: name.clone(),
                 qualified_name,
@@ -343,7 +372,7 @@ fn extract_structs_and_interfaces(
                 methods,
                 bases: vec![],
                 doc_comment,
-                annotations: vec![],
+                annotations,
             });
         }
     }
@@ -883,6 +912,105 @@ func noChannels() {
             no_ch.annotations.is_empty(),
             "noChannels should have no annotations, got: {:?}",
             no_ch.annotations
+        );
+    }
+
+    #[test]
+    fn test_export_detection_go() {
+        let code = r#"
+package main
+
+func PublicFunc() {}
+
+func privateFunc() {}
+
+type PublicStruct struct {
+    Field int
+}
+
+type privateStruct struct {
+    field int
+}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(code, &path).expect("should parse Go exports");
+
+        let public = result
+            .functions
+            .iter()
+            .find(|f| f.name == "PublicFunc")
+            .unwrap();
+        assert!(
+            public.annotations.iter().any(|a| a == "exported"),
+            "Capitalized Go func should be exported, annotations: {:?}",
+            public.annotations
+        );
+
+        let private = result
+            .functions
+            .iter()
+            .find(|f| f.name == "privateFunc")
+            .unwrap();
+        assert!(
+            !private.annotations.iter().any(|a| a == "exported"),
+            "lowercase Go func should NOT be exported"
+        );
+
+        let pub_struct = result
+            .classes
+            .iter()
+            .find(|c| c.name == "PublicStruct")
+            .unwrap();
+        assert!(
+            pub_struct.annotations.iter().any(|a| a == "exported"),
+            "Capitalized Go struct should be exported, annotations: {:?}",
+            pub_struct.annotations
+        );
+
+        let priv_struct = result
+            .classes
+            .iter()
+            .find(|c| c.name == "privateStruct")
+            .unwrap();
+        assert!(
+            !priv_struct.annotations.iter().any(|a| a == "exported"),
+            "lowercase Go struct should NOT be exported"
+        );
+    }
+
+    #[test]
+    fn test_export_detection_go_method() {
+        let code = r#"
+package main
+
+type MyStruct struct {}
+
+func (s *MyStruct) PublicMethod() {}
+
+func (s *MyStruct) privateMethod() {}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(code, &path).expect("should parse Go method exports");
+
+        let public = result
+            .functions
+            .iter()
+            .find(|f| f.name == "PublicMethod")
+            .unwrap();
+        assert!(
+            public.annotations.iter().any(|a| a == "exported"),
+            "Capitalized Go method should be exported, annotations: {:?}",
+            public.annotations
+        );
+
+        let private = result
+            .functions
+            .iter()
+            .find(|f| f.name == "privateMethod")
+            .unwrap();
+        assert!(
+            !private.annotations.iter().any(|a| a == "exported"),
+            "lowercase Go method should NOT be exported"
         );
     }
 

@@ -5,7 +5,7 @@
 use crate::models::{Class, Function};
 use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -62,7 +62,89 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
     extract_imports(&root, source_bytes, &mut result)?;
     extract_calls(&root, source_bytes, path, &mut result)?;
 
+    // Annotate exported functions and classes
+    annotate_exports(&root, source_bytes, &mut result);
+
     Ok(result)
+}
+
+/// Determine which functions/classes are exported and annotate them.
+///
+/// If `__all__` is defined, only names listed in it are exported.
+/// Otherwise, all module-level names not starting with `_` are exported.
+fn annotate_exports(root: &Node, source: &[u8], result: &mut ParseResult) {
+    let all_names = extract_dunder_all(root, source);
+
+    for func in &mut result.functions {
+        let is_exported = if let Some(ref names) = all_names {
+            names.contains(&func.name)
+        } else {
+            !func.name.starts_with('_')
+        };
+        if is_exported && !func.annotations.contains(&"exported".to_string()) {
+            func.annotations.push("exported".to_string());
+        }
+    }
+
+    for class in &mut result.classes {
+        let is_exported = if let Some(ref names) = all_names {
+            names.contains(&class.name)
+        } else {
+            !class.name.starts_with('_')
+        };
+        if is_exported && !class.annotations.contains(&"exported".to_string()) {
+            class.annotations.push("exported".to_string());
+        }
+    }
+}
+
+/// Extract names from `__all__ = [...]` if present.
+///
+/// Returns `Some(HashSet)` if `__all__` is defined, `None` otherwise.
+fn extract_dunder_all(root: &Node, source: &[u8]) -> Option<HashSet<String>> {
+    let mut cursor = root.walk();
+
+    for node in root.children(&mut cursor) {
+        if node.kind() == "expression_statement" {
+            // Look for assignment: __all__ = [...]
+            for child in node.children(&mut node.walk()) {
+                if child.kind() == "assignment" {
+                    let left = child.child_by_field_name("left");
+                    let right = child.child_by_field_name("right");
+                    if let (Some(left_node), Some(right_node)) = (left, right) {
+                        let left_text = left_node.utf8_text(source).unwrap_or("");
+                        if left_text == "__all__" {
+                            return Some(extract_string_list(&right_node, source));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Extract string values from a list literal node `['a', 'b', 'c']`.
+fn extract_string_list(node: &Node, source: &[u8]) -> HashSet<String> {
+    let mut names = HashSet::new();
+
+    if node.kind() == "list" || node.kind() == "tuple" {
+        for child in node.children(&mut node.walk()) {
+            if child.kind() == "string" {
+                let text = child.utf8_text(source).unwrap_or("");
+                // Strip quotes: 'name' or "name"
+                let stripped = text
+                    .trim_start_matches(['\'', '"'])
+                    .trim_end_matches(['\'', '"']);
+                if !stripped.is_empty() {
+                    names.insert(stripped.to_string());
+                }
+            }
+        }
+    }
+
+    names
 }
 
 /// Extract function definitions from the AST
@@ -957,6 +1039,118 @@ class MyClass:
     }
 
     #[test]
+    fn test_export_detection_python() {
+        let code = r#"
+__all__ = ['public_func', 'PublicClass']
+
+def public_func():
+    pass
+
+def _private_func():
+    pass
+
+class PublicClass:
+    pass
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(code, &path).expect("should parse exports");
+
+        let public = result
+            .functions
+            .iter()
+            .find(|f| f.name == "public_func")
+            .unwrap();
+        assert!(
+            public.annotations.iter().any(|a| a == "exported"),
+            "public_func should be exported, annotations: {:?}",
+            public.annotations
+        );
+
+        let private = result
+            .functions
+            .iter()
+            .find(|f| f.name == "_private_func")
+            .unwrap();
+        assert!(
+            !private.annotations.iter().any(|a| a == "exported"),
+            "_private_func should NOT be exported"
+        );
+
+        let public_class = result
+            .classes
+            .iter()
+            .find(|c| c.name == "PublicClass")
+            .unwrap();
+        assert!(
+            public_class.annotations.iter().any(|a| a == "exported"),
+            "PublicClass should be exported, annotations: {:?}",
+            public_class.annotations
+        );
+    }
+
+    #[test]
+    fn test_export_detection_python_no_all() {
+        // When __all__ is not defined, non-underscore module-level names are exported
+        let code = r#"
+def public_func():
+    pass
+
+def _private_func():
+    pass
+
+class PublicClass:
+    pass
+
+class _PrivateClass:
+    pass
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(code, &path).expect("should parse exports without __all__");
+
+        let public = result
+            .functions
+            .iter()
+            .find(|f| f.name == "public_func")
+            .unwrap();
+        assert!(
+            public.annotations.iter().any(|a| a == "exported"),
+            "public_func should be exported (no __all__), annotations: {:?}",
+            public.annotations
+        );
+
+        let private = result
+            .functions
+            .iter()
+            .find(|f| f.name == "_private_func")
+            .unwrap();
+        assert!(
+            !private.annotations.iter().any(|a| a == "exported"),
+            "_private_func should NOT be exported"
+        );
+
+        let public_class = result
+            .classes
+            .iter()
+            .find(|c| c.name == "PublicClass")
+            .unwrap();
+        assert!(
+            public_class.annotations.iter().any(|a| a == "exported"),
+            "PublicClass should be exported (no __all__), annotations: {:?}",
+            public_class.annotations
+        );
+
+        let private_class = result
+            .classes
+            .iter()
+            .find(|c| c.name == "_PrivateClass")
+            .unwrap();
+        assert!(
+            !private_class.annotations.iter().any(|a| a == "exported"),
+            "_PrivateClass should NOT be exported"
+        );
+    }
+
+    #[test]
     fn test_decorator_extraction() {
         let code = r#"
 @app.route('/users')
@@ -1005,13 +1199,20 @@ class UserDTO:
             admin.annotations
         );
 
-        // MyModel should have no annotations
+        // MyModel should have no decorator annotations (only "exported")
         let my_model = result
             .classes
             .iter()
             .find(|c| c.name == "MyModel")
             .unwrap();
-        assert!(my_model.annotations.is_empty());
+        assert!(
+            my_model
+                .annotations
+                .iter()
+                .all(|a| a == "exported"),
+            "MyModel should only have 'exported' annotation (no decorators), got: {:?}",
+            my_model.annotations
+        );
 
         // UserDTO should have @dataclass annotation
         let user_dto = result
