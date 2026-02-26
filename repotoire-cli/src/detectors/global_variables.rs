@@ -100,6 +100,29 @@ impl GlobalVariablesDetector {
         false
     }
 
+    /// Count how many times a variable is reassigned after its declaration line.
+    /// Returns 0 if never reassigned (effectively const).
+    fn count_reassignments(content: &str, var_name: &str, decl_line_idx: usize) -> usize {
+        let escaped = regex::escape(var_name);
+        // Match: varName++ / varName-- (increment/decrement), or
+        // varName = / varName += / varName -= etc (assignment, but not == or ===)
+        // Note: Rust's regex crate does not support lookahead, so we use [^=] instead.
+        let pattern = format!(
+            r"\b{}\s*(?:\+\+|--|[+\-*/&|^%]?=[^=])",
+            escaped
+        );
+        let re = match Regex::new(&pattern) {
+            Ok(r) => r,
+            Err(_) => return 0,
+        };
+
+        content
+            .lines()
+            .enumerate()
+            .filter(|(idx, line)| *idx != decl_line_idx && re.is_match(line))
+            .count()
+    }
+
     fn create_finding(
         &self,
         path: &std::path::Path,
@@ -302,6 +325,15 @@ impl Detector for GlobalVariablesDetector {
                             }
                             seen_globals.insert(key);
 
+                            // Skip effectively-constant variables (assigned once, never reassigned)
+                            // Only for JS/TS — Python's `global` keyword already implies intentional mutation
+                            if ext != "py" {
+                                let reassignments = Self::count_reassignments(&content, &var_name, i);
+                                if reassignments == 0 {
+                                    continue;
+                                }
+                            }
+
                             let usage_count = self.count_usages(&content, &var_name, i + 1);
                             let is_cross_module =
                                 self.check_cross_module_usage(graph, &path_str, &var_name);
@@ -388,6 +420,39 @@ mod tests {
             findings.is_empty(),
             "Should not flag local variables in functions, but got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_single_assignment_not_flagged() {
+        // var app = express() — assigned once, never reassigned → should NOT be flagged
+        let store = GraphStore::in_memory();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.js", "var app = express();\napp.get('/', handler);\napp.listen(3000);"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "Single-assignment var should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_reassigned_variable_flagged() {
+        // var count = 0; count++ — genuinely mutable → should be flagged
+        let store = GraphStore::in_memory();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+            ("test.js", "var count = 0;\ncount++;\nconsole.log(count);"),
+        ]);
+        let findings = detector.detect(&store, &files).unwrap();
+
+        assert!(
+            !findings.is_empty(),
+            "Reassigned var should be flagged"
         );
     }
 }
