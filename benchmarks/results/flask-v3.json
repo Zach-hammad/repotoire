@@ -1,0 +1,535 @@
+{
+  "overall_score": 91.34183923039295,
+  "grade": "A-",
+  "structure_score": 99.42931681069624,
+  "quality_score": 71.90037502038153,
+  "architecture_score": 100.0,
+  "findings": [
+    {
+      "id": "e9279c50230bdf3b",
+      "detector": "AIDuplicateBlockDetector",
+      "severity": "critical",
+      "title": "Structural duplicate: loads ≈ json_dumps (93% AST)",
+      "description": "Functions 'loads' and 'json_dumps' have 93% AST similarity, indicating structural duplication.\n\n**loads** (7 LOC): `/tmp/flask/src/flask/json/provider.py`\n**json_dumps** (7 LOC): `/tmp/flask/src/flask/testing.py`\n\n⚠️ **Generic naming detected**: 42% of identifiers use generic names (result, temp, data, etc.), suggesting low-effort duplication.\n\nNear-identical functions increase maintenance burden and can lead to inconsistent bug fixes.",
+      "affected_files": [
+        "/tmp/flask/src/flask/json/provider.py",
+        "/tmp/flask/src/flask/testing.py"
+      ],
+      "line_start": 181,
+      "line_end": 187,
+      "suggested_fix": "Consider one of the following approaches:\n1. **Extract common logic** into a shared helper function\n2. **Use a template/factory pattern** if variations are intentional\n3. **Consolidate** into a single implementation if truly duplicates\n4. **Add documentation** explaining why similar implementations exist",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "duplication",
+      "cwe_id": null,
+      "why_it_matters": "Near-identical code duplicates increase maintenance burden. When bugs are found, they must be fixed in multiple places. When requirements change, all copies must be updated consistently.",
+      "confidence": null
+    },
+    {
+      "id": "affa5380008d7da7",
+      "detector": "AIDuplicateBlockDetector",
+      "severity": "critical",
+      "title": "Structural duplicate: _make_timedelta ≈ _make_timedelta (100% AST)",
+      "description": "[COMPOUND: 2 co-located issues] Functions '_make_timedelta' and '_make_timedelta' have 100% AST similarity, indicating structural duplication.\n\n**_make_timedelta** (5 LOC): `/tmp/flask/src/flask/sansio/app.py`\n**_make_timedelta** (5 LOC): `/tmp/flask/src/flask/app.py`\n\n⚠️ **Generic naming detected**: 50% of identifiers use generic names (result, temp, data, etc.), suggesting low-effort duplication.\n\nNear-identical functions increase maintenance burden and can lead to inconsistent bug fixes.",
+      "affected_files": [
+        "/tmp/flask/src/flask/sansio/app.py",
+        "/tmp/flask/src/flask/app.py"
+      ],
+      "line_start": 52,
+      "line_end": 56,
+      "suggested_fix": "Consider one of the following approaches:\n1. **Extract common logic** into a shared helper function\n2. **Use a template/factory pattern** if variations are intentional\n3. **Consolidate** into a single implementation if truly duplicates\n4. **Add documentation** explaining why similar implementations exist",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "duplication",
+      "cwe_id": null,
+      "why_it_matters": "Near-identical code duplicates increase maintenance burden. When bugs are found, they must be fixed in multiple places. When requirements change, all copies must be updated consistently.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "cd926a1aac0d30de",
+      "detector": "AIDuplicateBlockDetector",
+      "severity": "critical",
+      "title": "Structural duplicate: get_send_file_max_age ≈ get_send_file_max_age (100% AST)",
+      "description": "[COMPOUND: 2 co-located issues] Functions 'get_send_file_max_age' and 'get_send_file_max_age' have 100% AST similarity, indicating structural duplication.\n\n**get_send_file_max_age** (26 LOC): `/tmp/flask/src/flask/app.py`\n**get_send_file_max_age** (26 LOC): `/tmp/flask/src/flask/blueprints.py`\n\n⚠️ **Generic naming detected**: 55% of identifiers use generic names (result, temp, data, etc.), suggesting low-effort duplication.\n\nNear-identical functions increase maintenance burden and can lead to inconsistent bug fixes.",
+      "affected_files": [
+        "/tmp/flask/src/flask/app.py",
+        "/tmp/flask/src/flask/blueprints.py"
+      ],
+      "line_start": 365,
+      "line_end": 390,
+      "suggested_fix": "Consider one of the following approaches:\n1. **Extract common logic** into a shared helper function\n2. **Use a template/factory pattern** if variations are intentional\n3. **Consolidate** into a single implementation if truly duplicates\n4. **Add documentation** explaining why similar implementations exist",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "duplication",
+      "cwe_id": null,
+      "why_it_matters": "Near-identical code duplicates increase maintenance burden. When bugs are found, they must be fixed in multiple places. When requirements change, all copies must be updated consistently.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "02d23107874f3509",
+      "detector": "AIDuplicateBlockDetector",
+      "severity": "critical",
+      "title": "Structural duplicate: debug ≈ get_cookie_domain (100% AST)",
+      "description": "[COMPOUND: 2 co-located issues] Functions 'debug' and 'get_cookie_domain' have 100% AST similarity, indicating structural duplication.\n\n**debug** (11 LOC): `/tmp/flask/src/flask/sansio/app.py`\n**get_cookie_domain** (11 LOC): `/tmp/flask/src/flask/sessions.py`\n\n⚠️ **Generic naming detected**: 50% of identifiers use generic names (result, temp, data, etc.), suggesting low-effort duplication.\n\nNear-identical functions increase maintenance burden and can lead to inconsistent bug fixes.",
+      "affected_files": [
+        "/tmp/flask/src/flask/sansio/app.py",
+        "/tmp/flask/src/flask/sessions.py"
+      ],
+      "line_start": 547,
+      "line_end": 557,
+      "suggested_fix": "Consider one of the following approaches:\n1. **Extract common logic** into a shared helper function\n2. **Use a template/factory pattern** if variations are intentional\n3. **Consolidate** into a single implementation if truly duplicates\n4. **Add documentation** explaining why similar implementations exist",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "duplication",
+      "cwe_id": null,
+      "why_it_matters": "Near-identical code duplicates increase maintenance burden. When bugs are found, they must be fixed in multiple places. When requirements change, all copies must be updated consistently.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "5ffa1619fc962bbd",
+      "detector": "DebugCodeDetector",
+      "severity": "high",
+      "title": "Interactive debugger left in code",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 3 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/flask/src/flask/cli.py"
+      ],
+      "line_start": 979,
+      "line_end": 979,
+      "suggested_fix": "Remove debug code or replace with proper logging.",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "b8e684c2b3ca86eb",
+      "detector": "DebugCodeDetector",
+      "severity": "high",
+      "title": "Interactive debugger left in code",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 4 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/flask/src/flask/cli.py"
+      ],
+      "line_start": 988,
+      "line_end": 988,
+      "suggested_fix": "Remove debug code or replace with proper logging.",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "f00834da9714dcf7",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "high",
+      "title": "XSS: Jinja2 Environment without autoescape",
+      "description": "[COMPOUND: 3 co-located issues] **Jinja2 Environment() created without autoescape=True, allowing XSS attacks**\n\n**Location**: src/flask/templating.py:36\n\n**Code snippet**:\n```\nclass Environment(BaseEnvironment):\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-79: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.",
+      "affected_files": [
+        "src/flask/templating.py"
+      ],
+      "line_start": 36,
+      "line_end": 36,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Enable autoescape globally** (preferred):\n```python\nfrom jinja2 import Environment, select_autoescape\n\nenv = Environment(\nautoescape=select_autoescape(['html', 'htm', 'xml'])\n)\n```\n\n2. **Use Flask's default environment** (autoescape enabled by default):\n```python\nfrom flask import render_template\nreturn render_template('template.html', data=user_data)\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "1c60f096278ef014",
+      "detector": "DebugCodeDetector",
+      "severity": "high",
+      "title": "Interactive debugger left in code",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 2 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/flask/src/flask/cli.py"
+      ],
+      "line_start": 978,
+      "line_end": 978,
+      "suggested_fix": "Remove debug code or replace with proper logging.",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "deab695e3ff6aba5",
+      "detector": "InsecureCryptoDetector",
+      "severity": "high",
+      "title": "Weak hash algorithm (MD5/SHA1)",
+      "description": "[COMPOUND: 2 co-located issues] MD5 and SHA1 are cryptographically broken.",
+      "affected_files": [
+        "src/flask/sessions.py"
+      ],
+      "line_start": 281,
+      "line_end": 281,
+      "suggested_fix": "Use SHA-256 or better (SHA-3, BLAKE3).",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-328",
+      "why_it_matters": "Weak hashes can be cracked or collided.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "5f1857d86d2bcdc4",
+      "detector": "DebugCodeDetector",
+      "severity": "high",
+      "title": "Interactive debugger left in code",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/flask/src/flask/cli.py"
+      ],
+      "line_start": 940,
+      "line_end": 940,
+      "suggested_fix": "Remove debug code or replace with proper logging.",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "5805e7f7d625c109",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "high",
+      "title": "XSS: Unsafe Markup usage",
+      "description": "[COMPOUND: 2 co-located issues] **Markup() with variable input bypasses escaping, enabling XSS**\n\n**Location**: src/flask/json/tag.py:188\n\n**Code snippet**:\n```\nreturn Markup(value)\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-79: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.",
+      "affected_files": [
+        "src/flask/json/tag.py"
+      ],
+      "line_start": 188,
+      "line_end": 188,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Avoid Markup() with untrusted input**:\n```python\n# Instead of:\nreturn Markup(user_data)\n\n# Use:\nfrom markupsafe import escape\nreturn escape(user_data)\n```\n\n2. **Only use Markup() for trusted, static content**:\n```python\nreturn Markup('<strong>') + escape(user_data) + Markup('</strong>')\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "fa33689245613dea",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1625 lines",
+      "description": "File exceeds recommended size (1625 lines > 800 threshold).\n\n**Analysis:**\n📏 1625 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1625 | Default would be: 800 | Profile: p90=692, p95=1010, mean=219.4, n=46",
+      "affected_files": [
+        "/tmp/flask/src/flask/app.py"
+      ],
+      "line_start": 1,
+      "line_end": 1625,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "800",
+        "actual_value": "1625",
+        "threshold_source": "adaptive",
+        "default_threshold": "800"
+      }
+    },
+    {
+      "id": "77f204935e58aa07",
+      "detector": "SurprisalDetector",
+      "severity": "medium",
+      "title": "Unusual code pattern in `get_load_dotenv`",
+      "description": "Function `get_load_dotenv` has unusually high surprisal (3.2 bits, project mean: 2.3, z-score: 3.0).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (4.3 bits):\n```\n:param default: What to return if the env var isn't set.\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/flask/src/flask/helpers.py"
+      ],
+      "line_start": 36,
+      "line_end": 48,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.1% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_std": "0.31",
+        "z_score": "3.03",
+        "surprisal_bits": "3.21",
+        "threshold_source": "predictive",
+        "baseline_mean": "2.27"
+      }
+    },
+    {
+      "id": "b20fd95afbd25cec",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 3 functions with error_handling (100% similar)",
+      "description": "Found 3 functions with 100% AST similarity that lack a shared abstraction.\n\n**Functions:** dispatch_request, open_session, save_session\n\n**Files:** /tmp/flask/src/flask/sessions.py, /tmp/flask/src/flask/views.py\n\n**Patterns detected:** error_handling\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/flask/src/flask/sessions.py",
+        "/tmp/flask/src/flask/views.py"
+      ],
+      "line_start": 78,
+      "line_end": 83,
+      "suggested_fix": "**Suggested abstraction: Error handling decorator**\n\n```python\ndef handle_errors(error_handler=None):\n    def decorator(func):\n        @wraps(func)\n        def wrapper(*args, **kwargs):\n            try:\n                return func(*args, **kwargs)\n            except Exception as e:\n                if error_handler:\n                    return error_handler(e)\n                raise\n        return wrapper\n    return decorator\n```\n\nApply `@handle_errors()` to consolidate the try/except pattern.",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": null
+    },
+    {
+      "id": "48ec78f53b6859c1",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1010 lines",
+      "description": "File exceeds recommended size (1010 lines > 800 threshold).\n\n**Analysis:**\n📏 1010 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1010 | Default would be: 800 | Profile: p90=692, p95=1010, mean=219.4, n=46",
+      "affected_files": [
+        "/tmp/flask/src/flask/sansio/app.py"
+      ],
+      "line_start": 1,
+      "line_end": 1010,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "1010",
+        "effective_threshold": "800",
+        "default_threshold": "800",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "3057b909adabc211",
+      "detector": "CommentedCodeDetector",
+      "severity": "medium",
+      "title": "11 lines of commented code",
+      "description": "Large block of commented code should be removed.\n\n**Analysis:**\n⚠️ References 7 functions that no longer exist - likely stale",
+      "affected_files": [
+        "/tmp/flask/src/flask/sansio/app.py"
+      ],
+      "line_start": 387,
+      "line_end": 401,
+      "suggested_fix": "This commented code references functions that no longer exist.\nIt's likely outdated - delete it (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "da0e9e2e214c236a",
+      "detector": "SurprisalDetector",
+      "severity": "medium",
+      "title": "Unusual code pattern in `explain_template_loading_attempts`",
+      "description": "[COMPOUND: 2 co-located issues] Function `explain_template_loading_attempts` has unusually high surprisal (3.1 bits, project mean: 2.3, z-score: 2.5).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (6.4 bits):\n```\ninfo = [f\"Locating template {template!r}:\"]\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/flask/src/flask/debughelpers.py"
+      ],
+      "line_start": 124,
+      "line_end": 179,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.6% most unusual in this project.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "baseline_std": "0.31",
+        "z_score": "2.52",
+        "surprisal_bits": "3.05",
+        "baseline_mean": "2.27",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "72cb185c286ea6f8",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1127 lines",
+      "description": "File exceeds recommended size (1127 lines > 800 threshold).\n\n**Analysis:**\n📏 1127 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1127 | Default would be: 800 | Profile: p90=692, p95=1010, mean=219.4, n=46",
+      "affected_files": [
+        "/tmp/flask/src/flask/cli.py"
+      ],
+      "line_start": 1,
+      "line_end": 1127,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "1127",
+        "effective_threshold": "800",
+        "threshold_source": "adaptive",
+        "default_threshold": "800"
+      }
+    },
+    {
+      "id": "c77708d0896201e6",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 3 functions with http_method, error_handling (100% similar)",
+      "description": "Found 3 functions with 100% AST similarity that lack a shared abstraction.\n\n**Functions:** add_url_rule, dumps, loads\n\n**Files:** /tmp/flask/src/flask/json/provider.py, /tmp/flask/src/flask/sansio/scaffold.py\n\n**Patterns detected:** http_method, error_handling\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/flask/src/flask/json/provider.py",
+        "/tmp/flask/src/flask/sansio/scaffold.py"
+      ],
+      "line_start": 368,
+      "line_end": 433,
+      "suggested_fix": "**Suggested abstraction: Error handling decorator**\n\n```python\ndef handle_errors(error_handler=None):\n    def decorator(func):\n        @wraps(func)\n        def wrapper(*args, **kwargs):\n            try:\n                return func(*args, **kwargs)\n            except Exception as e:\n                if error_handler:\n                    return error_handler(e)\n                raise\n        return wrapper\n    return decorator\n```\n\nApply `@handle_errors()` to consolidate the try/except pattern.",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": null
+    },
+    {
+      "id": "05764d8ae523ed08",
+      "detector": "DeadStoreDetector",
+      "severity": "low",
+      "title": "Dead store: secret_key",
+      "description": "Variable 'secret_key' is assigned but never read afterward.\n\n```\nsecret_key = ConfigAttribute[str | bytes | None](            )\n```",
+      "affected_files": [
+        "src/flask/sansio/app.py"
+      ],
+      "line_start": 213,
+      "line_end": 213,
+      "suggested_fix": "Options:\n1. Remove the unused assignment\n2. Use the variable 'secret_key' in subsequent code\n3. If intentional, prefix with underscore: _secret_key",
+      "estimated_effort": "5 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-563",
+      "why_it_matters": "Dead stores indicate logic errors or leftover code. They add confusion and may hide bugs.",
+      "confidence": null
+    },
+    {
+      "id": "b669a2d6ee484fd1",
+      "detector": "AIBoilerplateDetector",
+      "severity": "low",
+      "title": "Boilerplate: 3 functions with error_handling, context_manager (67% similar)",
+      "description": "Found 3 functions with 67% AST similarity that lack a shared abstraction.\n\n**Functions:** do_teardown_request, do_teardown_appcontext, init_db\n\n**Files:** /tmp/flask/examples/tutorial/flaskr/db.py, /tmp/flask/src/flask/app.py\n\n**Patterns detected:** error_handling, context_manager, crud, database, loop\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/flask/examples/tutorial/flaskr/db.py",
+        "/tmp/flask/src/flask/app.py"
+      ],
+      "line_start": 1420,
+      "line_end": 1451,
+      "suggested_fix": "**Suggested abstraction: Error handling decorator**\n\n```python\ndef handle_errors(error_handler=None):\n    def decorator(func):\n        @wraps(func)\n        def wrapper(*args, **kwargs):\n            try:\n                return func(*args, **kwargs)\n            except Exception as e:\n                if error_handler:\n                    return error_handler(e)\n                raise\n        return wrapper\n    return decorator\n```\n\nApply `@handle_errors()` to consolidate the try/except pattern.",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": null
+    },
+    {
+      "id": "a4e1dc4350453340",
+      "detector": "DeadCodeDetector",
+      "severity": "low",
+      "title": "Unused function: _validate_key",
+      "description": "Function '_validate_key' is never called in the codebase. It has complexity 9.\n\n**Confidence:** 70% (graph analysis only)\n**Recommendation:** Review before removing",
+      "affected_files": [
+        "src/flask/cli.py"
+      ],
+      "line_start": 828,
+      "line_end": null,
+      "suggested_fix": "**REVIEW REQUIRED** (confidence: 70%)\n1. Remove the function from cli.py\n2. Check for dynamic calls (getattr, eval) that might use it\n3. Verify it's not an API endpoint or callback",
+      "estimated_effort": "Small (30-60 minutes)",
+      "category": "dead_code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Dead code increases maintenance burden, confuses developers, and can hide bugs. Removing unused code improves readability and reduces the codebase size.",
+      "confidence": 0.7
+    },
+    {
+      "id": "886fe7c7cda6927d",
+      "detector": "CommentedCodeDetector",
+      "severity": "low",
+      "title": "5 lines of commented code",
+      "description": "Large block of commented code should be removed.",
+      "affected_files": [
+        "/tmp/flask/src/flask/sansio/app.py"
+      ],
+      "line_start": 171,
+      "line_end": 181,
+      "suggested_fix": "Delete commented code (version control has history).",
+      "estimated_effort": "5 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Commented code clutters the codebase and can confuse developers. If the code was important, it's in version control history.",
+      "confidence": null
+    },
+    {
+      "id": "c10e8f71b662d699",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `routes_command`",
+      "description": "Function `routes_command` has unusually high surprisal (3.0 bits, project mean: 2.3, z-score: 2.2).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (5.7 bits):\n```\nrow = [\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/flask/src/flask/cli.py"
+      ],
+      "line_start": 1061,
+      "line_end": 1107,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.3% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_std": "0.31",
+        "z_score": "2.22",
+        "baseline_mean": "2.27",
+        "surprisal_bits": "2.96",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "3c716e32f7e69f55",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: _werkzeug_version",
+      "description": "Global mutable state '_werkzeug_version' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 4 times in this file",
+      "affected_files": [
+        "/tmp/flask/src/flask/testing.py"
+      ],
+      "line_start": 101,
+      "line_end": 101,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": null
+    },
+    {
+      "id": "d710b5c995d99eb0",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "info",
+      "title": "XSS: Unsafe render_template_string",
+      "description": "[COMPOUND: 3 co-located issues] **render_template_string() with variable input can lead to template injection**\n\n**Location**: src/flask/templating.py:151\n\n**Code snippet**:\n```\ndef render_template_string(source: str, **context: t.Any) -> str:\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-1336: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.\n\nNote: This is a public API definition. The security risk is in caller code that passes unsanitized input, not in this definition.",
+      "affected_files": [
+        "src/flask/templating.py"
+      ],
+      "line_start": 151,
+      "line_end": 151,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Use file-based templates** instead of string templates:\n```python\n# Instead of:\nreturn render_template_string(user_template)\n\n# Use:\nreturn render_template('user_template.html', data=user_data)\n```\n\n2. **If string templates are required**, validate and sanitize:\n```python\nfrom markupsafe import escape\nsafe_data = escape(user_data)\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-1336",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": 0.7999999999999999
+    }
+  ],
+  "findings_summary": {
+    "critical": 4,
+    "high": 7,
+    "medium": 8,
+    "low": 6,
+    "info": 1,
+    "total": 26
+  },
+  "total_files": 83,
+  "total_functions": 525,
+  "total_classes": 64,
+  "total_loc": 18399
+}

@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -148,7 +148,8 @@ fn build_class_node(class: &Class, relative_str: &str) -> CodeNode {
 ///
 /// e.g. "src/app/routes.py" -> "src.app.routes"
 ///      "src/lib.rs" -> "src::lib"
-pub(crate) fn module_qn_from_path(relative_str: &str) -> String {
+#[cfg(test)]
+fn module_qn_from_path(relative_str: &str) -> String {
     // Strip common extensions and convert path separators to language-appropriate delimiters
     let base = relative_str
         .trim_end_matches(".py")
@@ -171,40 +172,23 @@ pub(crate) fn module_qn_from_path(relative_str: &str) -> String {
     base.replace('/', ".")
 }
 
-/// Emit synthetic decorator dispatch edges for decorated functions.
+/// Emit a Calls edge from the module (file node) to a decorated function.
 ///
-/// For each function that has annotations/decorators, we:
-/// 1. Create a per-module synthetic `__decorator_dispatch__` function node
-/// 2. Add a `Calls` edge from that dispatcher to the decorated function
-///
-/// This ensures decorated functions (e.g., `@app.route`, `@pytest.fixture`)
-/// always have at least one caller, preventing false positives from
-/// unreachable-code and dead-code detectors.
-fn emit_decorator_dispatch_edges(
+/// A decorator invocation (`@app.route(...)`) executes at module load time,
+/// meaning the module itself is the caller. Using the existing file node as
+/// the caller avoids creating synthetic function nodes that would pollute
+/// `get_functions()` results and need filtering in every detector.
+fn emit_decorator_call_edge(
     func_qn: &str,
-    relative_str: &str,
+    file_qn: &str,
     has_annotations: bool,
-    created_dispatchers: &mut HashSet<String>,
-    dispatcher_nodes: &mut Vec<CodeNode>,
     edges: &mut Vec<(String, String, CodeEdge)>,
 ) {
     if !has_annotations {
         return;
     }
-
-    let module_qn = module_qn_from_path(relative_str);
-    let dispatcher_qn = format!("{}.__decorator_dispatch__", module_qn);
-
-    // Create the dispatcher node once per module
-    if created_dispatchers.insert(dispatcher_qn.clone()) {
-        let dispatcher_node = CodeNode::new(NodeKind::Function, "__decorator_dispatch__", relative_str)
-            .with_qualified_name(&dispatcher_qn)
-            .with_property("synthetic", true);
-        dispatcher_nodes.push(dispatcher_node);
-    }
-
-    // Add Calls edge: dispatcher -> decorated function
-    edges.push((dispatcher_qn, func_qn.to_string(), CodeEdge::calls()));
+    // Module (file node) calls the decorated function at load time
+    edges.push((file_qn.to_string(), func_qn.to_string(), CodeEdge::calls()));
 }
 
 /// Build the code graph from parse results
@@ -240,8 +224,6 @@ pub(super) fn build_graph(
             let mut func_nodes = Vec::with_capacity(result.functions.len());
             let mut class_nodes = Vec::with_capacity(result.classes.len());
             let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
-            let mut created_dispatchers = HashSet::new();
-
             // File node
             file_nodes.push(
                 CodeNode::new(NodeKind::File, &relative_str, &relative_str)
@@ -285,13 +267,11 @@ pub(super) fn build_graph(
                     CodeEdge::contains(),
                 ));
 
-                // Synthetic Calls edge for decorated functions
-                emit_decorator_dispatch_edges(
+                // Module calls decorated functions at load time
+                emit_decorator_call_edge(
                     &func.qualified_name,
                     &relative_str,
                     !func.annotations.is_empty(),
-                    &mut created_dispatchers,
-                    &mut func_nodes,
                     &mut edges,
                 );
             }
@@ -421,8 +401,6 @@ pub(super) fn build_graph_chunked(
                 let mut func_nodes = Vec::with_capacity(result.functions.len());
                 let mut class_nodes = Vec::with_capacity(result.classes.len());
                 let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
-                let mut created_dispatchers = HashSet::new();
-
                 // File node
                 file_nodes.push(
                     CodeNode::new(NodeKind::File, &relative_str, &relative_str)
@@ -445,13 +423,11 @@ pub(super) fn build_graph_chunked(
                         CodeEdge::contains(),
                     ));
 
-                    // Synthetic Calls edge for decorated functions
-                    emit_decorator_dispatch_edges(
+                    // Module calls decorated functions at load time
+                    emit_decorator_call_edge(
                         &func.qualified_name,
                         &relative_str,
                         !func.annotations.is_empty(),
-                        &mut created_dispatchers,
-                        &mut func_nodes,
                         &mut edges,
                     );
                 }
@@ -946,9 +922,6 @@ pub(super) struct StreamingGraphBuilderImpl {
     // Collected edges for batch insertion
     edges: Vec<(String, String, CodeEdge)>,
 
-    // Track synthetic dispatcher nodes already created
-    created_dispatchers: HashSet<String>,
-
     // Stats
     total_functions: usize,
     total_classes: usize,
@@ -968,7 +941,6 @@ impl StreamingGraphBuilderImpl {
             function_index,
             module_index,
             edges: Vec::new(),
-            created_dispatchers: HashSet::new(),
             total_functions: 0,
             total_classes: 0,
         }
@@ -1009,24 +981,10 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
                 CodeEdge::contains(),
             ));
 
-            // Synthetic Calls edge for decorated functions
+            // Module calls decorated functions at load time
             if func.has_annotations {
-                let module_qn = module_qn_from_path(&info.relative_path);
-                let dispatcher_qn = format!("{}.__decorator_dispatch__", module_qn);
-
-                if self.created_dispatchers.insert(dispatcher_qn.clone()) {
-                    let dispatcher_node = CodeNode::new(
-                        NodeKind::Function,
-                        "__decorator_dispatch__",
-                        &info.relative_path,
-                    )
-                    .with_qualified_name(&dispatcher_qn)
-                    .with_property("synthetic", true);
-                    self.graph.add_node(dispatcher_node);
-                }
-
                 self.edges.push((
-                    dispatcher_qn,
+                    info.relative_path.clone(),
                     func.qualified_name.clone(),
                     CodeEdge::calls(),
                 ));
@@ -1212,69 +1170,46 @@ mod tests {
     }
 
     #[test]
-    fn test_emit_decorator_dispatch_edges_creates_dispatcher_and_edge() {
-        let mut created = HashSet::new();
-        let mut nodes = Vec::new();
+    fn test_emit_decorator_call_edge_creates_edge_from_file() {
         let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
 
-        // Decorated function
-        emit_decorator_dispatch_edges(
+        // Decorated function — should create edge from file to function
+        emit_decorator_call_edge(
             "app.routes.index:5",
             "app/routes.py",
             true,
-            &mut created,
-            &mut nodes,
             &mut edges,
         );
 
-        // Dispatcher node should have been created
-        assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].name, "__decorator_dispatch__");
-        assert_eq!(
-            nodes[0].qualified_name,
-            "app.routes.__decorator_dispatch__"
-        );
-        assert_eq!(nodes[0].kind, NodeKind::Function);
-        assert_eq!(nodes[0].get_bool("synthetic"), Some(true));
-
-        // One Calls edge from dispatcher to the decorated function
         assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].0, "app.routes.__decorator_dispatch__");
+        assert_eq!(edges[0].0, "app/routes.py"); // File node is the caller
         assert_eq!(edges[0].1, "app.routes.index:5");
 
-        // Second decorated function in the same module reuses the dispatcher
-        emit_decorator_dispatch_edges(
+        // Second decorated function in the same module
+        emit_decorator_call_edge(
             "app.routes.about:20",
             "app/routes.py",
             true,
-            &mut created,
-            &mut nodes,
             &mut edges,
         );
 
-        // No new dispatcher node (still 1)
-        assert_eq!(nodes.len(), 1);
-        // But a second edge
+        // Two edges, both from the same file node
         assert_eq!(edges.len(), 2);
+        assert_eq!(edges[1].0, "app/routes.py");
         assert_eq!(edges[1].1, "app.routes.about:20");
     }
 
     #[test]
-    fn test_emit_decorator_dispatch_skips_undecorated() {
-        let mut created = HashSet::new();
-        let mut nodes = Vec::new();
+    fn test_emit_decorator_call_edge_skips_undecorated() {
         let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
 
-        emit_decorator_dispatch_edges(
+        emit_decorator_call_edge(
             "app.routes.helper:10",
             "app/routes.py",
             false,
-            &mut created,
-            &mut nodes,
             &mut edges,
         );
 
-        assert!(nodes.is_empty());
         assert!(edges.is_empty());
     }
 
@@ -1295,10 +1230,13 @@ mod tests {
         let result = make_parse_result_with_decorators();
         let relative_str = "app/routes.py";
 
+        // File node (the caller for decorated functions)
+        let file_node = CodeNode::new(NodeKind::File, relative_str, relative_str)
+            .with_qualified_name(relative_str);
+
         // Simulate build_graph inline path: create nodes and edges
-        let mut func_nodes = Vec::new();
+        let mut func_nodes = vec![file_node];
         let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
-        let mut created_dispatchers = HashSet::new();
 
         for func in &result.functions {
             let loc = func.line_end.saturating_sub(func.line_start).saturating_add(1);
@@ -1310,12 +1248,10 @@ mod tests {
                 .with_property("loc", loc as i64);
             func_nodes.push(func_node);
 
-            emit_decorator_dispatch_edges(
+            emit_decorator_call_edge(
                 &func.qualified_name,
                 relative_str,
                 !func.annotations.is_empty(),
-                &mut created_dispatchers,
-                &mut func_nodes,
                 &mut edges,
             );
         }
@@ -1324,10 +1260,10 @@ mod tests {
         graph.add_nodes_batch(func_nodes);
         graph.add_edges_batch(edges);
 
-        // Decorated function "index" should have at least 1 caller
+        // Decorated function "index" should have the file node as caller
         let callers = graph.get_callers("app.routes.index:5");
         assert_eq!(callers.len(), 1);
-        assert_eq!(callers[0].name, "__decorator_dispatch__");
+        assert_eq!(callers[0].name, "app/routes.py"); // File node is the caller
         assert_eq!(graph.call_fan_in("app.routes.index:5"), 1);
 
         // Undecorated function "helper" should have 0 callers

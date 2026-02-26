@@ -1,0 +1,1801 @@
+{
+  "overall_score": 99.00412022708716,
+  "grade": "A+",
+  "structure_score": 99.5680407086031,
+  "quality_score": 97.68355896481667,
+  "architecture_score": 99.57278751400307,
+  "findings": [
+    {
+      "id": "9803f41da2c1f59b",
+      "detector": "Consensus[ArchitecturalBottleneckDetector+InfluentialCodeDetector]",
+      "severity": "critical",
+      "title": "Architectural Bottleneck: jsonable_encoder (architectural hub) [2 detectors]",
+      "description": "[COMPOUND: 2 co-located issues] Function 'jsonable_encoder' is called by 77 functions and has complexity 35. Changes here are high-risk.\n\nBetweenness centrality: 1.0000 - this function sits on many execution paths between other functions.\n\n📊 Threshold: 20 (adaptive) | Actual: 35 | Default would be: 20 | Profile: p90=4, p95=7, mean=2.5, n=848\n\n**Consensus Analysis**\n- 2 detectors agree on this issue\n- Confidence: 100%\n- Detectors: ArchitecturalBottleneckDetector, InfluentialCodeDetector",
+      "affected_files": [
+        "fastapi/encoders.py"
+      ],
+      "line_start": 112,
+      "line_end": 347,
+      "suggested_fix": "[ArchitecturalBottleneckDetector] This is a critical hub. Ensure comprehensive test coverage, add defensive error handling, and consider circuit breaker pattern.\n\n[InfluentialCodeDetector] This is a critical hub. Consider:\n- Ensuring comprehensive test coverage\n- Adding monitoring and observability\n- Documenting thoroughly",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 1.0
+    },
+    {
+      "id": "54c8fadd8cc31352",
+      "detector": "ShotgunSurgeryDetector",
+      "severity": "critical",
+      "title": "Shotgun Surgery Risk: Termynal",
+      "description": "[COMPOUND: 2 co-located issues] Class 'Termynal' is called by **10 functions** across **8 files** in **7 modules**.\n\nAny change to this class requires updates throughout the codebase.\n\n**Cascade Analysis:** Changes propagate 3 levels deep through the call graph.\n\n**Affected files (sample):**\n  - fastapi/_compat/v2.py\n  - fastapi/encoders.py\n  - fastapi/dependencies/utils.py\n  - fastapi/concurrency.py\n  - docs/en/docs/js/custom.js\n  ... and 3 more files",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 14,
+      "line_end": 255,
+      "suggested_fix": "Options to reduce coupling:\n1. Create a Facade to limit the API surface\n2. Use interfaces/protocols to decouple\n3. Split into smaller, focused classes\n4. Apply Dependency Injection pattern",
+      "estimated_effort": "Large (1-2 days)",
+      "category": "coupling",
+      "cwe_id": null,
+      "why_it_matters": "Shotgun surgery means a single change requires editing many files. This increases the chance of missing something and introducing bugs.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "d65c33fbb236c779",
+      "detector": "AIBoilerplateDetector",
+      "severity": "high",
+      "title": "Boilerplate: 6 functions with similar structure (100% similar)",
+      "description": "[COMPOUND: 2 co-located issues] Found 6 functions with 100% AST similarity that lack a shared abstraction.\n\n**Functions:** read_items, get_items, get_items, get_items, read_next_item ... and 1 more\n\n**Files:** /tmp/fastapi/docs_src/dataclasses_/tutorial002_py310.py, /tmp/fastapi/docs_src/dataclasses_/tutorial003_py310.py, /tmp/fastapi/docs_src/generate_clients/tutorial001_py310.py ... and 3 more files\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/response_model/tutorial001_py310.py",
+        "/tmp/fastapi/docs_src/generate_clients/tutorial003_py310.py",
+        "/tmp/fastapi/docs_src/dataclasses_/tutorial003_py310.py",
+        "/tmp/fastapi/docs_src/generate_clients/tutorial002_py310.py",
+        "/tmp/fastapi/docs_src/dataclasses_/tutorial002_py310.py",
+        "/tmp/fastapi/docs_src/generate_clients/tutorial001_py310.py"
+      ],
+      "line_start": 23,
+      "line_end": 27,
+      "suggested_fix": "**Suggested abstractions:**\n\n1. **Extract common logic** into a shared helper function\n2. **Create a decorator** if there's a wrapper pattern\n3. **Use a factory function** to generate variations\n4. **Create a base class** with template method pattern\n5. **Consolidate into single function** with parameters for variations",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "3246395461b43782",
+      "detector": "LargeFilesDetector",
+      "severity": "high",
+      "title": "Large file: 4692 lines",
+      "description": "File exceeds recommended size (4692 lines > 800 threshold).\n\n**Analysis:**\n📏 4692 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 4692 | Default would be: 800 | Profile: p90=41, p95=149, mean=52.3, n=610",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/applications.py"
+      ],
+      "line_start": 1,
+      "line_end": 4692,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "800",
+        "effective_threshold": "800",
+        "threshold_source": "adaptive",
+        "actual_value": "4692"
+      }
+    },
+    {
+      "id": "84c8c1e61540fb71",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "high",
+      "title": "XSS: innerHTML assignment",
+      "description": "[COMPOUND: 2 co-located issues] **Direct innerHTML assignment can lead to XSS vulnerabilities**\n\n**Location**: docs/en/docs/js/termynal.js:226\n\n**Code snippet**:\n```\ndiv.innerHTML = `<span ${this._attributes(line)}>${line.value || ''}</span>`;\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-79: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 226,
+      "line_end": 226,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Use textContent for text** (auto-escapes):\n```javascript\n// Instead of:\nelement.innerHTML = userInput;\n\n// Use:\nelement.textContent = userInput;\n```\n\n2. **Use DOM APIs for structure**:\n```javascript\nconst span = document.createElement('span');\nspan.textContent = userInput;\nelement.appendChild(span);\n```\n\n3. **If HTML is required**, sanitize first:\n```javascript\nimport DOMPurify from 'dompurify';\nelement.innerHTML = DOMPurify.sanitize(userInput);\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "18c6f015e89f9115",
+      "detector": "LargeFilesDetector",
+      "severity": "high",
+      "title": "Large file: 4685 lines",
+      "description": "File exceeds recommended size (4685 lines > 800 threshold).\n\n**Analysis:**\n📏 4685 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 4685 | Default would be: 800 | Profile: p90=41, p95=149, mean=52.3, n=610",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/routing.py"
+      ],
+      "line_start": 1,
+      "line_end": 4685,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "800",
+        "actual_value": "4685",
+        "default_threshold": "800"
+      }
+    },
+    {
+      "id": "12f02af72117c27c",
+      "detector": "AIBoilerplateDetector",
+      "severity": "high",
+      "title": "Boilerplate: 11 functions with similar structure (92% similar)",
+      "description": "[COMPOUND: 2 co-located issues] Found 11 functions with 92% AST similarity that lack a shared abstraction.\n\n**Functions:** read_items, read_items, read_user_item, update_item, update_item ... and 6 more\n\n**Files:** /tmp/fastapi/docs_src/body_multiple_params/tutorial003_an_py310.py, /tmp/fastapi/docs_src/extra_data_types/tutorial001_an_py310.py, /tmp/fastapi/docs_src/extra_data_types/tutorial001_py310.py ... and 8 more files\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/schema_extra_example/tutorial005_py310.py",
+        "/tmp/fastapi/docs_src/schema_extra_example/tutorial004_py310.py",
+        "/tmp/fastapi/docs_src/schema_extra_example/tutorial004_an_py310.py",
+        "/tmp/fastapi/docs_src/body_multiple_params/tutorial003_an_py310.py",
+        "/tmp/fastapi/docs_src/openapi_callbacks/tutorial001_py310.py",
+        "/tmp/fastapi/docs_src/schema_extra_example/tutorial005_an_py310.py",
+        "/tmp/fastapi/docs_src/extra_data_types/tutorial001_an_py310.py",
+        "/tmp/fastapi/docs_src/query_params/tutorial006_py310.py",
+        "/tmp/fastapi/docs_src/schema_extra_example/tutorial003_py310.py",
+        "/tmp/fastapi/docs_src/schema_extra_example/tutorial003_an_py310.py",
+        "/tmp/fastapi/docs_src/extra_data_types/tutorial001_py310.py"
+      ],
+      "line_start": 10,
+      "line_end": 27,
+      "suggested_fix": "**Suggested abstractions:**\n\n1. **Extract common logic** into a shared helper function\n2. **Create a decorator** if there's a wrapper pattern\n3. **Use a factory function** to generate variations\n4. **Create a base class** with template method pattern\n5. **Consolidate into single function** with parameters for variations",
+      "estimated_effort": "Large (1-2 days)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "dddef8cfa4e1c555",
+      "detector": "AIDuplicateBlockDetector",
+      "severity": "high",
+      "title": "Structural duplicate: make_not_authenticated_error ≈ make_not_authenticated_error (100% AST)",
+      "description": "Functions 'make_not_authenticated_error' and 'make_not_authenticated_error' have 100% AST similarity, indicating structural duplication.\n\n**make_not_authenticated_error** (15 LOC): `/tmp/fastapi/fastapi/security/api_key.py`\n**make_not_authenticated_error** (21 LOC): `/tmp/fastapi/fastapi/security/oauth2.py`\n\nNear-identical functions increase maintenance burden and can lead to inconsistent bug fixes.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/security/api_key.py",
+        "/tmp/fastapi/fastapi/security/oauth2.py"
+      ],
+      "line_start": 29,
+      "line_end": 43,
+      "suggested_fix": "Consider one of the following approaches:\n1. **Extract common logic** into a shared helper function\n2. **Use a template/factory pattern** if variations are intentional\n3. **Consolidate** into a single implementation if truly duplicates\n4. **Add documentation** explaining why similar implementations exist",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "duplication",
+      "cwe_id": null,
+      "why_it_matters": "Near-identical code duplicates increase maintenance burden. When bugs are found, they must be fixed in multiple places. When requirements change, all copies must be updated consistently.",
+      "confidence": null
+    },
+    {
+      "id": "d0eca74022061d98",
+      "detector": "LargeFilesDetector",
+      "severity": "high",
+      "title": "Large file: 2461 lines",
+      "description": "File exceeds recommended size (2461 lines > 800 threshold).\n\n**Analysis:**\n📏 2461 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 2461 | Default would be: 800 | Profile: p90=41, p95=149, mean=52.3, n=610",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/param_functions.py"
+      ],
+      "line_start": 1,
+      "line_end": 2461,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "effective_threshold": "800",
+        "actual_value": "2461",
+        "default_threshold": "800"
+      }
+    },
+    {
+      "id": "6afb8239d85b7dc3",
+      "detector": "JwtWeakDetector",
+      "severity": "medium",
+      "title": "JWT using symmetric algorithm (HS256)",
+      "description": "[COMPOUND: 2 co-located issues] HS256 uses a shared secret. If the secret is weak or leaked, attackers can forge tokens. Consider RS256/ES256.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/security/tutorial005_py310.py"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Consider using asymmetric algorithms:\n\n```python\n# RS256 (RSA) or ES256 (ECDSA) recommended\njwt.encode(payload, private_key, algorithm='RS256')\n\n# If using HS256, ensure secret is:\n# - At least 256 bits (32 bytes)\n# - Cryptographically random\n# - Never hardcoded\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-327",
+      "why_it_matters": "JWT vulnerabilities can allow attackers to forge authentication tokens, impersonate users, escalate privileges, or bypass authorization entirely.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "f6794f4007ae5853",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=3, p95=4, mean=1.9, n=848",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/openapi/utils.py"
+      ],
+      "line_start": 49,
+      "line_end": 49,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "adaptive",
+        "actual_value": "5",
+        "effective_threshold": "4",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "cb34bceae9b1948a",
+      "detector": "JwtWeakDetector",
+      "severity": "medium",
+      "title": "JWT using symmetric algorithm (HS256)",
+      "description": "HS256 uses a shared secret. If the secret is weak or leaked, attackers can forge tokens. Consider RS256/ES256.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/security/tutorial005_an_py310.py"
+      ],
+      "line_start": 18,
+      "line_end": 18,
+      "suggested_fix": "Consider using asymmetric algorithms:\n\n```python\n# RS256 (RSA) or ES256 (ECDSA) recommended\njwt.encode(payload, private_key, algorithm='RS256')\n\n# If using HS256, ensure secret is:\n# - At least 256 bits (32 bytes)\n# - Cryptographically random\n# - Never hardcoded\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-327",
+      "why_it_matters": "JWT vulnerabilities can allow attackers to forge authentication tokens, impersonate users, escalate privileges, or bypass authorization entirely.",
+      "confidence": null
+    },
+    {
+      "id": "52d71e8fdd430c4b",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "[COMPOUND: 2 co-located issues] 5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=3, p95=4, mean=1.9, n=848",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/openapi/docs.py"
+      ],
+      "line_start": 345,
+      "line_end": 345,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "threshold_source": "adaptive",
+        "actual_value": "5",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "44c9d799f96619ef",
+      "detector": "SurprisalDetector",
+      "severity": "medium",
+      "title": "Unusual code pattern in `get_swagger_ui_oauth2_redirect_html`",
+      "description": "[COMPOUND: 2 co-located issues] Function `get_swagger_ui_oauth2_redirect_html` has unusually high surprisal (3.3 bits, project mean: 2.2, z-score: 2.6).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (8.0 bits):\n```\nmessage: \"Authorization may be unsafe, passed state was changed in server. The p\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/openapi/docs.py"
+      ],
+      "line_start": 301,
+      "line_end": 389,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.5% most unusual in this project.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "threshold_source": "predictive",
+        "baseline_mean": "2.19",
+        "surprisal_bits": "3.25",
+        "baseline_std": "0.41",
+        "z_score": "2.57"
+      }
+    },
+    {
+      "id": "8e833dd8e15db829",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 7 levels",
+      "description": "7 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 7 | Default would be: 4 | Profile: p90=3, p95=4, mean=1.9, n=848",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/path_operation_advanced_configuration/tutorial006_py310.py"
+      ],
+      "line_start": 27,
+      "line_end": 27,
+      "suggested_fix": "Severely nested code. Apply multiple techniques:\n1. Guard clauses: `if (!condition) return;`\n2. Extract Method: pull nested blocks into functions\n3. Replace conditionals with polymorphism\n4. Use functional patterns (map/filter instead of nested loops)",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "effective_threshold": "4",
+        "actual_value": "7",
+        "default_threshold": "4",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "b58253773e0aa570",
+      "detector": "MutableDefaultArgsDetector",
+      "severity": "medium",
+      "title": "Mutable default list `[]`",
+      "description": "Mutable default `t = []` is shared between all calls to `read_items`.\nThis is a classic Python gotcha that causes surprising bugs.\n\n**Analysis:**\n🌐 Public function (could be called from external code)",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/query_params_str_validations/tutorial013_py310.py"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use `None` as default and create the list inside the function:\n\n```python\ndef func(t: list = None):\nt = t if t is not None else []\n```",
+      "estimated_effort": "5 minutes",
+      "category": "bug-risk",
+      "cwe_id": "CWE-1188",
+      "why_it_matters": "Python evaluates default arguments once at function definition time, not at each call. If you mutate a mutable default (list, dict, set), the mutation persists across calls, causing data to leak between invocations.",
+      "confidence": null
+    },
+    {
+      "id": "937c3dd9c710229b",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "medium",
+      "title": "Async function called without error handling",
+      "description": "[COMPOUND: 4 co-located issues] Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n🔍 Calls async function without await or .catch",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 122,
+      "line_end": 122,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "7c6e2a509ecba3cb",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 3 functions with crud (82% similar)",
+      "description": "[COMPOUND: 4 co-located issues] Found 3 functions with 82% AST similarity that lack a shared abstraction.\n\n**Functions:** generateRestart, generateFinish, lineDataToElements\n\n**Files:** /tmp/fastapi/docs/en/docs/js/termynal.js\n\n**Patterns detected:** crud\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 129,
+      "line_end": 140,
+      "suggested_fix": "**Suggested abstraction: Generic CRUD handler or base class**\n\n```python\nclass BaseCRUDHandler:\n    model = None  # Override in subclass\n    \n    def create(self, data): ...\n    def read(self, id): ...\n    def update(self, id, data): ...\n    def delete(self, id): ...\n```\n\nOr use a factory function to generate endpoints.",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "59094118723b83b6",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 7 functions with error_handling, context_manager (64% similar)",
+      "description": "Found 7 functions with 64% AST similarity that lack a shared abstraction.\n\n**Functions:** request_response, app, app, websocket_session, app ... and 2 more\n\n**Files:** /tmp/fastapi/docs_src/custom_response/tutorial008_py310.py, /tmp/fastapi/fastapi/routing.py\n\n**Patterns detected:** error_handling, context_manager, async\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/custom_response/tutorial008_py310.py",
+        "/tmp/fastapi/fastapi/routing.py"
+      ],
+      "line_start": 84,
+      "line_end": 121,
+      "suggested_fix": "**Suggested abstraction: Error handling decorator**\n\n```python\ndef handle_errors(error_handler=None):\n    def decorator(func):\n        @wraps(func)\n        def wrapper(*args, **kwargs):\n            try:\n                return func(*args, **kwargs)\n            except Exception as e:\n                if error_handler:\n                    return error_handler(e)\n                raise\n        return wrapper\n    return decorator\n```\n\nApply `@handle_errors()` to consolidate the try/except pattern.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": null
+    },
+    {
+      "id": "957a78740593f72c",
+      "detector": "InsecureCookieDetector",
+      "severity": "medium",
+      "title": "Cookie missing HttpOnly flags",
+      "description": "Cookie is missing security flags that protect against common attacks.\n\n**Analysis:**\n❌ Missing: HttpOnly, Secure, SameSite",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/response_cookies/tutorial001_py310.py"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "```python\nresponse.set_cookie(\n'cookie_name',\nvalue,\nhttponly=True,   # Prevents JavaScript access\nsecure=True,     # HTTPS only\nsamesite='Lax'   # CSRF protection\n)\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1004",
+      "why_it_matters": "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n• **Secure** ensures cookies are only sent over HTTPS\n• **SameSite** prevents CSRF attacks by controlling cross-site requests",
+      "confidence": null
+    },
+    {
+      "id": "d8f206b63861237a",
+      "detector": "InfluentialCodeDetector",
+      "severity": "medium",
+      "title": "Influential Code: get_swagger_ui_html (architectural hub)",
+      "description": "Function 'get_swagger_ui_html' influences 8 dependents with complexity 5 and 155 LOC. High-impact code.\n\n**Metrics:**\n- Callers (fan-in): 8\n- Complexity: 5\n- Lines of code: 155\n- Betweenness centrality: 0.2234",
+      "affected_files": [
+        "fastapi/openapi/docs.py"
+      ],
+      "line_start": 40,
+      "line_end": 194,
+      "suggested_fix": "This is a critical hub. Consider:\n- Ensuring comprehensive test coverage\n- Adding monitoring and observability\n- Documenting thoroughly",
+      "estimated_effort": "Large (4+ hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Changes to influential code have wide-reaching effects across the codebase.",
+      "confidence": null
+    },
+    {
+      "id": "0eaea34dadbcd87b",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 13 functions with try_except (79% similar)",
+      "description": "Found 13 functions with 79% AST similarity that lack a shared abstraction.\n\n**Functions:** get_username, dependency_a, dependency_b, dependency_c, get_username ... and 8 more\n\n**Files:** /tmp/fastapi/docs_src/dependencies/tutorial007_py310.py, /tmp/fastapi/docs_src/dependencies/tutorial008_an_py310.py, /tmp/fastapi/docs_src/dependencies/tutorial008_py310.py ... and 6 more files\n\n**Patterns detected:** try_except\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/dependencies/tutorial008_an_py310.py",
+        "/tmp/fastapi/docs_src/dependencies/tutorial008d_an_py310.py",
+        "/tmp/fastapi/docs_src/dependencies/tutorial008e_py310.py",
+        "/tmp/fastapi/docs_src/dependencies/tutorial007_py310.py",
+        "/tmp/fastapi/docs_src/dependencies/tutorial008c_py310.py",
+        "/tmp/fastapi/docs_src/dependencies/tutorial008_py310.py",
+        "/tmp/fastapi/docs_src/dependencies/tutorial008c_an_py310.py",
+        "/tmp/fastapi/docs_src/dependencies/tutorial008d_py310.py",
+        "/tmp/fastapi/docs_src/dependencies/tutorial008e_an_py310.py"
+      ],
+      "line_start": 8,
+      "line_end": 12,
+      "suggested_fix": "**Suggested abstraction: Error handling decorator**\n\n```python\ndef handle_errors(error_handler=None):\n    def decorator(func):\n        @wraps(func)\n        def wrapper(*args, **kwargs):\n            try:\n                return func(*args, **kwargs)\n            except Exception as e:\n                if error_handler:\n                    return error_handler(e)\n                raise\n        return wrapper\n    return decorator\n```\n\nApply `@handle_errors()` to consolidate the try/except pattern.",
+      "estimated_effort": "Large (1-2 days)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": null
+    },
+    {
+      "id": "55d9343c6181e28b",
+      "detector": "StringConcatLoopDetector",
+      "severity": "medium",
+      "title": "String concatenation in loop",
+      "description": "[COMPOUND: 3 co-located issues] Variable 'attrs' concatenated 3 times inside loop (started line 240).\n\n**Performance:** O(n²) time complexity. Each concatenation creates a new string and copies all previous characters.\n\nFor 1000 iterations, this copies ~500,000 characters instead of 1000.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 243,
+      "line_end": 243,
+      "suggested_fix": "Use array and join:\n```javascript\nconst parts = items.map(item => String(item));\nconst result = parts.join('');\n```\nOr use template literals with reduce:\n```javascript\nconst result = items.reduce((acc, item) => `${acc}${item}`, '');\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "String concatenation in loops creates O(n²) time complexity due to immutable string copying.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "0aaa27d2e60cdc9f",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 152,
+      "line_end": 152,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": null
+    },
+    {
+      "id": "b5307ced2bf1083f",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 4 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 138,
+      "line_end": 138,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "51f005b76ffa644d",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 5 levels",
+      "description": "5 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 5 | Default would be: 4 | Profile: p90=3, p95=4, mean=1.9, n=848",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/additional_responses/tutorial003_py310.py"
+      ],
+      "line_start": 27,
+      "line_end": 27,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": null,
+      "threshold_metadata": {
+        "actual_value": "5",
+        "effective_threshold": "4",
+        "default_threshold": "4",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "dec770a98eede6b0",
+      "detector": "InsecureCookieDetector",
+      "severity": "medium",
+      "title": "Cookie missing HttpOnly flags",
+      "description": "Cookie is missing security flags that protect against common attacks.\n\n**Analysis:**\n❌ Missing: HttpOnly, Secure, SameSite",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/response_cookies/tutorial002_py310.py"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "```python\nresponse.set_cookie(\n'cookie_name',\nvalue,\nhttponly=True,   # Prevents JavaScript access\nsecure=True,     # HTTPS only\nsamesite='Lax'   # CSRF protection\n)\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1004",
+      "why_it_matters": "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n• **Secure** ensures cookies are only sent over HTTPS\n• **SameSite** prevents CSRF attacks by controlling cross-site requests",
+      "confidence": null
+    },
+    {
+      "id": "09414f29b2934c26",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 3 functions with crud (100% similar)",
+      "description": "Found 3 functions with 100% AST similarity that lack a shared abstraction.\n\n**Functions:** create_item, create_item, create_item\n\n**Files:** /tmp/fastapi/docs_src/path_operation_advanced_configuration/tutorial004_py310.py, /tmp/fastapi/docs_src/path_operation_configuration/tutorial004_py310.py, /tmp/fastapi/docs_src/path_operation_configuration/tutorial005_py310.py\n\n**Patterns detected:** crud\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/path_operation_configuration/tutorial005_py310.py",
+        "/tmp/fastapi/docs_src/path_operation_configuration/tutorial004_py310.py",
+        "/tmp/fastapi/docs_src/path_operation_advanced_configuration/tutorial004_py310.py"
+      ],
+      "line_start": 20,
+      "line_end": 30,
+      "suggested_fix": "**Suggested abstraction: Generic CRUD handler or base class**\n\n```python\nclass BaseCRUDHandler:\n    model = None  # Override in subclass\n    \n    def create(self, data): ...\n    def read(self, id): ...\n    def update(self, id, data): ...\n    def delete(self, id): ...\n```\n\nOr use a factory function to generate endpoints.",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": null
+    },
+    {
+      "id": "8313d2bec52a855e",
+      "detector": "SurprisalDetector",
+      "severity": "medium",
+      "title": "Unusual code pattern in `is_body_allowed_for_status_code`",
+      "description": "Function `is_body_allowed_for_status_code` has unusually high surprisal (3.4 bits, project mean: 2.2, z-score: 2.9).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (5.8 bits):\n```\nif status_code in {\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/utils.py"
+      ],
+      "line_start": 26,
+      "line_end": 40,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.2% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "threshold_source": "predictive",
+        "baseline_std": "0.41",
+        "z_score": "2.87",
+        "surprisal_bits": "3.38",
+        "baseline_mean": "2.19"
+      }
+    },
+    {
+      "id": "355537a11bfe1341",
+      "detector": "SurprisalDetector",
+      "severity": "medium",
+      "title": "Unusual code pattern in `decimal_encoder`",
+      "description": "[COMPOUND: 2 co-located issues] Function `decimal_encoder` has unusually high surprisal (3.5 bits, project mean: 2.2, z-score: 3.3).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (5.7 bits):\n```\nEncodes a Decimal as int if there's no exponent, otherwise float\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/encoders.py"
+      ],
+      "line_start": 43,
+      "line_end": 65,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.1% most unusual in this project.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "baseline_mean": "2.19",
+        "threshold_source": "predictive",
+        "surprisal_bits": "3.55",
+        "baseline_std": "0.41",
+        "z_score": "3.28"
+      }
+    },
+    {
+      "id": "4075f16cf603afd8",
+      "detector": "JwtWeakDetector",
+      "severity": "medium",
+      "title": "JWT using symmetric algorithm (HS256)",
+      "description": "HS256 uses a shared secret. If the secret is weak or leaked, attackers can forge tokens. Consider RS256/ES256.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/security/tutorial004_py310.py"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "Consider using asymmetric algorithms:\n\n```python\n# RS256 (RSA) or ES256 (ECDSA) recommended\njwt.encode(payload, private_key, algorithm='RS256')\n\n# If using HS256, ensure secret is:\n# - At least 256 bits (32 bytes)\n# - Cryptographically random\n# - Never hardcoded\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-327",
+      "why_it_matters": "JWT vulnerabilities can allow attackers to forge authentication tokens, impersonate users, escalate privileges, or bypass authorization entirely.",
+      "confidence": null
+    },
+    {
+      "id": "1a24102ee4ce10e1",
+      "detector": "AIBoilerplateDetector",
+      "severity": "medium",
+      "title": "Boilerplate: 5 functions with async, database (67% similar)",
+      "description": "[COMPOUND: 2 co-located issues] Found 5 functions with 67% AST similarity that lack a shared abstraction.\n\n**Functions:** loadLines, start, type, progress, modifyOpenAPIFile\n\n**Files:** /tmp/fastapi/docs/en/docs/js/termynal.js, /tmp/fastapi/docs_src/generate_clients/tutorial004.js\n\n**Patterns detected:** async, database, loop\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js",
+        "/tmp/fastapi/docs_src/generate_clients/tutorial004.js"
+      ],
+      "line_start": 52,
+      "line_end": 69,
+      "suggested_fix": "**Suggested abstraction: Repository pattern or generic query helper**\n\n```python\nclass BaseRepository:\n    model = None\n    \n    def get(self, **filters): ...\n    def create(self, **data): ...\n    def update(self, id, **data): ...\n```\n\nConsolidate database access patterns.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "dac5b29a879486bf",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 2 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 86,
+      "line_end": 86,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "7c66df592534cdfc",
+      "detector": "JwtWeakDetector",
+      "severity": "medium",
+      "title": "JWT using symmetric algorithm (HS256)",
+      "description": "HS256 uses a shared secret. If the secret is weak or leaked, attackers can forge tokens. Consider RS256/ES256.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/security/tutorial004_an_py310.py"
+      ],
+      "line_start": 14,
+      "line_end": 14,
+      "suggested_fix": "Consider using asymmetric algorithms:\n\n```python\n# RS256 (RSA) or ES256 (ECDSA) recommended\njwt.encode(payload, private_key, algorithm='RS256')\n\n# If using HS256, ensure secret is:\n# - At least 256 bits (32 bytes)\n# - Cryptographically random\n# - Never hardcoded\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-327",
+      "why_it_matters": "JWT vulnerabilities can allow attackers to forge authentication tokens, impersonate users, escalate privileges, or bypass authorization entirely.",
+      "confidence": null
+    },
+    {
+      "id": "723e2a371aa4c886",
+      "detector": "LargeFilesDetector",
+      "severity": "medium",
+      "title": "Large file: 1024 lines",
+      "description": "File exceeds recommended size (1024 lines > 800 threshold).\n\n**Analysis:**\n📏 1024 lines\n\n📊 Threshold: 800 (adaptive) | Actual: 1024 | Default would be: 800 | Profile: p90=41, p95=149, mean=52.3, n=610",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/dependencies/utils.py"
+      ],
+      "line_start": 1,
+      "line_end": 1024,
+      "suggested_fix": "Split into smaller, focused modules. Group related functions together.",
+      "estimated_effort": "2-4 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Large files are harder to understand, test, and maintain. They often indicate that the module has too many responsibilities.",
+      "confidence": null,
+      "threshold_metadata": {
+        "default_threshold": "800",
+        "actual_value": "1024",
+        "threshold_source": "adaptive",
+        "effective_threshold": "800"
+      }
+    },
+    {
+      "id": "4a4ac321eb4cbb55",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "medium",
+      "title": "Promise without .catch()",
+      "description": "[COMPOUND: 2 co-located issues] Promise rejection may go unhandled, causing silent failures or crashes.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/custom.js"
+      ],
+      "line_start": 151,
+      "line_end": 151,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "319501f2b77e41ef",
+      "detector": "SurprisalDetector",
+      "severity": "medium",
+      "title": "Unusual code pattern in `Default`",
+      "description": "Function `Default` has unusually high surprisal (3.4 bits, project mean: 2.2, z-score: 2.8).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (6.7 bits):\n```\nYou shouldn't use this function directly.\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/datastructures.py"
+      ],
+      "line_start": 174,
+      "line_end": 181,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 0.2% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "surprisal_bits": "3.36",
+        "baseline_mean": "2.19",
+        "z_score": "2.84",
+        "baseline_std": "0.41",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "3d4987562278e6cb",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 4 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 133,
+      "line_end": 133,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "9e7e3e7786496563",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 3 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 226,
+      "line_end": 226,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "577f3c7dd12b1d06",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "medium",
+      "title": "Promise without .catch()",
+      "description": "[COMPOUND: 3 co-located issues] Promise rejection may go unhandled, causing silent failures or crashes.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 213,
+      "line_end": 213,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "a81faf486aa62f27",
+      "detector": "StringConcatLoopDetector",
+      "severity": "medium",
+      "title": "String concatenation in loop",
+      "description": "Variable 'message' concatenated 4 times inside loop (started line 125).\n\n**Performance:** O(n²) time complexity. Each concatenation creates a new string and copies all previous characters.\n\nFor 1000 iterations, this copies ~500,000 characters instead of 1000.",
+      "affected_files": [
+        "/tmp/fastapi/scripts/deploy_docs_status.py"
+      ],
+      "line_start": 126,
+      "line_end": 126,
+      "suggested_fix": "Use list and join:\n```python\nparts = []\nfor item in items:\nparts.append(str(item))\nresult = ''.join(parts)\n```\nOr use a list comprehension:\n```python\nresult = ''.join(str(item) for item in items)\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "String concatenation in loops creates O(n²) time complexity due to immutable string copying.",
+      "confidence": null
+    },
+    {
+      "id": "18e9d4c4e6af7028",
+      "detector": "DeepNestingDetector",
+      "severity": "medium",
+      "title": "Excessive nesting: 6 levels",
+      "description": "[COMPOUND: 2 co-located issues] 6 levels of nesting (threshold: 4).\n\n📊 Threshold: 4 (adaptive) | Actual: 6 | Default would be: 4 | Profile: p90=3, p95=4, mean=1.9, n=848",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/generate_clients/tutorial004.js"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "threshold_metadata": {
+        "actual_value": "6",
+        "threshold_source": "adaptive",
+        "effective_threshold": "4",
+        "default_threshold": "4"
+      }
+    },
+    {
+      "id": "7d789c8475d184fe",
+      "detector": "UnusedImportsDetector",
+      "severity": "low",
+      "title": "Unused import: IncEx",
+      "description": "Import `IncEx` is never used in this file.\n\n**Cleanup tip:** Run `autoflake --remove-all-unused-imports` (Python) or configure ESLint/TypeScript.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/types.py"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Remove unused import:\n```\n# Delete: IncEx\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Unused imports add noise, increase load times, and can cause circular dependency issues. They also make it harder to understand what a file actually depends on.",
+      "confidence": null
+    },
+    {
+      "id": "fe1ab90a8fde6464",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove this function once the required version of Pydantic fully",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/shared.py"
+      ],
+      "line_start": 191,
+      "line_end": 191,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "c4d217ee680dc303",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/handling_errors/tutorial006_py310.py"
+      ],
+      "line_start": 14,
+      "line_end": 14,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "9af5b17793bc613c",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/custom_request_and_route/tutorial003_py310.py"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "ff98075a5c2ee046",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/dependencies/tutorial008e_an_py310.py"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "5f516420351a78a9",
+      "detector": "ImplicitCoercionDetector",
+      "severity": "low",
+      "title": "Loose equality (==) used",
+      "description": "[COMPOUND: 4 co-located issues] == performs type coercion which can cause subtle bugs.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 110,
+      "line_end": 110,
+      "suggested_fix": "Use === for strict equality:\n```javascript\n// Instead of:\nif (value == 'string') { ... }\n\n// Use:\nif (value === 'string') { ... }\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Type coercion in == can cause unexpected behavior:\n• '1' == 1 is true\n• '' == false is true\n• [] == false is true\nUse === to compare both value AND type.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "44bfa8254857e370",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: probably make status_code a default class attribute for all",
+      "description": "[COMPOUND: 2 co-located issues] Found TODO comment indicating unfinished work.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/openapi/utils.py"
+      ],
+      "line_start": 348,
+      "line_end": 348,
+      "suggested_fix": "Address this or create a ticket to track it.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "759ef6fa36da2536",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 2 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial011_py310.py"
+      ],
+      "line_start": 21,
+      "line_end": 21,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "b40d497ffdd7c1e6",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove this parameter later, no longer used, not removing it yet as some",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/dependencies/utils.py"
+      ],
+      "line_start": 574,
+      "line_end": 574,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "76c2046e06ecfc89",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial009_py310.py"
+      ],
+      "line_start": 3,
+      "line_end": 3,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "4325382fadcce490",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove after setting the min Pydantic to v2.12.3",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/v2.py"
+      ],
+      "line_start": 140,
+      "line_end": 140,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "48e631c919b09b10",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial006_py310.py"
+      ],
+      "line_start": 3,
+      "line_end": 3,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "d6ec167c28fac463",
+      "detector": "InsecureDeserializeDetector",
+      "severity": "low",
+      "title": "Insecure deserialization: Deserialization",
+      "description": "Deserializing user-controlled data with Deserialization can lead to Remote Code Execution.\n\n**Analysis:**\n🔧 Method: Deserialization\n⚠️ Risk: May be unsafe\n✅ Validation/schema check found nearby",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/path_operation_advanced_configuration/tutorial007_py310.py"
+      ],
+      "line_start": 25,
+      "line_end": 25,
+      "suggested_fix": "Validate schema before deserializing user input.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-502",
+      "why_it_matters": "Insecure deserialization can allow attackers to:\n• Execute arbitrary code on the server\n• Bypass authentication\n• Perform denial of service\n• Access sensitive data",
+      "confidence": null
+    },
+    {
+      "id": "e6fa3d0516ff13d1",
+      "detector": "ImplicitCoercionDetector",
+      "severity": "low",
+      "title": "Loose equality (==) used",
+      "description": "[COMPOUND: 4 co-located issues] == performs type coercion which can cause subtle bugs.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 104,
+      "line_end": 104,
+      "suggested_fix": "Use === for strict equality:\n```javascript\n// Instead of:\nif (value == 'string') { ... }\n\n// Use:\nif (value === 'string') { ... }\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Type coercion in == can cause unexpected behavior:\n• '1' == 1 is true\n• '' == false is true\n• [] == false is true\nUse === to compare both value AND type.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "3a593f40fdc2e560",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: deprecate this once the lifespan (or alternative) interface is improved",
+      "description": "Found TODO comment indicating unfinished work.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/routing.py"
+      ],
+      "line_start": 1025,
+      "line_end": 1025,
+      "suggested_fix": "Address this or create a ticket to track it.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "d029d7f0d24f3c75",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "[COMPOUND: 2 co-located issues] Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/generate_clients/tutorial004.js"
+      ],
+      "line_start": 29,
+      "line_end": 29,
+      "suggested_fix": "Remove or replace with a logging library that can be disabled:\n```javascript\nimport debug from 'debug';\nconst log = debug('app:module');\nlog('message');  // Only shows when DEBUG=app:*\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "985bd656ff008662",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove this once the lifespan (or alternative) interface is improved",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/routing.py"
+      ],
+      "line_start": 4633,
+      "line_end": 4633,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "fa0e34bc6a13c2c7",
+      "detector": "AIBoilerplateDetector",
+      "severity": "low",
+      "title": "Boilerplate: 3 functions with error_handling, database (73% similar)",
+      "description": "Found 3 functions with 73% AST similarity that lack a shared abstraction.\n\n**Functions:** saveBuffer, showRandomAnnouncement, handleSponsorImages\n\n**Files:** /tmp/fastapi/docs/en/docs/js/custom.js\n\n**Patterns detected:** error_handling, database\n\nThese similar functions could be consolidated into a single parameterized function, decorator, or base class to reduce code duplication and improve maintainability.",
+      "affected_files": [
+        "/tmp/fastapi/docs/en/docs/js/custom.js"
+      ],
+      "line_start": 22,
+      "line_end": 44,
+      "suggested_fix": "**Suggested abstraction: Error handling decorator**\n\n```python\ndef handle_errors(error_handler=None):\n    def decorator(func):\n        @wraps(func)\n        def wrapper(*args, **kwargs):\n            try:\n                return func(*args, **kwargs)\n            except Exception as e:\n                if error_handler:\n                    return error_handler(e)\n                raise\n        return wrapper\n    return decorator\n```\n\nApply `@handle_errors()` to consolidate the try/except pattern.",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "boilerplate",
+      "cwe_id": null,
+      "why_it_matters": "Repeated boilerplate code increases maintenance burden. When the pattern needs to change, you must update every copy. Abstracting common patterns reduces bugs and improves consistency.",
+      "confidence": null
+    },
+    {
+      "id": "700aedc321f6b357",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove when discarding the openapi_prefix parameter",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/applications.py"
+      ],
+      "line_start": 931,
+      "line_end": 931,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "977ba2f4bbe0eabf",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/extra_models/tutorial002_py310.py"
+      ],
+      "line_start": 32,
+      "line_end": 32,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "cfcbcef3a28d7c37",
+      "detector": "UnusedImportsDetector",
+      "severity": "low",
+      "title": "Unused import: # pragma: no cover # noqa",
+      "description": "Import `# pragma: no cover # noqa` is never used in this file.\n\n**Cleanup tip:** Run `autoflake --remove-all-unused-imports` (Python) or configure ESLint/TypeScript.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/middleware/wsgi.py"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Remove unused import:\n```\n# Delete: # pragma: no cover # noqa\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Unused imports add noise, increase load times, and can cause circular dependency issues. They also make it harder to understand what a file actually depends on.",
+      "confidence": null
+    },
+    {
+      "id": "076e6e21194acb0b",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial001_py310.py"
+      ],
+      "line_start": 6,
+      "line_end": 6,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "0156b36ff533d034",
+      "detector": "UnusedImportsDetector",
+      "severity": "low",
+      "title": "Unused imports: PydanticSchemaGenerationError, PydanticUndefinedAnnotation",
+      "description": "[COMPOUND: 2 co-located issues] Imports `PydanticSchemaGenerationError`, `PydanticUndefinedAnnotation` are never used in this file.\n\n**Cleanup tip:** Run `autoflake --remove-all-unused-imports` (Python) or configure ESLint/TypeScript.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/v2.py"
+      ],
+      "line_start": 22,
+      "line_end": 23,
+      "suggested_fix": "Remove unused imports:\n```\n# Delete: PydanticSchemaGenerationError, PydanticUndefinedAnnotation\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Unused imports add noise, increase load times, and can cause circular dependency issues. They also make it harder to understand what a file actually depends on.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "15d1e23b149d07ee",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 2 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial009_py310.py"
+      ],
+      "line_start": 5,
+      "line_end": 5,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "78044d03f9c65f7c",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove when this is merged (or equivalent): https://github.com/pydantic/pydantic",
+      "description": "[COMPOUND: 2 co-located issues] Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/v2.py"
+      ],
+      "line_start": 45,
+      "line_end": 45,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "b89ed35d8a6c4923",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial008_py310.py"
+      ],
+      "line_start": 3,
+      "line_end": 3,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "b8f40d496ef8541c",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove when dropping support for Pydantic < v2.12.3",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/v2.py"
+      ],
+      "line_start": 86,
+      "line_end": 86,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "9b30a7bf9ab35676",
+      "detector": "UnusedImportsDetector",
+      "severity": "low",
+      "title": "Unused imports: field  # (1), dataclass  # (2)",
+      "description": "Imports `field  # (1)`, `dataclass  # (2)` are never used in this file.\n\n**Cleanup tip:** Run `autoflake --remove-all-unused-imports` (Python) or configure ESLint/TypeScript.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/dataclasses_/tutorial003_py310.py"
+      ],
+      "line_start": 1,
+      "line_end": 4,
+      "suggested_fix": "Remove unused imports:\n```\n# Delete: field  # (1), dataclass  # (2)\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Unused imports add noise, increase load times, and can cause circular dependency issues. They also make it harder to understand what a file actually depends on.",
+      "confidence": null
+    },
+    {
+      "id": "1e660e4e6d119361",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: pv2 should this return strings instead?",
+      "description": "[COMPOUND: 2 co-located issues] Found TODO comment indicating unfinished work.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/encoders.py"
+      ],
+      "line_start": 42,
+      "line_end": 42,
+      "suggested_fix": "Address this or create a ticket to track it.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "72f0e84135006748",
+      "detector": "GeneratorMisuseDetector",
+      "severity": "low",
+      "title": "Single-yield generator: `get_db`",
+      "description": "Generator `get_db` only yields once and not in a loop. Consider using a simple function with return instead.\n\n**Why it matters:** Single-yield generators add complexity without the lazy evaluation benefits.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/dependencies/tutorial010_py310.py"
+      ],
+      "line_start": 12,
+      "line_end": null,
+      "suggested_fix": "Convert to a simple function:\n\n```python\n# Instead of:\ndef get_db(...):\nyield some_value\n\n# Use:\ndef get_db(...):\nreturn some_value\n```",
+      "estimated_effort": "10 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Single-yield generators require callers to use next() or iterate, adding complexity without benefits.",
+      "confidence": null
+    },
+    {
+      "id": "a8da54c3461bdfa5",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/dependencies/tutorial008e_py310.py"
+      ],
+      "line_start": 10,
+      "line_end": 10,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "2d33682d97809b34",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/extra_models/tutorial001_py310.py"
+      ],
+      "line_start": 34,
+      "line_end": 34,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "589ef65ee3b387c1",
+      "detector": "AINamingPatternDetector",
+      "severity": "low",
+      "title": "Generic naming pattern in 'update_docs_includes_py39_to_py310' (40% generic)",
+      "description": "Function **update_docs_includes_py39_to_py310** uses a high proportion of generic variable names.\n\n### Naming Analysis\n- **Generic ratio**: 40% (2/5 identifiers)\n- **Line**: 516\n\n### Generic Identifiers Found\n`content`, `count`\n\n### Why This Matters\nHigh use of generic variable names suggests this code may be AI-generated:\n- **Reduced readability**: Names like `data`, `result`, `temp` don't convey intent\n- **Maintenance burden**: Future developers must read more context to understand purpose\n- **Bug-prone**: Generic names make it easier to use the wrong variable\n",
+      "affected_files": [
+        "/tmp/fastapi/scripts/docs.py"
+      ],
+      "line_start": 516,
+      "line_end": null,
+      "suggested_fix": "1. **Rename generic variables** to reflect their purpose:\n\n2. **Use domain-specific terminology** from your problem space\n3. **Add type hints** to clarify expected types\n4. **Consider the reader**: Would someone unfamiliar with this code understand the purpose?",
+      "estimated_effort": "Small (30 min - 1 hour)",
+      "category": "naming",
+      "cwe_id": null,
+      "why_it_matters": "This function uses 40% generic variable names. High use of generic names reduces code readability and is a common pattern in AI-generated code.",
+      "confidence": null
+    },
+    {
+      "id": "7125800f009e06c1",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove this function once the required version of Pydantic fully",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/shared.py"
+      ],
+      "line_start": 179,
+      "line_end": 179,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "624db9b79753d743",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove when deprecating Pydantic v1",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/v2.py"
+      ],
+      "line_start": 264,
+      "line_end": 264,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "72bab820fd48e7e2",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `create_invoice`",
+      "description": "Function `create_invoice` has unusually high surprisal (3.1 bits, project mean: 2.2, z-score: 2.3).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (8.4 bits):\n```\nThis will (let's imagine) let the API user (some external developer) create an\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/openapi_callbacks/tutorial001_py310.py"
+      ],
+      "line_start": 34,
+      "line_end": 51,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.2% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "baseline_std": "0.41",
+        "z_score": "2.25",
+        "baseline_mean": "2.19",
+        "threshold_source": "predictive",
+        "surprisal_bits": "3.12"
+      }
+    },
+    {
+      "id": "b9505479a52bdd23",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove this once the lifespan (or alternative) interface is improved",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/routing.py"
+      ],
+      "line_start": 4601,
+      "line_end": 4601,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "76868831cd6efb39",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 3 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/custom_request_and_route/tutorial003_py310.py"
+      ],
+      "line_start": 19,
+      "line_end": 19,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "df26329141cc93b5",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial008b_py310.py"
+      ],
+      "line_start": 2,
+      "line_end": 2,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "cf4487b3abed969f",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove when dropping support for Pydantic < v2.12.3",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/v2.py"
+      ],
+      "line_start": 60,
+      "line_end": 60,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "e717b20b7359125a",
+      "detector": "SurprisalDetector",
+      "severity": "low",
+      "title": "Unusual code pattern in `get_legacy_data`",
+      "description": "Function `get_legacy_data` has unusually high surprisal (3.1 bits, project mean: 2.2, z-score: 2.3).\n\nThis code doesn't match the typical patterns in this project. Most surprising line (6.0 bits):\n```\ndata = \"\"\"<?xml version=\"1.0\"?>\n```\n\n**Possible causes:**\n- AI-generated code with different style\n- Copy-pasted from a different codebase\n- Unusual algorithm or pattern\n- Potential bug (buggy code tends to be more surprising)",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/response_directly/tutorial002_py310.py"
+      ],
+      "line_start": 7,
+      "line_end": 18,
+      "suggested_fix": "Review this function for:\n1. Style consistency with the rest of the project\n2. Correctness — unusual patterns may indicate bugs\n3. If AI-generated, verify it does what you expect",
+      "estimated_effort": "15 minutes",
+      "category": "ai-quality",
+      "cwe_id": null,
+      "why_it_matters": "Research shows that buggy code lines have significantly higher entropy than correct code (Ray & Hellendoorn, 2015). This function's token patterns are in the top 1.2% most unusual in this project.",
+      "confidence": null,
+      "threshold_metadata": {
+        "surprisal_bits": "3.13",
+        "baseline_mean": "2.19",
+        "baseline_std": "0.41",
+        "z_score": "2.27",
+        "threshold_source": "predictive"
+      }
+    },
+    {
+      "id": "ad185e936d876d8a",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 2 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/custom_request_and_route/tutorial003_py310.py"
+      ],
+      "line_start": 18,
+      "line_end": 18,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "5a4eaaf30c88cc31",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial011_py310.py"
+      ],
+      "line_start": 19,
+      "line_end": 19,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "da9fa0fbc34c1f2d",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial002_py310.py"
+      ],
+      "line_start": 6,
+      "line_end": 6,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "86c84d85118378f5",
+      "detector": "TodoScanner",
+      "severity": "low",
+      "title": "TODO: remove this once the lifespan (or alternative) interface is improved",
+      "description": "Found TODO comment indicating unfinished work.\n\n**Analysis:**\n🧹 Refactoring TODO",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/routing.py"
+      ],
+      "line_start": 4617,
+      "line_end": 4617,
+      "suggested_fix": "Schedule time for technical debt cleanup.",
+      "estimated_effort": null,
+      "category": "technical-debt",
+      "cwe_id": null,
+      "why_it_matters": "TODOs represent known issues or incomplete work. Tracking and prioritizing them helps manage technical debt.",
+      "confidence": null
+    },
+    {
+      "id": "2f1df72cae3ef6a8",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 2 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/handling_errors/tutorial006_py310.py"
+      ],
+      "line_start": 20,
+      "line_end": 20,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "b6148e7cda05cd91",
+      "detector": "UnusedImportsDetector",
+      "severity": "low",
+      "title": "Unused import: Url",
+      "description": "[COMPOUND: 2 co-located issues] Import `Url` is never used in this file.\n\n**Cleanup tip:** Run `autoflake --remove-all-unused-imports` (Python) or configure ESLint/TypeScript.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/_compat/v2.py"
+      ],
+      "line_start": 34,
+      "line_end": 34,
+      "suggested_fix": "Remove unused import:\n```\n# Delete: Url\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Unused imports add noise, increase load times, and can cause circular dependency issues. They also make it harder to understand what a file actually depends on.",
+      "confidence": 0.7999999999999999
+    },
+    {
+      "id": "bcdc9dd4c019c76b",
+      "detector": "GeneratorMisuseDetector",
+      "severity": "low",
+      "title": "Generator always list()-wrapped: `iter_en_paths_to_translate`",
+      "description": "Generator `iter_en_paths_to_translate` is always wrapped in `list()`, defeating lazy evaluation.\n\n**Analysis:** No callers consume this generator lazily.",
+      "affected_files": [
+        "/tmp/fastapi/scripts/translate.py"
+      ],
+      "line_start": 175,
+      "line_end": null,
+      "suggested_fix": "Consider returning a list directly:\n\n```python\n# Instead of:\ndef iter_en_paths_to_translate(...):\nfor item in items:\nyield transform(item)\n\n# result = list(iter_en_paths_to_translate(...))  # Always converted\n\n# Use:\ndef iter_en_paths_to_translate(...):\nreturn [transform(item) for item in items]\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Generators wrapped in list() lose lazy evaluation benefits and add unnecessary overhead.",
+      "confidence": null
+    },
+    {
+      "id": "10bf0d3a194cc41b",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.\n\n**Analysis:**\n📊 2 debug statements in this file so far",
+      "affected_files": [
+        "/tmp/fastapi/docs_src/python_types/tutorial008_py310.py"
+      ],
+      "line_start": 4,
+      "line_end": 4,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    },
+    {
+      "id": "bb6393bd2a5e5e1e",
+      "detector": "DebugCodeDetector",
+      "severity": "low",
+      "title": "Debug code left in",
+      "description": "Debug statements should be removed before production.",
+      "affected_files": [
+        "/tmp/fastapi/fastapi/cli.py"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Replace with proper logging:\n```python\nimport logging\nlogger = logging.getLogger(__name__)\nlogger.debug('message')  # Only shows in debug mode\n```",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "Debug code can leak sensitive information, clutter logs, and interactive debuggers will hang the application.",
+      "confidence": null
+    }
+  ],
+  "findings_summary": {
+    "critical": 2,
+    "high": 7,
+    "medium": 33,
+    "low": 50,
+    "info": 0,
+    "total": 92
+  },
+  "total_files": 1095,
+  "total_functions": 3974,
+  "total_classes": 625,
+  "total_loc": 105334
+}
