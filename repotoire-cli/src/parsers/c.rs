@@ -534,7 +534,7 @@ int add(int a, int b) {
 }
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         assert_eq!(result.functions.len(), 1);
         let func = &result.functions[0];
@@ -550,7 +550,7 @@ void print_message(const char* msg) {
 }
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         assert_eq!(result.functions.len(), 1);
         let func = &result.functions[0];
@@ -566,7 +566,7 @@ struct Point {
 };
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -582,7 +582,7 @@ typedef struct {
 } Rectangle;
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -601,7 +601,7 @@ int main() {
 }
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         assert!(result.imports.iter().any(|i| i.path == "stdio.h"));
         assert!(result.imports.iter().any(|i| i.path == "stdlib.h"));
@@ -619,7 +619,7 @@ void caller() {
 }
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         assert!(!result.calls.is_empty());
         let call_targets: Vec<&str> = result.calls.iter().map(|(_, t)| t.as_str()).collect();
@@ -642,10 +642,10 @@ int complex_func(int x) {
 }
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         let func = &result.functions[0];
-        assert!(func.complexity.unwrap() >= 3);
+        assert!(func.complexity.expect("should have complexity") >= 3);
     }
 
     #[test]
@@ -676,7 +676,7 @@ void setup() {
 }
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         // handler1 and handler2 should have their addresses taken
         assert!(
@@ -712,7 +712,7 @@ handler_t handlers[] = {
 };
 "#;
         let path = PathBuf::from("test.c");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C source");
 
         assert!(result.address_taken.contains("func1"));
         assert!(result.address_taken.contains("func2"));

@@ -484,7 +484,7 @@ mod tests {
 
     fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
         let path = dir.join(name);
-        std::fs::write(&path, content).unwrap();
+        std::fs::write(&path, content).expect("should write test file");
         path
     }
 
@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_bounded_pipeline_small() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("should create temp dir");
         let path = dir.path();
 
         create_test_file(path, "a.py", "def hello(): pass");
@@ -510,7 +510,8 @@ mod tests {
         let graph = Arc::new(GraphStore::in_memory());
         let config = PipelineConfig::for_repo_size(2);
 
-        let (stats, parse_stats) = run_bounded_pipeline(files, path, graph, config, None).unwrap();
+        let (stats, parse_stats) =
+            run_bounded_pipeline(files, path, graph, config, None).expect("should run pipeline");
 
         assert_eq!(stats.files_processed, 2);
         assert_eq!(parse_stats.parsed_files, 2);
@@ -519,7 +520,7 @@ mod tests {
 
     #[test]
     fn test_edge_flushing() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new().expect("should create temp dir");
         let path = dir.path();
 
         // Create files with many functions to trigger edge flush
@@ -538,7 +539,8 @@ mod tests {
         let mut config = PipelineConfig::for_repo_size(20);
         config.edge_flush_threshold = 500; // Low threshold to trigger flush
 
-        let (stats, _) = run_bounded_pipeline(files, path, graph, config, None).unwrap();
+        let (stats, _) =
+            run_bounded_pipeline(files, path, graph, config, None).expect("should run pipeline");
 
         // Should have flushed at least once
         assert!(stats.edge_flushes > 0 || stats.edges_added > 0);

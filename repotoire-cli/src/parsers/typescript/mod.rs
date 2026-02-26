@@ -122,9 +122,9 @@ const IMPORT_QUERY_STR: &str = r#"
 /// Get or create cached function query for an extension
 fn get_func_query(ext: &str, language: &Language) -> &'static Query {
     match ext {
-        "ts" => TS_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).unwrap()),
-        "tsx" => TSX_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).unwrap()),
-        _ => JS_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).unwrap()),
+        "ts" => TS_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
+        "tsx" => TSX_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
+        _ => JS_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
     }
 }
 
@@ -133,13 +133,13 @@ fn get_class_query(ext: &str, language: &Language) -> &'static Query {
     match ext {
         "ts" => TS_CLASS_QUERY.get_or_init(|| {
             Query::new(language, TS_CLASS_QUERY_STR)
-                .unwrap_or_else(|_| Query::new(language, JS_CLASS_QUERY_STR).unwrap())
+                .unwrap_or_else(|_| Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query fallback"))
         }),
         "tsx" => TSX_CLASS_QUERY.get_or_init(|| {
             Query::new(language, TS_CLASS_QUERY_STR)
-                .unwrap_or_else(|_| Query::new(language, JS_CLASS_QUERY_STR).unwrap())
+                .unwrap_or_else(|_| Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query fallback"))
         }),
-        _ => JS_CLASS_QUERY.get_or_init(|| Query::new(language, JS_CLASS_QUERY_STR).unwrap()),
+        _ => JS_CLASS_QUERY.get_or_init(|| Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query")),
     }
 }
 
@@ -147,9 +147,9 @@ fn get_class_query(ext: &str, language: &Language) -> &'static Query {
 #[allow(dead_code)] // Prepared for import resolution
 fn get_import_query(ext: &str, language: &Language) -> &'static Query {
     match ext {
-        "ts" => TS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).unwrap()),
-        "tsx" => TSX_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).unwrap()),
-        _ => JS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).unwrap()),
+        "ts" => TS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
+        "tsx" => TSX_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
+        _ => JS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
     }
 }
 

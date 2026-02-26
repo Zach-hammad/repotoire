@@ -408,12 +408,12 @@ mod tests {
 
     #[test]
     fn test_language_from_path_header_heuristic() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let h = dir.path().join("x.h");
-        std::fs::write(&h, "namespace n { class A {}; }").unwrap();
+        std::fs::write(&h, "namespace n { class A {}; }").expect("should write test header");
         assert_eq!(Language::from_path(&h), Language::Cpp);
 
-        std::fs::write(&h, "#ifndef X_H\nint sum(int a, int b);\n#endif").unwrap();
+        std::fs::write(&h, "#ifndef X_H\nint sum(int a, int b);\n#endif").expect("should write C header");
         assert_eq!(Language::from_path(&h), Language::C);
     }
 

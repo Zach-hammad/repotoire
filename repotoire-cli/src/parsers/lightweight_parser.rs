@@ -240,37 +240,37 @@ mod tests {
     #[test]
     fn test_parse_file_lightweight() {
         // Create a temporary Python file
-        let mut file = NamedTempFile::with_suffix(".py").unwrap();
+        let mut file = NamedTempFile::with_suffix(".py").expect("should create temp file");
         writeln!(
             file,
             "def hello(name):\n    print(f'Hello {{name}}')\n\ndef world():\n    pass"
         )
-        .unwrap();
+        .expect("should write Python source");
 
         let result = parse_file_lightweight(file.path());
         assert!(result.is_ok());
 
-        let info = result.unwrap();
+        let info = result.expect("should parse lightweight file");
         assert_eq!(info.language, Language::Python);
         assert!(!info.functions.is_empty());
     }
 
     #[test]
     fn test_streaming_iterator() {
-        let mut file = NamedTempFile::with_suffix(".py").unwrap();
-        writeln!(file, "x = 1").unwrap();
+        let mut file = NamedTempFile::with_suffix(".py").expect("should create temp file");
+        writeln!(file, "x = 1").expect("should write Python source");
 
         let files = vec![file.path().to_path_buf()];
         let mut results: Vec<_> = parse_files_streaming(&files).collect();
 
         assert_eq!(results.len(), 1);
-        assert!(results.pop().unwrap().is_ok());
+        assert!(results.pop().expect("should have one result").is_ok());
     }
 
     #[test]
     fn test_callback_streaming() {
-        let mut file = NamedTempFile::with_suffix(".py").unwrap();
-        writeln!(file, "def test(): pass").unwrap();
+        let mut file = NamedTempFile::with_suffix(".py").expect("should create temp file");
+        writeln!(file, "def test(): pass").expect("should write Python source");
 
         let files = vec![file.path().to_path_buf()];
         let mut count = 0;

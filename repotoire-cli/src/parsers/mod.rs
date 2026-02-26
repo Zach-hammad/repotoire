@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn test_unknown_extension_returns_empty() {
         let path = PathBuf::from("test.unknown");
-        let result = parse_file(&path).unwrap();
+        let result = parse_file(&path).expect("should parse unknown extension");
         assert!(result.is_empty());
     }
 
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_header_dispatch_cpp_heuristic() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let hdr = dir.path().join("test.h");
         std::fs::write(
             &hdr,
@@ -460,15 +460,15 @@ class Widget { public: int x; };
 }
 "#,
         )
-        .unwrap();
+        .expect("should write test header");
 
-        let result = parse_file(&hdr).unwrap();
+        let result = parse_file(&hdr).expect("should parse C++ header");
         assert_eq!(result.classes.len(), 1);
     }
 
     #[test]
     fn test_header_dispatch_c_fallback() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let hdr = dir.path().join("test.h");
         std::fs::write(
             &hdr,
@@ -479,22 +479,22 @@ int add(int a, int b);
 #endif
 "#,
         )
-        .unwrap();
+        .expect("should write test header");
 
-        let result = parse_file(&hdr).unwrap();
+        let result = parse_file(&hdr).expect("should parse C header");
         assert!(result.functions.is_empty());
         assert!(result.classes.is_empty());
     }
 
     #[test]
     fn test_parse_file_skips_very_large_files() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let big = dir.path().join("big.py");
         // slightly over 2MB
         let payload = "x = 1\n".repeat((2 * 1024 * 1024 / 6) + 1024);
-        std::fs::write(&big, payload).unwrap();
+        std::fs::write(&big, payload).expect("should write large file");
 
-        let result = parse_file(&big).unwrap();
+        let result = parse_file(&big).expect("should handle large file");
         assert!(result.is_empty());
     }
 

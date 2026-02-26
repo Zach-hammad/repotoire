@@ -665,7 +665,7 @@ mod tests {
 
         assert!(index.name_to_qualified.contains_key("helper"));
         assert_eq!(
-            index.name_to_qualified.get("helper").unwrap(),
+            index.name_to_qualified.get("helper").expect("should find helper in index"),
             "src/utils.py::helper:10"
         );
     }

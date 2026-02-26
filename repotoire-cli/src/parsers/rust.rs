@@ -581,7 +581,7 @@ fn hello(name: &str) -> String {
 }
 "#;
         let path = PathBuf::from("test.rs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Rust source");
 
         assert_eq!(result.functions.len(), 1);
         let func = &result.functions[0];
@@ -597,7 +597,7 @@ async fn fetch_data(url: &str) -> Result<String, Error> {
 }
 "#;
         let path = PathBuf::from("test.rs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Rust source");
 
         assert_eq!(result.functions.len(), 1);
         let func = &result.functions[0];
@@ -613,7 +613,7 @@ struct MyStruct {
 }
 "#;
         let path = PathBuf::from("test.rs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Rust source");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -636,7 +636,7 @@ impl MyStruct {
 }
 "#;
         let path = PathBuf::from("test.rs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Rust source");
 
         assert_eq!(result.functions.len(), 2);
         assert!(result.functions.iter().any(|f| f.name == "new"));
@@ -651,7 +651,7 @@ use crate::models::Function;
 use super::{ImportInfo, ParseResult};
 "#;
         let path = PathBuf::from("test.rs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Rust source");
 
         assert!(result.imports.len() >= 3);
     }
@@ -667,7 +667,7 @@ trait MyTrait: Clone + Send {
 }
 "#;
         let path = PathBuf::from("test.rs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Rust source");
 
         assert_eq!(result.classes.len(), 1);
         let trait_def = &result.classes[0];

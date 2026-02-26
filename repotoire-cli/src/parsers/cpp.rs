@@ -510,7 +510,7 @@ int add(int a, int b) {
 }
 "#;
         let path = PathBuf::from("test.cpp");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C++ source");
 
         assert_eq!(result.functions.len(), 1);
         assert_eq!(result.functions[0].name, "add");
@@ -532,7 +532,7 @@ public:
 };
 "#;
         let path = PathBuf::from("test.cpp");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C++ source");
 
         assert_eq!(result.classes.len(), 1);
         assert_eq!(result.classes[0].name, "Calculator");
@@ -550,7 +550,7 @@ int main() {
 }
 "#;
         let path = PathBuf::from("test.cpp");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C++ source");
 
         assert!(result.imports.iter().any(|i| i.path == "iostream"));
         assert!(result.imports.iter().any(|i| i.path == "vector"));
@@ -569,7 +569,7 @@ int classify(int x) {
 }
 "#;
         let path = PathBuf::from("test.cpp");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C++ source");
         let c = result.functions[0].complexity.unwrap_or(0);
         // Base + switch branches should be counted (at least cases/default)
         assert!(
@@ -596,7 +596,7 @@ int complex(int x) {
 }
 "#;
         let path = PathBuf::from("test.cpp");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C++ source");
 
         assert_eq!(result.functions.len(), 1);
         assert!(result.functions[0].complexity.unwrap_or(0) >= 5); // Multiple branches

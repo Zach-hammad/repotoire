@@ -742,7 +742,7 @@ public class HelloWorld {
 }
 "#;
         let path = PathBuf::from("HelloWorld.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -759,7 +759,7 @@ public class Child extends Parent implements Runnable, Serializable {
 }
 "#;
         let path = PathBuf::from("Child.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -776,7 +776,7 @@ public interface MyInterface {
 }
 "#;
         let path = PathBuf::from("MyInterface.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
         assert_eq!(result.classes.len(), 1);
         let iface = &result.classes[0];
@@ -793,7 +793,7 @@ import static java.lang.Math.PI;
 public class Test {}
 "#;
         let path = PathBuf::from("Test.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
         assert!(result
             .imports
@@ -819,7 +819,7 @@ public class Calculator {
 }
 "#;
         let path = PathBuf::from("Calculator.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
         assert_eq!(result.functions.len(), 2);
         assert!(result.functions.iter().any(|f| f.name == "add"));
@@ -852,7 +852,7 @@ public class StreamProcessor {
 }
 "#;
         let path = PathBuf::from("StreamProcessor.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
         let class = &result.classes[0];
         assert_eq!(class.name, "StreamProcessor");
@@ -887,7 +887,7 @@ public class EventHandler {
 }
 "#;
         let path = PathBuf::from("EventHandler.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
         // Find the main class (not the anonymous one)
         let main_class = result
@@ -925,16 +925,16 @@ public class Calculator {
 }
 "#;
         let path = PathBuf::from("Calculator.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
         let class = &result.classes[0];
         assert!(class.doc_comment.is_some(), "Class should have Javadoc");
-        let doc = class.doc_comment.as_ref().unwrap();
+        let doc = class.doc_comment.as_ref().expect("class should have Javadoc");
         assert!(doc.contains("Calculates the sum"), "Got: {}", doc);
 
-        let method = result.functions.iter().find(|f| f.name == "add").unwrap();
+        let method = result.functions.iter().find(|f| f.name == "add").expect("should find add method");
         assert!(method.doc_comment.is_some(), "Method should have Javadoc");
-        assert!(method.doc_comment.as_ref().unwrap().contains("Add two integers"));
+        assert!(method.doc_comment.as_ref().expect("method should have Javadoc").contains("Add two integers"));
     }
 
     #[test]
@@ -954,23 +954,23 @@ public class Service {
 }
 "#;
         let path = PathBuf::from("Service.java");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Java source");
 
-        let to_string = result.functions.iter().find(|f| f.name == "toString").unwrap();
+        let to_string = result.functions.iter().find(|f| f.name == "toString").expect("should find toString");
         assert!(
             to_string.annotations.iter().any(|a| a.contains("Override")),
             "toString should have @Override, got: {:?}",
             to_string.annotations
         );
 
-        let old_method = result.functions.iter().find(|f| f.name == "oldMethod").unwrap();
+        let old_method = result.functions.iter().find(|f| f.name == "oldMethod").expect("should find oldMethod");
         assert!(
             old_method.annotations.iter().any(|a| a.contains("Deprecated")),
             "oldMethod should have @Deprecated, got: {:?}",
             old_method.annotations
         );
 
-        let no_ann = result.functions.iter().find(|f| f.name == "noAnnotation").unwrap();
+        let no_ann = result.functions.iter().find(|f| f.name == "noAnnotation").expect("should find noAnnotation");
         assert!(
             no_ann.annotations.is_empty(),
             "noAnnotation should have no annotations, got: {:?}",

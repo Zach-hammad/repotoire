@@ -9,7 +9,7 @@ function hello(name: string): string {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse simple function");
 
     assert_eq!(result.functions.len(), 1);
     let func = &result.functions[0];
@@ -24,7 +24,7 @@ async function fetchData(url: string): Promise<string> {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse async function");
 
     assert_eq!(result.functions.len(), 1);
     let func = &result.functions[0];
@@ -37,7 +37,7 @@ fn test_parse_arrow_function() {
 const add = (a: number, b: number): number => a + b;
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse arrow function");
 
     assert!(result.functions.iter().any(|f| f.name == "add"));
 }
@@ -56,7 +56,7 @@ class MyClass extends BaseClass implements Interface {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse class");
 
     assert_eq!(result.classes.len(), 1);
     let class = &result.classes[0];
@@ -72,7 +72,7 @@ interface MyInterface {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse interface");
 
     assert_eq!(result.classes.len(), 1);
     let iface = &result.classes[0];
@@ -89,7 +89,7 @@ import * as fs from 'fs';
 export function main() {}
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse imports");
 
     assert!(result.imports.iter().any(|i| i.path == "react"));
     assert!(result.imports.iter().any(|i| i.path == "axios"));
@@ -103,7 +103,7 @@ function greet(name) {
 }
 "#;
     let path = PathBuf::from("test.js");
-    let result = parse_source(source, &path, "js").unwrap();
+    let result = parse_source(source, &path, "js").expect("should parse JavaScript");
 
     assert_eq!(result.functions.len(), 1);
     let func = &result.functions[0];
@@ -118,7 +118,7 @@ function simple(): number {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse simple function for complexity");
 
     let func = &result.functions[0];
     assert_eq!(func.name, "simple");
@@ -141,7 +141,7 @@ function complex(x: number): string {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse complex function");
 
     let func = &result.functions[0];
     assert_eq!(func.name, "complex");
@@ -167,7 +167,7 @@ function loopy(items: string[]): number {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse loopy function");
 
     let func = &result.functions[0];
     assert_eq!(func.name, "loopy");
@@ -195,7 +195,7 @@ async function main() {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse calls");
 
     assert_eq!(result.functions.len(), 3, "Expected 3 functions");
 
@@ -246,7 +246,7 @@ class Foo {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse class methods");
 
     assert_eq!(result.classes.len(), 1, "Expected 1 class");
     let class = &result.classes[0];
@@ -287,7 +287,7 @@ class Config {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse property values");
 
     let class = &result.classes[0];
     assert_eq!(
@@ -320,7 +320,7 @@ class Service {
 }
 "#;
     let path = PathBuf::from("test.js");
-    let result = parse_source(source, &path, "js").unwrap();
+    let result = parse_source(source, &path, "js").expect("should parse JS class methods");
 
     let class = &result.classes[0];
     assert_eq!(
@@ -345,12 +345,12 @@ function add(a: number, b: number): number {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse JSDoc");
 
     let func = &result.functions[0];
     assert_eq!(func.name, "add");
     assert!(func.doc_comment.is_some(), "Should have JSDoc");
-    let doc = func.doc_comment.as_ref().unwrap();
+    let doc = func.doc_comment.as_ref().expect("doc_comment should be Some");
     assert!(doc.contains("Adds two numbers"), "Got: {}", doc);
 }
 
@@ -361,11 +361,11 @@ fn test_jsdoc_on_arrow_function() {
 const multiply = (a: number, b: number): number => a * b;
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").unwrap();
+    let result = parse_source(source, &path, "ts").expect("should parse arrow function JSDoc");
 
-    let func = result.functions.iter().find(|f| f.name == "multiply").unwrap();
+    let func = result.functions.iter().find(|f| f.name == "multiply").expect("should find multiply function");
     assert!(func.doc_comment.is_some(), "Arrow function should have JSDoc");
-    assert!(func.doc_comment.as_ref().unwrap().contains("Multiplies"));
+    assert!(func.doc_comment.as_ref().expect("doc_comment should be Some").contains("Multiplies"));
 }
 
 #[test]
@@ -380,16 +380,16 @@ function helperFunction() {
 }
 "#;
     let path = PathBuf::from("test.tsx");
-    let result = parse_source(source, &path, "tsx").unwrap();
+    let result = parse_source(source, &path, "tsx").expect("should parse TSX components");
 
-    let component = result.functions.iter().find(|f| f.name == "MyComponent").unwrap();
+    let component = result.functions.iter().find(|f| f.name == "MyComponent").expect("should find MyComponent");
     assert!(
         component.annotations.contains(&"react:component".to_string()),
         "Should detect React component, got: {:?}",
         component.annotations
     );
 
-    let helper = result.functions.iter().find(|f| f.name == "helperFunction").unwrap();
+    let helper = result.functions.iter().find(|f| f.name == "helperFunction").expect("should find helperFunction");
     assert!(
         !helper.annotations.contains(&"react:component".to_string()),
         "helperFunction should not be a React component"
@@ -409,9 +409,9 @@ function Counter() {
 }
 "#;
     let path = PathBuf::from("test.tsx");
-    let result = parse_source(source, &path, "tsx").unwrap();
+    let result = parse_source(source, &path, "tsx").expect("should parse React hooks");
 
-    let counter = result.functions.iter().find(|f| f.name == "Counter").unwrap();
+    let counter = result.functions.iter().find(|f| f.name == "Counter").expect("should find Counter");
     assert!(
         counter.annotations.iter().any(|a| a == "react:hook:useState"),
         "Should detect useState hook, got: {:?}",

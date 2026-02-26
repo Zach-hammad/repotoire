@@ -695,7 +695,7 @@ def hello(name: str) -> str:
     return f"Hello, {name}!"
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse simple function");
 
         assert_eq!(result.functions.len(), 1);
         let func = &result.functions[0];
@@ -712,7 +712,7 @@ async def fetch_data(url: str) -> bytes:
     return await http.get(url)
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse async function");
 
         assert_eq!(result.functions.len(), 1);
         let func = &result.functions[0];
@@ -731,7 +731,7 @@ class MyClass(BaseClass, Mixin):
         return x * 2
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse class");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -749,7 +749,7 @@ from pathlib import Path
 from typing import List, Optional
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse imports");
 
         assert!(result.imports.iter().any(|i| i.path == "os"));
         assert!(result.imports.iter().any(|i| i.path == "sys"));
@@ -772,7 +772,7 @@ def other_function(x):
     print(x)
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse calls");
 
         // Should have calls from caller to some_function and other_function
         assert!(!result.calls.is_empty());
@@ -797,11 +797,11 @@ def complex_function(x):
         return "zero"
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse complex function");
 
         let func = &result.functions[0];
         // Base (1) + if (1) + if (1) + elif (1) = 4
-        assert!(func.complexity.unwrap() >= 4);
+        assert!(func.complexity.expect("should have complexity") >= 4);
     }
 
     #[test]
@@ -816,7 +816,7 @@ def prop(self):
     return self._value
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse decorated function");
 
         assert_eq!(result.functions.len(), 2);
     }
@@ -828,7 +828,7 @@ def varargs(*args, **kwargs):
     pass
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse star args");
 
         let func = &result.functions[0];
         assert!(func.parameters.contains(&"*args".to_string()));
@@ -857,7 +857,7 @@ class DataProcessor:
         self.handlers.append(handler)
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse nested methods");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -893,7 +893,7 @@ class MyClass:
         return cls()
 "#;
         let path = PathBuf::from("test.py");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse decorated methods");
 
         let class = &result.classes[0];
         assert_eq!(

@@ -716,7 +716,7 @@ public class HelloWorld
 }
 "#;
         let path = PathBuf::from("HelloWorld.cs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C# source");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -732,7 +732,7 @@ public class Child : Parent, IDisposable
 }
 "#;
         let path = PathBuf::from("Child.cs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C# source");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -749,7 +749,7 @@ public interface IMyInterface
 }
 "#;
         let path = PathBuf::from("IMyInterface.cs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C# source");
 
         assert_eq!(result.classes.len(), 1);
         let iface = &result.classes[0];
@@ -768,7 +768,7 @@ public class AsyncClass
 }
 "#;
         let path = PathBuf::from("AsyncClass.cs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C# source");
 
         assert!(result
             .functions
@@ -786,7 +786,7 @@ using System.Linq;
 public class Test { }
 "#;
         let path = PathBuf::from("Test.cs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C# source");
 
         assert!(result.imports.iter().any(|i| i.path == "System"));
         assert!(result
@@ -801,7 +801,7 @@ public class Test { }
 public record Person(string Name, int Age);
 "#;
         let path = PathBuf::from("Person.cs");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse C# source");
 
         assert_eq!(result.classes.len(), 1);
         assert_eq!(result.classes[0].name, "Person");

@@ -628,7 +628,7 @@ func hello(name string) string {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         assert_eq!(result.functions.len(), 1);
         let func = &result.functions[0];
@@ -649,7 +649,7 @@ func (s *MyStruct) GetValue() int {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         assert!(result.functions.iter().any(|f| f.name == "GetValue"));
     }
@@ -665,7 +665,7 @@ type Person struct {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
@@ -682,7 +682,7 @@ type Reader interface {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         assert_eq!(result.classes.len(), 1);
         let iface = &result.classes[0];
@@ -703,7 +703,7 @@ import (
 )
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         assert!(result.imports.iter().any(|i| i.path == "fmt"));
         assert!(result.imports.iter().any(|i| i.path == "os"));
@@ -741,7 +741,7 @@ func (h *Handler) Clear() {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         // Should have exactly 3 methods on Handler: Register, Execute, Clear
         // NOT: the closure in Register, the goroutine func in Execute
@@ -771,12 +771,12 @@ func Add(a, b int) int {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         let func = &result.functions[0];
         assert_eq!(func.name, "Add");
         assert!(func.doc_comment.is_some());
-        let doc = func.doc_comment.as_ref().unwrap();
+        let doc = func.doc_comment.as_ref().expect("should have doc comment");
         assert!(doc.contains("Add adds two numbers"), "Got: {}", doc);
         assert!(doc.contains("returns the result"), "Got: {}", doc);
     }
@@ -791,7 +791,7 @@ package main
 func NoDoc() {}
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         let func = &result.functions[0];
         assert_eq!(func.name, "NoDoc");
@@ -809,12 +809,12 @@ type Server struct {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         let class = &result.classes[0];
         assert_eq!(class.name, "Server");
         assert!(class.doc_comment.is_some());
-        assert!(class.doc_comment.as_ref().unwrap().contains("HTTP server"));
+        assert!(class.doc_comment.as_ref().expect("should have doc comment").contains("HTTP server"));
     }
 
     #[test]
@@ -833,12 +833,12 @@ func noGoroutine() {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
-        let worker = result.functions.iter().find(|f| f.name == "startWorker").unwrap();
+        let worker = result.functions.iter().find(|f| f.name == "startWorker").expect("should find startWorker");
         assert!(worker.is_async, "startWorker should be marked async (goroutine)");
 
-        let no_go = result.functions.iter().find(|f| f.name == "noGoroutine").unwrap();
+        let no_go = result.functions.iter().find(|f| f.name == "noGoroutine").expect("should find noGoroutine");
         assert!(!no_go.is_async, "noGoroutine should not be marked async");
     }
 
@@ -862,23 +862,23 @@ func noChannels() {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
-        let producer = result.functions.iter().find(|f| f.name == "producer").unwrap();
+        let producer = result.functions.iter().find(|f| f.name == "producer").expect("should find producer");
         assert!(
             producer.annotations.contains(&"go:uses_channels".to_string()),
             "producer should have go:uses_channels annotation, got: {:?}",
             producer.annotations
         );
 
-        let consumer = result.functions.iter().find(|f| f.name == "consumer").unwrap();
+        let consumer = result.functions.iter().find(|f| f.name == "consumer").expect("should find consumer");
         assert!(
             consumer.annotations.contains(&"go:uses_channels".to_string()),
             "consumer should have go:uses_channels annotation, got: {:?}",
             consumer.annotations
         );
 
-        let no_ch = result.functions.iter().find(|f| f.name == "noChannels").unwrap();
+        let no_ch = result.functions.iter().find(|f| f.name == "noChannels").expect("should find noChannels");
         assert!(
             no_ch.annotations.is_empty(),
             "noChannels should have no annotations, got: {:?}",
@@ -897,7 +897,7 @@ type Writer interface {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let result = parse_source(source, &path).unwrap();
+        let result = parse_source(source, &path).expect("should parse Go source");
 
         let iface = result
             .classes
