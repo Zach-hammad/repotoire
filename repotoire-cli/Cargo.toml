@@ -2,7 +2,7 @@
 name = "repotoire"
 version = "0.3.113"
 edition = "2021"
-description = "Graph-powered code analysis CLI. 114 detectors for security, architecture, and code quality."
+description = "Graph-powered code analysis CLI. 99 detectors for security, architecture, and code quality."
 license = "MIT"
 repository = "https://github.com/Zach-hammad/repotoire"
 homepage = "https://repotoire.com"

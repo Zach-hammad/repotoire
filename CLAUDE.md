@@ -8,7 +8,7 @@ Repotoire is a graph-powered code health platform that analyzes codebases using 
 - **Structural analysis** (tree-sitter AST parsing across 9 languages)
 - **Relational patterns** (graph algorithms via petgraph)
 
-This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. All 114 detectors are pure Rust — no external tool dependencies.
+This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. All 99 detectors are pure Rust — no external tool dependencies.
 
 ## Development Rules
 
@@ -174,11 +174,11 @@ Codebase → Parsers (tree-sitter) → Entities + Relationships → petgraph Gra
 
 1. **Parsers** (`repotoire-cli/src/parsers/`): 9 tree-sitter parsers — Python, TypeScript/JavaScript (with TSX), Rust, Go, Java, C#, C, C++, plus a lightweight fallback parser. Cross-language nesting depth enrichment via brace/indent counting. 2MB file size guardrail. Header file (`.h`) dispatch heuristic for C vs C++.
 
-2. **Graph Layer** (`repotoire-cli/src/graph/`): `GraphStore` — petgraph `DiGraph<CodeNode, CodeEdge>` with redb (embedded ACID database) persistence. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. `CompactGraphStore` alternative backend using compact nodes (32 bytes vs ~200 bytes). `GraphQuery` trait (19 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection.
+2. **Graph Layer** (`repotoire-cli/src/graph/`): `GraphStore` — petgraph `DiGraph<CodeNode, CodeEdge>` with redb (embedded ACID database) persistence. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. Compact node types (`CompactNode` at ~32 bytes vs ~200 bytes for `CodeNode`) defined in `interner.rs` for future large-repo support. `GraphQuery` trait (19 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection.
 
 3. **Pipeline** (`repotoire-cli/src/cli/analyze/`): Walk files → parse (tree-sitter, parallel via rayon) → batch insert into in-memory graph → run detectors. Streaming/bounded pipeline modes for large repos (20k+ files). Configurable batch sizes.
 
-4. **Detectors** (`repotoire-cli/src/detectors/`): 114 pure Rust detectors across 14 categories. No external tool dependencies — all analysis runs in-process. Detectors run in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs.
+4. **Detectors** (`repotoire-cli/src/detectors/`): 99 pure Rust detectors across 14 categories. No external tool dependencies — all analysis runs in-process. Detectors run in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs.
 
 5. **Scoring** (`repotoire-cli/src/scoring/`): Three-pillar scoring — Structure (40%), Quality (30%), Architecture (30%). Density-based penalty normalization (penalties scaled by kLOC). Graph-derived bonuses (modularity, cohesion, clean deps, complexity distribution, test coverage). Compound smell escalation. 13 grade levels (A+ through F). Score floor at 5.0, cap at 99.9 with medium+ findings. Security multiplier (default 3x).
 
@@ -192,13 +192,13 @@ Codebase → Parsers (tree-sitter) → Entities + Relationships → petgraph Gra
 
 10. **Models** (`repotoire-cli/src/models.rs`): `Finding` (with severity, CWE IDs, confidence, affected files), `Severity` levels (Critical, High, Medium, Low, Info).
 
-### Detector Suite (114 Pure Rust Detectors)
+### Detector Suite (99 Pure Rust Detectors)
 
 All detectors are built-in Rust with zero external dependencies. Grouped by category:
 
 | Category | Count | Examples |
 |----------|-------|---------|
-| **Security** | 24 | SQL injection, XSS, SSRF, command injection, path traversal, secrets, insecure crypto, JWT weak, CORS misconfig, NoSQL injection, log injection, XXE, prototype pollution, insecure TLS, cleartext credentials |
+| **Security** | 23 | SQL injection, XSS, SSRF, command injection, path traversal, secrets, insecure crypto, JWT weak, CORS misconfig, NoSQL injection, log injection, XXE, prototype pollution, insecure TLS, cleartext credentials |
 | **Code Quality** | 25 | Empty catch, deep nesting, magic numbers, dead store, debug code, commented code, duplicate code, unreachable code, mutable default args, broad exceptions, boolean traps, inconsistent returns |
 | **Code Smells** (graph-based) | 11 | God class, feature envy, data clumps, inappropriate intimacy, lazy class, message chain, middle man, refused bequest, dead code, long parameters, circular dependencies |
 | **Architecture** (graph-based) | 6 | Architectural bottleneck, degree centrality, influential code, module cohesion, core utility, shotgun surgery |
@@ -329,7 +329,7 @@ lean/
 **Common Issues**:
 
 - **Tree-sitter grammar errors**: Ensure the correct grammar crate version in `Cargo.toml`. Tree-sitter API versions must match across all grammar crates.
-- **Large repository memory**: For repos with 20k+ files, the compact graph backend (`CompactGraphStore`) reduces memory by 60-70%. Files >2MB are silently skipped by parsers.
+- **Large repository memory**: For repos with 20k+ files, compact node types in `interner.rs` are available for memory reduction (~32 bytes vs ~200 bytes per node). Files >2MB are silently skipped by parsers.
 - **Stale cache results**: Run `repotoire clean /path/to/repo` to clear cached data, or the cache auto-invalidates on binary version change.
 - **Missing findings**: Check if files are excluded by `.gitignore`, `.repotoireignore`, or built-in exclusions (vendor, node_modules, dist, minified files).
 
@@ -359,7 +359,7 @@ cargo test detectors::god_class
 - petgraph in-memory graph with redb persistence
 - String interning via lasso for memory efficiency
 - 9 tree-sitter language parsers (Python, TypeScript/JavaScript, Rust, Go, Java, C#, C, C++, lightweight fallback)
-- 114 pure Rust detectors across 14 categories — zero external tool dependencies
+- 99 pure Rust detectors across 14 categories — zero external tool dependencies
 - SSA-based taint analysis for security detectors
 - Three-pillar health scoring with density normalization and graph-derived bonuses
 - Compound smell escalation (arXiv:2509.03896)
@@ -407,7 +407,7 @@ cargo test detectors::god_class
 - **git2** (0.20): libgit2 bindings for git history analysis
 
 ### Terminal UI
-- **indicatif** (0.17): Progress bars
+- **indicatif** (0.18): Progress bars
 - **console** (0.15): Terminal styling
 - **ratatui** (0.30): TUI framework
 - **crossterm** (0.29): Terminal backend
@@ -422,7 +422,7 @@ cargo test detectors::god_class
 - **memmap2** (0.9): Memory-mapped file access
 - **crossbeam-channel** (0.5): Parallel pipeline channels
 - **rustc-hash** (2): Fast hashing
-- **notify** (7) / **notify-debouncer-full** (0.4): File watching
+- **notify** (8) / **notify-debouncer-full** (0.5): File watching
 - **dirs** (6): Platform directory paths
 
 ### Development
@@ -433,7 +433,7 @@ cargo test detectors::god_class
 ### Memory Usage
 - **In-memory graph**: petgraph holds all nodes and edges in memory. No external database needed.
 - **Standard backend**: ~200 bytes per node
-- **Compact backend**: ~32 bytes per node (via string interning with lasso, 60-70% savings)
+- **Compact nodes**: ~32 bytes per node (via string interning with lasso, defined in `interner.rs` for future large-repo support)
 - **Parser guardrail**: Files >2MB are silently skipped to prevent memory/time issues
 
 ### Parallelism

@@ -368,7 +368,7 @@ impl ServerHandler for RepotoireServer {
                 title: Some("Repotoire MCP Server".to_string()),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 description: Some(
-                    "Graph-powered code health analysis with 114 detectors".to_string(),
+                    "Graph-powered code health analysis with 99 detectors".to_string(),
                 ),
                 icons: None,
                 website_url: Some("https://repotoire.com".to_string()),
