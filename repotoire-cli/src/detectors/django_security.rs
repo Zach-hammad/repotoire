@@ -448,7 +448,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.py", "from django.views.decorators.csrf import csrf_exempt\n\n@csrf_exempt\ndef webhook(request):\n    return JsonResponse({\"ok\": True})\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect @csrf_exempt usage");
         assert!(
             findings.iter().any(|f| f.title.contains("CSRF")),
@@ -469,7 +469,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
             "Should detect DEBUG = True in settings.py. Titles: {:?}",
@@ -490,7 +490,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("queries.py", "from django.db import connection\n\ndef get_users(name):\n    cursor = connection.cursor()\n    cursor.execute(\"SELECT * FROM users WHERE name = %s\", [name])\n    return cursor.fetchall()\n\ndef get_posts():\n    return Post.objects.raw(\"SELECT * FROM posts\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let raw_sql_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("Raw SQL"))
@@ -515,7 +515,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("settings.py", "import os\n\nSECRET_KEY = os.environ['SECRET_KEY']\nDEBUG = False\nALLOWED_HOSTS = ['*']\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings
                 .iter()
@@ -538,7 +538,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.py", "from django.http import JsonResponse\nfrom django.views.decorators.http import require_POST\nfrom django.contrib.auth.decorators import login_required\n\n@login_required\n@require_POST\ndef create_item(request):\n    name = request.POST.get('name')\n    item = Item.objects.create(name=name)\n    return JsonResponse({\"id\": item.id})\n\ndef list_items(request):\n    items = Item.objects.filter(active=True).values('id', 'name')\n    return JsonResponse({\"items\": list(items)})\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Clean Django view code should produce no findings, but got: {:?}",
@@ -553,7 +553,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("tests/settings.py", "DEBUG = True\nSECRET_KEY = 'test-secret-key-for-testing'\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag DEBUG=True or SECRET_KEY in test settings. Found: {:?}",
@@ -568,7 +568,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("queries.py", "def get_table_data(table_name):\n    return Model.objects.raw(\"SELECT * FROM \" + table_name)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let raw_sql: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
         assert!(
             !raw_sql.is_empty(),
@@ -588,7 +588,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("db/backends/postgresql/introspection.py", "def get_table_list(self, cursor):\n    cursor.execute(\"SELECT c.relname FROM pg_catalog.pg_class c\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
         assert!(raw_sql_findings.is_empty(), "Should not flag raw SQL in db/backends/. Found: {:?}",
             raw_sql_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
@@ -601,7 +601,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
             "Should still detect DEBUG = True in production settings"
@@ -617,7 +617,7 @@ mod tests {
             ("db/models/query.py", "class QuerySet:\n    def raw(self, raw_query):\n        return RawSQL(raw_query)\n"),
             ("contrib/postgres/operations.py", "def database_forwards(self):\n    cursor.execute(\"CREATE EXTENSION\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
         assert!(
             raw_sql_findings.is_empty(),
@@ -633,7 +633,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views/decorators/csrf.py", "from functools import wraps\n\ndef csrf_exempt(view_func):\n    @wraps(view_func)\n    def wrapper(*args, **kwargs):\n        return view_func(*args, **kwargs)\n    wrapper.csrf_exempt = True\n    return wrapper\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let csrf_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("CSRF")).collect();
         assert!(
             csrf_findings.is_empty(),
@@ -649,7 +649,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views/base.py", "class View:\n    # Copy possible attributes set by decorators, e.g. @csrf_exempt\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let csrf_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("CSRF")).collect();
         assert!(
             csrf_findings.is_empty(),
@@ -666,7 +666,7 @@ mod tests {
             ("management/commands/loaddata.py", "class Command(BaseCommand):\n    def handle(self):\n        cursor.execute(line)\n"),
             ("contrib/sites/management.py", "def create_default_site(app_config):\n    cursor.execute(command)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
         assert!(
             raw_sql_findings.is_empty(),

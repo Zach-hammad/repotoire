@@ -421,7 +421,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("Component.tsx", "function MyComponent({ show }) {\n  if (show) {\n    const [val, setVal] = useState(0);\n  }\n  return <div />;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect hook in conditional");
         assert!(
             findings
@@ -439,7 +439,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("LoopComponent.tsx", "function ListComponent({ items }) {\n  for (let i = 0; i < items.length; i++) {\n    const [val, setVal] = useState(items[i]);\n  }\n  return <div />;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect hook in loop");
         assert!(
             findings
@@ -457,7 +457,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("GoodComponent.tsx", "function GoodComponent({ items }) {\n  const [count, setCount] = useState(0);\n  const [name, setName] = useState(\"\");\n  useEffect(() => {\n    console.log(count);\n  }, [count]);\n  return <div>{count} {name}</div>;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Correct hook usage should produce no findings, but got: {:?}",
@@ -472,7 +472,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("NestedComponent.tsx", "function ParentComponent() {\n  function helperFunc() {\n    const [state, setState] = useState(0);\n    return state;\n  }\n  return <div />;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect hook in nested function"

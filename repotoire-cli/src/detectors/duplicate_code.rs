@@ -295,7 +295,7 @@ mod tests {
             ("billing.py", block),
             ("reporting.py", block),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect duplicate code blocks across two files"
@@ -315,7 +315,7 @@ mod tests {
             ("module_a.py", "def alpha():\n    x = 1\n    y = 2\n    z = 3\n    w = 4\n    return x + y + z + w\n"),
             ("module_b.py", "def beta():\n    a = 10\n    b = 20\n    c = 30\n    d = 40\n    return a * b * c * d\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag unique code blocks, but got: {:?}",

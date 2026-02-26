@@ -336,7 +336,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("state.py", "counter = 0\n\ndef increment():\n    global counter\n    counter += 1\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect 'global counter' inside function"
@@ -355,7 +355,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("widgets.py", "class Widget:\n    def merge(self):\n        \"\"\"\n        global or in CSS you might want to override a style.\n        \"\"\"\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag 'global' in docstring. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -367,7 +367,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("trans.py", "def func_a():\n    global _default\n    _default = get_default()\n\ndef func_b():\n    global _default\n    return _default\n\ndef func_c():\n    global _default\n    _default = None\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert_eq!(findings.len(), 1, "Should deduplicate same variable across functions. Found {} findings", findings.len());
     }
 
@@ -379,7 +379,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("clean.py", "def compute(x):\n    result = x * 2\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag local variables in functions, but got: {:?}",

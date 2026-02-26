@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_detects_eval_with_variable() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("handler.py");
         std::fs::write(
             &file,
@@ -677,12 +677,12 @@ def process(user_input):
     return result
 "#,
         )
-        .unwrap();
+        .expect("should write test file");
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect eval() with variable argument"
@@ -692,19 +692,19 @@ def process(user_input):
 
     #[test]
     fn test_no_finding_for_management_command() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let mgmt_dir = dir.path().join("management").join("commands");
-        std::fs::create_dir_all(&mgmt_dir).unwrap();
+        std::fs::create_dir_all(&mgmt_dir).expect("should write test file");
         let file = mgmt_dir.join("shell.py");
         std::fs::write(
             &file,
             "def handle(self, **options):\n    code = compile(source, '<shell>', 'exec')\n    exec(code)\n",
-        ).unwrap();
+        ).expect("should write test file");
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag exec() in management/commands/. Found: {:?}",
@@ -714,18 +714,18 @@ def process(user_input):
 
     #[test]
     fn test_no_finding_for_method_eval() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("smartif.py");
         std::fs::write(
             &file,
             "class Operator:\n    def eval(self, context):\n        return self.value\n\nresult = op.eval(context)\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         let eval_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("eval")).collect();
         assert!(eval_findings.is_empty(), "Should not flag .eval() method call. Found: {:?}",
             eval_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
@@ -733,18 +733,18 @@ def process(user_input):
 
     #[test]
     fn test_no_finding_for_safe_subprocess() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("runner.py");
         std::fs::write(
             &file,
             "import subprocess\n\ndef run_command(args):\n    result = subprocess.run(args, capture_output=True)\n    return result.stdout\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         let subprocess_findings: Vec<_> = findings.iter().filter(|f| {
             f.title.contains("subprocess") || f.title.contains("command") || f.title.contains("Shell") || f.title.contains("shell")
         }).collect();
@@ -754,7 +754,7 @@ def process(user_input):
 
     #[test]
     fn test_no_finding_for_literal_eval() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("safe.py");
         std::fs::write(
             &file,
@@ -763,12 +763,12 @@ import ast
 data = ast.literal_eval("[1, 2, 3]")
 "#,
         )
-        .unwrap();
+        .expect("should write test file");
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag ast.literal_eval (safe), but got: {:?}",

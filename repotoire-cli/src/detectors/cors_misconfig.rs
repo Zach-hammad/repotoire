@@ -257,7 +257,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config.conf", "Access-Control-Allow-Origin: *\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect wildcard CORS");
         assert!(
             findings.iter().any(|f| f.title.contains("CORS")),
@@ -273,7 +273,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("server.js", "const express = require('express');\nconst app = express();\napp.use((req, res, next) => {\n    res.setHeader('Access-Control-Allow-Origin', 'https://myapp.example.com');\n    next();\n});\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect CORS with specific origin. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

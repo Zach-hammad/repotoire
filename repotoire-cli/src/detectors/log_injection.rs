@@ -150,7 +150,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "import logging\n\ndef handle_request(request):\n    username = request.get(\"user\")\n    logging.info(f\"Login attempt for user: {username}\")\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect user input in log statement with f-string"
@@ -168,7 +168,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "import logging\n\ndef startup():\n    logging.info(\"Application started successfully\")\n    logging.debug(\"Debug mode enabled\")\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Static log messages should produce no findings, but got: {:?}",

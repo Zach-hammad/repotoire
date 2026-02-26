@@ -180,7 +180,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "fn main() {\n    let x = some_result.unwrap();\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("unwrap"));
     }
@@ -192,7 +192,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "#[test]\nfn test_something() {\n    let x = some_result.unwrap();\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 
@@ -203,7 +203,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "fn dangerous() {\n    unsafe {\n        do_something();\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -214,7 +214,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "fn dangerous() {\n    // SAFETY: pointer is valid and aligned\n    unsafe {\n        do_something();\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 
@@ -225,7 +225,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "fn process(items: &[Item]) {\n    for item in items {\n        let owned = item.clone();\n        do_something(owned);\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -236,7 +236,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "pub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -247,7 +247,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "#[must_use]\npub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 
@@ -258,7 +258,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "fn get_data(mutex: &Mutex<Data>) -> Data {\n    mutex.lock().unwrap().clone()\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -269,7 +269,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "fn get_handlers() -> Vec<Box<dyn Handler>> {\n    vec![]\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 }

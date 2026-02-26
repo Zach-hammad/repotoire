@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_non_confident_model_returns_empty() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("module.py");
         std::fs::write(
             &file,
@@ -321,7 +321,7 @@ def foo():
     return 42
 "#,
         )
-        .unwrap();
+        .expect("should write test file");
 
         let model = NgramModel::new(); // Empty model, not confident
         assert!(!model.is_confident());
@@ -329,7 +329,7 @@ def foo():
         let store = GraphStore::in_memory();
         let detector = SurprisalDetector::new(dir.path(), model);
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Non-confident model should produce no findings, but got: {:?}",

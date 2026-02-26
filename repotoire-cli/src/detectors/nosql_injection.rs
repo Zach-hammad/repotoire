@@ -381,7 +381,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("routes.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function findUser(req, res) {\n    const name = req.body.name;\n    const result = await User.find({ $where: `this.name == '${name}'` });\n    res.json(result);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect $where with user input from req.body"
@@ -400,7 +400,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("routes.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function findUser() {\n    const result = await User.find({ active: true });\n    return result;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Safe MongoDB query without user input should produce no findings, but got: {:?}",

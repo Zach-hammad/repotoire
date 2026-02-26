@@ -391,7 +391,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("builder.py", "def build_output(items):\n    result = \"\"\n    for item in items:\n        result += \"key: \"\n        result += \"value\"\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect string concatenation in loop (2+ concats to same var). Found: {:?}",
@@ -406,7 +406,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("builder.py", "def build_output(items):\n    parts = []\n    for item in items:\n        parts.append(str(item))\n    return ''.join(parts)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag list.append + join pattern. Found: {:?}",
@@ -421,7 +421,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("calc.py", "def total_price(items):\n    total = 0\n    for item in items:\n        total += item.price\n    return total\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag numeric accumulation (total += item.price). Found: {:?}",
@@ -436,7 +436,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("count.py", "def count_active(users):\n    count = 0\n    for user in users:\n        count += 1\n    return count\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag counter increment (count += 1). Found: {:?}",
@@ -451,7 +451,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result += \"prefix_\"\n        result += \"suffix_\"\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect string literal concat in loop (2+ concats)"
@@ -465,7 +465,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result = result + \"value\"\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         // Note: the = x + y pattern was removed, so this should no longer match
         // Only += with string literals is detected now
         assert!(
@@ -481,7 +481,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("forms.py", "for fs in formsets:\n    media += fs.media\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag media += fs.media (not string concat). Found: {:?}",
@@ -496,7 +496,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("builder.py", "for item in items:\n    process(item)\n\nresult += \"_suffix\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Concat after loop exits should not be flagged. Found: {:?}",
@@ -511,7 +511,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("slow.py", "result = \"\"\nfor item in items:\n    result += \"item: \"\n    result += \"value\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect string concat inside loop (2+ concats)"
@@ -525,7 +525,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.py", "for item in items:\n    url += \"/\"\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag single concat per iteration. Found: {:?}",
@@ -540,7 +540,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("builder.py", "for field in fields:\n    definition += \" \" + check\n    definition += \" \" + suffix\n    definition += \" \" + fk\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect multiple concats to same variable in loop"

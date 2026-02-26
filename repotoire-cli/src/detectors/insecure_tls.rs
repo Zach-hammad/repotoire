@@ -431,9 +431,9 @@ mod tests {
 
     #[test]
     fn test_python_verify_false() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("client.py");
-        std::fs::write(&file, "response = requests.get(url, verify=False)\n").unwrap();
+        std::fs::write(&file, "response = requests.get(url, verify=False)\n").expect("should write test file");
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -443,13 +443,13 @@ mod tests {
 
     #[test]
     fn test_js_reject_unauthorized() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("client.js");
         std::fs::write(
             &file,
             "const agent = new https.Agent({ rejectUnauthorized: false });\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -461,13 +461,13 @@ mod tests {
 
     #[test]
     fn test_go_insecure_skip_verify() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("client.go");
         std::fs::write(
             &file,
             "tlsConfig := &tls.Config{InsecureSkipVerify: true}\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -476,13 +476,13 @@ mod tests {
 
     #[test]
     fn test_rust_danger_accept() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("client.rs");
         std::fs::write(
             &file,
             "let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build()?;\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -494,13 +494,13 @@ mod tests {
 
     #[test]
     fn test_java_trust_all() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("Client.java");
         std::fs::write(
             &file,
             "TrustManager[] trustAllCerts = new TrustAllCerts();\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -509,11 +509,11 @@ mod tests {
 
     #[test]
     fn test_test_file_downgraded() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let test_dir = dir.path().join("tests");
-        std::fs::create_dir_all(&test_dir).unwrap();
+        std::fs::create_dir_all(&test_dir).expect("should write test file");
         let file = test_dir.join("test_client.py");
-        std::fs::write(&file, "response = requests.get(url, verify=False)\n").unwrap();
+        std::fs::write(&file, "response = requests.get(url, verify=False)\n").expect("should write test file");
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -527,13 +527,13 @@ mod tests {
 
     #[test]
     fn test_clean_code_no_findings() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("client.py");
         std::fs::write(
             &file,
             "response = requests.get(url)\nprint(response.status_code)\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();
@@ -542,9 +542,9 @@ mod tests {
 
     #[test]
     fn test_python_cert_none() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("server.py");
-        std::fs::write(&file, "ctx = ssl.create_default_context()\nctx.check_hostname = False\nctx.verify_mode = ssl.CERT_NONE\n").unwrap();
+        std::fs::write(&file, "ctx = ssl.create_default_context()\nctx.check_hostname = False\nctx.verify_mode = ssl.CERT_NONE\n").expect("should write test file");
 
         let detector = InsecureTlsDetector::new(dir.path());
         let findings = detector.scan_files();

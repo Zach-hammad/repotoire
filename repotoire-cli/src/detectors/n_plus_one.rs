@@ -420,7 +420,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.py", "def list_orders(user_ids):\n    results = []\n    for uid in user_ids:\n        order = Order.objects.filter(user_id=uid)\n        results.append(order)\n    return results\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect database query (.filter) inside a for loop"
@@ -438,7 +438,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views_good.py", "def list_orders(user_ids):\n    orders = Order.objects.filter(user_id__in=user_ids)\n    for order in orders:\n        print(order.total)\n    return orders\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag bulk query before loop (no query inside the loop), got: {:?}",

@@ -417,7 +417,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("auth.py", "import random\n\ndef generate_token():\n    token = random.random()\n    return str(token)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect random.random() used for token generation"
@@ -436,7 +436,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("simulation.py", "import random\n\ndef roll_dice():\n    return random.randint(1, 6)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag random used in non-security context, but got: {:?}",

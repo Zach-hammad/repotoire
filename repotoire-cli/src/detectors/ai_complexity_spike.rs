@@ -568,7 +568,7 @@ mod tests {
 
         let detector = AIComplexitySpikeDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("should detect complexity outlier");
 
         assert!(
             !findings.is_empty(),
@@ -597,7 +597,7 @@ mod tests {
 
         let detector = AIComplexitySpikeDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("should detect normal complexity");
 
         assert!(
             findings.is_empty(),

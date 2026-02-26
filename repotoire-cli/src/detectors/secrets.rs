@@ -505,7 +505,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config.rb", "\nAWS_ACCESS_KEY = \"AKIAIOSFODNN7ABCDEFG\"\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded AWS access key"
@@ -520,7 +520,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config.py", "\nimport os\nAWS_KEY = os.environ.get(\"AWS_ACCESS_KEY_ID\")\nSECRET = os.getenv(\"AWS_SECRET_ACCESS_KEY\")\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag secrets read from environment variables, but got: {:?}",
@@ -535,7 +535,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("auth.py", "def authenticate(username, password):\n    \"\"\"\n    Authenticate user with password.\n    password = hashlib.sha256(raw).hexdigest()\n    \"\"\"\n    return check_password(username, password)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag 'password' references in docstrings. Found: {:?}",
@@ -550,7 +550,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("models.py", "from pydantic import BaseModel\n\nclass LoginRequest(BaseModel):\n    username: str\n    password: str\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag password type annotations. Found: {:?}",
@@ -567,7 +567,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("models.rb", "password = CharField(max_length=128)\nsecret = SecretManager.from_config(settings)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag function/class calls as secrets. Found: {:?}",
@@ -583,7 +583,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config.rb", "password = [\"django.contrib.auth.hashers.PBKDF2PasswordHasher\"]\nsecret = {\"key\": \"value\", \"other\": \"data\"}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag list/dict literal assignments as secrets. Found: {:?}",
@@ -598,7 +598,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config.rb", "password = \"super_secret_password_123\"\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect real hardcoded password"
@@ -612,7 +612,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config.rb", "password = HARDCODED_SECRET_VALUE\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag variable/constant references as secrets. Found: {:?}",
@@ -627,7 +627,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.rb", "password=auth_password,\nsecret = settings.SECRET_KEY\nself._password = raw_password\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag variable references as secrets. Found: {:?}",
@@ -642,7 +642,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config.rb", "self.password = settings.EMAIL_HOST_PASSWORD if password is None else password\npassword=self.settings_dict[\"PASSWORD\"],\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag settings reads as secrets. Found: {:?}",
@@ -657,7 +657,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.rb", "csrf_secret = request.META[\"CSRF_COOKIE\"]\nold_password = self.cleaned_data[\"old_password\"]\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag request/form data reads as secrets. Found: {:?}",

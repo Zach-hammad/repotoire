@@ -359,7 +359,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("validate.py", "\nimport re\nuser_input = input(\"Enter data: \")\npattern = re.compile(r'(a+)+$')\npattern.match(user_input)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect catastrophic backtracking regex (a+)+"
@@ -374,7 +374,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.py", "\nimport re\npattern = re.compile(r'^[a-zA-Z0-9]+$')\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag safe regex without nested quantifiers, but got: {:?}",

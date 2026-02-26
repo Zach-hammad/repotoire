@@ -621,7 +621,7 @@ mod tests {
 
         let detector = AIMissingTestsDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("should detect missing tests");
         assert!(
             !findings.is_empty(),
             "Should flag complex function without tests"
@@ -648,7 +648,7 @@ mod tests {
 
         let detector = AIMissingTestsDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("should detect tested function");
         assert!(
             findings.is_empty(),
             "Should not flag function that has a test. Found: {:?}",
@@ -670,7 +670,7 @@ mod tests {
 
         let detector = AIMissingTestsDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("should detect simple function");
         assert!(
             findings.is_empty(),
             "Should not flag simple functions. Found: {:?}",

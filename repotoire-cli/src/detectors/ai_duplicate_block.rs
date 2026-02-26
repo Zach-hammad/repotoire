@@ -492,7 +492,7 @@ mod tests {
                 "def process_order(info):\n    value = validate(info)\n    if value is None:\n        raise ValueError('invalid')\n    output = transform(value)\n    return output\n",
             ),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("should detect duplicate blocks");
         assert!(
             !findings.is_empty(),
             "Should detect near-duplicate functions with same structure but different variable names"
@@ -521,7 +521,7 @@ mod tests {
                 "def export_csv(data, output_path):\n    with open(output_path, 'w') as f:\n        writer = csv.writer(f)\n        writer.writerow(data[0].keys())\n        for row in data:\n            writer.writerow(row.values())\n",
             ),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("should detect different functions");
         assert!(
             findings.is_empty(),
             "Should not flag structurally different functions. Found: {:?}",

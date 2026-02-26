@@ -414,7 +414,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("nested.py", "def process(data):\n    if True {\n        if True {\n            if True {\n                if True {\n                    if True {\n                        print(\"deeply nested\")\n                    }\n                }\n            }\n        }\n    }\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect deep nesting with 5 levels of braces"
@@ -434,7 +434,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("shallow.py", "def process(data):\n    result = {\"key\": \"value\"}\n    if True {\n        print(\"ok\")\n    }\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not detect deep nesting for shallow code, but got: {:?}",

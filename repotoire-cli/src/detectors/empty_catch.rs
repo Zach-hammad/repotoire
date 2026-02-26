@@ -411,7 +411,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except:\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect empty except: pass block"
@@ -430,7 +430,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except ValueError as e:\n        logger.error(e)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag exception that is properly handled, but got: {:?}",
@@ -445,7 +445,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("optional.py", "try:\n    import yaml\nexcept ImportError:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag except ImportError: pass (optional import idiom). Found: {:?}",
@@ -460,7 +460,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("lookup.py", "try:\n    value = cache[key]\nexcept KeyError:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag safe single-line probe with KeyError. Found: {:?}",
@@ -475,7 +475,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("bad.py", "try:\n    do_something()\nexcept:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect bare except: pass"
@@ -494,7 +494,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("bad.py", "try:\n    do_something()\nexcept Exception:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect except Exception: pass (too broad)"
@@ -513,7 +513,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.py", "def get_user(pk):\n    try:\n        return User.objects.get(pk=pk)\n    except User.DoesNotExist:\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect empty catch");
         assert!(findings.iter().all(|f| f.severity == Severity::Low),
             "Specific named exception should be Low severity. Got: {:?}",
@@ -527,7 +527,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except Exception:\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect broad except");
         assert!(findings.iter().any(|f| f.severity != Severity::Low),
             "Broad 'except Exception:' should NOT be Low severity. Got: {:?}",
@@ -541,7 +541,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("response.py", "class Response:\n    def close(self):\n        for closer in self._closers:\n            try:\n                closer()\n            except Exception:\n                pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag empty catch in close() method. Found: {:?}",
@@ -556,7 +556,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("cursor.py", "class Cursor:\n    def __exit__(self, exc_type, exc_val, tb):\n        try:\n            self.close()\n        except db.Error:\n            pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag empty catch in __exit__ method. Found: {:?}",
@@ -571,7 +571,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("compat.py", "try:\n    from yaml import CSafeLoader as SafeLoader\nexcept Exception:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag import probing with broad except. Found: {:?}",
@@ -586,7 +586,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.py", "def get_size(f):\n    try:\n        return os.path.getsize(f.name)\n    except (OSError, TypeError):\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag safe single-line probe with specific exceptions. Found: {:?}",
@@ -601,7 +601,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("handler.py", "def process_data():\n    try:\n        result = complex_operation()\n        save_to_db(result)\n    except Exception:\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still flag broad except in regular function with multi-line try body"

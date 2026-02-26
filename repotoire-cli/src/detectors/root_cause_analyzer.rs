@@ -604,7 +604,7 @@ mod tests {
         assert_eq!(analysis.cascading_findings.len(), 2);
 
         // Check enrichment
-        let god_class = enriched.iter().find(|f| f.id == "1").unwrap();
+        let god_class = enriched.iter().find(|f| f.id == "1").expect("element should exist");
         assert!(god_class.description.contains("ROOT CAUSE ANALYSIS"));
     }
 

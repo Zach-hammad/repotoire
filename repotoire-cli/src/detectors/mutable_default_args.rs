@@ -261,7 +261,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("service.py", "def collect_items(items=[]):\n    items.append(\"new\")\n    return items\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect mutable default argument []. Found: {:?}",
@@ -280,7 +280,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("service.py", "def process(count=0, name=\"default\", flag=True):\n    return count + len(name)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag immutable defaults. Found: {:?}",

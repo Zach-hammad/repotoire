@@ -122,7 +122,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.py", "import torch\nmodel = torch.load('model.pth')\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).unwrap();
+        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
     }
@@ -134,7 +134,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.py", "import torch\nmodel = torch.load('model.pth', weights_only=True)\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).unwrap();
+        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 
@@ -145,7 +145,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.py", "import numpy as np\nif x == np.nan:\n    pass\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).unwrap();
+        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -156,7 +156,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.py", "tensor.require_grad = True\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).unwrap();
+        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -167,7 +167,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.py", "import pandas as pd\ndf['col1']['col2'] = value\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).unwrap();
+        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 }

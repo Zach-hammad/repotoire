@@ -372,7 +372,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("parser.py", "import re\n\ndef process_lines(lines):\n    for line in lines:\n        pattern = re.compile(r'\\d+')\n        match = pattern.match(line)\n        if match:\n            print(match.group())\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect re.compile() inside a for loop"
@@ -390,7 +390,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("parser_good.py", "import re\n\ndef process_lines(lines):\n    pattern = re.compile(r'\\d+')\n    for line in lines:\n        match = pattern.match(line)\n        if match:\n            print(match.group())\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag re.compile() outside a loop, got: {:?}",
@@ -405,7 +405,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("parser.py", "import re\n\nfor item in items:\n    process(item)\n\npattern = re.compile(r'\\w+')\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "re.compile after loop exits should not be flagged. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -417,7 +417,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("security.py", "import re\n\nREDIRECT_HOSTS = [re.compile(r) for r in settings.ALLOWED_REDIRECTS]\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "List comprehension re.compile should not be flagged. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -429,7 +429,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("settings.py", "LANGUAGES = [\n    ('en', 'English'),\n    ('fr', 'French'),\n]\n# LANGUAGES_BIDI = re.compile(r'...')\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Commented-out re.compile should not be flagged. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -441,7 +441,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("slow.py", "import re\n\nfor pattern in patterns:\n    compiled = re.compile(pattern)\n    compiled.match(text)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect re.compile inside a for loop");
     }
 }

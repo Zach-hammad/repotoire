@@ -272,7 +272,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "def login(user, password):\n    logger.info(f\"Authenticating with password: {password}\")\n    return authenticate(user, password)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect password logged in cleartext");
         assert!(
             findings.iter().any(|f| f.title.contains("Password")),
@@ -288,7 +288,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "def login(user, password):\n    result = authenticate(user, password)\n    logger.info(f\"User {user} logged in successfully\")\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect anything in safe code. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

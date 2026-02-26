@@ -543,7 +543,7 @@ mod tests {
 
         let detector = ShotgunSurgeryDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
 
         assert!(!findings.is_empty());
         assert!(findings[0].title.contains("SharedService"));

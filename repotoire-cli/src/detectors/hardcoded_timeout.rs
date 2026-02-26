@@ -308,7 +308,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("client.py", "import time\n\ndef wait_for_response():\n    time.sleep(30000)\n    return get_data()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded timeout value. Found: {:?}",
@@ -323,7 +323,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("client.py", "import os\n\nTIMEOUT = int(os.environ.get('REQUEST_TIMEOUT', '5000'))\n\ndef fetch_data():\n    return request(url, timeout=TIMEOUT)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag configurable timeout. Found: {:?}",

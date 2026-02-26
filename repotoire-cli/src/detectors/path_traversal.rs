@@ -311,7 +311,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("vuln.py", "def download(request):\n    filename = request.GET.get(\"file\")\n    f = open(request.GET[\"file\"], \"r\")\n    return f.read()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect open() with user-controlled path from request"
@@ -334,7 +334,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("safe.py", "def read_config():\n    with open(\"config/settings.json\", \"r\") as f:\n        return json.load(f)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Hardcoded path should have no path traversal findings, but got: {:?}",
@@ -349,7 +349,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.py", "from django.http import HttpResponseRedirect\n\ndef my_view(request):\n    return HttpResponseRedirect(request.get_full_path())\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag request.get_full_path() as path traversal. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -361,7 +361,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("library.py", "def process(request):\n    params = list(request.GET.keys())\n    params.remove('page')\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag list.remove() as file operation. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -373,7 +373,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("download.py", "import os\n\ndef download(request):\n    filepath = os.path.join('/uploads', request.GET.get('file'))\n    return open(filepath, 'r').read()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect real path traversal with request.GET");
     }
 }

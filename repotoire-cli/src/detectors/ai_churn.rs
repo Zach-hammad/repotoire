@@ -637,7 +637,7 @@ mod tests {
         let store = crate::graph::GraphStore::in_memory();
         let detector = AIChurnDetector::new();
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("should detect without git");
         assert!(findings.is_empty(), "Should return empty when no git repo");
     }
 

@@ -605,7 +605,7 @@ mod tests {
 
         let detector = GodClassDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -620,7 +620,7 @@ mod tests {
 
         let detector = GodClassDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -635,7 +635,7 @@ mod tests {
 
         let detector = GodClassDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1, "Actual god class should be flagged");
         assert!(findings[0].title.contains("OrderProcessor"));

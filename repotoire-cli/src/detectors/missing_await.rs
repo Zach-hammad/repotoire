@@ -342,7 +342,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("api.js", "async function loadData() {\n  const config = \"default\";\n  fetch(\"/api/data\");\n  const result = await process(config);\n  return result;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect fetch() without await in async function"
@@ -356,7 +356,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("api_good.js", "async function loadData() {\n  const res = await fetch(\"/api/data\");\n  const data = await res.json();\n  return data;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag properly awaited calls, got: {:?}",

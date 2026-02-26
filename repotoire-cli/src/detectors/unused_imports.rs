@@ -405,18 +405,18 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_noqa_suppressed_import() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("module.py");
         std::fs::write(
             &file,
             "from flask import Flask  # noqa: F401\nfrom utils import helper  # noqa\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let store = GraphStore::in_memory();
         let detector = UnusedImportsDetector::new(dir.path());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag imports with # noqa suppression. Found: {:?}",
@@ -426,18 +426,18 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_all_re_export() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("api.py");
         std::fs::write(
             &file,
             "from .models import User, Post\nfrom .views import ListView\n\n__all__ = [\"User\", \"Post\", \"ListView\"]\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let store = GraphStore::in_memory();
         let detector = UnusedImportsDetector::new(dir.path());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag imports listed in __all__. Found: {:?}",
@@ -455,7 +455,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("typed.py", "from __future__ import annotations\nfrom typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from models import UserModel\n    from services import AuthService\n\ndef greet() -> str:\n    return \"hello\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let tc_findings: Vec<_> = findings.iter()
             .filter(|f| f.title.contains("UserModel") || f.title.contains("AuthService"))
             .collect();
@@ -473,7 +473,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.py", "from django.db.models import (\n    CharField,\n    IntegerField,\n)\n\nname = CharField(max_length=100)\nage = IntegerField()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should handle multi-line imports (CharField and IntegerField are used). Found: {:?}",
@@ -488,7 +488,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("unused.py", "import os\nimport sys\n\nprint(sys.argv)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect unused import (os)"
@@ -502,7 +502,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("lookups.py", "def get_prep_lookup(self):\n    from django.db.models.sql.query import Query\n    if isinstance(self.rhs, Query):\n        return self.rhs\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag function-scoped imports (used to avoid circular imports). Found: {:?}",
@@ -517,7 +517,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("base.py", "class DatabaseWrapper:\n    def connect(self):\n        from .psycopg_any import IsolationLevel, is_psycopg3\n        if is_psycopg3:\n            conn.isolation_level = IsolationLevel.READ_COMMITTED\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag indented imports inside methods. Found: {:?}",

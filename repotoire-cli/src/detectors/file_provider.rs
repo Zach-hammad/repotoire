@@ -254,7 +254,7 @@ mod tests {
         let rs_files = provider.files_with_extension("rs");
         assert_eq!(rs_files.len(), 2);
         for p in &rs_files {
-            assert_eq!(p.extension().unwrap(), "rs");
+            assert_eq!(p.extension().expect("should have extension"), "rs");
         }
 
         let md_files = provider.files_with_extension("md");
@@ -284,7 +284,7 @@ mod tests {
         let python_files = provider.files_with_extensions(&["py", "pyi"]);
         assert_eq!(python_files.len(), 2);
         for p in &python_files {
-            let ext = p.extension().unwrap().to_str().unwrap();
+            let ext = p.extension().expect("should have extension").to_str().expect("should have extension");
             assert!(ext == "py" || ext == "pyi");
         }
 

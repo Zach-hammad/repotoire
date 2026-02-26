@@ -259,7 +259,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("handler.py", "def process():\n    try:\n        do_work()\n    except:\n        log(\"something failed\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect bare except:"
@@ -278,7 +278,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("handler.py", "def process():\n    try:\n        do_work()\n    except ValueError as e:\n        log(f\"bad value: {e}\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag specific except ValueError, but got: {:?}",

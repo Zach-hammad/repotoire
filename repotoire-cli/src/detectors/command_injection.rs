@@ -441,7 +441,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("vuln.py", "import os\n\ndef run_command(user_input):\n    os.system(\"ls \" + user_input)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect os.system with user input concatenation"
@@ -464,7 +464,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("safe.py", "import subprocess\n\ndef list_files():\n    result = subprocess.run([\"ls\", \"-la\"], capture_output=True)\n    return result.stdout\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Safe subprocess usage with list args should have no findings, but got: {:?}",

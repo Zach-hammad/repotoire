@@ -399,7 +399,7 @@ mod tests {
 
         let detector = LazyClassDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
 
         // Should NOT flag - class has many callers
         assert!(
@@ -428,7 +428,7 @@ mod tests {
 
         let detector = LazyClassDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).unwrap();
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
 
         // Should flag - unused class
         assert_eq!(findings.len(), 1);

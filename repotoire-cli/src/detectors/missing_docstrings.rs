@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_detects_missing_docstring() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("module.py");
         std::fs::write(
             &file,
@@ -275,7 +275,7 @@ mod tests {
     return 0
 "#,
         )
-        .unwrap();
+        .expect("should write test file");
 
         let store = GraphStore::in_memory();
         let file_path_str = file.to_string_lossy().to_string();
@@ -288,7 +288,7 @@ mod tests {
 
         let detector = MissingDocstringsDetector::new(dir.path());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect missing docstring. Found: {:?}",
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_when_docstring_present() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("module.py");
         std::fs::write(
             &file,
@@ -313,7 +313,7 @@ mod tests {
     return 0
 "#,
         )
-        .unwrap();
+        .expect("should write test file");
 
         let store = GraphStore::in_memory();
         let file_path_str = file.to_string_lossy().to_string();
@@ -325,7 +325,7 @@ mod tests {
 
         let detector = MissingDocstringsDetector::new(dir.path());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag function with docstring. Found: {:?}",

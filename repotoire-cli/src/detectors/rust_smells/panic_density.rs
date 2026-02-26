@@ -307,7 +307,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "\nfn fragile() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n    let d = qux().expect(\"oops\");\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert_eq!(findings.len(), 1, "should flag function with 4 panic calls");
         assert_eq!(findings[0].severity, Severity::Medium);
         assert!(findings[0].title.contains("fragile"));
@@ -322,7 +322,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "\nfn borderline() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "3 calls should not be flagged");
     }
 
@@ -334,7 +334,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "\nfn one() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn two() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn three() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn four() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         // No function exceeds 3, but file total is 11 > 10
         let file_findings: Vec<_> = findings
             .iter()
@@ -351,7 +351,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "\n#[cfg(test)]\nmod tests {\n    fn test_something() {\n        let a = foo().unwrap();\n        let b = bar().unwrap();\n        let c = baz().unwrap();\n        let d = qux().unwrap();\n        let e = quux().unwrap();\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "test code should be skipped");
     }
 
@@ -362,7 +362,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "\nfn panicky() {\n    if bad { panic!(\"oh no\"); }\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    panic!(\"fatal\");\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("4"));
     }
@@ -389,7 +389,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "\nfn init() {\n    REGEX.get_or_init(|| make_regex().unwrap());\n    do_stuff_a();\n    do_stuff_b();\n    do_stuff_c();\n    do_stuff_d();\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n    let d = qux().unwrap();\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         // The get_or_init line is safe; remaining 4 should trigger
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("4"), "should count 4 non-safe panics");
@@ -402,7 +402,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("test.rs", "\nfn clean() -> Result<(), Error> {\n    let a = foo()?;\n    let b = bar().unwrap_or_default();\n    Ok(())\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).unwrap();
+        let findings = detector.detect(&graph, &files).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 }

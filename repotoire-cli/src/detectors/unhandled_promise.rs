@@ -350,7 +350,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("service.js", "async function handleRequest() {\n  const x = 1;\n  fetch(\"/api/data\").then(res => res.json());\n  return x;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect promise .then() without .catch()"
@@ -364,7 +364,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("service_good.js", "async function handleRequest() {\n  fetch(\"/api/data\")\n    .then(res => res.json())\n    .catch(err => console.error(err));\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag promise with .catch(), got: {:?}",

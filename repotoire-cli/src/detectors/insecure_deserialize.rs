@@ -348,7 +348,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config_loader.py", "import yaml\n\ndef load_config(data):\n    config = yaml.load(data)\n    return config\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect yaml.load without SafeLoader");
         assert!(
             findings.iter().any(|f| f.title.contains("YAML") || f.title.contains("yaml")),
@@ -364,7 +364,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("config_loader.py", "import json\n\ndef save_config(config):\n    output = json.dumps(config, indent=2)\n    with open(\"config.json\", \"w\") as f:\n        f.write(output)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect json.dumps (serialization, not deserialization). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

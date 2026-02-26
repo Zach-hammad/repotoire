@@ -657,7 +657,7 @@ mod tests {
             ("handlers/order.py", "def create_order(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
             ("handlers/product.py", "def create_product(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("should detect boilerplate");
         assert!(
             !findings.is_empty(),
             "Should detect cluster of 3 structurally identical functions"
@@ -673,7 +673,7 @@ mod tests {
             ("search.py", "def search(query, filters):\n    results = []\n    for item in database.query(query):\n        if matches_filters(item, filters):\n            results.append(item)\n    return sorted(results, key=lambda x: x.score)\n"),
             ("export.py", "def export_csv(data, output_path):\n    with open(output_path, 'w') as f:\n        writer = csv.writer(f)\n        writer.writerow(data[0].keys())\n        for row in data:\n            writer.writerow(row.values())\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("should detect diverse functions");
         assert!(
             findings.is_empty(),
             "Should not flag structurally diverse functions. Found: {:?}",

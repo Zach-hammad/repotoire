@@ -212,7 +212,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "from os.path import *\n\nresult = join(\"/tmp\", \"file.txt\")\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect wildcard import. Found: {:?}",
@@ -227,7 +227,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "from os.path import join, exists\n\nresult = join(\"/tmp\", \"file.txt\")\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag explicit imports. Found: {:?}",
@@ -242,7 +242,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("__init__.py", "from .models import *\nfrom .views import *\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag relative wildcard imports in __init__.py (re-export pattern). Found: {:?}",
@@ -257,7 +257,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("__init__.py", "from django.db.models.fields import *\nfrom os.path import *\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag ANY wildcard imports in __init__.py (all are re-exports). Found: {:?}",
@@ -272,7 +272,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "from os.path import *\nresult = join('/tmp', 'file')\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect wildcard in regular files");
     }
 }

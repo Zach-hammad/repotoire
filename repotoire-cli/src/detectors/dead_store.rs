@@ -368,7 +368,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("unused.py", "def compute():\n    unused_var = expensive_calculation()\n    return 42\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("unused_var")),
             "Should detect dead store 'unused_var'. Found: {:?}",
@@ -383,7 +383,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("used.py", "def compute():\n    value = expensive_calculation()\n    return value + 1\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         let dead_store_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("value"))

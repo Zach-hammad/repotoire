@@ -313,7 +313,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("service.py", "\nfrom unittest.mock import Mock\n\ndef get_client():\n    client = Mock()\n    return client\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect test code (Mock) in production file"
@@ -328,7 +328,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("service.py", "\nimport os\n\ndef get_config():\n    return os.environ.get(\"APP_CONFIG\", \"default\")\n\ndef process_data(data):\n    return [item.strip() for item in data]\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag clean production code, but got: {:?}",

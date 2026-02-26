@@ -640,7 +640,7 @@ mod tests {
 
     #[test]
     fn test_parse_cargo_lock() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let lock = dir.path().join("Cargo.lock");
         std::fs::write(
             &lock,
@@ -654,7 +654,7 @@ name = "tokio"
 version = "1.28.0"
 "#,
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = DepAuditDetector::new(dir.path());
         let deps = detector.parse_cargo_lockfile(&lock);
@@ -667,13 +667,13 @@ version = "1.28.0"
 
     #[test]
     fn test_parse_requirements_txt() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let req = dir.path().join("requirements.txt");
         std::fs::write(
             &req,
             "# dependencies\nflask==2.3.0\nrequests==2.28.1\n-r other.txt\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = DepAuditDetector::new(dir.path());
         let deps = detector.parse_requirements_txt(&req);
@@ -684,7 +684,7 @@ version = "1.28.0"
 
     #[test]
     fn test_parse_npm_lockfile_v2() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let lock = dir.path().join("package-lock.json");
         std::fs::write(
             &lock,
@@ -698,7 +698,7 @@ version = "1.28.0"
   }
 }"#,
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = DepAuditDetector::new(dir.path());
         let deps = detector.parse_npm_lockfile(&lock);
@@ -709,7 +709,7 @@ version = "1.28.0"
 
     #[test]
     fn test_no_lockfiles_returns_empty() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let detector = DepAuditDetector::new(dir.path());
         let deps = detector.discover_dependencies();
         assert!(deps.is_empty());

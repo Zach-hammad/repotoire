@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn test_detects_long_method() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let store = GraphStore::in_memory();
 
         // Add a function node with line_end - line_start = 120 (> threshold 50)
@@ -279,7 +279,7 @@ mod tests {
 
         let detector = LongMethodsDetector::new(dir.path());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect function with 120 lines (threshold 50)"
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_short_method() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let store = GraphStore::in_memory();
 
         // Add a function with only 20 lines (< threshold 50)
@@ -304,7 +304,7 @@ mod tests {
 
         let detector = LongMethodsDetector::new(dir.path());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag a 20-line function, but got: {:?}",

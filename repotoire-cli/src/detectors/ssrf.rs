@@ -217,7 +217,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("vuln.py", "import requests\n\ndef fetch_url(req):\n    url = req.body.get(\"url\")\n    response = requests.get(req.body[\"url\"])\n    return response.text\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect requests.get with user-controlled URL from req.body"
@@ -240,7 +240,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("safe.py", "import requests\n\ndef fetch_data():\n    response = requests.get(\"https://api.example.com/data\")\n    return response.json()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Hardcoded URL should have no SSRF findings, but got: {:?}",

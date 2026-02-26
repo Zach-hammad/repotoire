@@ -426,7 +426,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.py", "\ndef single_value():\n    yield 42\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect single-yield generator"
@@ -441,7 +441,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.py", "\ndef multi_yield(items):\n    for item in items:\n        yield item * 2\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag generator with yield inside a loop, but got: {:?}",
@@ -456,7 +456,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("deps.py", "from fastapi import Depends\n\ndef get_db():\n    db = SessionLocal()\n    try:\n        yield db\n    finally:\n        db.close()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag FastAPI try/yield/finally dependency. Found: {:?}",
@@ -471,7 +471,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.py", "from contextlib import contextmanager\n\n@contextmanager\ndef managed_resource():\n    resource = acquire()\n    try:\n        yield resource\n    finally:\n        release(resource)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag contextmanager try/yield/finally. Found: {:?}",
@@ -486,7 +486,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("iterators.py", "def __iter__(self):\n    yield from self.items\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag yield from as single-yield. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -498,7 +498,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("paginator.py", "def _check(self):\n    warnings.warn(\"Pagination may yield inconsistent results\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag 'yield' inside string literal. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -510,7 +510,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("errors.py", "from contextlib import contextmanager\n\n@contextmanager\ndef wrap_errors():\n    try:\n        yield\n    except DatabaseError:\n        raise\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag @contextmanager even without finally. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -524,7 +524,7 @@ mod tests {
             ("widgets.py", "class Widget:\n    def subwidgets(self, name, value):\n        yield self.get_context(name, value)\n"),
             ("files/uploadedfile.py", "class InMemoryUploadedFile(UploadedFile):\n    def chunks(self, chunk_size=None):\n        yield self.read()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag polymorphic interface methods. Found: {:?}",

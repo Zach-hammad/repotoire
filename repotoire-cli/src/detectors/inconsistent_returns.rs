@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_detects_inconsistent_returns() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("logic.py");
         // Function that has both `return item` (value) and `return None` (none)
         let code = r#"def find_item(items, target):
@@ -266,7 +266,7 @@ mod tests {
             return item
     return None
 "#;
-        std::fs::write(&file, code).unwrap();
+        std::fs::write(&file, code).expect("should write test file");
 
         let store = GraphStore::in_memory();
         let file_path = file.to_string_lossy().to_string();
@@ -277,7 +277,7 @@ mod tests {
 
         let detector = InconsistentReturnsDetector::new(dir.path());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect function with mixed return (value + implicit None)"
@@ -291,14 +291,14 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_consistent_returns() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("logic.py");
         let code = r#"def add(a, b):
     result = a + b
     return result
     return 0
 "#;
-        std::fs::write(&file, code).unwrap();
+        std::fs::write(&file, code).expect("should write test file");
 
         let store = GraphStore::in_memory();
         let file_path = file.to_string_lossy().to_string();
@@ -309,7 +309,7 @@ mod tests {
 
         let detector = InconsistentReturnsDetector::new(dir.path());
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag function with consistent return values, but got: {:?}",

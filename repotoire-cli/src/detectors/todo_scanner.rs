@@ -287,7 +287,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("tasks.py", "def process():\n    # TODO: refactor this function\n    # FIXME: handle edge case\n    # HACK: workaround for upstream bug\n    return 42\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.len() >= 3,
             "Should detect TODO, FIXME, and HACK. Found {} findings: {:?}",
@@ -303,7 +303,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("clean.py", "# This function processes data.\n# It handles all edge cases properly.\ndef process():\n    return 42\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag normal comments. Found: {:?}",

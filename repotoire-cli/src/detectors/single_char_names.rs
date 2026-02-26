@@ -303,7 +303,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.js", "function process() {\n    let q = getData();\n    return q;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.to_lowercase().contains("q")),
             "Should detect single-char variable 'q'. Found: {:?}",
@@ -318,7 +318,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.py", "for i in range(10):\n    print(i)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag loop index 'i'. Found: {:?}",

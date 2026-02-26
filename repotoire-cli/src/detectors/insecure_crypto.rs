@@ -542,7 +542,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("crypto_util.py", "import hashlib\n\ndef compute_hash(data):\n    return hashlib.md5(data).hexdigest()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect hashlib.md5 usage");
         assert!(
             findings.iter().any(|f| f.title.contains("MD5") || f.title.contains("SHA1")),
@@ -558,7 +558,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("crypto_util.py", "import hashlib\n\ndef compute_hash(data):\n    return hashlib.sha256(data).hexdigest()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect sha256 as insecure. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -570,7 +570,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("cache.py", "import hashlib\n\ndef make_cache_key(data):\n    return hashlib.md5(data.encode(), usedforsecurity=False).hexdigest()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag md5 with usedforsecurity=False. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -582,7 +582,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("text.py", "from django.db.models import Transform\n\nclass MD5(Transform):\n    function = 'MD5'\n    lookup_name = 'md5'\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag class MD5() definition. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -594,7 +594,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("_functions.py", "import hashlib\n\ndef _sqlite_md5(text):\n    return hashlib.md5(text.encode()).hexdigest()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag _sqlite_md5 shim function. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -606,7 +606,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("auth.py", "import hashlib\n\ndef hash_password(password, salt):\n    return hashlib.md5((salt + password).encode()).hexdigest()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect real md5 password hashing");
     }
 
@@ -617,7 +617,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("template/loaders/cached.py", "def generate_hash(self, values):\n    return hashlib.sha1(\"|\".join(values).encode()).hexdigest()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag SHA1 used for cache key generation. Found: {:?}",
@@ -632,7 +632,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("scripts/do_release.py", "checksums = [\n    (\"md5\", hashlib.md5),\n    (\"sha1\", hashlib.sha1),\n    (\"sha256\", hashlib.sha256),\n]\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag hashes in release/build scripts. Found: {:?}",

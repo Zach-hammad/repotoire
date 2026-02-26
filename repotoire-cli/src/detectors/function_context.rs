@@ -598,12 +598,12 @@ mod tests {
         assert_eq!(contexts.len(), 7);
 
         // Hub should be detected (3 callers)
-        let hub_ctx = contexts.get("hub").unwrap();
+        let hub_ctx = contexts.get("hub").expect("key should exist");
         assert_eq!(hub_ctx.in_degree, 3);
         assert_eq!(hub_ctx.out_degree, 3);
 
         // Util should be detected (called from multiple modules)
-        let util_ctx = contexts.get("util").unwrap();
+        let util_ctx = contexts.get("util").expect("key should exist");
         assert!(
             util_ctx.caller_modules >= 2,
             "util caller_modules={}",

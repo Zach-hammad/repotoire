@@ -375,7 +375,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("server.js", "\nconst data = req.body;\nObject.assign(config, data);\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect Object.assign with user input from req.body"
@@ -390,7 +390,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.js", "\nconst defaults = { color: \"blue\" };\nconst merged = Object.assign({}, defaults);\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag Object.assign without user input, but got: {:?}",

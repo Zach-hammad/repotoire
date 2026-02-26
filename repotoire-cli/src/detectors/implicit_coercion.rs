@@ -231,7 +231,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("check.js", "function check(value) {\n    if (value == 'hello') {\n        return true;\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect == instead of ==="
@@ -250,7 +250,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("check.js", "function check(value) {\n    if (value === 'hello') {\n        return true;\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag strict equality ===, but got: {:?}",

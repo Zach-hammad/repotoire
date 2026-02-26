@@ -313,7 +313,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("nested.js", "getData(function(a) {\n  process(a, function(b) {\n    transform(b, function(c) {\n      save(c, function(d) {\n        done(d);\n      });\n    });\n  });\n});\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect deeply nested callbacks (4 levels)"
@@ -331,7 +331,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("shallow.js", "getData(function(a) {\n  process(a);\n});\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag shallow (1 level) callbacks, got: {:?}",
@@ -346,7 +346,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("admin.js", "var DateTimeShortcuts = {\n    init: function() {\n        this.setup();\n    },\n    setup: function() {\n        this.render();\n    },\n    render: function() {\n        this.draw();\n    },\n    draw: function() {\n        console.log('done');\n    }\n};\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Object methods should not be counted as callback nesting. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

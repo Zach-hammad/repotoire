@@ -453,7 +453,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("processor.py", "\ndef process():\n    while True:\n        do_something()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect while True without break"
@@ -468,7 +468,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("processor.py", "\ndef process():\n    while True:\n        data = get_data()\n        if data is None:\n            break\n        handle(data)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag while True that has a break, but got: {:?}",

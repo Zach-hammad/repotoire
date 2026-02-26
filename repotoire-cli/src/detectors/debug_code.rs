@@ -290,7 +290,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "def process(data):\n    print(data)\n    return data + 1\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect print() statement. Found: {:?}",
@@ -305,7 +305,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "import logging\n\nlogger = logging.getLogger(__name__)\n\ndef process(data):\n    logger.info(\"Processing data\")\n    return data + 1\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag proper logging. Found: {:?}",
@@ -320,7 +320,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "def run_server():\n    \"\"\"\n    Start the server.\n    Use debug = True for development.\n    The debugger provides interactive tracing.\n    \"\"\"\n    app.run()\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag debug/debugger inside docstrings. Found: {:?}",
@@ -335,7 +335,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("cli.py", "import click\n\n@click.option(\"--debug\", is_flag=True, help=\"Enable debug mode\")\ndef main(debug):\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag debug in CLI option strings. Found: {:?}",
@@ -350,7 +350,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("filters.py", "def pprint(value):\n    return str(value)\n\nresult = pprint(data)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag pprint(). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -362,7 +362,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("mgmt.py", "def handle(self):\n    if verbosity >= 2:\n        print(\"Processing...\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag verbosity-guarded print(). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -374,7 +374,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("management/commands/migrate.py", "def handle(self):\n    print(\"Running migrations...\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag print() in management commands. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -386,7 +386,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("views.py", "from django.template import Engine\n\nDEBUG_ENGINE = Engine(\n    debug=True,\n    libraries={},\n)\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag debug=True as keyword argument. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -398,7 +398,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils/ogrinfo.py", "def ogrinfo(data_source):\n    \"\"\"Walk the available layers.\"\"\"\n    print(data_source.name)\n    print(layer.num_feat)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag print() in info utilities. Found: {:?}",
@@ -413,7 +413,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils/archive.py", "def extract(self):\n    try:\n        do_something()\n    except Exception as exc:\n        print(\"Invalid member: %s\" % exc)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag print() in except blocks. Found: {:?}",

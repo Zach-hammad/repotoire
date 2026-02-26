@@ -458,7 +458,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.js", "const express = require('express');\nconst app = express();\n\napp.get('/api/users', (req, res) => {\n  res.json({ users: [] });\n});\n\napp.post('/api/users', (req, res) => {\n  res.json({ created: true });\n});\n\napp.listen(3000);\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
 
         assert!(!findings.is_empty(), "Should detect security issues");
         assert!(
@@ -475,7 +475,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("server.js", "const express = require('express');\nconst helmet = require('helmet');\nconst cors = require('cors');\nconst rateLimit = require('express-rate-limit');\n\nconst app = express();\napp.use(helmet());\napp.use(cors());\napp.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));\napp.use(express.json({ limit: '10kb' }));\n\napp.get('/api/data', (req, res) => {\n  res.json({ ok: true });\n});\n\napp.listen(3000);\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
 
         // Should NOT flag helmet, cors, rate-limit, or body-parser-limit
         assert!(
@@ -499,7 +499,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("utils.js", "function add(a, b) {\n  return a + b;\n}\n\nfunction multiply(a, b) {\n  return a * b;\n}\n\nmodule.exports = { add, multiply };\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),

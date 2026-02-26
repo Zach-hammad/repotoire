@@ -370,7 +370,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("auth.py", "import jwt\n\ndef decode_token(token):\n    payload = jwt.decode(token, algorithm=\"none\")\n    return payload\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect JWT algorithm='none'"
@@ -393,7 +393,7 @@ mod tests {
         let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("auth.py", "import jwt\n\ndef decode_token(token, public_key):\n    payload = jwt.decode(token, public_key, algorithms=[\"RS256\"])\n    return payload\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).unwrap();
+        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Secure JWT with RS256 should produce no findings, but got: {:?}",

@@ -173,7 +173,7 @@ fn test_node_package_detection() {
         }
         "#;
 
-    let pkg: PackageJson = serde_json::from_str(content).unwrap();
+    let pkg: PackageJson = serde_json::from_str(content).expect("should parse JSON");
     let mut frameworks = HashSet::new();
     detect_node_frameworks(&pkg, &mut frameworks);
 
@@ -207,7 +207,7 @@ fn test_better_sqlite3_detection() {
         }
         "#;
 
-    let pkg: PackageJson = serde_json::from_str(content).unwrap();
+    let pkg: PackageJson = serde_json::from_str(content).expect("should parse JSON");
     let mut frameworks = HashSet::new();
     detect_node_frameworks(&pkg, &mut frameworks);
 

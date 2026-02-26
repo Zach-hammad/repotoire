@@ -443,7 +443,7 @@ mod tests {
 
         let detector = CircularDependencyDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Medium); // 3 files
@@ -464,7 +464,7 @@ mod tests {
 
         let detector = CircularDependencyDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
 
         assert!(findings.is_empty());
     }

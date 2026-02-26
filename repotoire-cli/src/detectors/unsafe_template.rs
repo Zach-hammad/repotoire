@@ -791,18 +791,18 @@ mod tests {
     fn test_no_finding_for_static_innerhtml() {
         use crate::graph::GraphStore;
 
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("should create temp dir");
         let file = dir.path().join("app.js");
         std::fs::write(
             &file,
             "function clearContent(el) {\n    el.innerHTML = \"\";\n}\nfunction setLoading(el) {\n    el.innerHTML = \"<div>Loading...</div>\";\n}\n",
         )
-        .unwrap();
+        .expect("should write test file");
 
         let detector = UnsafeTemplateDetector::with_repository_path(dir.path().to_path_buf());
         let store = GraphStore::in_memory();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).unwrap();
+        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
         let innerhtml_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("innerHTML"))

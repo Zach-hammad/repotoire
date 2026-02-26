@@ -287,7 +287,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id)\n    return resp\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect cookie without security flags");
         assert!(
             findings.iter().any(|f| f.title.contains("HttpOnly") || f.title.contains("Secure") || f.title.contains("SameSite")),
@@ -303,7 +303,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id, httponly=True, secure=True, samesite='Lax')\n    return resp\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect anything for secure cookie. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -315,7 +315,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("params.py", "from enum import Enum\n\nclass ParamTypes(Enum):\n    query = \"query\"\n    header = \"header\"\n    cookie = \"cookie\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag enum values containing 'cookie'. Found: {:?}",
@@ -330,7 +330,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("models.py", "class SecurityScheme:\n    cookie = \"apiKeyCookie\"\n    header = \"apiKeyHeader\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag class field assignments. Found: {:?}",
@@ -345,7 +345,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("response.py", "def set_cookie(self, key, value):\n    self.cookies[key] = value\n    self.cookies[key][\"secure\"] = True\n    self.cookies[key][\"httponly\"] = True\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag self.cookies[] attribute access. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -357,7 +357,7 @@ mod tests {
         let files = crate::detectors::file_provider::MockFileProvider::new(vec![
             ("middleware.py", "def process_response(self, request, response):\n    response.set_cookie(\n        settings.SESSION_COOKIE_NAME,\n        request.session.session_key,\n        max_age=max_age,\n        expires=expires,\n        domain=settings.SESSION_COOKIE_DOMAIN,\n        path=settings.SESSION_COOKIE_PATH,\n        secure=settings.SESSION_COOKIE_SECURE or None,\n        httponly=settings.SESSION_COOKIE_HTTPONLY or None,\n        samesite=settings.SESSION_COOKIE_SAMESITE,\n    )\n"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&store, &files).expect("detection should succeed");
         assert!(findings.is_empty(), "Should detect flags in multi-line set_cookie() call. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

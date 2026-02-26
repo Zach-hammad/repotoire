@@ -690,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_cache_creation() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().expect("should create temp dir");
         let cache = IncrementalCache::new(tmp.path());
         let stats = cache.stats();
         assert_eq!(stats.cached_files, 0);
@@ -699,9 +699,9 @@ mod tests {
 
     #[test]
     fn test_file_hash() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().expect("should create temp dir");
         let file_path = tmp.path().join("test.txt");
-        fs::write(&file_path, "hello world").unwrap();
+        fs::write(&file_path, "hello world").expect("should write test file");
 
         let cache = IncrementalCache::new(tmp.path());
         let hash1 = cache.file_hash(&file_path);
@@ -711,16 +711,16 @@ mod tests {
         assert_eq!(hash1, hash2);
 
         // Different content should have different hash
-        fs::write(&file_path, "changed content").unwrap();
+        fs::write(&file_path, "changed content").expect("should write test file");
         let hash3 = cache.file_hash(&file_path);
         assert_ne!(hash1, hash3);
     }
 
     #[test]
     fn test_cache_findings() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().expect("should create temp dir");
         let file_path = tmp.path().join("test.py");
-        fs::write(&file_path, "def test(): pass").unwrap();
+        fs::write(&file_path, "def test(): pass").expect("should write test file");
 
         let mut cache = IncrementalCache::new(tmp.path());
         let finding = create_test_finding(&file_path.to_string_lossy());
@@ -736,11 +736,11 @@ mod tests {
 
     #[test]
     fn test_changed_files() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().expect("should create temp dir");
         let file1 = tmp.path().join("file1.py");
         let file2 = tmp.path().join("file2.py");
-        fs::write(&file1, "content1").unwrap();
-        fs::write(&file2, "content2").unwrap();
+        fs::write(&file1, "content1").expect("should write test file");
+        fs::write(&file2, "content2").expect("should write test file");
 
         let mut cache = IncrementalCache::new(tmp.path());
 
@@ -758,7 +758,7 @@ mod tests {
 
     #[test]
     fn test_graph_cache() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().expect("should create temp dir");
         let mut cache = IncrementalCache::new(tmp.path());
 
         // Cache graph findings
@@ -776,9 +776,9 @@ mod tests {
 
     #[test]
     fn test_invalidation() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().expect("should create temp dir");
         let file_path = tmp.path().join("test.py");
-        fs::write(&file_path, "content").unwrap();
+        fs::write(&file_path, "content").expect("should write test file");
 
         let mut cache = IncrementalCache::new(tmp.path());
         cache.cache_findings(&file_path, &[create_test_finding("test.py")]);
@@ -797,7 +797,7 @@ mod tests {
     fn test_incremental_cache_implements_cache_layer() {
         use crate::cache::CacheLayer;
 
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().expect("should create temp dir");
         let mut cache = IncrementalCache::new(tmp.path());
 
         // Verify trait name
@@ -809,8 +809,8 @@ mod tests {
         // Add file-level and parse-level entries to populate the cache
         let file_a = tmp.path().join("a.py");
         let file_b = tmp.path().join("b.py");
-        fs::write(&file_a, "def foo(): pass").unwrap();
-        fs::write(&file_b, "def bar(): pass").unwrap();
+        fs::write(&file_a, "def foo(): pass").expect("should write test file");
+        fs::write(&file_b, "def bar(): pass").expect("should write test file");
 
         cache.cache_findings(&file_a, &[create_test_finding("a.py")]);
         cache.cache_findings(&file_b, &[create_test_finding("b.py")]);
@@ -854,7 +854,7 @@ mod tests {
 
         let cached = CachedFinding::from(&finding);
         assert_eq!(
-            cached.threshold_metadata.get("threshold_source").unwrap(),
+            cached.threshold_metadata.get("threshold_source").expect("key should exist"),
             "adaptive"
         );
 
@@ -865,7 +865,7 @@ mod tests {
             restored
                 .threshold_metadata
                 .get("effective_threshold")
-                .unwrap(),
+                .expect("metadata key should exist"),
             "15"
         );
     }
