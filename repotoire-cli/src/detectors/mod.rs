@@ -79,6 +79,9 @@ pub mod class_context;
 // Framework/ORM detection for reducing false positives
 pub mod framework_detection;
 
+// API surface detection for reducing false positives on public API definitions
+pub mod api_surface;
+
 // Misc detectors
 mod generator_misuse;
 mod infinite_loop;

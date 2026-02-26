@@ -711,6 +711,23 @@ impl Detector for UnsafeTemplateDetector {
             }
         }
 
+        // Downgrade findings that target public API definitions
+        for finding in &mut findings {
+            if let (Some(file_path), Some(line)) =
+                (finding.affected_files.first(), finding.line_start)
+            {
+                let file_str = file_path.to_string_lossy();
+                if crate::detectors::api_surface::is_api_surface(graph, &file_str, line) {
+                    finding.severity = Severity::Info;
+                    finding.description.push_str(
+                        "\n\nNote: This is a public API definition. \
+                         The security risk is in caller code that passes \
+                         unsanitized input, not in this definition.",
+                    );
+                }
+            }
+        }
+
         info!(
             "UnsafeTemplateDetector found {} potential vulnerabilities (+ taint)",
             findings.len()
