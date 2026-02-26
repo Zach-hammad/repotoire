@@ -1,6 +1,7 @@
 //! CLI command definitions and handlers
 
 pub(crate) mod analyze;
+mod diff;
 mod clean;
 mod doctor;
 mod embedded_scripts;
@@ -168,6 +169,37 @@ Examples:
         /// Only analyze files changed since this commit/branch/tag
         #[arg(long)]
         since: Option<String>,
+    },
+
+    /// Compare findings between two analysis states (shows new, fixed, score delta)
+    #[command(after_help = "\
+Examples:
+  repotoire diff main                    Diff HEAD vs main branch
+  repotoire diff v1.0.0                  Diff HEAD vs a tag
+  repotoire diff                         Diff HEAD vs last cached analysis
+  repotoire diff main --format json      JSON output for CI
+  repotoire diff main --fail-on high     Exit 1 if new high+ findings
+  repotoire diff main --format sarif     SARIF with only new findings")]
+    Diff {
+        /// Git ref for baseline (branch, tag, commit). Omit to use last cached analysis.
+        #[arg(value_name = "BASE_REF")]
+        base_ref: Option<String>,
+
+        /// Output format: text, json, sarif
+        #[arg(long, short = 'f', default_value = "text", value_parser = ["text", "json", "sarif"])]
+        format: String,
+
+        /// Exit with code 1 if new findings at this severity or above
+        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
+        fail_on: Option<String>,
+
+        /// Disable emoji in output
+        #[arg(long)]
+        no_emoji: bool,
+
+        /// Output file path (default: stdout)
+        #[arg(long, short = 'o')]
+        output: Option<PathBuf>,
     },
 
     /// View findings from last analysis (paginated, 20 per page by default)
@@ -441,6 +473,22 @@ pub fn run(cli: Cli) -> Result<()> {
                 effective_max_files,
             )
         }
+
+        Some(Commands::Diff {
+            base_ref,
+            format,
+            fail_on,
+            no_emoji,
+            output,
+        }) => diff::run(
+            &cli.path,
+            base_ref,
+            &format,
+            fail_on,
+            no_emoji,
+            output.as_deref(),
+            cli.workers,
+        ),
 
         Some(Commands::Findings {
             index,
@@ -756,7 +804,7 @@ fn check_unknown_subcommand(path: &std::path::Path) -> anyhow::Result<()> {
         return Ok(());
     }
     let known_commands = [
-        "init", "analyze", "findings", "fix", "graph", "stats", "status", "doctor",
+        "init", "analyze", "diff", "findings", "fix", "graph", "stats", "status", "doctor",
         "clean", "version", "serve",
     ];
     if !known_commands.contains(&path_str.as_ref()) {

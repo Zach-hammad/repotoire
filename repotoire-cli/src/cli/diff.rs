@@ -2,6 +2,10 @@
 //!
 //! Shows new findings, fixed findings, and score delta.
 
+use anyhow::{Context, Result};
+use std::path::Path;
+use std::time::Instant;
+
 use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
 use console::style;
 use serde_json::json;
@@ -263,6 +267,165 @@ pub fn format_sarif(result: &DiffResult) -> anyhow::Result<String> {
     };
 
     crate::reporters::report(&report, "sarif")
+}
+
+/// Run the diff command.
+pub fn run(
+    repo_path: &Path,
+    base_ref: Option<String>,
+    format: &str,
+    fail_on: Option<String>,
+    no_emoji: bool,
+    output: Option<&Path>,
+    workers: usize,
+) -> Result<()> {
+    let start = Instant::now();
+    let repo_path = repo_path
+        .canonicalize()
+        .context("Cannot resolve repository path")?;
+
+    // Verify git repo
+    if !repo_path.join(".git").exists() {
+        anyhow::bail!(
+            "diff requires a git repository (no .git found in {})",
+            repo_path.display()
+        );
+    }
+
+    let repotoire_dir = super::analyze::cache_path(&repo_path);
+
+    // 1. Load baseline findings from cache
+    let baseline = super::analyze::output::load_cached_findings(&repotoire_dir).context(
+        "No baseline analysis found. Run 'repotoire analyze' first to establish a baseline.",
+    )?;
+
+    // Load baseline score
+    let score_before = load_cached_score(&repotoire_dir);
+
+    // 2. Determine changed files count
+    let effective_base = base_ref.as_deref().unwrap_or("HEAD~1");
+    let files_changed = count_changed_files(&repo_path, effective_base);
+
+    // 3. Run fresh analysis on HEAD (changed files only if base_ref given)
+    let since = base_ref.clone();
+    let incremental = since.is_some();
+    super::analyze::run(
+        &repo_path,
+        "json",  // internal format (we format output ourselves)
+        None,    // no output file (we capture from cache)
+        None,    // no severity filter (we diff all)
+        None,    // no top limit
+        1,       // page
+        0,       // per_page = 0 (all findings)
+        vec![],  // no skip_detector
+        false,   // no external tools (speed)
+        false,   // no_git = false
+        workers,
+        None,    // no fail_on for the internal run
+        true,    // no_emoji (suppress internal output)
+        incremental,
+        since,
+        false,   // explain_score
+        false,   // verify
+        false,   // skip_graph
+        0,       // max_files
+    )?;
+
+    // 4. Load head findings from cache (just written by analyze)
+    let head = super::analyze::output::load_cached_findings(&repotoire_dir).unwrap_or_default();
+    let score_after = load_cached_score(&repotoire_dir);
+
+    // 5. Diff
+    let base_label = base_ref.as_deref().unwrap_or("cached");
+    let result = diff_findings(
+        &baseline,
+        &head,
+        base_label,
+        "HEAD",
+        files_changed,
+        score_before,
+        score_after,
+    );
+
+    // 6. Output
+    let output_str = match format {
+        "json" => format_json(&result),
+        "sarif" => format_sarif(&result)?,
+        _ => format_text(&result, no_emoji),
+    };
+
+    if let Some(out_path) = output {
+        std::fs::write(out_path, &output_str)?;
+        eprintln!("Report written to: {}", out_path.display());
+    } else {
+        println!("{}", output_str);
+    }
+
+    // 7. Summary (text mode only)
+    if format != "json" && format != "sarif" {
+        let elapsed = start.elapsed();
+        let prefix = if no_emoji { "" } else { "✨ " };
+        eprintln!(
+            "{}Diff complete in {:.2}s ({} new, {} fixed)",
+            prefix,
+            elapsed.as_secs_f64(),
+            result.new_findings.len(),
+            result.fixed_findings.len()
+        );
+    }
+
+    // 8. Fail-on threshold (new findings only)
+    if let Some(ref threshold) = fail_on {
+        let new_summary = FindingsSummary::from_findings(&result.new_findings);
+        let should_fail = match threshold.to_lowercase().as_str() {
+            "critical" => new_summary.critical > 0,
+            "high" => new_summary.critical > 0 || new_summary.high > 0,
+            "medium" => {
+                new_summary.critical > 0 || new_summary.high > 0 || new_summary.medium > 0
+            }
+            "low" => {
+                new_summary.critical > 0
+                    || new_summary.high > 0
+                    || new_summary.medium > 0
+                    || new_summary.low > 0
+            }
+            _ => false,
+        };
+        if should_fail {
+            anyhow::bail!(
+                "Failing due to --fail-on={}: {} new finding(s) at this severity or above",
+                threshold,
+                result.new_findings.len()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Load cached health score from last_health.json.
+fn load_cached_score(repotoire_dir: &Path) -> Option<f64> {
+    let path = repotoire_dir.join("last_health.json");
+    let data = std::fs::read_to_string(&path).ok()?;
+    let json_val: serde_json::Value = serde_json::from_str(&data).ok()?;
+    json_val.get("health_score").and_then(|v| v.as_f64())
+}
+
+/// Count files changed between a ref and HEAD.
+fn count_changed_files(repo_path: &Path, base_ref: &str) -> usize {
+    std::process::Command::new("git")
+        .args(["diff", "--name-only", base_ref, "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| !l.is_empty())
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
