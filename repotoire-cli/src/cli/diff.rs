@@ -2,7 +2,9 @@
 //!
 //! Shows new findings, fixed findings, and score delta.
 
-use crate::models::Finding;
+use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
+use console::style;
+use serde_json::json;
 
 /// Check if two findings refer to the same logical issue.
 ///
@@ -70,6 +72,197 @@ pub fn diff_findings(
         score_before,
         score_after,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Output formatters
+// ---------------------------------------------------------------------------
+
+fn severity_icon(severity: &Severity) -> &'static str {
+    match severity {
+        Severity::Critical => "[C]",
+        Severity::High => "[H]",
+        Severity::Medium => "[M]",
+        Severity::Low => "[L]",
+        Severity::Info => "[I]",
+    }
+}
+
+/// Render the diff result as colored terminal text.
+///
+/// When `no_emoji` is true, plain ASCII markers are used instead of emoji.
+pub fn format_text(result: &DiffResult, no_emoji: bool) -> String {
+    let mut out = String::new();
+
+    // Header
+    out.push_str(&format!(
+        "Repotoire Diff: {}..{} ({} files changed)\n\n",
+        result.base_ref, result.head_ref, result.files_changed,
+    ));
+
+    // --- New findings ---
+    out.push_str(&format!("{}\n", style("NEW FINDINGS").bold().underlined()));
+
+    if result.new_findings.is_empty() {
+        let check = if no_emoji { "[ok]" } else { "\u{2705}" };
+        out.push_str(&format!(
+            "  {} {}\n",
+            check,
+            style("No new findings").green()
+        ));
+    } else {
+        for f in &result.new_findings {
+            let icon = severity_icon(&f.severity);
+            let file = f
+                .affected_files
+                .first()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            let location = match f.line_start {
+                Some(l) => format!("{}:{}", file, l),
+                None => file,
+            };
+            out.push_str(&format!(
+                "  {} {} — {}\n",
+                style(icon).red(),
+                f.title,
+                style(&location).dim(),
+            ));
+        }
+    }
+    out.push('\n');
+
+    // --- Fixed findings ---
+    out.push_str(&format!(
+        "{}\n",
+        style("FIXED FINDINGS").bold().underlined()
+    ));
+
+    if result.fixed_findings.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        for f in &result.fixed_findings {
+            let check = if no_emoji { "[ok]" } else { "\u{2705}" };
+            let file = f
+                .affected_files
+                .first()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            let location = match f.line_start {
+                Some(l) => format!("{}:{}", file, l),
+                None => file,
+            };
+            out.push_str(&format!(
+                "  {} {} — {}\n",
+                style(check).green(),
+                f.title,
+                style(&location).dim(),
+            ));
+        }
+    }
+    out.push('\n');
+
+    // --- Score delta ---
+    if let (Some(before), Some(after)) = (result.score_before, result.score_after) {
+        let delta = after - before;
+        let delta_str = if delta >= 0.0 {
+            style(format!("+{:.1}", delta)).green().to_string()
+        } else {
+            style(format!("{:.1}", delta)).red().to_string()
+        };
+        out.push_str(&format!(
+            "SCORE: {:.1} \u{2192} {:.1} ({})\n",
+            before, after, delta_str,
+        ));
+    }
+
+    out
+}
+
+/// Render the diff result as pretty-printed JSON.
+pub fn format_json(result: &DiffResult) -> String {
+    let new_summary = FindingsSummary::from_findings(&result.new_findings);
+    let fixed_summary = FindingsSummary::from_findings(&result.fixed_findings);
+
+    let score_delta = result.score_delta();
+
+    let new_findings_json: Vec<serde_json::Value> = result
+        .new_findings
+        .iter()
+        .map(|f| {
+            json!({
+                "detector": f.detector,
+                "severity": f.severity.to_string(),
+                "title": f.title,
+                "description": f.description,
+                "file": f.affected_files.first().map(|p| p.display().to_string()).unwrap_or_default(),
+                "line": f.line_start,
+            })
+        })
+        .collect();
+
+    let fixed_findings_json: Vec<serde_json::Value> = result
+        .fixed_findings
+        .iter()
+        .map(|f| {
+            json!({
+                "detector": f.detector,
+                "severity": f.severity.to_string(),
+                "title": f.title,
+                "file": f.affected_files.first().map(|p| p.display().to_string()).unwrap_or_default(),
+                "line": f.line_start,
+            })
+        })
+        .collect();
+
+    let output = json!({
+        "base_ref": result.base_ref,
+        "head_ref": result.head_ref,
+        "files_changed": result.files_changed,
+        "new_findings": new_findings_json,
+        "fixed_findings": fixed_findings_json,
+        "score_before": result.score_before,
+        "score_after": result.score_after,
+        "score_delta": score_delta,
+        "summary": {
+            "new": {
+                "critical": new_summary.critical,
+                "high": new_summary.high,
+                "medium": new_summary.medium,
+                "low": new_summary.low,
+            },
+            "fixed": {
+                "critical": fixed_summary.critical,
+                "high": fixed_summary.high,
+                "medium": fixed_summary.medium,
+                "low": fixed_summary.low,
+            },
+        },
+    });
+
+    serde_json::to_string_pretty(&output).expect("JSON serialization should not fail")
+}
+
+/// Render the diff result as SARIF 2.1.0 (only new findings).
+///
+/// Builds a temporary `HealthReport` containing only the new findings,
+/// then delegates to the existing SARIF reporter.
+pub fn format_sarif(result: &DiffResult) -> anyhow::Result<String> {
+    let report = HealthReport {
+        overall_score: result.score_after.unwrap_or(0.0),
+        grade: String::new(),
+        structure_score: 0.0,
+        quality_score: 0.0,
+        architecture_score: None,
+        findings: result.new_findings.clone(),
+        findings_summary: FindingsSummary::from_findings(&result.new_findings),
+        total_files: 0,
+        total_functions: 0,
+        total_classes: 0,
+        total_loc: 0,
+    };
+
+    crate::reporters::report(&report, "sarif")
 }
 
 #[cfg(test)]
@@ -170,5 +363,44 @@ mod tests {
         assert!(result.new_findings.is_empty());
         assert!(result.fixed_findings.is_empty());
         assert!(result.score_delta().is_none());
+    }
+
+    #[test]
+    fn test_format_json_structure() {
+        let result = DiffResult {
+            base_ref: "main".to_string(),
+            head_ref: "HEAD".to_string(),
+            files_changed: 2,
+            new_findings: vec![make_finding("xss", "src/web.rs", Some(5))],
+            fixed_findings: vec![make_finding("dead_code", "src/old.rs", Some(10))],
+            score_before: Some(96.0),
+            score_after: Some(95.5),
+        };
+
+        let json_str = format_json(&result);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("valid JSON");
+
+        assert_eq!(parsed["base_ref"], "main");
+        assert_eq!(parsed["head_ref"], "HEAD");
+        assert_eq!(parsed["files_changed"], 2);
+        assert_eq!(parsed["new_findings"].as_array().unwrap().len(), 1);
+        assert_eq!(parsed["fixed_findings"].as_array().unwrap().len(), 1);
+        assert_eq!(parsed["score_delta"], -0.5);
+    }
+
+    #[test]
+    fn test_format_text_no_new_findings() {
+        let result = DiffResult {
+            base_ref: "main".to_string(),
+            head_ref: "HEAD".to_string(),
+            files_changed: 1,
+            new_findings: vec![],
+            fixed_findings: vec![],
+            score_before: Some(97.0),
+            score_after: Some(97.0),
+        };
+
+        let text = format_text(&result, true);
+        assert!(text.contains("No new findings"));
     }
 }
