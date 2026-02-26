@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use crate::detectors::{default_detectors_with_ngram, walk_source_files, DetectorEngineBuilder, SourceFiles};
 use crate::mcp::state::HandlerState;
-use crate::mcp::params::{AnalyzeParams, GetFindingsParams, GetHotspotsParams};
+use crate::mcp::params::{AnalyzeParams, DiffParams, GetFindingsParams, GetHotspotsParams};
 use crate::models::FindingsSummary;
 
 /// Run code analysis on the repository.
@@ -239,6 +239,80 @@ pub fn handle_get_hotspots(state: &mut HandlerState, params: &GetHotspotsParams)
         "hotspots": hotspots,
         "total_files": hotspots.len()
     }))
+}
+
+/// Compare findings between two analysis states.
+///
+/// Loads baseline from cache, runs analysis on HEAD, diffs the two sets.
+/// Returns new findings, fixed findings, and score delta.
+pub fn handle_diff(state: &mut HandlerState, params: &DiffParams) -> Result<Value> {
+    use crate::cli::diff::{diff_findings, format_json};
+
+    let repo_path = state.repo_path.clone();
+    let repotoire_dir = repo_path.join(".repotoire");
+
+    // Load baseline
+    let baseline = crate::cli::analyze::output::load_cached_findings(&repotoire_dir)
+        .ok_or_else(|| anyhow::anyhow!("No baseline found. Run repotoire_analyze first."))?;
+
+    let score_before = {
+        let path = repotoire_dir.join("last_health.json");
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+            .and_then(|j| j.get("health_score").and_then(|v| v.as_f64()))
+    };
+
+    // Run fresh analysis (reuse existing handle_analyze)
+    let analyze_params = crate::mcp::params::AnalyzeParams {
+        incremental: Some(true),
+    };
+    let _ = handle_analyze(state, &analyze_params)?;
+
+    // Load head findings
+    let head = crate::cli::analyze::output::load_cached_findings(&repotoire_dir)
+        .unwrap_or_default();
+
+    let score_after = {
+        let path = repotoire_dir.join("last_health.json");
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+            .and_then(|j| j.get("health_score").and_then(|v| v.as_f64()))
+    };
+
+    // Count changed files
+    let base_ref = params.base_ref.as_deref().unwrap_or("HEAD~1");
+    let files_changed = std::process::Command::new("git")
+        .args(["diff", "--name-only", base_ref, "HEAD"])
+        .current_dir(&repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| !l.is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+
+    let base_label = params.base_ref.as_deref().unwrap_or("cached");
+    let result = diff_findings(
+        &baseline,
+        &head,
+        base_label,
+        "HEAD",
+        files_changed,
+        score_before,
+        score_after,
+    );
+
+    // Return structured JSON
+    let json_str = format_json(&result);
+    let value: serde_json::Value = serde_json::from_str(&json_str)?;
+
+    Ok(value)
 }
 
 #[cfg(test)]

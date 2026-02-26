@@ -54,6 +54,16 @@ pub struct GetHotspotsParams {
     pub limit: Option<u64>,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DiffParams {
+    /// Git ref for baseline (branch, tag, commit). Omit to use last cached analysis.
+    pub base_ref: Option<String>,
+    /// Git ref for current state. Default: HEAD (working tree).
+    pub head_ref: Option<String>,
+    /// Minimum severity filter for new findings
+    pub severity: Option<SeverityFilter>,
+}
+
 // ── Graph Tools ──
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

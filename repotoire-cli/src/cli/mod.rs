@@ -1,7 +1,7 @@
 //! CLI command definitions and handlers
 
 pub(crate) mod analyze;
-mod diff;
+pub(crate) mod diff;
 mod clean;
 mod doctor;
 mod embedded_scripts;

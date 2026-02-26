@@ -137,6 +137,27 @@ impl RepotoireServer {
         Ok(value_to_result(result))
     }
 
+    #[tool(
+        name = "repotoire_diff",
+        description = "Compare findings between two analysis states. Shows new findings, fixed findings, and score delta. Run repotoire_analyze on your baseline first."
+    )]
+    async fn repotoire_diff(
+        &self,
+        Parameters(params): Parameters<DiffParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_args_size(&params)?;
+        let state = self.state.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut state = state.blocking_write();
+            super::tools::analysis::handle_diff(&mut state, &params)
+        })
+        .await
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        Ok(value_to_result(result))
+    }
+
     // ── Graph Tools (FREE) ──────────────────────────────────────────────
 
     #[tool(
@@ -452,11 +473,12 @@ mod tests {
             .map(|k| k.to_string())
             .collect();
 
-        // Verify all 13 tools are registered
+        // Verify all 14 tools are registered
         let expected_tools = [
             "repotoire_analyze",
             "repotoire_get_findings",
             "repotoire_get_hotspots",
+            "repotoire_diff",
             "repotoire_query_graph",
             "repotoire_trace_dependencies",
             "repotoire_analyze_impact",
