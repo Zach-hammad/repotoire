@@ -12,6 +12,7 @@
 //!  25..28  — Cross-finding context (density, same-detector, historical FP rate)
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use crate::classifier::thresholds::DetectorCategory;
@@ -142,6 +143,30 @@ pub struct GitFeatures {
     pub minor_contributor_count: f64,
 }
 
+impl GitFeatures {
+    /// Convert a `FileChurn` from the git history module into `GitFeatures`.
+    ///
+    /// `now_epoch` should be the current Unix timestamp (seconds since epoch).
+    pub fn from_file_churn(churn: &crate::git::history::FileChurn, now_epoch: i64) -> Self {
+        let age_days = churn
+            .last_modified
+            .as_ref()
+            .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+            .map(|dt| ((now_epoch - dt.timestamp()) as f64 / 86400.0).max(0.0))
+            .unwrap_or(0.0);
+        let author_count = churn.authors.len();
+        Self {
+            file_age_log: (age_days + 1.0).ln(),
+            recent_churn: churn.commit_count as f64,
+            developer_count: author_count as f64,
+            unique_change_count: churn.commit_count as f64,
+            is_recently_created: if age_days < 30.0 { 1.0 } else { 0.0 },
+            major_contributor_pct: 1.0 / (author_count.max(1) as f64),
+            minor_contributor_count: author_count.saturating_sub(1) as f64,
+        }
+    }
+}
+
 /// Pre-computed cross-finding context for a file.
 ///
 /// Callers aggregate these from the full finding set before extraction.
@@ -154,6 +179,62 @@ pub struct CrossFindingFeatures {
     pub same_detector_findings: f64,
     /// Historical FP rate for this detector (0.0..1.0).
     pub historical_fp_rate: f64,
+}
+
+/// Compute per-file, per-detector cross-finding context from the full finding set.
+///
+/// Returns `file_path -> detector -> CrossFindingFeatures`.
+pub fn compute_cross_features(
+    findings: &[Finding],
+    file_loc_map: &HashMap<String, f64>,
+) -> HashMap<String, HashMap<String, CrossFindingFeatures>> {
+    // Count findings per (file, detector)
+    let mut file_detector_counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
+    let mut file_total_counts: HashMap<String, usize> = HashMap::new();
+
+    for finding in findings {
+        let file_path = finding
+            .affected_files
+            .first()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if file_path.is_empty() {
+            continue;
+        }
+
+        *file_total_counts.entry(file_path.clone()).or_insert(0) += 1;
+        *file_detector_counts
+            .entry(file_path)
+            .or_default()
+            .entry(finding.detector.clone())
+            .or_insert(0) += 1;
+    }
+
+    let mut result: HashMap<String, HashMap<String, CrossFindingFeatures>> = HashMap::new();
+
+    for (file_path, detector_counts) in &file_detector_counts {
+        let total_in_file = file_total_counts.get(file_path).copied().unwrap_or(0);
+        let kloc = file_loc_map
+            .get(file_path)
+            .copied()
+            .unwrap_or(0.0)
+            / 1000.0;
+        let kloc_safe = kloc.max(0.001);
+
+        let file_map = result.entry(file_path.clone()).or_default();
+        for (detector, &count) in detector_counts {
+            file_map.insert(
+                detector.clone(),
+                CrossFindingFeatures {
+                    finding_density: total_in_file as f64 / kloc_safe,
+                    same_detector_findings: count as f64,
+                    historical_fp_rate: 0.0, // no historical data for seed model
+                },
+            );
+        }
+    }
+
+    result
 }
 
 /// The V2 feature extractor.
@@ -731,5 +812,149 @@ mod tests {
         let features = extractor.extract(&finding, Some(&graph), None, None);
         // File is in a cycle.
         assert!((features.values[14] - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_git_features_from_file_churn() {
+        use crate::git::history::FileChurn;
+
+        let churn = FileChurn {
+            total_insertions: 100,
+            total_deletions: 20,
+            commit_count: 15,
+            authors: vec![
+                "alice".to_string(),
+                "bob".to_string(),
+                "charlie".to_string(),
+            ],
+            last_modified: Some("2025-01-01T12:00:00+00:00".to_string()),
+            last_author: Some("alice".to_string()),
+        };
+
+        // Set "now" to 2025-03-01 → ~59 days after last_modified
+        let now_epoch = chrono::DateTime::parse_from_rfc3339("2025-03-01T12:00:00+00:00")
+            .unwrap()
+            .timestamp();
+
+        let git = GitFeatures::from_file_churn(&churn, now_epoch);
+
+        // age ~59 days → ln(60) ≈ 4.09
+        assert!(git.file_age_log > 4.0 && git.file_age_log < 4.2);
+        assert!((git.recent_churn - 15.0).abs() < f64::EPSILON);
+        assert!((git.developer_count - 3.0).abs() < f64::EPSILON);
+        assert!((git.unique_change_count - 15.0).abs() < f64::EPSILON);
+        // 59 days > 30, so not recently created
+        assert!((git.is_recently_created - 0.0).abs() < f64::EPSILON);
+        // 1/3 ≈ 0.333
+        assert!((git.major_contributor_pct - 1.0 / 3.0).abs() < 0.01);
+        assert!((git.minor_contributor_count - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_git_features_from_file_churn_recently_created() {
+        use crate::git::history::FileChurn;
+
+        let churn = FileChurn {
+            total_insertions: 50,
+            total_deletions: 0,
+            commit_count: 2,
+            authors: vec!["dev".to_string()],
+            last_modified: Some("2025-02-20T12:00:00+00:00".to_string()),
+            last_author: Some("dev".to_string()),
+        };
+
+        // "now" = 2025-02-25 → 5 days since last modified
+        let now_epoch = chrono::DateTime::parse_from_rfc3339("2025-02-25T12:00:00+00:00")
+            .unwrap()
+            .timestamp();
+
+        let git = GitFeatures::from_file_churn(&churn, now_epoch);
+
+        // 5 days < 30 → recently created
+        assert!((git.is_recently_created - 1.0).abs() < f64::EPSILON);
+        assert!((git.developer_count - 1.0).abs() < f64::EPSILON);
+        // 1 author → major_contributor_pct = 1.0
+        assert!((git.major_contributor_pct - 1.0).abs() < f64::EPSILON);
+        // 0 minor contributors
+        assert!((git.minor_contributor_count - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_git_features_from_file_churn_no_timestamp() {
+        use crate::git::history::FileChurn;
+
+        let churn = FileChurn {
+            total_insertions: 10,
+            total_deletions: 5,
+            commit_count: 3,
+            authors: vec!["dev".to_string()],
+            last_modified: None,
+            last_author: None,
+        };
+
+        let git = GitFeatures::from_file_churn(&churn, 0);
+        // No timestamp → age_days = 0 → ln(1) = 0
+        assert!((git.file_age_log - 0.0).abs() < f64::EPSILON);
+        // No timestamp → is_recently_created = 1.0 (age 0 < 30)
+        assert!((git.is_recently_created - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_cross_features_basic() {
+        let findings = vec![
+            Finding {
+                id: "f1".into(),
+                detector: "SQLInjectionDetector".into(),
+                affected_files: vec![PathBuf::from("src/api/users.py")],
+                ..Default::default()
+            },
+            Finding {
+                id: "f2".into(),
+                detector: "SQLInjectionDetector".into(),
+                affected_files: vec![PathBuf::from("src/api/users.py")],
+                ..Default::default()
+            },
+            Finding {
+                id: "f3".into(),
+                detector: "DeadCodeDetector".into(),
+                affected_files: vec![PathBuf::from("src/api/users.py")],
+                ..Default::default()
+            },
+            Finding {
+                id: "f4".into(),
+                detector: "GodClassDetector".into(),
+                affected_files: vec![PathBuf::from("src/models.py")],
+                ..Default::default()
+            },
+        ];
+
+        let mut file_loc_map = HashMap::new();
+        file_loc_map.insert("src/api/users.py".to_string(), 500.0);
+        file_loc_map.insert("src/models.py".to_string(), 200.0);
+
+        let result = compute_cross_features(&findings, &file_loc_map);
+
+        // users.py has 3 findings total, 500 LOC = 0.5 kLOC → density = 3/0.5 = 6.0
+        let users = result.get("src/api/users.py").unwrap();
+        let sql = users.get("SQLInjectionDetector").unwrap();
+        assert!((sql.finding_density - 6.0).abs() < 0.01);
+        assert!((sql.same_detector_findings - 2.0).abs() < f64::EPSILON);
+        assert!((sql.historical_fp_rate - 0.0).abs() < f64::EPSILON);
+
+        let dead = users.get("DeadCodeDetector").unwrap();
+        assert!((dead.finding_density - 6.0).abs() < 0.01); // same file density
+        assert!((dead.same_detector_findings - 1.0).abs() < f64::EPSILON);
+
+        // models.py has 1 finding, 200 LOC = 0.2 kLOC → density = 1/0.2 = 5.0
+        let models = result.get("src/models.py").unwrap();
+        let god = models.get("GodClassDetector").unwrap();
+        assert!((god.finding_density - 5.0).abs() < 0.01);
+        assert!((god.same_detector_findings - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_cross_features_empty() {
+        let result = compute_cross_features(&[], &HashMap::new());
+        assert!(result.is_empty());
     }
 }

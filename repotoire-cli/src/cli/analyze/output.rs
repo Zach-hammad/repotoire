@@ -113,7 +113,11 @@ pub(super) fn format_and_output(
         full_report.findings_summary = FindingsSummary::from_findings(all_findings);
         full_report
     } else {
-        report.clone()
+        // For JSON stdout / text: ensure findings_summary matches the
+        // actual findings array (which may be paginated)
+        let mut r = report.clone();
+        r.findings_summary = FindingsSummary::from_findings(&r.findings);
+        r
     };
 
     let output = reporters::report(&report_for_output, format)?;

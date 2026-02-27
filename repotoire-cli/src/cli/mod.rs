@@ -174,6 +174,10 @@ Examples:
         /// Sort findings by actionability score instead of severity
         #[arg(long)]
         rank: bool,
+
+        /// Export training data (features + bootstrap labels) to a JSON file
+        #[arg(long, value_name = "PATH")]
+        export_training: Option<PathBuf>,
     },
 
     /// Compare findings between two analysis states (shows new, fixed, score delta)
@@ -455,6 +459,7 @@ pub fn run(cli: Cli) -> Result<()> {
             verify,
             since,
             rank,
+            export_training,
         }) => {
             // Deprecation warning for --thorough
             if thorough {
@@ -501,6 +506,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 effective_skip_graph,
                 effective_max_files,
                 rank,
+                export_training.as_deref(),
             )
         }
 
@@ -700,6 +706,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 false, // skip_graph
                 0,     // max_files (unlimited)
                 false, // rank
+                None,  // export_training
             )
         }
     }

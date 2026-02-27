@@ -10,6 +10,7 @@
 //! 7. Output results (text, json, sarif, html, md) (output.rs)
 
 mod detect;
+mod export;
 pub(crate) mod files;
 pub(crate) mod graph;
 pub(crate) mod output;
@@ -74,6 +75,7 @@ pub fn run(
     skip_graph: bool,
     max_files: usize,
     rank: bool,
+    export_training: Option<&Path>,
 ) -> Result<()> {
     // Normalize skip_detector names to kebab-case so both "TodoScanner" and "todo-scanner" work
     let skip_detector: Vec<String> = skip_detector
@@ -220,6 +222,21 @@ pub fn run(
         &graph,
         rank,
     );
+
+    // Phase 4b: Export training data (if --export-training)
+    if let Some(export_path) = export_training {
+        match export::export_training_data(&findings, graph.as_ref(), &env.repo_path, export_path) {
+            Ok(count) => {
+                if !env.quiet_mode {
+                    let icon = if env.config.no_emoji { "" } else { "📊 " };
+                    println!("{}Exported {} training samples to {}", icon, count, export_path.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to export training data: {}", e);
+            }
+        }
+    }
 
     // Phase 5: Calculate scores and build report
     let score_result = calculate_scores(&graph, &env.project_config, &findings, &env.repo_path);

@@ -225,13 +225,17 @@ fn downgrade_non_production_security(findings: &mut [Finding]) {
 /// back to the heuristic classifier. Findings are sorted in descending order
 /// so the most actionable findings appear first.
 fn rank_findings(findings: &mut Vec<Finding>, graph: &dyn crate::graph::GraphQuery) {
+    // Try user model, then seed model
     let model_path = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("repotoire")
         .join("gbdt_model.json");
 
-    if let Ok(gbdt) = crate::classifier::GbdtClassifier::load(&model_path) {
-        // GBDT path: FeatureExtractorV2 (28 features) + trained model
+    let gbdt = crate::classifier::GbdtClassifier::load(&model_path)
+        .ok()
+        .or_else(|| crate::classifier::GbdtClassifier::seed().ok());
+
+    if let Some(gbdt) = gbdt {
         let extractor = crate::classifier::FeatureExtractorV2::new();
         let mut scored: Vec<(f64, usize)> = findings
             .iter()
@@ -296,59 +300,77 @@ fn filter_false_positives(
         .map(|p| p.exists())
         .unwrap_or(false);
 
-    if use_gbdt {
-        // GBDT path: FeatureExtractorV2 (28 features) + trained model
-        use crate::classifier::{FeatureExtractorV2, GbdtClassifier};
-
-        let model_path = match gbdt_path {
-            Some(p) => p,
-            None => return, // unreachable: use_gbdt is true only when path exists
-        };
-        match GbdtClassifier::load(&model_path) {
-            Ok(classifier) => {
-                tracing::info!("Using GBDT model from {}", model_path.display());
-                let extractor = FeatureExtractorV2::new();
-
-                let before_count = findings.len();
-                let mut filtered_by_category: std::collections::HashMap<DetectorCategory, usize> =
-                    std::collections::HashMap::new();
-
-                findings.retain(|f| {
-                    let features = extractor.extract(f, Some(graph), None, None);
-                    let prediction = classifier.predict(&features);
-                    let category = DetectorCategory::from_detector(&f.detector);
-                    let config = thresholds.get_category(category);
-
-                    if prediction.tp_probability >= config.filter_threshold as f64 {
-                        true
-                    } else {
-                        *filtered_by_category.entry(category).or_insert(0) += 1;
-                        false
-                    }
-                });
-
-                let total_filtered = before_count - findings.len();
-                if total_filtered > 0 {
-                    tracing::info!(
-                        "GBDT classifier filtered {} findings (Security: {}, Quality: {}, ML: {}, Perf: {}, Other: {})",
-                        total_filtered,
-                        filtered_by_category.get(&DetectorCategory::Security).unwrap_or(&0),
-                        filtered_by_category.get(&DetectorCategory::CodeQuality).unwrap_or(&0),
-                        filtered_by_category.get(&DetectorCategory::MachineLearning).unwrap_or(&0),
-                        filtered_by_category.get(&DetectorCategory::Performance).unwrap_or(&0),
-                        filtered_by_category.get(&DetectorCategory::Other).unwrap_or(&0),
-                    );
-                }
-                return;
+    // Try GBDT: user-trained model > embedded seed model > heuristic fallback
+    let gbdt_classifier = if use_gbdt {
+        let Some(model_path) = gbdt_path else { return };
+        match crate::classifier::GbdtClassifier::load(&model_path) {
+            Ok(c) => {
+                tracing::info!("Using user-trained GBDT model from {}", model_path.display());
+                Some(c)
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to load GBDT model from {}: {}. Falling back to heuristic classifier.",
+                    "Failed to load GBDT model from {}: {}. Trying seed model.",
                     model_path.display(),
                     e
                 );
+                None
             }
         }
+    } else {
+        None
+    };
+
+    // Fall back to embedded seed model if no user model
+    let gbdt_classifier = gbdt_classifier.or_else(|| {
+        match crate::classifier::GbdtClassifier::seed() {
+            Ok(c) => {
+                tracing::info!("Using embedded seed GBDT model");
+                Some(c)
+            }
+            Err(e) => {
+                tracing::debug!("Seed model failed to load: {}. Falling back to heuristic.", e);
+                None
+            }
+        }
+    });
+
+    if let Some(classifier) = gbdt_classifier {
+        use crate::classifier::FeatureExtractorV2;
+
+        let extractor = FeatureExtractorV2::new();
+
+        let before_count = findings.len();
+        let mut filtered_by_category: std::collections::HashMap<DetectorCategory, usize> =
+            std::collections::HashMap::new();
+
+        findings.retain(|f| {
+            let features = extractor.extract(f, Some(graph), None, None);
+            let prediction = classifier.predict(&features);
+            let category = DetectorCategory::from_detector(&f.detector);
+            let config = thresholds.get_category(category);
+
+            if prediction.tp_probability >= config.filter_threshold as f64 {
+                true
+            } else {
+                *filtered_by_category.entry(category).or_insert(0) += 1;
+                false
+            }
+        });
+
+        let total_filtered = before_count - findings.len();
+        if total_filtered > 0 {
+            tracing::info!(
+                "GBDT classifier filtered {} findings (Security: {}, Quality: {}, ML: {}, Perf: {}, Other: {})",
+                total_filtered,
+                filtered_by_category.get(&DetectorCategory::Security).unwrap_or(&0),
+                filtered_by_category.get(&DetectorCategory::CodeQuality).unwrap_or(&0),
+                filtered_by_category.get(&DetectorCategory::MachineLearning).unwrap_or(&0),
+                filtered_by_category.get(&DetectorCategory::Performance).unwrap_or(&0),
+                filtered_by_category.get(&DetectorCategory::Other).unwrap_or(&0),
+            );
+        }
+        return;
     }
 
     // Heuristic fallback: original 51-feature extractor + linear classifier
