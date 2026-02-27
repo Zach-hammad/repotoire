@@ -43,6 +43,20 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
     Ok(result)
 }
 
+/// Check if a function definition has a specific storage class specifier (e.g., "extern", "static")
+fn has_storage_class(func_node: &Node, source: &[u8], specifier: &str) -> bool {
+    for child in func_node.children(&mut func_node.walk()) {
+        if child.kind() == "storage_class_specifier" {
+            if let Ok(text) = child.utf8_text(source) {
+                if text == specifier {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Extract function definitions from the AST
 fn extract_functions(
     root: &Node,
@@ -96,6 +110,12 @@ fn extract_functions(
             let line_end = node.end_position().row as u32 + 1;
             let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
 
+            let annotations = if has_storage_class(&node, source, "extern") {
+                vec!["exported".to_string()]
+            } else {
+                vec![]
+            };
+
             result.functions.push(Function {
                 name: name.clone(),
                 qualified_name,
@@ -108,7 +128,7 @@ fn extract_functions(
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
                 doc_comment: None,
-                annotations: vec![],
+                annotations,
             });
         }
     }
@@ -646,6 +666,63 @@ int complex_func(int x) {
 
         let func = &result.functions[0];
         assert!(func.complexity.expect("should have complexity") >= 3);
+    }
+
+    #[test]
+    fn test_extern_function_exported() {
+        let source = r#"
+extern int public_api(int x) {
+    return x + 1;
+}
+"#;
+        let path = PathBuf::from("test.c");
+        let result = parse_source(source, &path).expect("should parse C source");
+
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert_eq!(func.name, "public_api");
+        assert!(
+            func.annotations.contains(&"exported".to_string()),
+            "extern function should be exported"
+        );
+    }
+
+    #[test]
+    fn test_static_function_not_exported() {
+        let source = r#"
+static int internal_helper(int x) {
+    return x - 1;
+}
+"#;
+        let path = PathBuf::from("test.c");
+        let result = parse_source(source, &path).expect("should parse C source");
+
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert_eq!(func.name, "internal_helper");
+        assert!(
+            func.annotations.is_empty(),
+            "static function should not be exported"
+        );
+    }
+
+    #[test]
+    fn test_plain_function_not_exported() {
+        let source = r#"
+int regular_func(int x) {
+    return x;
+}
+"#;
+        let path = PathBuf::from("test.c");
+        let result = parse_source(source, &path).expect("should parse C source");
+
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert_eq!(func.name, "regular_func");
+        assert!(
+            func.annotations.is_empty(),
+            "plain function should not be exported (conservative opt-in)"
+        );
     }
 
     #[test]

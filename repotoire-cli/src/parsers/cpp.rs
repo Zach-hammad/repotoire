@@ -42,6 +42,32 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
     Ok(result)
 }
 
+/// Check if a function definition has a specific storage class specifier (e.g., "extern", "static")
+fn has_storage_class(func_node: &Node, source: &[u8], specifier: &str) -> bool {
+    for child in func_node.children(&mut func_node.walk()) {
+        if child.kind() == "storage_class_specifier" {
+            if let Ok(text) = child.utf8_text(source) {
+                if text == specifier {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a node is inside a class or struct body (field_declaration_list)
+fn is_inside_class_body(node: &Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "field_declaration_list" {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
+}
+
 /// Extract function definitions from the AST
 fn extract_functions(
     root: &Node,
@@ -96,6 +122,10 @@ fn extract_functions(
         }
 
         if let Some(node) = func_node {
+            // Skip methods inside class/struct bodies — handled by extract_class_methods
+            if is_inside_class_body(&node) {
+                continue;
+            }
             let parameters = extract_parameters(params_node, source);
             let return_type =
                 return_type_node.map(|n| n.utf8_text(source).unwrap_or("").to_string());
@@ -103,6 +133,12 @@ fn extract_functions(
             let line_start = node.start_position().row as u32 + 1;
             let line_end = node.end_position().row as u32 + 1;
             let qualified_name = format!("{}::{}:{}", path.display(), name, line_start);
+
+            let annotations = if has_storage_class(&node, source, "extern") {
+                vec!["exported".to_string()]
+            } else {
+                vec![]
+            };
 
             result.functions.push(Function {
                 name: name.clone(),
@@ -116,7 +152,7 @@ fn extract_functions(
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
                 doc_comment: None,
-                annotations: vec![],
+                annotations,
             });
         }
     }
@@ -166,9 +202,12 @@ fn extract_classes(
             let line_end = node.end_position().row as u32 + 1;
             let qualified_name = format!("{}::{}", path.display(), name);
 
-            // Extract methods from class body
+            // Extract base classes
+            let bases = extract_base_classes(&node, source);
+
+            // Extract methods from class body (class default = private)
             let methods = if let Some(body) = body_node {
-                extract_class_methods(&body, source, path, &name)?
+                extract_class_methods(&body, source, path, &name, "private")?
             } else {
                 vec![]
             };
@@ -184,7 +223,7 @@ fn extract_classes(
                 file_path: path.to_path_buf(),
                 line_start,
                 line_end,
-                bases: vec![], // Base class extraction not yet implemented for C++
+                bases,
                 methods: methods.iter().map(|m| m.name.clone()).collect(),
                 doc_comment: None,
                 annotations: vec![],
@@ -195,14 +234,57 @@ fn extract_classes(
     Ok(())
 }
 
+/// Extract base classes from a class/struct specifier node
+fn extract_base_classes(class_node: &Node, source: &[u8]) -> Vec<String> {
+    let mut bases = vec![];
+    for child in class_node.children(&mut class_node.walk()) {
+        if child.kind() == "base_class_clause" {
+            // base_class_clause children include access specifiers and type identifiers
+            for base_child in child.children(&mut child.walk()) {
+                if base_child.kind() == "type_identifier"
+                    || base_child.kind() == "qualified_identifier"
+                {
+                    if let Ok(text) = base_child.utf8_text(source) {
+                        bases.push(text.to_string());
+                    }
+                }
+            }
+        }
+    }
+    bases
+}
+
+/// Build a map from method start byte to its access level by walking the field_declaration_list
+fn build_access_map(body: &Node, source: &[u8], default_access: &str) -> std::collections::HashMap<usize, String> {
+    let mut access_map = std::collections::HashMap::new();
+    let mut current_access = default_access.to_string();
+
+    for child in body.children(&mut body.walk()) {
+        if child.kind() == "access_specifier" {
+            // Text is e.g. "public:" — strip the colon
+            if let Ok(text) = child.utf8_text(source) {
+                current_access = text.trim_end_matches(':').trim().to_string();
+            }
+        } else if child.kind() == "function_definition" || child.kind() == "declaration" {
+            access_map.insert(child.start_byte(), current_access.clone());
+        }
+    }
+
+    access_map
+}
+
 /// Extract methods from a class body
 fn extract_class_methods(
     body: &Node,
     source: &[u8],
     path: &Path,
     class_name: &str,
+    default_access: &str,
 ) -> Result<Vec<Function>> {
     let mut methods = vec![];
+
+    // Build access map by walking siblings sequentially
+    let access_map = build_access_map(body, source, default_access);
 
     let query_str = r#"
         (function_definition
@@ -254,6 +336,18 @@ fn extract_class_methods(
                 line_start
             );
 
+            // Determine access level from pre-built map
+            let access = access_map
+                .get(&node.start_byte())
+                .map(|s| s.as_str())
+                .unwrap_or(default_access);
+
+            let annotations = if access == "public" {
+                vec!["exported".to_string()]
+            } else {
+                vec![]
+            };
+
             methods.push(Function {
                 name: name.clone(),
                 qualified_name,
@@ -266,7 +360,7 @@ fn extract_class_methods(
                 complexity: Some(calculate_complexity(&node, source)),
                 max_nesting: None,
                 doc_comment: None,
-                annotations: vec![],
+                annotations,
             });
         }
     }
@@ -274,7 +368,7 @@ fn extract_class_methods(
     Ok(methods)
 }
 
-/// Extract struct definitions (similar to classes in C++)
+/// Extract struct definitions (similar to classes in C++, but default access is public)
 fn extract_structs(
     root: &Node,
     source: &[u8],
@@ -297,6 +391,7 @@ fn extract_structs(
     while let Some(m) = matches.next() {
         let mut struct_node = None;
         let mut name = String::new();
+        let mut body_node = None;
 
         for capture in m.captures.iter() {
             let capture_name = query.capture_names()[capture.index as usize];
@@ -305,6 +400,7 @@ fn extract_structs(
                 "struct_name" => {
                     name = capture.node.utf8_text(source).unwrap_or("").to_string();
                 }
+                "body" => body_node = Some(capture.node),
                 _ => {}
             }
         }
@@ -314,14 +410,29 @@ fn extract_structs(
             let line_end = node.end_position().row as u32 + 1;
             let qualified_name = format!("{}::{}", path.display(), name);
 
+            // Extract base classes
+            let bases = extract_base_classes(&node, source);
+
+            // Extract methods (struct default = public)
+            let methods = if let Some(body) = body_node {
+                extract_class_methods(&body, source, path, &name, "public")?
+            } else {
+                vec![]
+            };
+
+            // Add methods to functions list
+            for method in &methods {
+                result.functions.push(method.clone());
+            }
+
             result.classes.push(Class {
                 name: name.clone(),
                 qualified_name,
                 file_path: path.to_path_buf(),
                 line_start,
                 line_end,
-                bases: vec![],
-                methods: vec![],
+                bases,
+                methods: methods.iter().map(|m| m.name.clone()).collect(),
                 doc_comment: None,
                 annotations: vec![],
             });
@@ -578,6 +689,7 @@ int classify(int x) {
         );
     }
 
+    #[test]
     fn test_complexity() {
         let source = r#"
 int complex(int x) {
@@ -600,5 +712,178 @@ int complex(int x) {
 
         assert_eq!(result.functions.len(), 1);
         assert!(result.functions[0].complexity.unwrap_or(0) >= 5); // Multiple branches
+    }
+
+    #[test]
+    fn test_public_methods_exported() {
+        let source = r#"
+class MyClass {
+public:
+    int public_method(int x) {
+        return x;
+    }
+
+private:
+    int private_method(int x) {
+        return x;
+    }
+
+protected:
+    int protected_method(int x) {
+        return x;
+    }
+};
+"#;
+        let path = PathBuf::from("test.cpp");
+        let result = parse_source(source, &path).expect("should parse C++ source");
+
+        let public_fn = result
+            .functions
+            .iter()
+            .find(|f| f.name == "public_method")
+            .expect("should find public_method");
+        assert!(
+            public_fn.annotations.contains(&"exported".to_string()),
+            "public method should be exported"
+        );
+
+        let private_fn = result
+            .functions
+            .iter()
+            .find(|f| f.name == "private_method")
+            .expect("should find private_method");
+        assert!(
+            private_fn.annotations.is_empty(),
+            "private method should not be exported"
+        );
+
+        let protected_fn = result
+            .functions
+            .iter()
+            .find(|f| f.name == "protected_method")
+            .expect("should find protected_method");
+        assert!(
+            protected_fn.annotations.is_empty(),
+            "protected method should not be exported"
+        );
+    }
+
+    #[test]
+    fn test_class_default_private() {
+        let source = r#"
+class Foo {
+    int implicit_private(int x) {
+        return x;
+    }
+};
+"#;
+        let path = PathBuf::from("test.cpp");
+        let result = parse_source(source, &path).expect("should parse C++ source");
+
+        let func = result
+            .functions
+            .iter()
+            .find(|f| f.name == "implicit_private")
+            .expect("should find implicit_private");
+        assert!(
+            func.annotations.is_empty(),
+            "class methods without access specifier should default to private (not exported)"
+        );
+    }
+
+    #[test]
+    fn test_struct_methods_default_public() {
+        let source = r#"
+struct Bar {
+    int implicit_public(int x) {
+        return x;
+    }
+
+private:
+    int explicit_private(int x) {
+        return x;
+    }
+};
+"#;
+        let path = PathBuf::from("test.cpp");
+        let result = parse_source(source, &path).expect("should parse C++ source");
+
+        let public_fn = result
+            .functions
+            .iter()
+            .find(|f| f.name == "implicit_public")
+            .expect("should find implicit_public");
+        assert!(
+            public_fn.annotations.contains(&"exported".to_string()),
+            "struct methods without access specifier should default to public (exported)"
+        );
+
+        let private_fn = result
+            .functions
+            .iter()
+            .find(|f| f.name == "explicit_private")
+            .expect("should find explicit_private");
+        assert!(
+            private_fn.annotations.is_empty(),
+            "struct method after private: should not be exported"
+        );
+    }
+
+    #[test]
+    fn test_base_class_extraction() {
+        let source = r#"
+class Base {};
+
+class Derived : public Base {
+public:
+    int method() {
+        return 0;
+    }
+};
+"#;
+        let path = PathBuf::from("test.cpp");
+        let result = parse_source(source, &path).expect("should parse C++ source");
+
+        let derived = result
+            .classes
+            .iter()
+            .find(|c| c.name == "Derived")
+            .expect("should find Derived class");
+        assert_eq!(derived.bases, vec!["Base"]);
+    }
+
+    #[test]
+    fn test_extern_free_function_exported() {
+        let source = r#"
+extern int api_func(int x) {
+    return x;
+}
+
+int internal_func(int x) {
+    return x;
+}
+"#;
+        let path = PathBuf::from("test.cpp");
+        let result = parse_source(source, &path).expect("should parse C++ source");
+
+        let api = result
+            .functions
+            .iter()
+            .find(|f| f.name == "api_func")
+            .expect("should find api_func");
+        assert!(
+            api.annotations.contains(&"exported".to_string()),
+            "extern free function should be exported"
+        );
+
+        let internal = result
+            .functions
+            .iter()
+            .find(|f| f.name == "internal_func")
+            .expect("should find internal_func");
+        assert!(
+            internal.annotations.is_empty(),
+            "plain free function should not be exported"
+        );
     }
 }
