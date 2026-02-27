@@ -312,6 +312,21 @@ fn is_inside_export(node: &Node) -> bool {
     false
 }
 
+/// Check if a class member has private or protected accessibility modifier.
+/// In TypeScript, methods without a modifier are public by default.
+fn has_private_modifier(node: &Node, source: &[u8]) -> bool {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "accessibility_modifier" {
+            if let Ok(text) = child.utf8_text(source) {
+                if text == "private" || text == "protected" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Check if function has async modifier
 fn is_async_function(node: &Node, source: &[u8]) -> bool {
     // Check for async keyword in function text
@@ -674,13 +689,20 @@ fn extract_class_methods(
     result: &mut ParseResult,
     class_name: &str,
 ) {
+    let class_is_exported = is_inside_export(class_node);
+
     if let Some(body) = class_node.child_by_field_name("body") {
         // Only iterate direct children of class_body
         for child in body.children(&mut body.walk()) {
             match child.kind() {
                 "method_definition" => {
                     // Regular class method
-                    if let Some(func) = parse_method_node(&child, source, path, class_name) {
+                    if let Some(mut func) =
+                        parse_method_node(&child, source, path, class_name)
+                    {
+                        if class_is_exported && !has_private_modifier(&child, source) {
+                            func.annotations.push("exported".to_string());
+                        }
                         result.functions.push(func);
                     }
                 }
@@ -688,13 +710,17 @@ fn extract_class_methods(
                     // Arrow function class field (e.g., foo = () => {})
                     if let Some(value_node) = child.child_by_field_name("value") {
                         if value_node.kind() == "arrow_function" {
-                            if let Some(func) = parse_arrow_field_node(
+                            if let Some(mut func) = parse_arrow_field_node(
                                 &child,
                                 &value_node,
                                 source,
                                 path,
                                 class_name,
                             ) {
+                                if class_is_exported && !has_private_modifier(&child, source)
+                                {
+                                    func.annotations.push("exported".to_string());
+                                }
                                 result.functions.push(func);
                             }
                         }

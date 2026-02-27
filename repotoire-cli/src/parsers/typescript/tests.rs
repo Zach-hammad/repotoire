@@ -620,3 +620,53 @@ items.map(transform);
         result.calls
     );
 }
+
+#[test]
+fn test_exported_class_methods_get_exported_annotation() {
+    let source = r#"
+export class UserService {
+    public getUser(id: string) { return id; }
+    private secretMethod() {}
+    protected helperMethod() {}
+    defaultMethod() {}
+}
+
+class InternalService {
+    public doStuff() {}
+}
+"#;
+    let path = PathBuf::from("service.ts");
+    let result = parse_source(source, &path, "ts").expect("should parse TS");
+
+    // Methods in exported class
+    let get_user = result.functions.iter().find(|f| f.name == "getUser").expect("should find getUser");
+    assert!(
+        get_user.annotations.contains(&"exported".to_string()),
+        "public method in exported class should be exported, got: {:?}", get_user.annotations
+    );
+
+    let secret = result.functions.iter().find(|f| f.name == "secretMethod").expect("should find secretMethod");
+    assert!(
+        !secret.annotations.contains(&"exported".to_string()),
+        "private method should not be exported"
+    );
+
+    let helper = result.functions.iter().find(|f| f.name == "helperMethod").expect("should find helperMethod");
+    assert!(
+        !helper.annotations.contains(&"exported".to_string()),
+        "protected method should not be exported"
+    );
+
+    let default_m = result.functions.iter().find(|f| f.name == "defaultMethod").expect("should find defaultMethod");
+    assert!(
+        default_m.annotations.contains(&"exported".to_string()),
+        "default (public) method in exported class should be exported, got: {:?}", default_m.annotations
+    );
+
+    // Methods in non-exported class
+    let do_stuff = result.functions.iter().find(|f| f.name == "doStuff").expect("should find doStuff");
+    assert!(
+        !do_stuff.annotations.contains(&"exported".to_string()),
+        "method in non-exported class should not be exported"
+    );
+}

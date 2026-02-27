@@ -424,6 +424,11 @@ fn parse_method_node(
     let line_end = node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}.{}:{}", path.display(), class_name, name, line_start);
 
+    let mut annotations = Vec::new();
+    if has_public_modifier(node, source) {
+        annotations.push("exported".to_string());
+    }
+
     Some(Function {
         name,
         qualified_name,
@@ -436,7 +441,7 @@ fn parse_method_node(
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
         doc_comment: None,
-        annotations: vec![],
+        annotations,
     })
 }
 
@@ -457,6 +462,11 @@ fn parse_constructor_node(
     let line_end = node.end_position().row as u32 + 1;
     let qualified_name = format!("{}::{}..ctor:{}", path.display(), class_name, line_start);
 
+    let mut annotations = Vec::new();
+    if has_public_modifier(node, source) {
+        annotations.push("exported".to_string());
+    }
+
     Some(Function {
         name: format!(".ctor:{}", name),
         qualified_name,
@@ -469,7 +479,7 @@ fn parse_constructor_node(
         complexity: Some(calculate_complexity(node, source)),
         max_nesting: None,
         doc_comment: None,
-        annotations: vec![],
+        annotations,
     })
 }
 
@@ -517,6 +527,20 @@ fn parse_local_function(
         doc_comment: None,
         annotations: vec![],
     })
+}
+
+/// Check if a method/constructor has the `public` visibility modifier
+fn has_public_modifier(node: &Node, source: &[u8]) -> bool {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "modifier" {
+            if let Ok(text) = child.utf8_text(source) {
+                if text == "public" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Check if a method has async modifier
@@ -805,5 +829,55 @@ public record Person(string Name, int Age);
 
         assert_eq!(result.classes.len(), 1);
         assert_eq!(result.classes[0].name, "Person");
+    }
+
+    #[test]
+    fn test_public_methods_exported() {
+        let source = r#"
+public class MyService
+{
+    public void PublicMethod() {}
+    private void PrivateMethod() {}
+    protected void ProtectedMethod() {}
+    internal void InternalMethod() {}
+    void DefaultMethod() {}
+}
+"#;
+        let path = PathBuf::from("MyService.cs");
+        let result = parse_source(source, &path).expect("should parse C# source");
+
+        let public_m = result.functions.iter().find(|f| f.name == "PublicMethod").expect("should find PublicMethod");
+        assert!(public_m.annotations.contains(&"exported".to_string()), "public method should be exported");
+
+        let private_m = result.functions.iter().find(|f| f.name == "PrivateMethod").expect("should find PrivateMethod");
+        assert!(!private_m.annotations.contains(&"exported".to_string()), "private method should not be exported");
+
+        let protected_m = result.functions.iter().find(|f| f.name == "ProtectedMethod").expect("should find ProtectedMethod");
+        assert!(!protected_m.annotations.contains(&"exported".to_string()), "protected method should not be exported");
+
+        let internal_m = result.functions.iter().find(|f| f.name == "InternalMethod").expect("should find InternalMethod");
+        assert!(!internal_m.annotations.contains(&"exported".to_string()), "internal method should not be exported");
+
+        let default_m = result.functions.iter().find(|f| f.name == "DefaultMethod").expect("should find DefaultMethod");
+        assert!(!default_m.annotations.contains(&"exported".to_string()), "default method should not be exported");
+    }
+
+    #[test]
+    fn test_public_constructor_exported() {
+        let source = r#"
+public class MyClass
+{
+    public MyClass(int x) {}
+    private MyClass() {}
+}
+"#;
+        let path = PathBuf::from("MyClass.cs");
+        let result = parse_source(source, &path).expect("should parse C# source");
+
+        let public_ctor = result.functions.iter().find(|f| f.name.contains("MyClass") && !f.annotations.is_empty()).expect("should find public constructor");
+        assert!(public_ctor.annotations.contains(&"exported".to_string()), "public constructor should be exported");
+
+        let private_ctor = result.functions.iter().find(|f| f.name.contains("MyClass") && f.annotations.is_empty()).expect("should find private constructor");
+        assert!(!private_ctor.annotations.contains(&"exported".to_string()), "private constructor should not be exported");
     }
 }

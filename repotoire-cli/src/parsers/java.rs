@@ -385,7 +385,10 @@ fn parse_method_node(
     let qualified_name = format!("{}::{}.{}:{}", path.display(), class_name, name, line_start);
 
     let doc_comment = extract_doc_comment(node, source);
-    let annotations = extract_annotations(node, source);
+    let mut annotations = extract_annotations(node, source);
+    if has_public_modifier(node, source) {
+        annotations.push("exported".to_string());
+    }
 
     Some(Function {
         name,
@@ -421,7 +424,10 @@ fn parse_constructor_node(
     let qualified_name = format!("{}::{}.<init>:{}", path.display(), class_name, line_start);
 
     let doc_comment = extract_doc_comment(node, source);
-    let annotations = extract_annotations(node, source);
+    let mut annotations = extract_annotations(node, source);
+    if has_public_modifier(node, source) {
+        annotations.push("exported".to_string());
+    }
 
     Some(Function {
         name: format!("<init>:{}", name),
@@ -681,6 +687,22 @@ fn extract_annotations(node: &Node, source: &[u8]) -> Vec<String> {
     }
 
     annotations
+}
+
+/// Check if a method/constructor has the `public` visibility modifier
+fn has_public_modifier(node: &Node, source: &[u8]) -> bool {
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "modifiers" {
+            for grandchild in child.children(&mut child.walk()) {
+                if let Ok(text) = grandchild.utf8_text(source) {
+                    if text == "public" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Calculate cyclomatic complexity of a method
@@ -971,10 +993,49 @@ public class Service {
         );
 
         let no_ann = result.functions.iter().find(|f| f.name == "noAnnotation").expect("should find noAnnotation");
-        assert!(
-            no_ann.annotations.is_empty(),
-            "noAnnotation should have no annotations, got: {:?}",
+        assert_eq!(
+            no_ann.annotations,
+            vec!["exported"],
+            "public noAnnotation should only have 'exported', got: {:?}",
             no_ann.annotations
         );
+
+        // toString and oldMethod are also public, so they get "exported" too
+        assert!(
+            to_string.annotations.iter().any(|a| a == "exported"),
+            "public toString should have 'exported', got: {:?}",
+            to_string.annotations
+        );
+        assert!(
+            old_method.annotations.iter().any(|a| a == "exported"),
+            "public oldMethod should have 'exported', got: {:?}",
+            old_method.annotations
+        );
+    }
+
+    #[test]
+    fn test_private_methods_not_exported() {
+        let source = r#"
+public class MyClass {
+    public void publicMethod() {}
+    private void privateMethod() {}
+    protected void protectedMethod() {}
+    void packagePrivateMethod() {}
+}
+"#;
+        let path = PathBuf::from("MyClass.java");
+        let result = parse_source(source, &path).expect("should parse Java source");
+
+        let public_m = result.functions.iter().find(|f| f.name == "publicMethod").expect("should find publicMethod");
+        assert!(public_m.annotations.contains(&"exported".to_string()), "public method should be exported");
+
+        let private_m = result.functions.iter().find(|f| f.name == "privateMethod").expect("should find privateMethod");
+        assert!(!private_m.annotations.contains(&"exported".to_string()), "private method should not be exported");
+
+        let protected_m = result.functions.iter().find(|f| f.name == "protectedMethod").expect("should find protectedMethod");
+        assert!(!protected_m.annotations.contains(&"exported".to_string()), "protected method should not be exported");
+
+        let package_m = result.functions.iter().find(|f| f.name == "packagePrivateMethod").expect("should find packagePrivateMethod");
+        assert!(!package_m.annotations.contains(&"exported".to_string()), "package-private method should not be exported");
     }
 }
