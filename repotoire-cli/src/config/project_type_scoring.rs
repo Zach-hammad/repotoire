@@ -66,6 +66,39 @@ pub(super) fn score_framework_markers(repo_path: &Path) -> u32 {
         }
     }
 
+    // Python framework detection — check if this repo IS the framework source
+    let pyproject = repo_path.join("pyproject.toml");
+    if let Ok(content) = std::fs::read_to_string(&pyproject) {
+        let lower = content.to_lowercase();
+        // Classifiers like "Framework :: Flask" or "Application Frameworks"
+        if lower.contains("framework ::") || lower.contains("application frameworks") {
+            score += 10;
+        }
+        // Project name matches a known Python framework
+        const PY_FRAMEWORKS: &[&str] = &[
+            "flask", "django", "fastapi", "starlette", "tornado", "sanic",
+            "bottle", "pyramid", "falcon", "aiohttp", "quart",
+        ];
+        for fw in PY_FRAMEWORKS {
+            if lower.contains(&format!("name = \"{}\"", fw)) {
+                score += 10;
+            }
+        }
+    }
+
+    // Rust framework detection — check if this repo IS the framework source
+    if let Some(content) = read_cargo_toml(repo_path) {
+        let lower = content.to_lowercase();
+        const RS_FRAMEWORKS: &[&str] = &[
+            "axum", "actix-web", "rocket", "warp", "tide", "gotham", "poem",
+        ];
+        for fw in RS_FRAMEWORKS {
+            if lower.contains(&format!("name = \"{}\"", fw)) {
+                score += 10;
+            }
+        }
+    }
+
     score
 }
 

@@ -4,6 +4,7 @@
 //! combined with finding penalties for the final score.
 
 use crate::config::ProjectConfig;
+use crate::detectors::api_surface::is_api_surface;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use std::collections::{HashMap, HashSet};
@@ -318,12 +319,23 @@ impl<'a> GraphScorer<'a> {
 
             // Route findings to pillars based on category
             let pillar = classify_pillar(category, &detector, is_security);
+
+            // Reduce architecture penalties for API surface findings —
+            // high fan-in is expected for public API entry points (arXiv:2406.19254)
+            let api_discount = if pillar == Pillar::Architecture
+                && self.is_api_surface_finding(finding)
+            {
+                0.5
+            } else {
+                1.0
+            };
+
             let (penalty, count) = match pillar {
                 Pillar::Quality => (&mut quality_penalty, &mut quality_count),
                 Pillar::Structure => (&mut structure_penalty, &mut structure_count),
                 Pillar::Architecture => (&mut architecture_penalty, &mut architecture_count),
             };
-            *penalty += effective;
+            *penalty += effective * api_discount;
             *count += 1;
         }
 
@@ -615,6 +627,19 @@ impl<'a> GraphScorer<'a> {
             || detector.contains("ssrf")
             || detector.contains("taint")
             || finding.cwe_id.is_some()
+    }
+
+    /// Check if a finding targets an API surface function (exported + high fan-in).
+    /// Architecture penalties on API entry points are less actionable since high
+    /// coupling is inherent to public APIs.
+    fn is_api_surface_finding(&self, finding: &Finding) -> bool {
+        let Some(file) = finding.affected_files.first() else {
+            return false;
+        };
+        let Some(line) = finding.line_start else {
+            return false;
+        };
+        is_api_surface(self.graph, &file.to_string_lossy(), line)
     }
 
     /// Check if a file path is a test file
