@@ -20,7 +20,7 @@ static ASYNC_CALL: OnceLock<Regex> = OnceLock::new();
 fn async_call() -> &'static Regex {
     ASYNC_CALL.get_or_init(|| {
         // Only match clearly async I/O patterns — NOT generic method calls
-        Regex::new(r"(?i)\b(fetch\(|axios\.\w+\(|\.\bjson\(\)|\.\btext\(\)|async_\w+\(|aio\w+\.)")
+        Regex::new(r"(?i)\b(fetch\(|axios\.\w+\(|\.\bjson\(\)|\.\btext\(\)|async_\w+\(|aio\w+\.|\.\bquery\(|\.\bexecute\(|\.\bconnect\(|\.\bsend\(|fs\.promises\.|fsPromises\.)")
             .expect("valid regex")
     })
 }

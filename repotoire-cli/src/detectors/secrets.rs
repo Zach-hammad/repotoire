@@ -51,7 +51,7 @@ fn get_patterns() -> &'static Vec<SecretPattern> {
             },
             SecretPattern {
                 name: "Generic Secret",
-                pattern: Regex::new(r"(?i)(secret|password|passwd|pwd)\s*[=:]\s*[^\s]{8,}")
+                pattern: Regex::new(r#"(?i)(secret|password|passwd|pwd)\s*[=:]\s*["'][^"']{8,}["']"#)
                     .expect("valid regex"),
                 severity: Severity::High,
             },

@@ -545,7 +545,7 @@ impl Detector for FeatureEnvyDetector {
             // Original: external > internal * 3 && external >= 15 && internal > 0
             // New: Also check module concentration - if calling many modules, it's likely orchestration
 
-            let is_concentrated = external_modules.len() <= 2; // Calls mostly 1-2 modules
+            let is_concentrated = external_modules.len() == 1; // Concentrated coupling to a single foreign module
             let high_external = external_calls > internal_calls * 3 && external_calls >= 15;
 
             if high_external && internal_calls > 0 && is_concentrated {

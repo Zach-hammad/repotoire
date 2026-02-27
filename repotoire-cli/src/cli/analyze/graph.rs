@@ -102,7 +102,9 @@ fn build_func_node(
         .with_property("is_async", func.is_async)
         .with_property("complexity", complexity as i64)
         .with_property("loc", loc as i64)
-        .with_property("address_taken", address_taken);
+        .with_property("address_taken", address_taken)
+        .with_property("paramCount", func.parameters.len() as i64)
+        .with_property("params", func.parameters.join(","));
     if let Some(ref doc) = func.doc_comment {
         node = node.with_property("doc_comment", doc.as_str());
     }
@@ -248,7 +250,9 @@ pub(super) fn build_graph(
                     .with_property("is_async", func.is_async)
                     .with_property("complexity", complexity as i64)
                     .with_property("loc", loc as i64)
-                    .with_property("address_taken", address_taken);
+                    .with_property("address_taken", address_taken)
+                    .with_property("paramCount", func.parameters.len() as i64)
+                    .with_property("params", func.parameters.join(","));
                 if let Some(ref doc) = func.doc_comment {
                     func_node = func_node.with_property("doc_comment", doc.as_str());
                 }

@@ -32,14 +32,14 @@ fn hook_call() -> &'static Regex {
 
 fn conditional() -> &'static Regex {
     CONDITIONAL.get_or_init(|| {
-        Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$)")
+        Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$|.*\?\s*use[A-Z]|.*&&\s*use[A-Z]|.*\|\|\s*use[A-Z])")
             .expect("valid regex")
     })
 }
 
 fn loop_pattern() -> &'static Regex {
     LOOP.get_or_init(|| {
-        Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\()")
+        Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\(|\.reduce\(|\.flatMap\()")
             .expect("valid regex")
     })
 }

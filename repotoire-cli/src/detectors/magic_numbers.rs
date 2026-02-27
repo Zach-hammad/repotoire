@@ -244,6 +244,27 @@ impl MagicNumbersDetector {
             return true;
         }
 
+        // ML/DL batch sizes and layer dimensions
+        if line_lower.contains("batch")
+            || line_lower.contains("epoch")
+            || line_lower.contains("layer")
+            || line_lower.contains("hidden")
+            || line_lower.contains("embed")
+            || line_lower.contains("dim")
+        {
+            return true;
+        }
+
+        // Powers of 2 (8, 16, 32, 64, 128) in sizing contexts
+        if [8, 16, 32, 64, 128].contains(&num)
+            && (line_lower.contains("size")
+                || line_lower.contains("capacity")
+                || line_lower.contains("buffer")
+                || line_lower.contains("chunk"))
+        {
+            return true;
+        }
+
         false
     }
 

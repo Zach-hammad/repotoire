@@ -34,7 +34,7 @@ const DEFAULT_MAX_FINDINGS: usize = 50;
 /// Single-linkage clustering can create "galaxy clusters" where transitively
 /// linked functions merge into one massive group. Cap cluster size to keep
 /// findings actionable.
-const MAX_CLUSTER_SIZE: usize = 50;
+const MAX_CLUSTER_SIZE: usize = 15;
 
 /// Patterns commonly detected in boilerplate
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

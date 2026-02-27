@@ -309,8 +309,6 @@ impl Detector for InsecureRandomDetector {
                                 || line_lower.contains("display_id")
                                 || line_lower.contains("recordid")
                                 || line_lower.contains("record_id")
-                                || line_lower.contains("requestid")
-                                || line_lower.contains("request_id")
                                 || line_lower.contains("gameid")
                                 || line_lower.contains("game_id")
                                 || line_lower.contains("itemid")

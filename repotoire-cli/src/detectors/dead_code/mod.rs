@@ -299,20 +299,19 @@ impl DeadCodeDetector {
     fn is_callback_pattern(&self, name: &str) -> bool {
         let name_lower = name.to_lowercase();
 
-        // Check for on* patterns (onClick, onSubmit, onLoad)
+        // Check for on* patterns — camelCase (onClick) AND snake_case (on_click)
         if name_lower.starts_with("on") && name.len() > 2 {
-            // Ensure the character after "on" is uppercase (camelCase convention)
             if let Some(c) = name.chars().nth(2) {
-                if c.is_uppercase() {
+                if c.is_uppercase() || c == '_' {
                     return true;
                 }
             }
         }
 
-        // Check for handle* patterns (handleClick, handleSubmit)
+        // Check for handle* patterns — camelCase (handleClick) AND snake_case (handle_submit)
         if name_lower.starts_with("handle") && name.len() > 6 {
             if let Some(c) = name.chars().nth(6) {
-                if c.is_uppercase() {
+                if c.is_uppercase() || c == '_' {
                     return true;
                 }
             }
