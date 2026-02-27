@@ -3,6 +3,7 @@
 pub(crate) mod analyze;
 pub(crate) mod diff;
 mod clean;
+mod debt;
 mod doctor;
 mod embedded_scripts;
 mod findings;
@@ -169,6 +170,10 @@ Examples:
         /// Only analyze files changed since this commit/branch/tag
         #[arg(long)]
         since: Option<String>,
+
+        /// Sort findings by actionability score instead of severity
+        #[arg(long)]
+        rank: bool,
     },
 
     /// Compare findings between two analysis states (shows new, fixed, score delta)
@@ -391,6 +396,22 @@ Examples:
         #[arg(long)]
         stats: bool,
     },
+
+    /// Show per-file technical debt risk scores (requires prior analysis)
+    #[command(after_help = "\
+Examples:
+  repotoire debt .                                 Show top 20 debt hotspots
+  repotoire debt . --top 50                        Show top 50 files
+  repotoire debt . --filter src/detectors           Filter to a specific directory")]
+    Debt {
+        /// Filter to files containing this path substring
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Number of files to show
+        #[arg(long, default_value = "20")]
+        top: usize,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -433,6 +454,7 @@ pub fn run(cli: Cli) -> Result<()> {
             explain_score,
             verify,
             since,
+            rank,
         }) => {
             // Deprecation warning for --thorough
             if thorough {
@@ -478,6 +500,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 verify,
                 effective_skip_graph,
                 effective_max_files,
+                rank,
             )
         }
 
@@ -648,6 +671,10 @@ pub fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
 
+        Some(Commands::Debt { filter, top }) => {
+            debt::run(&cli.path, filter.as_deref(), top)
+        }
+
         None => {
             // Check if the path looks like an unknown subcommand
             check_unknown_subcommand(&cli.path)?;
@@ -672,6 +699,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 false, // verify
                 false, // skip_graph
                 0,     // max_files (unlimited)
+                false, // rank
             )
         }
     }
@@ -811,7 +839,7 @@ fn check_unknown_subcommand(path: &std::path::Path) -> anyhow::Result<()> {
     }
     let known_commands = [
         "init", "analyze", "diff", "findings", "fix", "graph", "stats", "status", "doctor",
-        "clean", "version", "serve",
+        "clean", "version", "serve", "debt",
     ];
     if !known_commands.contains(&path_str.as_ref()) {
         anyhow::bail!(

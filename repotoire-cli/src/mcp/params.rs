@@ -188,6 +188,16 @@ pub enum EvolutionQueryType {
     RecentCommits,
 }
 
+// ── Debt Tools ──
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct PredictDebtParams {
+    /// Filter to files under this directory (relative to repo root)
+    pub path: Option<String>,
+    /// Maximum number of files to return (default: 10)
+    pub limit: Option<u64>,
+}
+
 // ── AI Tools ──
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

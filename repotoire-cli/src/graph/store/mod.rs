@@ -823,7 +823,7 @@ impl GraphStore {
 
 // redb::Database handles cleanup on Drop automatically — no manual flush needed
 
-// Implement the GraphQuery trait for detector compatibility
+// GraphQuery trait implementation lives in graph/store_query.rs
 
 #[cfg(test)]
 mod tests;

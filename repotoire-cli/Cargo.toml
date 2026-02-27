@@ -93,6 +93,8 @@ git2 = { version = "0.20", default-features = false, features = ["vendored-libgi
 # Misc
 ignore = "0.4"  # .gitignore support
 dashmap = "6"   # Concurrent hashmap for file cache
+# Pure Rust GBDT inference
+gbdt = "0.1"
 regex = "1"
 chrono = "0.4"
 ratatui = "0.30.0"

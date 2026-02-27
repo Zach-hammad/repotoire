@@ -138,6 +138,27 @@ impl RepotoireServer {
     }
 
     #[tool(
+        name = "repotoire_predict_debt",
+        description = "Predict per-file technical debt risk scores. Returns files ranked by composite risk (finding density, coupling, churn, ownership, recency). Run repotoire_analyze first."
+    )]
+    async fn repotoire_predict_debt(
+        &self,
+        Parameters(params): Parameters<PredictDebtParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_args_size(&params)?;
+        let state = self.state.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut state = state.blocking_write();
+            super::tools::analysis::handle_predict_debt(&mut state, &params)
+        })
+        .await
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        Ok(value_to_result(result))
+    }
+
+    #[tool(
         name = "repotoire_diff",
         description = "Compare findings between two analysis states. Shows new findings, fixed findings, and score delta. Run repotoire_analyze on your baseline first."
     )]
@@ -473,11 +494,12 @@ mod tests {
             .map(|k| k.to_string())
             .collect();
 
-        // Verify all 14 tools are registered
+        // Verify all 15 tools are registered
         let expected_tools = [
             "repotoire_analyze",
             "repotoire_get_findings",
             "repotoire_get_hotspots",
+            "repotoire_predict_debt",
             "repotoire_diff",
             "repotoire_query_graph",
             "repotoire_trace_dependencies",

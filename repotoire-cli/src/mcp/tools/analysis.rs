@@ -1,13 +1,13 @@
 //! Analysis tool handlers
 //!
-//! Implements `analyze`, `get_findings`, and `get_hotspots` MCP tools.
+//! Implements `analyze`, `get_findings`, `get_hotspots`, and `predict_debt` MCP tools.
 
 use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::detectors::{default_detectors_with_ngram, walk_source_files, DetectorEngineBuilder, SourceFiles};
 use crate::mcp::state::HandlerState;
-use crate::mcp::params::{AnalyzeParams, DiffParams, GetFindingsParams, GetHotspotsParams};
+use crate::mcp::params::{AnalyzeParams, DiffParams, GetFindingsParams, GetHotspotsParams, PredictDebtParams};
 use crate::models::FindingsSummary;
 
 /// Run code analysis on the repository.
@@ -239,6 +239,131 @@ pub fn handle_get_hotspots(state: &mut HandlerState, params: &GetHotspotsParams)
         "hotspots": hotspots,
         "total_files": hotspots.len()
     }))
+}
+
+/// Predict per-file technical debt risk scores.
+///
+/// Loads cached findings, builds the code graph, gathers git churn data,
+/// and computes composite risk scores using `compute_debt`. Returns the
+/// top N files ranked by risk score with breakdowns by component.
+///
+/// Requires a prior `analyze` run to populate findings. Git churn data
+/// is gathered automatically when the repo has git history.
+pub fn handle_predict_debt(state: &mut HandlerState, params: &PredictDebtParams) -> Result<Value> {
+    let limit = params.limit.unwrap_or(10) as usize;
+    let path_filter = params.path.as_deref();
+
+    // Load cached findings
+    let findings_path = state
+        .repo_path
+        .join(".repotoire")
+        .join("last_findings.json");
+
+    if !findings_path.exists() {
+        return Ok(json!({
+            "error": "No findings available. Run 'analyze' first.",
+            "hint": "Use the 'analyze' tool to generate findings, then call 'predict_debt' again."
+        }));
+    }
+
+    let content = std::fs::read_to_string(&findings_path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&content)?;
+    let findings_val = parsed.get("findings").ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cached findings file is malformed (missing 'findings' key). Re-run: repotoire analyze"
+        )
+    })?;
+
+    // Deserialize findings into proper Finding structs
+    let findings: Vec<crate::models::Finding> = findings_val
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect();
+
+    // Get graph
+    let graph = state.graph()?;
+
+    // Gather git churn data
+    let git_churn = gather_git_churn(&state.repo_path);
+
+    // Compute debt scores
+    let weights = crate::classifier::DebtWeights::default();
+    let mut debts = crate::classifier::compute_debt(&findings, graph.as_ref(), &git_churn, &weights);
+
+    // Apply path filter if provided
+    if let Some(prefix) = path_filter {
+        debts.retain(|d| d.file_path.starts_with(prefix));
+    }
+
+    // Truncate to limit
+    debts.truncate(limit);
+
+    let results: Vec<serde_json::Value> = debts
+        .iter()
+        .map(|d| {
+            json!({
+                "file_path": d.file_path,
+                "risk_score": round2(d.risk_score),
+                "finding_density": round2(d.finding_density),
+                "coupling_score": round2(d.coupling_score),
+                "churn_score": round2(d.churn_score),
+                "ownership_dispersion": round2(d.ownership_dispersion),
+                "age_factor": round2(d.age_factor),
+                "trend": format!("{}", d.trend),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "files": results,
+        "total_count": results.len(),
+        "message": format!("Top {} files by technical debt risk.", results.len()),
+    }))
+}
+
+/// Round a float to 2 decimal places for cleaner JSON output.
+fn round2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+/// Gather git churn data for all files in the repo.
+///
+/// Returns a map of file_path -> (churn_score, author_count, age_days).
+/// Returns an empty map if git history is unavailable.
+fn gather_git_churn(
+    repo_path: &std::path::Path,
+) -> std::collections::HashMap<String, (f64, usize, f64)> {
+    use crate::git::GitHistory;
+
+    let history = match GitHistory::new(repo_path) {
+        Ok(h) => h,
+        Err(_) => return std::collections::HashMap::new(),
+    };
+
+    let churn_map = match history.get_all_file_churn(500) {
+        Ok(m) => m,
+        Err(_) => return std::collections::HashMap::new(),
+    };
+
+    let now = chrono::Utc::now();
+
+    churn_map
+        .into_iter()
+        .map(|(path, churn)| {
+            let churn_score = churn.commit_count as f64;
+            let author_count = churn.authors.len();
+            let age_days = churn
+                .last_modified
+                .as_ref()
+                .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+                .map(|dt| (now - dt.with_timezone(&chrono::Utc)).num_days() as f64)
+                .unwrap_or(365.0); // assume old if unknown
+            (path, (churn_score, author_count, age_days))
+        })
+        .collect()
 }
 
 /// Compare findings between two analysis states.

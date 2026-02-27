@@ -222,6 +222,75 @@ fn evaluate_validation(model: &FpClassifier, val_data: &[(Features, bool)]) -> (
     (loss / val_data.len() as f32, correct as f32 / val_data.len() as f32)
 }
 
+/// Train a GBDT classifier on labeled data
+pub fn train_gbdt_model(_config: &TrainConfig) -> Result<TrainResult, String> {
+    use super::features_v2::FeatureExtractorV2;
+    use super::gbdt_model;
+
+    let collector = FeedbackCollector::default();
+    let examples = collector
+        .load_all()
+        .map_err(|e| format!("Failed to load training data: {}", e))?;
+
+    if examples.is_empty() {
+        return Err("No training data found. Use `repotoire feedback` to label findings.".into());
+    }
+
+    if examples.len() < 10 {
+        return Err(format!(
+            "Need at least 10 labeled examples, found {}.",
+            examples.len()
+        ));
+    }
+
+    tracing::info!("Loaded {} labeled examples for GBDT training", examples.len());
+
+    let extractor = FeatureExtractorV2::new();
+    let graph = crate::graph::GraphStore::in_memory();
+
+    let features: Vec<_> = examples
+        .iter()
+        .map(|ex| {
+            let finding = labeled_to_finding(ex);
+            extractor.extract(&finding, Some(&graph), None, None)
+        })
+        .collect();
+    let labels: Vec<f64> = examples
+        .iter()
+        .map(|ex| if ex.is_true_positive { 1.0 } else { -1.0 })
+        .collect();
+
+    let model = gbdt_model::train_gbdt(
+        &features,
+        &labels,
+        100,
+        6,
+        0.1,
+    )?;
+
+    let model_path = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("repotoire")
+        .join("gbdt_model.json");
+
+    if let Some(parent) = model_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create model directory: {}", e))?;
+    }
+
+    gbdt_model::save_model(&model, &model_path)?;
+    tracing::info!("GBDT model saved to {}", model_path.display());
+
+    Ok(TrainResult {
+        train_loss: 0.0,
+        val_loss: None,
+        train_accuracy: 0.0,
+        val_accuracy: None,
+        epochs: 100,
+        model_path,
+    })
+}
+
 /// Convert labeled finding back to Finding for feature extraction
 fn labeled_to_finding(labeled: &LabeledFinding) -> Finding {
     Finding {

@@ -73,6 +73,7 @@ pub fn run(
     verify: bool,
     skip_graph: bool,
     max_files: usize,
+    rank: bool,
 ) -> Result<()> {
     // Normalize skip_detector names to kebab-case so both "TodoScanner" and "todo-scanner" work
     let skip_detector: Vec<String> = skip_detector
@@ -216,6 +217,8 @@ pub fn run(
         &file_result.all_files,
         env.config.max_files,
         verify,
+        &graph,
+        rank,
     );
 
     // Phase 5: Calculate scores and build report

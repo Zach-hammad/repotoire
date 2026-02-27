@@ -10,13 +10,20 @@
 //! thresholds. Security findings need high recall (don't miss real vulns),
 //! while code quality findings can tolerate more filtering.
 
+pub mod bootstrap;
+pub mod debt;
 mod features;
+pub mod features_v2;
 pub mod feedback;
+pub mod gbdt_model;
 pub mod model;
 pub mod thresholds;
 pub mod train;
 
+pub use debt::{compute_debt, DebtTrend, DebtWeights, FileDebt};
 pub use features::FeatureExtractor;
+pub use features_v2::{CrossFindingFeatures, FeatureExtractorV2, FeaturesV2, GitFeatures};
+pub use gbdt_model::{GbdtClassifier, GbdtPrediction};
 pub use feedback::{FeedbackCollector, LabeledFinding};
 pub use model::{FpClassifier, HeuristicClassifier, Prediction};
 pub use thresholds::{
