@@ -73,7 +73,7 @@ impl CircularDependencyDetector {
             let imports = graph.get_imports();
             let strength = imports
                 .iter()
-                .filter(|(src, dst)| src.contains(from) && dst.contains(to))
+                .filter(|(src, dst)| (src == from || src.ends_with(&format!("/{}", from))) && (dst == to || dst.ends_with(&format!("/{}", to))))
                 .count()
                 .max(1); // At least 1 if there's an edge
 

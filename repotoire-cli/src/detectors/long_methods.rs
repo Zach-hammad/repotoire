@@ -64,7 +64,7 @@ impl LongMethodsDetector {
 
         // Orchestrators: many callees, low complexity relative to size
         // They mostly coordinate/dispatch, not implement logic
-        if out_degree >= 10 {
+        if out_degree >= 7 {
             let complexity_per_line = complexity as f64 / lines as f64;
             // Low complexity per line = mostly calling other functions
             complexity_per_line < 0.2

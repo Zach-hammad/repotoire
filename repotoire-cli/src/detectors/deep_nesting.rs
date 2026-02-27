@@ -379,7 +379,7 @@ fn structural_braces_multiline(content: &str) -> Vec<Vec<char>> {
                 // Line comments — rest of line is not structural
                 '/' if chars.peek() == Some(&'/') => break,
                 // Python/Ruby line comments (only at start of meaningful content)
-                '#' if line.trim_start().starts_with('#') && result[line_idx].is_empty() => break,
+                '#' if !in_string && !in_block_comment => break,
                 '{' | '}' => result[line_idx].push(ch),
                 _ => {}
             }

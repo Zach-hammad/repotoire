@@ -50,17 +50,17 @@ fn is_vulnerable_pattern(pattern: &str) -> Option<&'static str> {
         return Some("greedy quantifier on group");
     }
 
-    // Evil regex patterns
+    // Evil regex patterns — search for these substrings directly in the user's regex
     let evil_patterns = [
-        r"(a+)+",        // Classic ReDoS
-        r"(a*)*",        // Nested stars
-        r"(a|aa)+",      // Overlapping alternation
-        r"(.*a){x}",     // x repetitions of greedy match
-        r"([a-zA-Z]+)*", // Group with quantifier, then another quantifier
+        "(a+)+",        // Classic ReDoS
+        "(a*)*",        // Nested stars
+        "(a|aa)+",      // Overlapping alternation
+        "(.*a){",       // x repetitions of greedy match
+        "([a-zA-Z]+)*", // Group with quantifier, then another quantifier
     ];
 
     for evil in evil_patterns {
-        if pattern.contains(&evil[1..evil.len() - 1]) {
+        if pattern.contains(evil) {
             return Some("classic ReDoS pattern");
         }
     }

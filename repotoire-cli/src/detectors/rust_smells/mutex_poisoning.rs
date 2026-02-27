@@ -41,13 +41,23 @@ impl Detector for MutexPoisoningRiskDetector {
                 continue;
             };
             let mut in_test_module = false;
+            let mut test_module_depth: usize = 0;
             let all_lines: Vec<&str> = content.lines().collect();
 
             for (i, line) in all_lines.iter().enumerate() {
                 if line.contains("#[cfg(test)]") {
                     in_test_module = true;
+                    test_module_depth = 0;
                 }
                 if in_test_module {
+                    test_module_depth += line.matches('{').count();
+                    let close = line.matches('}').count();
+                    if close >= test_module_depth && test_module_depth > 0 {
+                        in_test_module = false;
+                        test_module_depth = 0;
+                    } else {
+                        test_module_depth = test_module_depth.saturating_sub(close);
+                    }
                     continue;
                 }
 

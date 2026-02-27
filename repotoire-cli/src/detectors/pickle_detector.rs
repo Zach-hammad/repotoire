@@ -219,9 +219,12 @@ impl PickleDeserializationDetector {
                 continue;
             }
 
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let content = match crate::cache::global_cache().masked_content(&path) {
+                Some(c) => c.to_string(),
+                None => match std::fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                },
             };
 
             // Skip very large files
