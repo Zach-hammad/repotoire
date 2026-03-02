@@ -193,6 +193,27 @@ fn emit_decorator_call_edge(
     edges.push((file_qn.to_string(), func_qn.to_string(), CodeEdge::calls()));
 }
 
+/// Estimate node and edge counts from parse results for pre-allocation.
+///
+/// Nodes: 1 file node + N function nodes + M class nodes per file.
+/// Edges: at least 1 Contains edge per function/class, plus call and import edges.
+/// The edge multiplier (3x nodes) is a heuristic that covers Contains, Calls,
+/// and Imports edges in typical codebases.
+fn estimate_graph_capacity(parse_results: &[(PathBuf, ParseResult)]) -> (usize, usize) {
+    let mut estimated_nodes: usize = 0;
+    let mut estimated_edges: usize = 0;
+    for (_, pr) in parse_results {
+        // 1 file node + functions + classes
+        let file_nodes = 1 + pr.functions.len() + pr.classes.len();
+        estimated_nodes += file_nodes;
+        // Contains edges (1 per function/class) + call edges + import edges
+        estimated_edges += pr.functions.len() + pr.classes.len() + pr.calls.len() + pr.imports.len();
+    }
+    // Add a safety margin for cross-file call resolution edges
+    estimated_edges = estimated_edges.saturating_add(estimated_nodes);
+    (estimated_nodes, estimated_edges)
+}
+
 /// Build the code graph from parse results
 pub(super) fn build_graph(
     graph: &Arc<GraphStore>,
@@ -203,6 +224,10 @@ pub(super) fn build_graph(
 ) -> Result<()> {
     let total_functions: usize = parse_results.iter().map(|(_, r)| r.functions.len()).sum();
     let total_classes: usize = parse_results.iter().map(|(_, r)| r.classes.len()).sum();
+
+    // Pre-allocate graph capacity to eliminate reallocations during bulk insert
+    let (estimated_nodes, estimated_edges) = estimate_graph_capacity(parse_results);
+    graph.reserve_capacity(estimated_nodes, estimated_edges);
 
     let graph_bar = multi.add(ProgressBar::new(parse_results.len() as u64));
     graph_bar.set_style(bar_style.clone());
@@ -371,6 +396,12 @@ pub(super) fn build_graph_chunked(
     bar_style: &ProgressStyle,
     chunk_size: usize,
 ) -> Result<()> {
+    // Pre-allocate graph capacity upfront even though we insert in chunks.
+    // The graph itself still accumulates all nodes/edges, so reserving the
+    // full estimated capacity avoids reallocations across chunk boundaries.
+    let (estimated_nodes, estimated_edges) = estimate_graph_capacity(parse_results);
+    graph.reserve_capacity(estimated_nodes, estimated_edges);
+
     let graph_bar = multi.add(ProgressBar::new(parse_results.len() as u64));
     graph_bar.set_style(bar_style.clone());
     graph_bar.set_message("Building code graph (chunked)...");
@@ -1274,5 +1305,64 @@ mod tests {
         let callers = graph.get_callers("app.routes.helper:10");
         assert!(callers.is_empty());
         assert_eq!(graph.call_fan_in("app.routes.helper:10"), 0);
+    }
+
+    #[test]
+    fn test_estimate_graph_capacity_empty() {
+        let results: Vec<(PathBuf, ParseResult)> = vec![];
+        let (nodes, edges) = estimate_graph_capacity(&results);
+        assert_eq!(nodes, 0);
+        assert_eq!(edges, 0);
+    }
+
+    #[test]
+    fn test_estimate_graph_capacity_realistic() {
+        use crate::parsers::ImportInfo;
+
+        let results = vec![(
+            PathBuf::from("app/main.py"),
+            ParseResult {
+                functions: vec![
+                    Function {
+                        name: "foo".to_string(),
+                        qualified_name: "app.main.foo:1".to_string(),
+                        file_path: PathBuf::from("app/main.py"),
+                        line_start: 1,
+                        line_end: 5,
+                        parameters: vec![],
+                        return_type: None,
+                        is_async: false,
+                        complexity: Some(1),
+                        max_nesting: None,
+                        doc_comment: None,
+                        annotations: vec![],
+                    },
+                    Function {
+                        name: "bar".to_string(),
+                        qualified_name: "app.main.bar:6".to_string(),
+                        file_path: PathBuf::from("app/main.py"),
+                        line_start: 6,
+                        line_end: 10,
+                        parameters: vec![],
+                        return_type: None,
+                        is_async: false,
+                        complexity: Some(1),
+                        max_nesting: None,
+                        doc_comment: None,
+                        annotations: vec![],
+                    },
+                ],
+                classes: vec![],
+                imports: vec![ImportInfo::runtime("os")],
+                calls: vec![("app.main.foo:1".to_string(), "bar".to_string())],
+                address_taken: StdHashSet::new(),
+            },
+        )];
+
+        let (nodes, edges) = estimate_graph_capacity(&results);
+        // 1 file + 2 functions = 3 nodes
+        assert_eq!(nodes, 3);
+        // 2 contains (functions) + 1 call + 1 import + 3 (safety margin = nodes) = 7
+        assert_eq!(edges, 7);
     }
 }

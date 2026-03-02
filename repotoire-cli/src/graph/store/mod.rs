@@ -120,6 +120,21 @@ impl GraphStore {
             .expect("index lock poisoned — a thread panicked while holding this lock")
     }
 
+    /// Pre-allocate capacity for the graph and node index.
+    ///
+    /// Call this before bulk-inserting nodes and edges to avoid repeated
+    /// reallocations of petgraph's internal `Vec`s. The `estimated_nodes`
+    /// and `estimated_edges` values are hints — over-estimating is cheap
+    /// (a bit of extra memory), under-estimating just means some
+    /// reallocations still happen.
+    pub fn reserve_capacity(&self, estimated_nodes: usize, estimated_edges: usize) {
+        let mut graph = self.write_graph();
+        let mut index = self.write_index();
+        graph.reserve_nodes(estimated_nodes);
+        graph.reserve_edges(estimated_edges);
+        index.reserve(estimated_nodes);
+    }
+
     /// Clear all data
     pub fn clear(&self) -> Result<()> {
         let mut graph = self.write_graph();

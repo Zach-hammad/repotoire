@@ -168,6 +168,39 @@ fn test_scc_no_cycle() {
 }
 
 #[test]
+fn test_reserve_capacity() {
+    let store = GraphStore::in_memory();
+
+    // Pre-allocate for 100 nodes and 300 edges
+    store.reserve_capacity(100, 300);
+
+    // Verify the graph is still functional after reservation
+    assert_eq!(store.node_count(), 0);
+    assert_eq!(store.edge_count(), 0);
+
+    // Add nodes and edges — should work without any reallocations
+    for i in 0..50 {
+        store.add_node(CodeNode::function(&format!("func_{}", i), "test.py")
+            .with_qualified_name(&format!("func_{}", i)));
+    }
+    assert_eq!(store.node_count(), 50);
+
+    // Add edges between sequential functions
+    for i in 0..49 {
+        store.add_edge_by_name(&format!("func_{}", i), &format!("func_{}", i + 1), CodeEdge::calls());
+    }
+    assert_eq!(store.edge_count(), 49);
+}
+
+#[test]
+fn test_reserve_capacity_zero() {
+    // Reserving zero capacity should be a no-op, not panic
+    let store = GraphStore::in_memory();
+    store.reserve_capacity(0, 0);
+    assert_eq!(store.node_count(), 0);
+}
+
+#[test]
 fn test_minimal_cycle() {
     let store = GraphStore::in_memory();
 
