@@ -76,6 +76,7 @@ pub fn run(
     max_files: usize,
     rank: bool,
     export_training: Option<&Path>,
+    timings: bool,
 ) -> Result<()> {
     // Normalize skip_detector names to kebab-case so both "TodoScanner" and "todo-scanner" work
     let skip_detector: Vec<String> = skip_detector
@@ -84,8 +85,10 @@ pub fn run(
         .collect();
 
     let start_time = Instant::now();
+    let mut phase_timings: Vec<(&str, std::time::Duration)> = Vec::new();
 
     // Phase 1: Validate repository and setup environment
+    let phase_start = Instant::now();
     let mut env = setup_environment(
         path,
         format,
@@ -100,6 +103,7 @@ pub fn run(
         skip_graph,
         max_files,
     )?;
+    phase_timings.push(("setup", phase_start.elapsed()));
 
     // Fast path: fully cached results (no changes detected)
     if let Some(result) = try_cached_fast_path(
@@ -133,7 +137,9 @@ pub fn run(
     }
 
     // Phase 2: Initialize graph and collect files
+    let phase_start = Instant::now();
     let (graph, file_result, parse_result) = initialize_graph(&mut env, &since, &MultiProgress::new())?;
+    phase_timings.push(("init+parse", phase_start.elapsed()));
 
     if file_result.all_files.is_empty() {
         if !env.quiet_mode {
@@ -147,6 +153,7 @@ pub fn run(
     }
 
     // Auto-calibrate if no style profile exists
+    let phase_start = Instant::now();
     if env.style_profile.is_none() && !file_result.all_files.is_empty() {
         let parse_pairs: Vec<_> = parse_result
             .parse_results
@@ -195,8 +202,10 @@ pub fn run(
         }
         env.ngram_model = Some(model);
     }
+    phase_timings.push(("calibrate", phase_start.elapsed()));
 
     // Phase 3: Run detectors
+    let phase_start = Instant::now();
     let multi = MultiProgress::new();
     let spinner_style = create_spinner_style();
 
@@ -208,8 +217,10 @@ pub fn run(
         &multi,
         &spinner_style,
     )?;
+    phase_timings.push(("detect", phase_start.elapsed()));
 
     // Phase 4: Post-process findings
+    let phase_start = Instant::now();
     postprocess_findings(
         &mut findings,
         &env.project_config,
@@ -237,8 +248,10 @@ pub fn run(
             }
         }
     }
+    phase_timings.push(("postprocess", phase_start.elapsed()));
 
     // Phase 5: Calculate scores and build report
+    let phase_start = Instant::now();
     let score_result = calculate_scores(&graph, &env.project_config, &findings, &env.repo_path);
 
     let report = build_health_report(
@@ -265,8 +278,10 @@ pub fn run(
         Some(score_result.architecture_score),
         score_result.total_loc,
     );
+    phase_timings.push(("scoring", phase_start.elapsed()));
 
     // Phase 6: Generate output
+    let phase_start = Instant::now();
     generate_reports(
         &report,
         &findings,
@@ -298,6 +313,18 @@ pub fn run(
         .cache_graph_findings("__all__", &report.2);
     let _ = env.incremental_cache.save_cache();
     cache_findings(path, &report.2);
+    phase_timings.push(("output", phase_start.elapsed()));
+
+    // Print timing breakdown if requested
+    if timings {
+        let total = start_time.elapsed();
+        println!("\nPhase timings:");
+        for (name, dur) in &phase_timings {
+            let pct = dur.as_secs_f64() / total.as_secs_f64() * 100.0;
+            println!("  {:<16} {:.3}s  ({:.1}%)", name, dur.as_secs_f64(), pct);
+        }
+        println!("  {:<16} {:.3}s", "TOTAL", total.as_secs_f64());
+    }
 
     // Final summary
     print_final_summary(env.quiet_mode, env.config.no_emoji, start_time);

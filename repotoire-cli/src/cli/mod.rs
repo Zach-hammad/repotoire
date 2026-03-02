@@ -178,6 +178,10 @@ Examples:
         /// Export training data (features + bootstrap labels) to a JSON file
         #[arg(long, value_name = "PATH")]
         export_training: Option<PathBuf>,
+
+        /// Print per-phase pipeline timing breakdown
+        #[arg(long)]
+        timings: bool,
     },
 
     /// Compare findings between two analysis states (shows new, fixed, score delta)
@@ -460,6 +464,7 @@ pub fn run(cli: Cli) -> Result<()> {
             since,
             rank,
             export_training,
+            timings,
         }) => {
             // Deprecation warning for --thorough
             if thorough {
@@ -507,6 +512,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 effective_max_files,
                 rank,
                 export_training.as_deref(),
+                timings,
             )
         }
 
@@ -707,6 +713,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 0,     // max_files (unlimited)
                 false, // rank
                 None,  // export_training
+                false, // timings
             )
         }
     }
