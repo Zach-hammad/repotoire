@@ -216,6 +216,7 @@ pub fn run(
         &skip_detector,
         &multi,
         &spinner_style,
+        timings,
     )?;
     phase_timings.push(("detect", phase_start.elapsed()));
 
@@ -510,6 +511,7 @@ fn execute_detection_phase(
     skip_detector: &[String],
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
+    timings: bool,
 ) -> Result<Vec<Finding>> {
     let git_handle = start_git_enrichment(
         env.config.no_git,
@@ -552,6 +554,7 @@ fn execute_detection_phase(
             &file_result.all_files,
             env.style_profile.as_ref(),
             env.ngram_model.clone(),
+            timings,
         )?
     };
 

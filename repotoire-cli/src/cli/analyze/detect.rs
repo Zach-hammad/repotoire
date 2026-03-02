@@ -113,6 +113,7 @@ pub(super) fn run_detectors(
     all_files: &[std::path::PathBuf],
     style_profile: Option<&crate::calibrate::StyleProfile>,
     ngram_model: Option<crate::calibrate::NgramModel>,
+    timings: bool,
 ) -> Result<Vec<Finding>> {
     // Check if we can use cached detector results
     if cache.can_use_cached_detectors(all_files) {
@@ -135,7 +136,9 @@ pub(super) fn run_detectors(
 
     // Set up HMM cache in .repotoire directory
     let hmm_cache_path = repo_path.join(".repotoire");
-    let mut engine = DetectorEngine::new(workers).with_hmm_cache(hmm_cache_path);
+    let mut engine = DetectorEngine::new(workers)
+        .with_hmm_cache(hmm_cache_path)
+        .with_timings(timings);
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
     // Register default detectors

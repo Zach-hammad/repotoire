@@ -57,6 +57,8 @@ pub struct DetectorEngine {
     skip_test_files: bool,
     /// Path to cache HMM model for faster subsequent runs
     hmm_cache_path: Option<std::path::PathBuf>,
+    /// Whether to print per-detector timing report
+    timings_enabled: bool,
 }
 
 impl DetectorEngine {
@@ -83,12 +85,19 @@ impl DetectorEngine {
             hmm_contexts: None,
             skip_test_files: true, // Skip test files by default
             hmm_cache_path: None,
+            timings_enabled: false,
         }
     }
 
     /// Set path for HMM model caching
     pub fn with_hmm_cache(mut self, path: std::path::PathBuf) -> Self {
         self.hmm_cache_path = Some(path);
+        self
+    }
+
+    /// Enable per-detector timing report (printed to stdout)
+    pub fn with_timings(mut self, enabled: bool) -> Self {
+        self.timings_enabled = enabled;
         self
     }
 
@@ -413,8 +422,12 @@ impl DetectorEngine {
         // Collect findings from independent detectors
         let mut all_findings: Vec<Finding> = Vec::new();
         let mut summary = DetectionSummary::default();
+        let mut detector_timings: Vec<(String, u64)> = Vec::new();
 
         for result in independent_results {
+            if self.timings_enabled {
+                detector_timings.push((result.detector_name.clone(), result.duration_ms));
+            }
             summary.add_result(&result);
             if result.success {
                 all_findings.extend(result.findings);
@@ -434,12 +447,26 @@ impl DetectorEngine {
                 callback(detector.name(), done, total);
             }
 
+            if self.timings_enabled {
+                detector_timings.push((result.detector_name.clone(), result.duration_ms));
+            }
             summary.add_result(&result);
             if result.success {
                 all_findings.extend(result.findings);
             } else if let Some(err) = &result.error {
                 warn!("Detector {} failed: {}", result.detector_name, err);
             }
+        }
+
+        // Print per-detector timing report (sorted by slowest first)
+        if self.timings_enabled && !detector_timings.is_empty() {
+            detector_timings.sort_by(|a, b| b.1.cmp(&a.1));
+            println!("\nSlowest detectors:");
+            for (i, (name, ms)) in detector_timings.iter().take(15).enumerate() {
+                println!("  {:>2}. {:<40} {:>6}ms", i + 1, name, ms);
+            }
+            let total_ms: u64 = detector_timings.iter().map(|(_, ms)| *ms).sum();
+            println!("      {:<40} {:>6}ms", "TOTAL (sum, parallel overlap)", total_ms);
         }
 
         // Filter out test file findings if enabled
