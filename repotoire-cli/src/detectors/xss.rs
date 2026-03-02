@@ -7,13 +7,9 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-static XSS_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn xss_pattern() -> &'static Regex {
-    XSS_PATTERN.get_or_init(|| Regex::new(r"(?i)(innerHTML|outerHTML|document\.write|dangerouslySetInnerHTML|v-html|ng-bind-html|\[innerHTML\])").expect("valid regex"))
-}
+static XSS_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(innerHTML|outerHTML|document\.write|dangerouslySetInnerHTML|v-html|ng-bind-html|\[innerHTML\])").expect("valid regex"));
 
 pub struct XssDetector {
     repository_path: PathBuf,
@@ -121,7 +117,7 @@ impl Detector for XssDetector {
                         continue;
                     }
 
-                    if xss_pattern().is_match(line) {
+                    if XSS_PATTERN.is_match(line) {
                         // Word-boundary checks to avoid FPs like inputStream, maxInput (#24)
                         let line_lower = line.to_lowercase();
                         let has_user_input = line_lower.contains("req.")

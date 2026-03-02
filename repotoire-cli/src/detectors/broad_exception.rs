@@ -13,14 +13,10 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static BROAD_EXCEPT: OnceLock<Regex> = OnceLock::new();
-
-fn broad_except() -> &'static Regex {
-    BROAD_EXCEPT.get_or_init(|| Regex::new(r"(?i)(except\s*:|catch\s*\(\s*(Exception|Error|Throwable|BaseException|\w)\s*\)|catch\s*\{)").expect("valid regex"))
-}
+static BROAD_EXCEPT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(except\s*:|catch\s*\(\s*(Exception|Error|Throwable|BaseException|\w)\s*\)|catch\s*\{)").expect("valid regex"));
 
 pub struct BroadExceptionDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -162,7 +158,7 @@ impl Detector for BroadExceptionDetector {
                         continue;
                     }
 
-                    if broad_except().is_match(line) {
+                    if BROAD_EXCEPT.is_match(line) {
                         // Skip if it's re-raising
                         let next_lines = lines
                             .get(i + 1..i + 4)

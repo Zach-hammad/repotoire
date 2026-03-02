@@ -6,14 +6,10 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-static WEAK_HASH: OnceLock<Regex> = OnceLock::new();
-static WEAK_CIPHER: OnceLock<Regex> = OnceLock::new();
-
-fn weak_hash() -> &'static Regex {
-    WEAK_HASH.get_or_init(|| Regex::new(r#"(?i)(?:^|[^_\w])(md5|sha1|sha-1)\s*\(|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex"))
-}
+static WEAK_HASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)(?:^|[^_\w])(md5|sha1|sha-1)\s*\(|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex"));
+static WEAK_CIPHER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").expect("valid regex"));
 
 /// Check if a line is merely mentioning a weak hash (in comments, strings, etc.)
 /// rather than actually using it. Returns true if the line should be SKIPPED.
@@ -116,12 +112,6 @@ fn is_hash_mention_not_usage(line: &str) -> bool {
     }
 
     false
-}
-
-fn weak_cipher() -> &'static Regex {
-    // Use \b on both sides to prevent matching 'nodes', 'description', etc.
-    WEAK_CIPHER
-        .get_or_init(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").expect("valid regex"))
 }
 
 /// Check if a line is merely mentioning a weak cipher (in definitions, error messages, etc.)
@@ -429,7 +419,7 @@ impl Detector for InsecureCryptoDetector {
                         continue;
                     }
 
-                    if weak_hash().is_match(line) && !is_hash_mention_not_usage(line) {
+                    if WEAK_HASH.is_match(line) && !is_hash_mention_not_usage(line) {
                         findings.push(Finding {
                             id: String::new(),
                             detector: "InsecureCryptoDetector".to_string(),
@@ -452,7 +442,7 @@ impl Detector for InsecureCryptoDetector {
                         });
                     }
                     // Check for weak cipher usage, but skip mere mentions
-                    if weak_cipher().is_match(line) && !is_cipher_mention_not_usage(line) {
+                    if WEAK_CIPHER.is_match(line) && !is_cipher_mention_not_usage(line) {
                         findings.push(Finding {
                             id: String::new(),
                             detector: "InsecureCryptoDetector".to_string(),
@@ -487,7 +477,7 @@ fn test_self_flagging_protection() {
     ];
 
     for line in lines {
-        if weak_cipher().is_match(line) {
+        if WEAK_CIPHER.is_match(line) {
             assert!(
                 is_cipher_mention_not_usage(line),
                 "Should skip detector source line: {}",
@@ -522,7 +512,7 @@ fn test_self_flagging_line_215() {
     println!("Lower contains \"rc4: {}", lower.contains("\"rc4"));
 
     // Does weak_cipher match?
-    println!("Weak cipher matches: {}", weak_cipher().is_match(line));
+    println!("Weak cipher matches: {}", WEAK_CIPHER.is_match(line));
 
     assert!(
         is_cipher_mention_not_usage(line),

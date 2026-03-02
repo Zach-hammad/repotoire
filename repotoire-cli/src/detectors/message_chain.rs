@@ -14,18 +14,14 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::{debug, info};
 
-static CHAIN_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn chain_pattern() -> &'static Regex {
-    CHAIN_PATTERN.get_or_init(|| {
+static CHAIN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         // Match method chains: .method().method().method()
         // At least 4 chained calls
         Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)){4,}").expect("valid regex")
-    })
-}
+    });
 
 /// Thresholds for message chain detection
 #[derive(Debug, Clone)]
@@ -143,7 +139,7 @@ impl MessageChainDetector {
                         continue;
                     }
 
-                    if let Some(m) = chain_pattern().find(line) {
+                    if let Some(m) = CHAIN_PATTERN.find(line) {
                         let chain = m.as_str();
 
                         // Skip fluent APIs

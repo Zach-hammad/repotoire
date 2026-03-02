@@ -12,21 +12,13 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static PROMISE_PATTERN: OnceLock<Regex> = OnceLock::new();
-static ASYNC_FUNC: OnceLock<Regex> = OnceLock::new();
-
-fn promise_pattern() -> &'static Regex {
-    PROMISE_PATTERN.get_or_init(|| {
+static PROMISE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(new Promise|\.then\(|fetch\(|axios\.|\.json\(\))").expect("valid regex")
-    })
-}
-
-fn async_func() -> &'static Regex {
-    ASYNC_FUNC.get_or_init(|| Regex::new(r"async\s+(function\s+)?(\w+)").expect("valid regex"))
-}
+    });
+static ASYNC_FUNC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"async\s+(function\s+)?(\w+)").expect("valid regex"));
 
 pub struct UnhandledPromiseDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -48,7 +40,7 @@ impl UnhandledPromiseDetector {
 
         for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx"]) {
             if let Some(content) = files.content(path) {
-                for cap in async_func().captures_iter(&content) {
+                for cap in ASYNC_FUNC.captures_iter(&content) {
                     if let Some(name) = cap.get(2) {
                         async_funcs.insert(name.as_str().to_string());
                     }
@@ -151,7 +143,7 @@ impl Detector for UnhandledPromiseDetector {
                         continue;
                     }
 
-                    let has_promise = promise_pattern().is_match(line);
+                    let has_promise = PROMISE_PATTERN.is_match(line);
 
                     // Verify that this line is actually inside an async function
                     // or deals with promises. Don't flag sync code.

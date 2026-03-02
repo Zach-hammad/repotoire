@@ -13,14 +13,10 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static IP_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn ip_pattern() -> &'static Regex {
-    IP_PATTERN.get_or_init(|| Regex::new(r#"["']?(127\.0\.0\.1|0\.0\.0\.0|localhost|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)["']?"#).expect("valid regex"))
-}
+static IP_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"["']?(127\.0\.0\.1|0\.0\.0\.0|localhost|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)["']?"#).expect("valid regex"));
 
 pub struct HardcodedIpsDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -102,7 +98,7 @@ impl Detector for HardcodedIpsDetector {
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "php", "cs"]) {
             if let Some(content) = files.masked_content(path) {
                 for line in content.lines() {
-                    if let Some(m) = ip_pattern().find(line) {
+                    if let Some(m) = IP_PATTERN.find(line) {
                         *ip_occurrences.entry(m.as_str().to_string()).or_default() += 1;
                     }
                 }
@@ -154,7 +150,7 @@ impl Detector for HardcodedIpsDetector {
                         continue;
                     }
 
-                    if let Some(m) = ip_pattern().find(line) {
+                    if let Some(m) = IP_PATTERN.find(line) {
                         let ip = m.as_str().to_string();
                         let occurrences = ip_occurrences.get(&ip).copied().unwrap_or(1);
                         let (context, is_risky) = Self::analyze_context(line);

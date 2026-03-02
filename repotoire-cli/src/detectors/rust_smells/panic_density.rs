@@ -3,16 +3,12 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
 use super::is_test_context;
 
-static PANIC_MACRO: OnceLock<Regex> = OnceLock::new();
-
-fn panic_macro() -> &'static Regex {
-    PANIC_MACRO.get_or_init(|| Regex::new(r"\bpanic!\s*\(").expect("valid regex"))
-}
+static PANIC_MACRO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bpanic!\s*\(").expect("valid regex"));
 
 /// Threshold for per-function panic-family call count (Medium severity).
 const FUNCTION_THRESHOLD: usize = 3;
@@ -187,9 +183,9 @@ impl Detector for PanicDensityDetector {
 /// Extract function spans from the source, counting panic-family calls per function.
 /// Skips functions inside test contexts (#[cfg(test)], #[test], mod tests).
 fn extract_function_spans(lines: &[&str], content: &str) -> Vec<FunctionSpan> {
-    let unwrap_re = super::unwrap_call();
-    let expect_re = super::expect_call();
-    let panic_re = panic_macro();
+    let unwrap_re = &*super::UNWRAP_CALL;
+    let expect_re = &*super::EXPECT_CALL;
+    let panic_re = &*PANIC_MACRO;
 
     let mut functions: Vec<FunctionSpan> = Vec::new();
     // Simple brace-depth tracker for the current function.

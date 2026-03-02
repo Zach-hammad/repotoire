@@ -9,88 +9,84 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::debug;
 
 /// Secret patterns with their names and severity
-static SECRET_PATTERNS: OnceLock<Vec<SecretPattern>> = OnceLock::new();
+static SECRET_PATTERNS: LazyLock<Vec<SecretPattern>> = LazyLock::new(|| {
+    vec![
+        // AWS
+        SecretPattern {
+            name: "AWS Access Key ID",
+            pattern: Regex::new(r"AKIA[0-9A-Z]{16}").expect("valid regex"),
+            severity: Severity::Critical,
+        },
+        SecretPattern {
+            name: "AWS Secret Access Key",
+            pattern: Regex::new(r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{40}")
+                .expect("valid regex"),
+            severity: Severity::Critical,
+        },
+        // GitHub
+        SecretPattern {
+            name: "GitHub Token",
+            pattern: Regex::new(r"ghp_[a-zA-Z0-9]{36}").expect("valid regex"),
+            severity: Severity::Critical,
+        },
+        // Generic API keys
+        SecretPattern {
+            name: "Generic API Key",
+            pattern: Regex::new(r"(?i)api[_-]?key\s*[=:]\s*[a-zA-Z0-9_\-]{20,}")
+                .expect("valid regex"),
+            severity: Severity::High,
+        },
+        SecretPattern {
+            name: "Generic Secret",
+            pattern: Regex::new(r#"(?i)(secret|password|passwd|pwd)\s*[=:]\s*["'][^"']{8,}["']"#)
+                .expect("valid regex"),
+            severity: Severity::High,
+        },
+        // Private keys
+        SecretPattern {
+            name: "Private Key",
+            pattern: Regex::new(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")
+                .expect("valid regex"),
+            severity: Severity::Critical,
+        },
+        // Slack
+        SecretPattern {
+            name: "Slack Token",
+            pattern: Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*")
+                .expect("valid regex"),
+            severity: Severity::Critical,
+        },
+        // Stripe
+        SecretPattern {
+            name: "Stripe API Key",
+            pattern: Regex::new(r"sk_live_[a-zA-Z0-9]{24,}").expect("valid regex"),
+            severity: Severity::Critical,
+        },
+        // Database URLs
+        SecretPattern {
+            name: "Database URL with Password",
+            pattern: Regex::new(r"(?i)(postgres|mysql|mongodb|redis)://[^:]+:[^@]+@")
+                .expect("valid regex"),
+            severity: Severity::Critical,
+        },
+        // SendGrid
+        SecretPattern {
+            name: "SendGrid API Key",
+            pattern: Regex::new(r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}")
+                .expect("valid regex"),
+            severity: Severity::High,
+        },
+    ]
+});
 
 struct SecretPattern {
     name: &'static str,
     pattern: Regex,
     severity: Severity,
-}
-
-fn get_patterns() -> &'static Vec<SecretPattern> {
-    SECRET_PATTERNS.get_or_init(|| {
-        vec![
-            // AWS
-            SecretPattern {
-                name: "AWS Access Key ID",
-                pattern: Regex::new(r"AKIA[0-9A-Z]{16}").expect("valid regex"),
-                severity: Severity::Critical,
-            },
-            SecretPattern {
-                name: "AWS Secret Access Key",
-                pattern: Regex::new(r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{40}")
-                    .expect("valid regex"),
-                severity: Severity::Critical,
-            },
-            // GitHub
-            SecretPattern {
-                name: "GitHub Token",
-                pattern: Regex::new(r"ghp_[a-zA-Z0-9]{36}").expect("valid regex"),
-                severity: Severity::Critical,
-            },
-            // Generic API keys
-            SecretPattern {
-                name: "Generic API Key",
-                pattern: Regex::new(r"(?i)api[_-]?key\s*[=:]\s*[a-zA-Z0-9_\-]{20,}")
-                    .expect("valid regex"),
-                severity: Severity::High,
-            },
-            SecretPattern {
-                name: "Generic Secret",
-                pattern: Regex::new(r#"(?i)(secret|password|passwd|pwd)\s*[=:]\s*["'][^"']{8,}["']"#)
-                    .expect("valid regex"),
-                severity: Severity::High,
-            },
-            // Private keys
-            SecretPattern {
-                name: "Private Key",
-                pattern: Regex::new(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")
-                    .expect("valid regex"),
-                severity: Severity::Critical,
-            },
-            // Slack
-            SecretPattern {
-                name: "Slack Token",
-                pattern: Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*")
-                    .expect("valid regex"),
-                severity: Severity::Critical,
-            },
-            // Stripe
-            SecretPattern {
-                name: "Stripe API Key",
-                pattern: Regex::new(r"sk_live_[a-zA-Z0-9]{24,}").expect("valid regex"),
-                severity: Severity::Critical,
-            },
-            // Database URLs
-            SecretPattern {
-                name: "Database URL with Password",
-                pattern: Regex::new(r"(?i)(postgres|mysql|mongodb|redis)://[^:]+:[^@]+@")
-                    .expect("valid regex"),
-                severity: Severity::Critical,
-            },
-            // SendGrid
-            SecretPattern {
-                name: "SendGrid API Key",
-                pattern: Regex::new(r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}")
-                    .expect("valid regex"),
-                severity: Severity::High,
-            },
-        ]
-    })
 }
 
 pub struct SecretDetector {
@@ -200,7 +196,7 @@ impl SecretDetector {
                 continue;
             }
 
-            for pattern in get_patterns() {
+            for pattern in SECRET_PATTERNS.iter() {
                 if let Some(m) = pattern.pattern.find(line) {
                     let matched = m.as_str();
 

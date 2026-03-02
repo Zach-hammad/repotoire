@@ -12,24 +12,16 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static LOOP: OnceLock<Regex> = OnceLock::new();
-static REGEX_NEW: OnceLock<Regex> = OnceLock::new();
-
-fn loop_pattern() -> &'static Regex {
-    LOOP.get_or_init(|| {
+static LOOP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|for\s*\(|while\s*\()").expect("valid regex")
-    })
-}
-
-fn regex_new() -> &'static Regex {
-    REGEX_NEW.get_or_init(|| {
+    });
+static REGEX_NEW: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile)")
             .expect("valid regex")
-    })
-}
+    });
 
 /// Check if a regex compilation is cached (OnceLock, lazy_static, etc.)
 fn is_cached_regex(line: &str) -> bool {
@@ -102,7 +94,7 @@ impl RegexInLoopDetector {
 
                 if !func_is_cached {
                     for line in lines.get(start..end).unwrap_or(&[]) {
-                        if regex_new().is_match(line) && !is_cached_regex(line) {
+                        if REGEX_NEW.is_match(line) && !is_cached_regex(line) {
                             regex_funcs.insert(func.qualified_name.clone());
                             break;
                         }
@@ -188,7 +180,7 @@ impl Detector for RegexInLoopDetector {
                         continue;
                     }
 
-                    if loop_pattern().is_match(line) {
+                    if LOOP.is_match(line) {
                         in_loop = true;
                         loop_line = i + 1;
                         loop_line_idx = i;
@@ -222,7 +214,7 @@ impl Detector for RegexInLoopDetector {
 
                         // Direct regex compilation in loop
                         // Skip cached patterns: OnceLock, lazy_static, static, get_or_init
-                        if regex_new().is_match(line)
+                        if REGEX_NEW.is_match(line)
                             && !is_cached_regex(line)
                             && !is_cached_regex_context(&content, i)
                         {
@@ -297,7 +289,7 @@ impl Detector for RegexInLoopDetector {
 
                     lines
                         .get(start..end)
-                        .map(|slice| slice.iter().any(|line| loop_pattern().is_match(line)))
+                        .map(|slice| slice.iter().any(|line| LOOP.is_match(line)))
                         .unwrap_or(false)
                 } else {
                     false

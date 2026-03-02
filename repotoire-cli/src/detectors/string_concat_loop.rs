@@ -13,39 +13,23 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static LOOP_PATTERN: OnceLock<Regex> = OnceLock::new();
-static STRING_CONCAT: OnceLock<Regex> = OnceLock::new();
-static FOR_VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
-static CONCAT_VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn loop_pattern() -> &'static Regex {
-    LOOP_PATTERN.get_or_init(|| {
+static LOOP_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each|for\s*\(|while\s*\()")
             .expect("valid regex")
-    })
-}
-
-fn for_var_pattern() -> &'static Regex {
-    FOR_VAR_PATTERN.get_or_init(|| Regex::new(r"for\s+(\w+)\s+in").expect("valid regex"))
-}
-
-fn string_concat() -> &'static Regex {
-    STRING_CONCAT.get_or_init(|| {
+    });
+static STRING_CONCAT: LazyLock<Regex> = LazyLock::new(|| {
         // Only match += with string literal or f-string
         // Fix: 'f' must be followed by a quote to be an f-string prefix
         Regex::new(r#"\w+\s*\+=\s*(?:["'`]|f["'])"#)
             .expect("valid regex")
-    })
-}
+    });
+static FOR_VAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"for\s+(\w+)\s+in").expect("valid regex"));
+static CONCAT_VAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\w+)\s*\+=").expect("valid regex"));
 
 /// Extract the variable name from a `+=` line (the identifier before `+=`)
-fn concat_var_pattern() -> &'static Regex {
-    CONCAT_VAR_PATTERN.get_or_init(|| Regex::new(r"(\w+)\s*\+=").expect("valid regex"))
-}
-
 pub struct StringConcatLoopDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
@@ -73,7 +57,7 @@ impl StringConcatLoopDetector {
                 let end = (func.line_end as usize).min(lines.len());
 
                 for line in lines.get(start..end).unwrap_or(&[]) {
-                    if string_concat().is_match(line) {
+                    if STRING_CONCAT.is_match(line) {
                         concat_funcs.insert(func.qualified_name.clone());
                         break;
                     }
@@ -204,7 +188,7 @@ impl Detector for StringConcatLoopDetector {
                 };
 
                 for (i, line) in all_lines.iter().enumerate() {
-                    if loop_pattern().is_match(line) {
+                    if LOOP_PATTERN.is_match(line) {
                         // If we were already in a loop, flush any accumulated concats
                         if in_loop {
                             flush_loop_concats(
@@ -227,7 +211,7 @@ impl Detector for StringConcatLoopDetector {
                         }
 
                         // Try to extract loop variable for context
-                        if let Some(caps) = for_var_pattern().captures(line) {
+                        if let Some(caps) = FOR_VAR_PATTERN.captures(line) {
                             _loop_var = caps
                                 .get(1)
                                 .map(|m| m.as_str().to_string())
@@ -270,14 +254,14 @@ impl Detector for StringConcatLoopDetector {
                             }
                         }
 
-                        if string_concat().is_match(line) {
+                        if STRING_CONCAT.is_match(line) {
                             let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
                             if crate::detectors::is_line_suppressed(line, prev_line) {
                                 continue;
                             }
 
                             // Extract variable name (text before +=)
-                            if let Some(caps) = concat_var_pattern().captures(line) {
+                            if let Some(caps) = CONCAT_VAR_PATTERN.captures(line) {
                                 let var_name = caps
                                     .get(1)
                                     .map(|m| m.as_str().to_string())
@@ -326,7 +310,7 @@ impl Detector for StringConcatLoopDetector {
 
                     lines
                         .get(start..end)
-                        .map(|slice| slice.iter().any(|line| loop_pattern().is_match(line)))
+                        .map(|slice| slice.iter().any(|line| LOOP_PATTERN.is_match(line)))
                         .unwrap_or(false)
                 } else {
                     false

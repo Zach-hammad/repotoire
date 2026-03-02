@@ -11,19 +11,15 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static COOKIE_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn cookie_pattern() -> &'static Regex {
-    COOKIE_PATTERN.get_or_init(|| {
+static COOKIE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"(?i)(\.set_cookie\s*\(|response\.set_cookie\s*\(|res\.cookie\s*\(|response\.cookie\s*\(|setcookie\s*\()",
         )
         .expect("valid regex")
-    })
-}
+    });
 
 pub struct InsecureCookieDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -144,7 +140,7 @@ impl Detector for InsecureCookieDetector {
                         continue;
                     }
 
-                    if cookie_pattern().is_match(line) {
+                    if COOKIE_PATTERN.is_match(line) {
                         let start = i.saturating_sub(5);
                         let end = (i + 5).min(lines.len());
                         let surrounding = lines[start..end].join(" ");

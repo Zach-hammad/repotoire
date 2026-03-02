@@ -12,23 +12,15 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static ASYNC_FUNC: OnceLock<Regex> = OnceLock::new();
-static BLOCKING: OnceLock<Regex> = OnceLock::new();
-
-fn async_func() -> &'static Regex {
-    ASYNC_FUNC.get_or_init(|| {
+static ASYNC_FUNC: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(async\s+def|async\s+function|async\s+fn)").expect("valid regex")
-    })
-}
-
-fn blocking() -> &'static Regex {
-    BLOCKING.get_or_init(|| {
+    });
+static BLOCKING: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(time\.sleep|Thread\.sleep|readFileSync|writeFileSync|execSync|spawnSync|requests\.(get|post|put|delete|head|patch)|urllib\.request|urlopen|subprocess\.(run|call|check_output)|os\.system|std::thread::sleep|std::fs::(read|write)|open\([^)]+\)\.read)").expect("valid regex")
-    })
-}
+    });
 
 /// Get async alternative for a blocking call
 fn get_async_alternative(blocking_call: &str) -> &'static str {
@@ -96,7 +88,7 @@ impl SyncInAsyncDetector {
                 let end = (func.line_end as usize).min(lines.len());
 
                 for line in lines.get(start..end).unwrap_or(&[]) {
-                    if blocking().is_match(line) {
+                    if BLOCKING.is_match(line) {
                         blocking_funcs.insert(func.qualified_name.clone());
                         break;
                     }
@@ -187,7 +179,7 @@ impl Detector for SyncInAsyncDetector {
                     let current_indent = line.chars().take_while(|c| c.is_whitespace()).count();
 
                     // Track async function scope
-                    if async_func().is_match(line) {
+                    if ASYNC_FUNC.is_match(line) {
                         in_async = true;
                         async_indent = current_indent;
                         if let Some(name) =
@@ -203,7 +195,7 @@ impl Detector for SyncInAsyncDetector {
                         && !line.trim().is_empty()
                         && current_indent <= async_indent
                         && i > 0
-                        && !async_func().is_match(line)
+                        && !ASYNC_FUNC.is_match(line)
                     {
                         in_async = false;
                     }
@@ -213,7 +205,7 @@ impl Detector for SyncInAsyncDetector {
                     }
 
                     // Check for direct blocking calls
-                    if let Some(m) = blocking().find(line) {
+                    if let Some(m) = BLOCKING.find(line) {
                         let blocking_call = m.as_str();
                         let alternative = get_async_alternative(blocking_call);
 

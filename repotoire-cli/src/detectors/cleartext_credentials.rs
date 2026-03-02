@@ -12,18 +12,12 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn log_pattern() -> &'static Regex {
-    // Match logging statements that include actual credential variable names
-    // Specifically target logging functions, NOT Error/Exception classes
-    LOG_PATTERN.get_or_init(|| Regex::new(
+static LOG_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(
         r"(?i)\b(console\.(log|warn|error|info|debug)|print[fl]?n?|logger\.(log|warn|error|info|debug|trace)|logging\.(log|warn|error|info|debug)|log\.(debug|info|warn|error|trace)|System\.out\.print|fmt\.Print|puts|p\s)\s*[\.(]\s*[^;\n]*\b(password|passwd|secret|api_key|apikey|auth_token|access_token|private_key|credentials?)\b"
-    ).expect("valid regex"))
-}
+    ).expect("valid regex"));
 
 fn is_false_positive(line: &str) -> bool {
     let lower = line.to_lowercase();
@@ -152,7 +146,7 @@ impl Detector for CleartextCredentialsDetector {
                         continue;
                     }
 
-                    if log_pattern().is_match(line) && !is_false_positive(line) {
+                    if LOG_PATTERN.is_match(line) && !is_false_positive(line) {
                         let line_num = (i + 1) as u32;
                         let (cred_type, emoji) = categorize_credential(line);
 

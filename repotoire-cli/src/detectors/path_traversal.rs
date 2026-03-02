@@ -7,41 +7,18 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-static FILE_OP: OnceLock<Regex> = OnceLock::new();
-static PATH_JOIN: OnceLock<Regex> = OnceLock::new();
-static SEND_FILE: OnceLock<Regex> = OnceLock::new();
-#[allow(dead_code)]
-static PATH_RESOLVE: OnceLock<Regex> = OnceLock::new();
-
-fn file_op() -> &'static Regex {
-    FILE_OP.get_or_init(|| Regex::new(r"(?i)(?:^|[^.\w])(open|unlink|unlinkSync|rmdir|mkdir|copyFile|rename)\s*\(|(?:os\.remove|os\.unlink|shutil\.copy|shutil\.move|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|statSync|accessSync)\s*\(").expect("valid regex"))
-}
-
-fn path_join() -> &'static Regex {
-    // Matches path joining functions across languages
-    // Python: os.path.join, pathlib.Path
-    // Node.js: path.join, path.resolve
-    // Go: filepath.Join, path.Join
-    PATH_JOIN.get_or_init(|| Regex::new(r"os\.path\.join|(?:^|[^.\w])path\.join|(?:^|[^.\w])path\.resolve|filepath\.Join|filepath\.Clean|(?:pathlib\.)?Path\s*\(").expect("valid regex"))
-}
-
-fn send_file() -> &'static Regex {
-    // Express/Koa sendFile, download patterns
-    SEND_FILE.get_or_init(|| {
+static FILE_OP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|[^.\w])(open|unlink|unlinkSync|rmdir|mkdir|copyFile|rename)\s*\(|(?:os\.remove|os\.unlink|shutil\.copy|shutil\.move|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|statSync|accessSync)\s*\(").expect("valid regex"));
+static PATH_JOIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"os\.path\.join|(?:^|[^.\w])path\.join|(?:^|[^.\w])path\.resolve|filepath\.Join|filepath\.Clean|(?:pathlib\.)?Path\s*\(").expect("valid regex"));
+static SEND_FILE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(sendFile|download|serveStatic|send_file|serve_file)\s*\(")
             .expect("valid regex")
-    })
-}
-
+    });
 #[allow(dead_code)]
-fn path_resolve() -> &'static Regex {
-    // Path resolution/normalization that might be unsafe if done after concatenation
-    PATH_RESOLVE.get_or_init(|| {
+static PATH_RESOLVE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(realpath|abspath|normpath|resolve|Clean)\s*\(").expect("valid regex")
-    })
-}
+    });
 
 pub struct PathTraversalDetector {
     repository_path: PathBuf,
@@ -177,7 +154,7 @@ impl Detector for PathTraversalDetector {
                     };
 
                     // Check for direct file operations with user input
-                    if file_op().is_match(line) && has_user_input {
+                    if FILE_OP.is_match(line) && has_user_input {
                         let (severity, description) = check_taint(
                             Severity::High,
                             "File operation with user-controlled input detected. An attacker could use '../' sequences to access files outside the intended directory."
@@ -203,7 +180,7 @@ impl Detector for PathTraversalDetector {
 
                     // Check for path.join with user input (common pattern)
                     // e.g., path.join(baseDir, req.params.filename)
-                    if path_join().is_match(line) && has_user_input {
+                    if PATH_JOIN.is_match(line) && has_user_input {
                         let (severity, description) = check_taint(
                             Severity::High,
                             "path.join() with user input does NOT prevent path traversal. Joining '/base' with '../etc/passwd' results in '/etc/passwd'."
@@ -228,7 +205,7 @@ impl Detector for PathTraversalDetector {
                     }
 
                     // Check for sendFile/download with user input
-                    if send_file().is_match(line) && has_user_input {
+                    if SEND_FILE.is_match(line) && has_user_input {
                         let (severity, description) = check_taint(
                             Severity::High,
                             "File download/send function with user-controlled path. Attackers could download arbitrary files from the server."

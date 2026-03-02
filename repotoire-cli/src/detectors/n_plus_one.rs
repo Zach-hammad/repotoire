@@ -13,28 +13,16 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::{debug, info};
 
-static LOOP: OnceLock<Regex> = OnceLock::new();
-static QUERY: OnceLock<Regex> = OnceLock::new();
-static QUERY_FUNC: OnceLock<Regex> = OnceLock::new();
-
-fn loop_pattern() -> &'static Regex {
-    LOOP.get_or_init(|| {
+static LOOP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each)").expect("valid regex")
-    })
-}
-
-fn query_pattern() -> &'static Regex {
-    QUERY.get_or_init(|| Regex::new(r"(?i)(\.get\(|\.find\(|\.filter\(|\.first\(|\.where\(|\.query\(|SELECT\s|Model\.\w+\.get|await\s+\w+\.findOne)").expect("valid regex"))
-}
-
-fn query_func_pattern() -> &'static Regex {
-    QUERY_FUNC.get_or_init(|| {
+    });
+static QUERY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(\.get\(|\.find\(|\.filter\(|\.first\(|\.where\(|\.query\(|SELECT\s|Model\.\w+\.get|await\s+\w+\.findOne)").expect("valid regex"));
+static QUERY_FUNC: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(get_|find_|fetch_|load_|query_|select_)").expect("valid regex")
-    })
-}
+    });
 
 pub struct NPlusOneDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -56,7 +44,7 @@ impl NPlusOneDetector {
 
         for func in graph.get_functions() {
             // Check if function name suggests it does queries
-            if query_func_pattern().is_match(&func.name) {
+            if QUERY_FUNC.is_match(&func.name) {
                 query_funcs.insert(func.qualified_name.clone());
                 continue;
             }
@@ -70,7 +58,7 @@ impl NPlusOneDetector {
                 let end = (func.line_end as usize).min(lines.len());
 
                 for line in lines.get(start..end).unwrap_or(&[]) {
-                    if query_pattern().is_match(line) {
+                    if QUERY.is_match(line) {
                         query_funcs.insert(func.qualified_name.clone());
                         break;
                     }
@@ -211,7 +199,7 @@ impl NPlusOneDetector {
 
                 lines
                     .get(start..end)
-                    .map(|slice| slice.iter().any(|line| loop_pattern().is_match(line)))
+                    .map(|slice| slice.iter().any(|line| LOOP.is_match(line)))
                     .unwrap_or(false)
             } else {
                 false
@@ -322,7 +310,7 @@ impl Detector for NPlusOneDetector {
                 let all_lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in all_lines.iter().enumerate() {
-                    if loop_pattern().is_match(line) {
+                    if LOOP.is_match(line) {
                         in_loop = true;
                         loop_line = i + 1;
                         brace_depth = 0;
@@ -336,7 +324,7 @@ impl Detector for NPlusOneDetector {
                             continue;
                         }
 
-                        if query_pattern().is_match(line) {
+                        if QUERY.is_match(line) {
                             let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
                             if crate::detectors::is_line_suppressed(line, prev_line) {
                                 continue;

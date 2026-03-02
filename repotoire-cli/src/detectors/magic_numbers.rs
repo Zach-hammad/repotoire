@@ -13,14 +13,10 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static NUMBER_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn get_pattern() -> &'static Regex {
-    NUMBER_PATTERN.get_or_init(|| Regex::new(r"\b(\d{2,})\b").expect("valid regex"))
-}
+static NUMBER_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\d{2,})\b").expect("valid regex"));
 
 /// Suggest a constant name based on the number and context
 fn suggest_constant_name(num: i64, context_line: &str) -> String {
@@ -292,7 +288,7 @@ impl MagicNumbersDetector {
                         continue;
                     }
 
-                    for cap in get_pattern().captures_iter(line) {
+                    for cap in NUMBER_PATTERN.captures_iter(line) {
                         if let Some(m) = cap.get(1) {
                             if let Ok(num) = m.as_str().parse::<i64>() {
                                 if !self.acceptable.contains(&num) {
@@ -373,7 +369,7 @@ impl Detector for MagicNumbersDetector {
                         continue;
                     }
 
-                    for cap in get_pattern().captures_iter(line) {
+                    for cap in NUMBER_PATTERN.captures_iter(line) {
                         if let Some(m) = cap.get(1) {
                             if let Ok(num) = m.as_str().parse::<i64>() {
                                 if self.acceptable.contains(&num) {

@@ -7,13 +7,9 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-static HTTP_CLIENT: OnceLock<Regex> = OnceLock::new();
-
-fn http_client() -> &'static Regex {
-    HTTP_CLIENT.get_or_init(|| Regex::new(r"(?i)(requests\.(get|post|put|delete)|fetch\(|axios\.|http\.get|urllib|urlopen|HttpClient|curl)").expect("valid regex"))
-}
+static HTTP_CLIENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(requests\.(get|post|put|delete)|fetch\(|axios\.|http\.get|urllib|urlopen|HttpClient|curl)").expect("valid regex"));
 
 pub struct SsrfDetector {
     repository_path: PathBuf,
@@ -68,7 +64,7 @@ impl Detector for SsrfDetector {
                         continue;
                     }
 
-                    if http_client().is_match(line) {
+                    if HTTP_CLIENT.is_match(line) {
                         // Skip relative URLs - they always hit same-origin server
                         // Pattern: fetch('/api/...) or fetch(`/api/...)
                         if line.contains("fetch('/")

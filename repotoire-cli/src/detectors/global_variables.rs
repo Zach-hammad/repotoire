@@ -13,24 +13,15 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-#[allow(dead_code)] // Used by global_pattern()
-static GLOBAL_PATTERN: OnceLock<Regex> = OnceLock::new();
-static VAR_NAME: OnceLock<Regex> = OnceLock::new();
-
-#[allow(dead_code)] // Prepared for additional global detection rules
-fn global_pattern() -> &'static Regex {
-    GLOBAL_PATTERN.get_or_init(|| {
+#[allow(dead_code)] // Used by GLOBAL_PATTERN
+static GLOBAL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^(var\s+\w+\s*=|let\s+\w+\s*=|global\s+\w+|\w+\s*=\s*[^=])")
             .expect("valid regex")
-    })
-}
-
-fn var_name_pattern() -> &'static Regex {
-    VAR_NAME.get_or_init(|| Regex::new(r"^(?:var|let|global)\s+(\w+)").expect("valid regex"))
-}
+    });
+static VAR_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:var|let|global)\s+(\w+)").expect("valid regex"));
 
 pub struct GlobalVariablesDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -48,7 +39,7 @@ impl GlobalVariablesDetector {
 
     /// Extract variable name from declaration
     fn extract_var_name(line: &str) -> Option<String> {
-        if let Some(caps) = var_name_pattern().captures(line.trim()) {
+        if let Some(caps) = VAR_NAME.captures(line.trim()) {
             return caps.get(1).map(|m| m.as_str().to_string());
         }
         // Handle Python global statement

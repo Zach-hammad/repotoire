@@ -12,35 +12,21 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static TEST_IMPORT: OnceLock<Regex> = OnceLock::new();
-static TEST_USAGE: OnceLock<Regex> = OnceLock::new();
-static DEBUG_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn test_import() -> &'static Regex {
-    TEST_IMPORT.get_or_init(|| {
+static TEST_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"(?i)(import.*pytest|import.*unittest|import.*mock|from.*mock|require\(['"]jest|require\(['"]sinon|import.*@testing-library)"#).expect("valid regex")
-    })
-}
-
-fn test_usage() -> &'static Regex {
-    // Note: Removed expect( as it's used in production assertion/error libraries
-    // Removed describe( and it( as they conflict with normal code patterns
-    TEST_USAGE.get_or_init(|| {
+    });
+static TEST_USAGE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(mock\.|Mock\(|MagicMock|patch\(|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|\.toBe\(|\.toEqual\(|\.toHaveBeenCalled|\.toThrow\(|fixture|@Before|@After|@BeforeEach)").expect("valid regex")
-    })
-}
-
-fn debug_pattern() -> &'static Regex {
-    DEBUG_PATTERN.get_or_init(|| {
+    });
+static DEBUG_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"(?i)(DEBUG\s*=\s*True|if\s+__debug__|if\s+DEBUG|#\s*TODO.*test|#\s*FIXME.*test)",
         )
         .expect("valid regex")
-    })
-}
+    });
 
 pub struct TestInProductionDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -151,7 +137,7 @@ impl Detector for TestInProductionDetector {
                 let mut file_issues = Vec::new();
 
                 // Check for test imports
-                let has_test_import = lines.iter().any(|l| test_import().is_match(l));
+                let has_test_import = lines.iter().any(|l| TEST_IMPORT.is_match(l));
 
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -169,13 +155,13 @@ impl Detector for TestInProductionDetector {
                     }
 
                     // Check for test code usage
-                    if test_usage().is_match(line) {
+                    if TEST_USAGE.is_match(line) {
                         let (category, desc) = Self::categorize_test_code(line);
                         file_issues.push(((i + 1) as u32, category.to_string(), desc.to_string()));
                     }
 
                     // Check for debug flags
-                    if debug_pattern().is_match(line) {
+                    if DEBUG_PATTERN.is_match(line) {
                         file_issues.push((
                             (i + 1) as u32,
                             "debug".to_string(),

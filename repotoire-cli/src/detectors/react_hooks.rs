@@ -13,58 +13,33 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static HOOK_CALL: OnceLock<Regex> = OnceLock::new();
-static CONDITIONAL: OnceLock<Regex> = OnceLock::new();
-static LOOP: OnceLock<Regex> = OnceLock::new();
-static NESTED_FUNC: OnceLock<Regex> = OnceLock::new();
-static COMPONENT: OnceLock<Regex> = OnceLock::new();
-#[allow(dead_code)] // Used by use_effect() for future hook dependency analysis
-static USE_EFFECT: OnceLock<Regex> = OnceLock::new();
-
-fn hook_call() -> &'static Regex {
-    HOOK_CALL.get_or_init(|| {
+static HOOK_CALL: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\b(useState|useEffect|useContext|useReducer|useCallback|useMemo|useRef|useImperativeHandle|useLayoutEffect|useDebugValue|useTransition|useDeferredValue|useId|useSyncExternalStore|useInsertionEffect|use[A-Z]\w*)\s*\(").expect("valid regex")
-    })
-}
-
-fn conditional() -> &'static Regex {
-    CONDITIONAL.get_or_init(|| {
+    });
+static CONDITIONAL: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$|.*\?\s*use[A-Z]|.*&&\s*use[A-Z]|.*\|\|\s*use[A-Z])")
             .expect("valid regex")
-    })
-}
-
-fn loop_pattern() -> &'static Regex {
-    LOOP.get_or_init(|| {
+    });
+static LOOP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\(|\.reduce\(|\.flatMap\()")
             .expect("valid regex")
-    })
-}
-
-fn nested_func() -> &'static Regex {
-    NESTED_FUNC.get_or_init(|| Regex::new(r"^\s*(function\s+\w+|const\s+\w+\s*=\s*(async\s+)?\(|const\s+\w+\s*=\s*(async\s+)?function)").expect("valid regex"))
-}
-
-fn component() -> &'static Regex {
-    COMPONENT.get_or_init(|| {
+    });
+static NESTED_FUNC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(function\s+\w+|const\s+\w+\s*=\s*(async\s+)?\(|const\s+\w+\s*=\s*(async\s+)?function)").expect("valid regex"));
+static COMPONENT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?:function|const)\s+([A-Z][a-zA-Z0-9]*)\s*[=(]|export\s+(?:default\s+)?(?:function|const)\s+([A-Z][a-zA-Z0-9]*)").expect("valid regex")
-    })
-}
-
-#[allow(dead_code)] // Reserved for future hook dependency analysis
-fn use_effect() -> &'static Regex {
-    USE_EFFECT.get_or_init(|| {
+    });
+#[allow(dead_code)] // Used by USE_EFFECT for future hook dependency analysis
+static USE_EFFECT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(useEffect|useMemo|useCallback)\s*\(\s*(?:\([^)]*\)|[^,]+)\s*,\s*\[([^\]]*)\]")
             .expect("valid regex")
-    })
-}
+    });
 
 /// Extract hook name from line
 fn extract_hook_name(line: &str) -> Option<String> {
-    if let Some(matched) = hook_call().find(line) {
+    if let Some(matched) = HOOK_CALL.find(line) {
         let hook = matched.as_str();
         Some(hook.trim_end_matches(['(', ' ']).to_string())
     } else {
@@ -186,7 +161,7 @@ impl Detector for ReactHooksDetector {
 
             if let Some(content) = files.content(path) {
                 // Skip if no React hooks
-                if !hook_call().is_match(&content) {
+                if !HOOK_CALL.is_match(&content) {
                     continue;
                 }
 
@@ -201,12 +176,12 @@ impl Detector for ReactHooksDetector {
 
                 for (i, line) in lines.iter().enumerate() {
                     // Track component boundaries
-                    if component().is_match(line) {
+                    if COMPONENT.is_match(line) {
                         component_depth = 0;
                     }
 
                     // Track conditional blocks
-                    if conditional().is_match(line) {
+                    if CONDITIONAL.is_match(line) {
                         in_conditional = true;
                         cond_depth = line.matches('{').count() as i32;
                     }
@@ -219,7 +194,7 @@ impl Detector for ReactHooksDetector {
                     }
 
                     // Track loops
-                    if loop_pattern().is_match(line) {
+                    if LOOP.is_match(line) {
                         in_loop = true;
                         loop_depth =
                             line.matches('{').count() as i32 + line.matches('(').count() as i32;
@@ -237,12 +212,12 @@ impl Detector for ReactHooksDetector {
                     //   const mutation = useMutation({...})
                     //   const query = useQuery(...)
                     //   const cb = useCallback(() => {}, [])
-                    // These match nested_func() because of "const x = (" pattern, but the
+                    // These match NESTED_FUNC because of "const x = (" pattern, but the
                     // callback/options inside a hook invocation are NOT nested hook calls —
                     // the hook itself is called at the component level.
                     // Track hook call option blocks — anything inside useMutation({...}),
                     // useQuery({...}), useCallback(() => {...}), etc. is NOT a nested function.
-                    let is_hook_call_line = hook_call().is_match(line)
+                    let is_hook_call_line = HOOK_CALL.is_match(line)
                         && (line.contains("useMutation")
                             || line.contains("useQuery")
                             || line.contains("useCallback")
@@ -252,8 +227,8 @@ impl Detector for ReactHooksDetector {
                             || line.contains("useInfiniteQuery"));
 
                     let is_hook_call_assignment =
-                        nested_func().is_match(line) && hook_call().is_match(line);
-                    if nested_func().is_match(line)
+                        NESTED_FUNC.is_match(line) && HOOK_CALL.is_match(line);
+                    if NESTED_FUNC.is_match(line)
                         && component_depth > 0
                         && !is_hook_call_assignment
                         && !is_hook_call_line
@@ -273,7 +248,7 @@ impl Detector for ReactHooksDetector {
                     component_depth -= line.matches('}').count() as i32;
 
                     // Check for hooks violations
-                    if hook_call().is_match(line) {
+                    if HOOK_CALL.is_match(line) {
                         let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
                         if crate::detectors::is_line_suppressed(line, prev_line) {
                             continue;

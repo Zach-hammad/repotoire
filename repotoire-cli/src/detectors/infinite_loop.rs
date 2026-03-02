@@ -13,24 +13,16 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static INFINITE_WHILE: OnceLock<Regex> = OnceLock::new();
-static BREAK_RETURN: OnceLock<Regex> = OnceLock::new();
-
-fn infinite_while() -> &'static Regex {
-    INFINITE_WHILE.get_or_init(|| {
+static INFINITE_WHILE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(while\s*\(\s*true\s*\)|while\s+True\s*:|while\s*\(\s*1\s*\)|for\s*\(\s*;\s*;\s*\)|loop\s*\{)").expect("valid regex")
-    })
-}
-
-fn break_return() -> &'static Regex {
-    BREAK_RETURN.get_or_init(|| {
+    });
+static BREAK_RETURN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b")
             .expect("valid regex")
-    })
-}
+    });
 
 /// Detects potential infinite loops
 pub struct InfiniteLoopDetector {
@@ -67,7 +59,7 @@ impl InfiniteLoopDetector {
                 break;
             }
 
-            if break_return().is_match(line) {
+            if BREAK_RETURN.is_match(line) {
                 return true;
             }
         }
@@ -278,7 +270,7 @@ impl Detector for InfiniteLoopDetector {
                         continue;
                     }
 
-                    if infinite_while().is_match(line) {
+                    if INFINITE_WHILE.is_match(line) {
                         let indent = line.chars().take_while(|c| c.is_whitespace()).count();
 
                         // Check for direct break/return in body

@@ -11,23 +11,14 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static MUTABLE_DEFAULT: OnceLock<Regex> = OnceLock::new();
-#[allow(dead_code)]
-static FUNC_NAME: OnceLock<Regex> = OnceLock::new();
-
-fn mutable_default() -> &'static Regex {
-    MUTABLE_DEFAULT.get_or_init(|| {
+static MUTABLE_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"def\s+(\w+)\s*\([^)]*(\w+)\s*=\s*(\[\]|\{\}|set\(\)|list\(\)|dict\(\)|defaultdict\(\)|Counter\(\)|deque\(\))").expect("valid regex")
-    })
-}
-
+    });
 #[allow(dead_code)]
-fn func_name() -> &'static Regex {
-    FUNC_NAME.get_or_init(|| Regex::new(r"def\s+(\w+)").expect("valid regex"))
-}
+static FUNC_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"def\s+(\w+)").expect("valid regex"));
 
 /// Get the appropriate fix based on mutable type
 fn get_fix_example(mutable_type: &str, param_name: &str) -> String {
@@ -149,7 +140,7 @@ impl Detector for MutableDefaultArgsDetector {
                         continue;
                     }
 
-                    if let Some(caps) = mutable_default().captures(line) {
+                    if let Some(caps) = MUTABLE_DEFAULT.captures(line) {
                         let func_name = caps.get(1).map(|m| m.as_str()).unwrap_or("unknown");
                         let param_name = caps.get(2).map(|m| m.as_str()).unwrap_or("arg");
                         let mutable_type = caps.get(3).map(|m| m.as_str()).unwrap_or("[]");

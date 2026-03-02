@@ -20,24 +20,12 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::{debug, info};
 
-static FUNC_DEF_RE: OnceLock<Regex> = OnceLock::new();
-static ASSIGNMENT_RE: OnceLock<Regex> = OnceLock::new();
-static FOR_LOOP_RE: OnceLock<Regex> = OnceLock::new();
-
-fn func_def_re() -> &'static Regex {
-    FUNC_DEF_RE.get_or_init(|| Regex::new(r"^(\s*)def\s+(\w+)\s*\(").expect("valid regex"))
-}
-
-fn assignment_re() -> &'static Regex {
-    ASSIGNMENT_RE.get_or_init(|| Regex::new(r"^\s+(\w+)\s*=\s").expect("valid regex"))
-}
-
-fn for_loop_re() -> &'static Regex {
-    FOR_LOOP_RE.get_or_init(|| Regex::new(r"^\s+for\s+(\w+)\s+in\s").expect("valid regex"))
-}
+static FUNC_DEF_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*)def\s+(\w+)\s*\(").expect("valid regex"));
+static ASSIGNMENT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s+(\w+)\s*=\s").expect("valid regex"));
+static FOR_LOOP_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s+for\s+(\w+)\s+in\s").expect("valid regex"));
 
 /// Default configuration
 const DEFAULT_GENERIC_RATIO_THRESHOLD: f64 = 0.4; // 40%
@@ -446,9 +434,9 @@ impl Detector for AINamingPatternDetector {
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        let func_re = func_def_re();
-        let assign_re = assignment_re();
-        let for_re = for_loop_re();
+        let func_re = &*FUNC_DEF_RE;
+        let assign_re = &*ASSIGNMENT_RE;
+        let for_re = &*FOR_LOOP_RE;
 
         for path in files.files_with_extensions(&["py"]) {
             if findings.len() >= self.max_findings {

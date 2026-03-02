@@ -7,36 +7,23 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-static SHELL_EXEC: OnceLock<Regex> = OnceLock::new();
-static GO_EXEC: OnceLock<Regex> = OnceLock::new();
-static JS_EXEC_DIRECT: OnceLock<Regex> = OnceLock::new();
-
-fn shell_exec() -> &'static Regex {
-    // Be specific about shell execution patterns - avoid matching RegExp.exec(), String.prototype.exec(), etc.
-    // Pattern must match actual shell execution APIs:
-    // - Python: os.system, os.popen, subprocess.*
-    // - Node.js: child_process.exec, child_process.spawn, execSync, execAsync (promisified), require('child_process')
-    // - PHP: shell_exec, system, popen, exec (standalone function)
-    // - Ruby: system, exec, backticks
-    // Note: execAsync is a common promisified wrapper for child_process.exec
-    SHELL_EXEC.get_or_init(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).expect("valid regex"))
-}
-
-fn go_exec() -> &'static Regex {
-    // Go exec patterns: exec.Command, exec.CommandContext
-    GO_EXEC
-        .get_or_init(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).expect("valid regex"))
-}
-
-fn js_exec_direct() -> &'static Regex {
-    // Direct exec() call pattern for JavaScript - matches exec( but not .exec( to avoid RegExp.exec
-    // This catches: exec(something), execSync(something), execAsync(something)
-    JS_EXEC_DIRECT.get_or_init(|| {
-        Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).expect("valid regex")
-    })
-}
+// Be specific about shell execution patterns - avoid matching RegExp.exec(), String.prototype.exec(), etc.
+// Pattern must match actual shell execution APIs:
+// - Python: os.system, os.popen, subprocess.*
+// - Node.js: child_process.exec, child_process.spawn, execSync, execAsync (promisified), require('child_process')
+// - PHP: shell_exec, system, popen, exec (standalone function)
+// - Ruby: system, exec, backticks
+// Note: execAsync is a common promisified wrapper for child_process.exec
+static SHELL_EXEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).expect("valid regex"));
+// Go exec patterns: exec.Command, exec.CommandContext
+static GO_EXEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).expect("valid regex"));
+// Direct exec() call pattern for JavaScript - matches exec( but not .exec( to avoid RegExp.exec
+// This catches: exec(something), execSync(something), execAsync(something)
+static JS_EXEC_DIRECT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).expect("valid regex")
+});
 
 pub struct CommandInjectionDetector {
     repository_path: PathBuf,
@@ -184,7 +171,7 @@ impl Detector for CommandInjectionDetector {
                     };
 
                     // Check for direct shell execution with template literal
-                    if shell_exec().is_match(line) {
+                    if SHELL_EXEC.is_match(line) {
                         // Check for user input sources
                         let has_user_input = line.contains("req.")
                             || line.contains("request.")
@@ -284,7 +271,7 @@ impl Detector for CommandInjectionDetector {
                         }
                     }
                     // Fallback: Also flag template literals with ${} passed directly to exec-like functions
-                    // but ONLY if shell_exec() didn't already match (avoid duplicates)
+                    // but ONLY if SHELL_EXEC didn't already match (avoid duplicates)
                     else if line.contains("exec(")
                         || line.contains("execSync(")
                         || line.contains("execAsync(")
@@ -340,7 +327,7 @@ impl Detector for CommandInjectionDetector {
 
                     // Check for direct exec(req.body.command) pattern in JavaScript
                     // This catches exec(userInput) without template literals
-                    if js_exec_direct().is_match(line) {
+                    if JS_EXEC_DIRECT.is_match(line) {
                         let has_direct_user_input = line.contains("req.body")
                             || line.contains("req.query")
                             || line.contains("req.params")
@@ -373,7 +360,7 @@ impl Detector for CommandInjectionDetector {
                     }
 
                     // Check for Go exec.Command with user input
-                    if go_exec().is_match(line) {
+                    if GO_EXEC.is_match(line) {
                         let has_user_input = line.contains("r.")
                             || line.contains("req.")
                             || line.contains("request.")

@@ -7,31 +7,19 @@
 //! - Test fixtures
 
 use regex::Regex;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-static GENERATED_COMMENT: OnceLock<Regex> = OnceLock::new();
-static UMD_WRAPPER: OnceLock<Regex> = OnceLock::new();
-static COMMONJS_WRAPPER: OnceLock<Regex> = OnceLock::new();
-
-fn generated_comment_regex() -> &'static Regex {
-    GENERATED_COMMENT.get_or_init(|| {
+static GENERATED_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(?:generated\s+(?:by|from|using)|auto[- ]?generated|do\s+not\s+edit|machine\s+generated|this\s+file\s+is\s+generated)").expect("valid regex")
-    })
-}
-
-fn umd_wrapper_regex() -> &'static Regex {
-    UMD_WRAPPER.get_or_init(|| {
+    });
+static UMD_WRAPPER: LazyLock<Regex> = LazyLock::new(|| {
         // UMD pattern: (function(global, factory) { ... })(this, function() {})
         Regex::new(r"^\s*\(function\s*\(\s*\w+\s*,\s*\w+\s*\)\s*\{").expect("valid regex")
-    })
-}
-
-fn commonjs_wrapper_regex() -> &'static Regex {
-    COMMONJS_WRAPPER.get_or_init(|| {
+    });
+static COMMONJS_WRAPPER: LazyLock<Regex> = LazyLock::new(|| {
         // CommonJS exports at very start, or 'use strict' + immediate exports
         Regex::new(r#"^(?:'use strict';\s*)?(?:Object\.defineProperty\(exports|exports\.\w+\s*=|module\.exports\s*=)"#).expect("valid regex")
-    })
-}
+    });
 
 /// Check if file appears to be bundled/generated code by path hints
 /// Semantic path patterns that indicate non-source code
@@ -136,12 +124,12 @@ pub fn is_bundled_code(content: &str) -> bool {
     }
 
     // 3. UMD wrapper pattern
-    if umd_wrapper_regex().is_match(&header) {
+    if UMD_WRAPPER.is_match(&header) {
         return true;
     }
 
     // 4. CommonJS build output (starts with exports boilerplate)
-    if commonjs_wrapper_regex().is_match(&header) {
+    if COMMONJS_WRAPPER.is_match(&header) {
         // Extra check: must also have NODE_ENV guard (dev/prod builds)
         if content.contains("process.env.NODE_ENV") {
             return true;
@@ -149,7 +137,7 @@ pub fn is_bundled_code(content: &str) -> bool {
     }
 
     // 5. Generated file comments
-    if generated_comment_regex().is_match(&header) {
+    if GENERATED_COMMENT.is_match(&header) {
         return true;
     }
 

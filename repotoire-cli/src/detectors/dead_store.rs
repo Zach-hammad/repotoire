@@ -11,22 +11,14 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::{debug, info};
 
-static ASSIGNMENT: OnceLock<Regex> = OnceLock::new();
-static VAR_READ: OnceLock<Regex> = OnceLock::new();
-
-fn assignment() -> &'static Regex {
-    ASSIGNMENT.get_or_init(|| {
+static ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^\s*(let|var|const|int|float|string|auto|mut)?\s*(\w+)\s*[:=]")
             .expect("valid regex")
-    })
-}
-
-fn var_read() -> &'static Regex {
-    VAR_READ.get_or_init(|| Regex::new(r"\b(\w+)\b").expect("valid regex"))
-}
+    });
+static VAR_READ: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\w+)\b").expect("valid regex"));
 
 /// Skip patterns for common false positives
 const SKIP_VARS: &[&str] = &[
@@ -60,7 +52,7 @@ impl DeadStoreDetector {
             }
 
             // Check if var is read (not just assigned again)
-            if let Some(assign_match) = assignment().captures(line) {
+            if let Some(assign_match) = ASSIGNMENT.captures(line) {
                 if let Some(assigned_var) = assign_match.get(2) {
                     if assigned_var.as_str() == var {
                         // It's being reassigned - check if it's using itself (e.g., x = x + 1)
@@ -75,7 +67,7 @@ impl DeadStoreDetector {
             // Check for any reference to the variable
             if line.contains(var) {
                 // Make sure it's a word boundary match
-                for word in var_read().find_iter(line) {
+                for word in VAR_READ.find_iter(line) {
                     if word.as_str() == var {
                         return true;
                     }
@@ -153,7 +145,7 @@ impl DeadStoreDetector {
                         }
                     }
 
-                    if let Some(caps) = assignment().captures(line) {
+                    if let Some(caps) = ASSIGNMENT.captures(line) {
                         if let Some(var_match) = caps.get(2) {
                             let var = var_match.as_str();
 

@@ -20,61 +20,24 @@ pub use unsafe_comment::UnsafeWithoutSafetyCommentDetector;
 pub use unwrap::UnwrapWithoutContextDetector;
 
 use regex::Regex;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 // Compiled regex patterns (shared across detectors)
 
-static UNWRAP_CALL: OnceLock<Regex> = OnceLock::new();
-static EXPECT_CALL: OnceLock<Regex> = OnceLock::new();
-static UNSAFE_BLOCK: OnceLock<Regex> = OnceLock::new();
-static SAFETY_COMMENT: OnceLock<Regex> = OnceLock::new();
-static CLONE_CALL: OnceLock<Regex> = OnceLock::new();
-static HOT_PATH_INDICATOR: OnceLock<Regex> = OnceLock::new();
-static MUST_USE_ATTR: OnceLock<Regex> = OnceLock::new();
-static BOX_DYN_TRAIT: OnceLock<Regex> = OnceLock::new();
-static MUTEX_UNWRAP: OnceLock<Regex> = OnceLock::new();
-
-pub(crate) fn unwrap_call() -> &'static Regex {
-    UNWRAP_CALL.get_or_init(|| Regex::new(r"\.unwrap\s*\(\s*\)").expect("valid regex"))
-}
-
-pub(crate) fn expect_call() -> &'static Regex {
-    EXPECT_CALL.get_or_init(|| Regex::new(r#"\.expect\s*\(\s*["']"#).expect("valid regex"))
-}
-
-pub(crate) fn unsafe_block() -> &'static Regex {
-    UNSAFE_BLOCK.get_or_init(|| Regex::new(r"\bunsafe\s*\{").expect("valid regex"))
-}
-
-pub(crate) fn safety_comment() -> &'static Regex {
-    SAFETY_COMMENT.get_or_init(|| {
+static UNWRAP_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.unwrap\s*\(\s*\)").expect("valid regex"));
+static EXPECT_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\.expect\s*\(\s*["']"#).expect("valid regex"));
+static UNSAFE_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bunsafe\s*\{").expect("valid regex"));
+static SAFETY_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)//\s*SAFETY:|///\s*#\s*Safety|//\s*SAFETY\s*:").expect("valid regex")
-    })
-}
-
-pub(crate) fn clone_call() -> &'static Regex {
-    CLONE_CALL.get_or_init(|| Regex::new(r"\.clone\s*\(\s*\)").expect("valid regex"))
-}
-
-pub(crate) fn hot_path_indicator() -> &'static Regex {
-    HOT_PATH_INDICATOR.get_or_init(|| {
+    });
+static CLONE_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.clone\s*\(\s*\)").expect("valid regex"));
+static HOT_PATH_INDICATOR: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)\b(loop|while|for|iter|map|filter|fold|reduce|collect|into_iter)\b")
             .expect("valid regex")
-    })
-}
-
-pub(crate) fn must_use_attr() -> &'static Regex {
-    MUST_USE_ATTR.get_or_init(|| Regex::new(r"#\[must_use").expect("valid regex"))
-}
-
-pub(crate) fn box_dyn_trait() -> &'static Regex {
-    BOX_DYN_TRAIT.get_or_init(|| Regex::new(r"Box\s*<\s*dyn\s+\w+").expect("valid regex"))
-}
-
-pub(crate) fn mutex_unwrap() -> &'static Regex {
-    MUTEX_UNWRAP
-        .get_or_init(|| Regex::new(r"\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)").expect("valid regex"))
-}
+    });
+static MUST_USE_ATTR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#\[must_use").expect("valid regex"));
+static BOX_DYN_TRAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Box\s*<\s*dyn\s+\w+").expect("valid regex"));
+static MUTEX_UNWRAP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)").expect("valid regex"));
 
 /// Check if a line is in a test context
 pub(crate) fn is_test_context(_line: &str, content: &str, line_idx: usize) -> bool {

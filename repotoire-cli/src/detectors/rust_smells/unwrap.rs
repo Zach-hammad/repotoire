@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::{expect_call, has_meaningful_expect_message, is_safe_unwrap_context, unwrap_call};
+use super::{EXPECT_CALL, has_meaningful_expect_message, is_safe_unwrap_context, UNWRAP_CALL};
 
 pub struct UnwrapWithoutContextDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -52,8 +52,8 @@ impl Detector for UnwrapWithoutContextDetector {
                     continue;
                 }
 
-                let has_unwrap = unwrap_call().is_match(line);
-                let has_expect = expect_call().is_match(line);
+                let has_unwrap = UNWRAP_CALL.is_match(line);
+                let has_expect = EXPECT_CALL.is_match(line);
 
                 if has_expect && has_meaningful_expect_message(line) {
                     continue;

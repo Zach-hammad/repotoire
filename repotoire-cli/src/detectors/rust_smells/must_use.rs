@@ -5,7 +5,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::must_use_attr;
+use super::MUST_USE_ATTR;
 
 pub struct MissingMustUseDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -59,7 +59,7 @@ impl Detector for MissingMustUseDetector {
                 let fn_name = caps.get(1).map_or("", |m| m.as_str());
 
                 let has_must_use = (i.saturating_sub(3)..i)
-                    .any(|j| lines.get(j).is_some_and(|l| must_use_attr().is_match(l)));
+                    .any(|j| lines.get(j).is_some_and(|l| MUST_USE_ATTR.is_match(l)));
 
                 if fn_name == "main" || fn_name.starts_with("test_") {
                     continue;

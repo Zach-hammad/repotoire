@@ -12,16 +12,12 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static INSECURE_RANDOM: OnceLock<Regex> = OnceLock::new();
-
-fn insecure_random() -> &'static Regex {
-    INSECURE_RANDOM.get_or_init(|| {
+static INSECURE_RANDOM: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(Math\.random\(\)|random\.random\(\)|random\.randint|rand\(\)|srand\(|mt_rand|lcg_value|uniqid)").expect("valid regex")
-    })
-}
+    });
 
 /// Get secure alternative for each language
 fn get_secure_alternative(ext: &str) -> &'static str {
@@ -275,7 +271,7 @@ impl Detector for InsecureRandomDetector {
                         continue;
                     }
 
-                    if insecure_random().is_match(line) {
+                    if INSECURE_RANDOM.is_match(line) {
                         let start = i.saturating_sub(5);
                         let end = (i + 5).min(lines.len());
                         let surrounding = lines[start..end].join(" ");
@@ -359,7 +355,7 @@ impl Detector for InsecureRandomDetector {
 
                         let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
 
-                        let random_func = insecure_random()
+                        let random_func = INSECURE_RANDOM
                             .find(line)
                             .map(|m| m.as_str())
                             .unwrap_or("random");

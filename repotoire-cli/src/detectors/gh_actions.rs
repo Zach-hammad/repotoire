@@ -11,7 +11,7 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::{debug, info};
 
 /// GitHub Actions injection detector
@@ -22,11 +22,7 @@ pub struct GHActionsInjectionDetector {
 }
 
 /// Compiled regex for dangerous GitHub context patterns
-static DANGEROUS_PATTERN: OnceLock<Regex> = OnceLock::new();
-static RUN_BLOCK_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn get_dangerous_pattern() -> &'static Regex {
-    DANGEROUS_PATTERN.get_or_init(|| {
+static DANGEROUS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         // Dangerous GitHub Actions expression patterns (user-controlled input)
         let patterns = [
             r"github\.event\.pull_request\.title",
@@ -49,13 +45,8 @@ fn get_dangerous_pattern() -> &'static Regex {
             r"github\.event\.sender\.login",
         ];
         Regex::new(&format!(r"\$\{{\{{\s*({})\s*\}}\}}", patterns.join("|"))).expect("valid regex")
-    })
-}
-
-fn get_run_block_pattern() -> &'static Regex {
-    RUN_BLOCK_PATTERN
-        .get_or_init(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").expect("valid regex"))
-}
+    });
+static RUN_BLOCK_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").expect("valid regex"));
 
 impl GHActionsInjectionDetector {
     /// Create a new GitHub Actions injection detector
@@ -89,8 +80,8 @@ impl GHActionsInjectionDetector {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
 
-        let dangerous = get_dangerous_pattern();
-        let run_block = get_run_block_pattern();
+        let dangerous = &*DANGEROUS_PATTERN;
+        let run_block = &*RUN_BLOCK_PATTERN;
 
         let mut matches = Vec::new();
         let lines: Vec<&str> = content.lines().collect();
@@ -347,7 +338,7 @@ mod tests {
 
     #[test]
     fn test_dangerous_pattern() {
-        let pattern = get_dangerous_pattern();
+        let pattern = &*DANGEROUS_PATTERN;
 
         // Should match
         assert!(pattern.is_match("echo ${{ github.event.pull_request.title }}"));
@@ -363,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_run_block_pattern() {
-        let pattern = get_run_block_pattern();
+        let pattern = &*RUN_BLOCK_PATTERN;
 
         assert!(pattern.is_match("run: echo hello"));
         assert!(pattern.is_match("  run: |"));

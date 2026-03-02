@@ -12,14 +12,10 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static DESERIALIZE_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn deserialize_pattern() -> &'static Regex {
-    DESERIALIZE_PATTERN.get_or_init(|| Regex::new(r"(?i)(JSON\.parse|yaml\.load|yaml\.safe_load|unserialize|ObjectInputStream|Marshal\.load|eval\s*\()").expect("valid regex"))
-}
+static DESERIALIZE_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(JSON\.parse|yaml\.load|yaml\.safe_load|unserialize|ObjectInputStream|Marshal\.load|eval\s*\()").expect("valid regex"));
 
 /// Categorize the deserialization method
 fn categorize_deserialize(line: &str) -> (&'static str, &'static str, Severity) {
@@ -160,7 +156,7 @@ impl Detector for InsecureDeserializeDetector {
                         continue;
                     }
 
-                    if deserialize_pattern().is_match(line) {
+                    if DESERIALIZE_PATTERN.is_match(line) {
                         let has_user_input = line.contains("req.")
                             || line.contains("request")
                             || line.contains("body")

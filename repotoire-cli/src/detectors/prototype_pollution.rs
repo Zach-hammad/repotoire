@@ -11,30 +11,18 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static POLLUTION_PATTERN: OnceLock<Regex> = OnceLock::new();
-static USER_INPUT: OnceLock<Regex> = OnceLock::new();
-static SANITIZATION: OnceLock<Regex> = OnceLock::new();
-
-fn pollution_pattern() -> &'static Regex {
-    POLLUTION_PATTERN.get_or_init(|| {
+static POLLUTION_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(__proto__|prototype\s*\[|Object\.assign\(|\.extend\(|lodash\.merge|_\.merge|deepmerge|Object\.setPrototypeOf|Reflect\.set)").expect("valid regex")
-    })
-}
-
-fn user_input() -> &'static Regex {
-    USER_INPUT.get_or_init(|| {
+    });
+static USER_INPUT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").expect("valid regex")
-    })
-}
-
-fn sanitization() -> &'static Regex {
-    SANITIZATION.get_or_init(|| {
+    });
+static SANITIZATION: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(hasOwnProperty|Object\.keys|Object\.create\(null\)|delete.*__proto__|filter|sanitize|validate|clean)").expect("valid regex")
-    })
-}
+    });
 
 /// Categorize the pollution pattern
 fn categorize_pattern(line: &str) -> (&'static str, &'static str) {
@@ -78,8 +66,8 @@ impl PrototypePollutionDetector {
     /// Check if user input flows into this line
     fn has_user_input_flow(lines: &[&str], current_line: usize) -> (bool, Option<String>) {
         // Check current line
-        if user_input().is_match(lines[current_line]) {
-            if let Some(m) = user_input().find(lines[current_line]) {
+        if USER_INPUT.is_match(lines[current_line]) {
+            if let Some(m) = USER_INPUT.find(lines[current_line]) {
                 return (true, Some(m.as_str().to_string()));
             }
         }
@@ -87,9 +75,9 @@ impl PrototypePollutionDetector {
         // Check previous lines for variable assignments from user input
         let start = current_line.saturating_sub(15);
         for line in &lines[start..current_line] {
-            if user_input().is_match(line) {
+            if USER_INPUT.is_match(line) {
                 // Look for variable assignment
-                if let Some(m) = user_input().find(line) {
+                if let Some(m) = USER_INPUT.find(line) {
                     return (true, Some(m.as_str().to_string()));
                 }
             }
@@ -102,7 +90,7 @@ impl PrototypePollutionDetector {
     fn has_sanitization(lines: &[&str], current_line: usize) -> bool {
         let start = current_line.saturating_sub(10);
         for line in &lines[start..current_line] {
-            if sanitization().is_match(line) {
+            if SANITIZATION.is_match(line) {
                 return true;
             }
         }
@@ -193,7 +181,7 @@ impl Detector for PrototypePollutionDetector {
                         continue;
                     }
 
-                    if !pollution_pattern().is_match(line) {
+                    if !POLLUTION_PATTERN.is_match(line) {
                         continue;
                     }
 

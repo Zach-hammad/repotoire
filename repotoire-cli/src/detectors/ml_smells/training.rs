@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use tracing::info;
 
 use super::{
-    backward_call, dataloader_shuffle, eval_mode, forward_method, nan_equality, torch_load,
-    torch_load_weights_only, zero_grad_call,
+    BACKWARD_CALL, DATALOADER_SHUFFLE, EVAL_MODE, FORWARD_METHOD, NAN_EQUALITY, TORCH_LOAD,
+    TORCH_LOAD_WEIGHTS_ONLY, ZERO_GRAD_CALL,
 };
 
 pub struct TorchLoadUnsafeDetector {
@@ -44,7 +44,7 @@ impl Detector for TorchLoadUnsafeDetector {
                         continue;
                     }
 
-                    if torch_load().is_match(line) && !torch_load_weights_only().is_match(line) {
+                    if TORCH_LOAD.is_match(line) && !TORCH_LOAD_WEIGHTS_ONLY.is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;
 
@@ -133,7 +133,7 @@ impl Detector for NanEqualityDetector {
                         continue;
                     }
 
-                    if nan_equality().is_match(line) {
+                    if NAN_EQUALITY.is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;
 
@@ -203,8 +203,8 @@ impl MissingZeroGradDetector {
     /// Check if a file has both backward() and zero_grad()
     fn analyze_file(&self, content: &str, path: &std::path::Path) -> Vec<Finding> {
         let mut findings = vec![];
-        let has_backward = backward_call().is_match(content);
-        let has_zero_grad = zero_grad_call().is_match(content);
+        let has_backward = BACKWARD_CALL.is_match(content);
+        let has_zero_grad = ZERO_GRAD_CALL.is_match(content);
 
         if has_backward && !has_zero_grad {
             // Find the line with backward()
@@ -215,7 +215,7 @@ impl MissingZeroGradDetector {
                     continue;
                 }
 
-                if backward_call().is_match(line) {
+                if BACKWARD_CALL.is_match(line) {
                     let file_str = path.to_string_lossy();
                     let line_num = (i + 1) as u32;
 
@@ -334,7 +334,7 @@ impl Detector for ForwardMethodDetector {
                         continue;
                     }
 
-                    if forward_method().is_match(line) {
+                    if FORWARD_METHOD.is_match(line) {
                         // Skip valid forward patterns (parent class, self, RPC pipelines)
                         if line.contains("super()")
                             || line.contains("super(")

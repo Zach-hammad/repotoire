@@ -12,43 +12,26 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static NONE_ALG: OnceLock<Regex> = OnceLock::new();
-static HS256_ALG: OnceLock<Regex> = OnceLock::new();
-#[allow(dead_code)]
-static JWT_VERIFY: OnceLock<Regex> = OnceLock::new();
-static ALG_PARAM: OnceLock<Regex> = OnceLock::new();
-
-fn none_alg() -> &'static Regex {
-    NONE_ALG.get_or_init(|| {
+static NONE_ALG: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?none["']?|alg["']?\s*:\s*["']?none)"#)
             .expect("valid regex")
-    })
-}
-
-fn hs256_alg() -> &'static Regex {
-    HS256_ALG.get_or_init(|| {
+    });
+static HS256_ALG: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?HS256["']?|alg["']?\s*:\s*["']?HS256)"#)
             .expect("valid regex")
-    })
-}
-
+    });
 #[allow(dead_code)]
-fn jwt_verify() -> &'static Regex {
-    JWT_VERIFY.get_or_init(|| {
+static JWT_VERIFY: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(jwt\.(decode|verify)|verify_jwt|verifyToken|JWTVerifier)")
             .expect("valid regex")
-    })
-}
-
-fn alg_param() -> &'static Regex {
-    ALG_PARAM.get_or_init(|| {
+    });
+static ALG_PARAM: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(algorithms?\s*[=:]\s*\[|verify\s*=\s*False|options.*verify)")
             .expect("valid regex")
-    })
-}
+    });
 
 pub struct JwtWeakDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -283,9 +266,9 @@ impl Detector for JwtWeakDetector {
                     }
 
                     // Check for JWT-related patterns
-                    let has_none = none_alg().is_match(line);
-                    let has_hs256 = hs256_alg().is_match(line);
-                    let has_verify_issue = alg_param().is_match(line)
+                    let has_none = NONE_ALG.is_match(line);
+                    let has_hs256 = HS256_ALG.is_match(line);
+                    let has_verify_issue = ALG_PARAM.is_match(line)
                         && (line.to_lowercase().contains("false") || line.contains("none"));
 
                     if !has_none && !has_hs256 && !has_verify_issue {

@@ -12,18 +12,14 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static ASYNC_CALL: OnceLock<Regex> = OnceLock::new();
-
-fn async_call() -> &'static Regex {
-    ASYNC_CALL.get_or_init(|| {
+static ASYNC_CALL: LazyLock<Regex> = LazyLock::new(|| {
         // Only match clearly async I/O patterns — NOT generic method calls
         Regex::new(r"(?i)\b(fetch\(|axios\.\w+\(|\.\bjson\(\)|\.\btext\(\)|async_\w+\(|aio\w+\.|\.\bquery\(|\.\bexecute\(|\.\bconnect\(|\.\bsend\(|fs\.promises\.|fsPromises\.)")
             .expect("valid regex")
-    })
-}
+    });
 
 pub struct MissingAwaitDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -226,7 +222,7 @@ impl Detector for MissingAwaitDetector {
                         continue;
                     }
 
-                    let has_async_call = async_call().is_match(line);
+                    let has_async_call = ASYNC_CALL.is_match(line);
                     let calls_known_async = known_async_funcs.iter().any(|func| {
                         line.contains(&format!("{}(", func))
                                 && !line.contains(&format!("async {}", func)) // skip declarations

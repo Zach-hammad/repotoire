@@ -13,17 +13,13 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static TODO_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn get_pattern() -> &'static Regex {
-    TODO_PATTERN.get_or_init(|| {
+static TODO_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX)[\s:]+(.{0,80})|\b(BUG)\s*:\s*(.{0,80})")
             .expect("valid regex")
-    })
-}
+    });
 
 pub struct TodoScanner {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -146,7 +142,7 @@ impl Detector for TodoScanner {
                         continue;
                     }
 
-                    if let Some(caps) = get_pattern().captures(line) {
+                    if let Some(caps) = TODO_PATTERN.captures(line) {
                         let tag = caps
                             .get(1)
                             .or(caps.get(3))

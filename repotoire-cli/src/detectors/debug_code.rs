@@ -13,14 +13,10 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static DEBUG_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn debug_pattern() -> &'static Regex {
-    DEBUG_PATTERN.get_or_init(|| Regex::new(r"(?i)(console\.(log|debug|info|warn)|\bprint\(|debugger;?|binding\.pry|byebug|import\s+pdb|pdb\.set_trace)").expect("valid regex"))
-}
+static DEBUG_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(console\.(log|debug|info|warn)|\bprint\(|debugger;?|binding\.pry|byebug|import\s+pdb|pdb\.set_trace)").expect("valid regex"));
 
 pub struct DebugCodeDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -171,7 +167,7 @@ impl Detector for DebugCodeDetector {
                         }
                     }
 
-                    if debug_pattern().is_match(line) {
+                    if DEBUG_PATTERN.is_match(line) {
                         let line_num = (i + 1) as u32;
                         let containing_func =
                             Self::find_containing_function(graph, &path_str, line_num);

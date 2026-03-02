@@ -11,30 +11,18 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static NOSQL_PATTERN: OnceLock<Regex> = OnceLock::new();
-static DANGEROUS_OPS: OnceLock<Regex> = OnceLock::new();
-static USER_INPUT: OnceLock<Regex> = OnceLock::new();
-
-fn nosql_pattern() -> &'static Regex {
-    NOSQL_PATTERN.get_or_init(|| {
+static NOSQL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(\.find\(|\.findOne\(|\.findById\(|\.updateOne\(|\.updateMany\(|\.deleteOne\(|\.deleteMany\(|\.aggregate\(|\.countDocuments\(|db\.\w+\.)").expect("valid regex")
-    })
-}
-
-fn dangerous_ops() -> &'static Regex {
-    DANGEROUS_OPS.get_or_init(|| {
+    });
+static DANGEROUS_OPS: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").expect("valid regex")
-    })
-}
-
-fn user_input() -> &'static Regex {
-    USER_INPUT.get_or_init(|| {
+    });
+static USER_INPUT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").expect("valid regex")
-    })
-}
+    });
 
 /// Categorize the type of NoSQL injection risk
 fn categorize_risk(line: &str) -> (&'static str, &'static str) {
@@ -197,7 +185,7 @@ impl Detector for NosqlInjectionDetector {
                         continue;
                     }
 
-                    if !nosql_pattern().is_match(line) {
+                    if !NOSQL_PATTERN.is_match(line) {
                         continue;
                     }
                     if Self::is_array_method(line) {
@@ -205,10 +193,10 @@ impl Detector for NosqlInjectionDetector {
                     }
 
                     // Check for user input
-                    let has_input = user_input().is_match(line);
+                    let has_input = USER_INPUT.is_match(line);
                     let start = i.saturating_sub(5);
                     let context = lines[start..i].join(" ");
-                    let has_input_nearby = user_input().is_match(&context);
+                    let has_input_nearby = USER_INPUT.is_match(&context);
 
                     if !has_input && !has_input_nearby {
                         continue;
@@ -221,7 +209,7 @@ impl Detector for NosqlInjectionDetector {
                     }
 
                     // Check for dangerous operators
-                    let has_dangerous = dangerous_ops().is_match(line);
+                    let has_dangerous = DANGEROUS_OPS.is_match(line);
                     let (risk_type, risk_desc) = categorize_risk(line);
 
                     // Get function context

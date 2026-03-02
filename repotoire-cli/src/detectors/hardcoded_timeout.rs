@@ -12,16 +12,12 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static TIMEOUT_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn timeout_pattern() -> &'static Regex {
-    TIMEOUT_PATTERN.get_or_init(|| {
+static TIMEOUT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(timeout|sleep|delay|wait|setTimeout|setInterval|read_timeout|write_timeout|connect_timeout)\s*[\(=:]\s*(\d{4,})").expect("valid regex")
-    })
-}
+    });
 
 /// Format milliseconds to human-readable string
 fn format_duration(ms: u64) -> String {
@@ -125,7 +121,7 @@ impl HardcodedTimeoutDetector {
         for path in files.files() {
             if let Some(content) = files.masked_content(path) {
                 for line in content.lines() {
-                    if let Some(caps) = timeout_pattern().captures(line) {
+                    if let Some(caps) = TIMEOUT_PATTERN.captures(line) {
                         if let Some(val) = caps.get(2) {
                             if let Ok(v) = val.as_str().parse::<u64>() {
                                 *counts.entry(v).or_default() += 1;
@@ -193,7 +189,7 @@ impl Detector for HardcodedTimeoutDetector {
                         continue;
                     }
 
-                    if let Some(caps) = timeout_pattern().captures(line) {
+                    if let Some(caps) = TIMEOUT_PATTERN.captures(line) {
                         if let (Some(keyword), Some(val)) = (caps.get(1), caps.get(2)) {
                             let _keyword_str = keyword.as_str();
                             let value: u64 = val.as_str().parse().unwrap_or(0);

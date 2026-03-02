@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::box_dyn_trait;
+use super::BOX_DYN_TRAIT;
 
 pub struct BoxDynTraitDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -65,7 +65,7 @@ impl Detector for BoxDynTraitDetector {
                 if trimmed.starts_with("//") {
                     continue;
                 }
-                if !box_dyn_trait().is_match(line) {
+                if !BOX_DYN_TRAIT.is_match(line) {
                     continue;
                 }
                 if Self::needs_dynamic_dispatch(&content, i) {

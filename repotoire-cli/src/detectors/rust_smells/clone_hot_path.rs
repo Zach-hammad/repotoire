@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::{clone_call, hot_path_indicator};
+use super::{CLONE_CALL, HOT_PATH_INDICATOR};
 
 pub struct CloneInHotPathDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -21,7 +21,7 @@ impl CloneInHotPathDetector {
     }
 
     fn is_hot_path_context(content: &str, line_idx: usize, current_line: &str) -> bool {
-        if hot_path_indicator().is_match(current_line) {
+        if HOT_PATH_INDICATOR.is_match(current_line) {
             return true;
         }
         let lines: Vec<&str> = content.lines().collect();
@@ -31,7 +31,7 @@ impl CloneInHotPathDetector {
             if let Some(line) = lines.get(i) {
                 brace_depth += line.matches('}').count();
                 brace_depth = brace_depth.saturating_sub(line.matches('{').count());
-                if brace_depth == 0 && hot_path_indicator().is_match(line) {
+                if brace_depth == 0 && HOT_PATH_INDICATOR.is_match(line) {
                     return true;
                 }
             }
@@ -71,7 +71,7 @@ impl Detector for CloneInHotPathDetector {
                     continue;
                 }
 
-                if clone_call().is_match(line) && Self::is_hot_path_context(&content, i, line) {
+                if CLONE_CALL.is_match(line) && Self::is_hot_path_context(&content, i, line) {
                     let file_str = path.to_string_lossy();
                     let line_num = (i + 1) as u32;
                     findings.push(Finding {

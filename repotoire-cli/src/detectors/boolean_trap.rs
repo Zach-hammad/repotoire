@@ -13,22 +13,14 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static BOOL_ARGS: OnceLock<Regex> = OnceLock::new();
-static FUNC_CALL: OnceLock<Regex> = OnceLock::new();
-
-fn bool_args() -> &'static Regex {
-    BOOL_ARGS.get_or_init(|| {
+static BOOL_ARGS: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\w+\s*\([^)]*\b(true|false|True|False)\s*,\s*(true|false|True|False)")
             .expect("valid regex")
-    })
-}
-
-fn func_call() -> &'static Regex {
-    FUNC_CALL.get_or_init(|| Regex::new(r"(\w+)\s*\(").expect("valid regex"))
-}
+    });
+static FUNC_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\w+)\s*\(").expect("valid regex"));
 
 pub struct BooleanTrapDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -46,7 +38,7 @@ impl BooleanTrapDetector {
 
     /// Extract function name from call
     fn extract_func_name(line: &str) -> Option<String> {
-        func_call()
+        FUNC_CALL
             .captures(line)
             .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
     }
@@ -82,7 +74,7 @@ impl Detector for BooleanTrapDetector {
                         continue;
                     }
 
-                    if bool_args().is_match(line) {
+                    if BOOL_ARGS.is_match(line) {
                         if let Some(func_name) = Self::extract_func_name(line) {
                             let bool_count = Self::count_bool_args(line);
                             *func_call_counts.entry(func_name.clone()).or_default() += 1;

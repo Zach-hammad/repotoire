@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::mutex_unwrap;
+use super::MUTEX_UNWRAP;
 
 pub struct MutexPoisoningRiskDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -83,7 +83,7 @@ impl Detector for MutexPoisoningRiskDetector {
                     continue;
                 }
 
-                if !mutex_unwrap().is_match(line) {
+                if !MUTEX_UNWRAP.is_match(line) {
                     continue;
                 }
 

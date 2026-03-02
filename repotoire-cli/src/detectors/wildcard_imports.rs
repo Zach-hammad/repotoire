@@ -12,25 +12,17 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static WILDCARD_PATTERN: OnceLock<Regex> = OnceLock::new();
-static MODULE_NAME: OnceLock<Regex> = OnceLock::new();
-
-fn wildcard_pattern() -> &'static Regex {
-    WILDCARD_PATTERN.get_or_init(|| {
+static WILDCARD_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(from\s+\S+\s+import\s+\*|import\s+\*\s+from|import\s+\*\s*;|\.\*;)")
             .expect("valid regex")
-    })
-}
-
-fn module_name() -> &'static Regex {
-    MODULE_NAME.get_or_init(|| {
+    });
+static MODULE_NAME: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#)
             .expect("valid regex")
-    })
-}
+    });
 
 pub struct WildcardImportsDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -48,7 +40,7 @@ impl WildcardImportsDetector {
 
     /// Extract module name from wildcard import line
     fn extract_module_name(line: &str) -> Option<String> {
-        module_name()
+        MODULE_NAME
             .captures(line)
             .and_then(|caps| caps.get(1).or(caps.get(2)).map(|m| m.as_str().to_string()))
     }
@@ -100,7 +92,7 @@ impl Detector for WildcardImportsDetector {
                         continue;
                     }
 
-                    if wildcard_pattern().is_match(line) {
+                    if WILDCARD_PATTERN.is_match(line) {
                         // Skip relative wildcard imports in __init__.py -- standard re-export pattern
                         let is_init_py = path.file_name()
                             .and_then(|n| n.to_str())

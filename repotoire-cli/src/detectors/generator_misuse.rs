@@ -12,29 +12,13 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static GENERATOR_DEF: OnceLock<Regex> = OnceLock::new();
-static YIELD_STMT: OnceLock<Regex> = OnceLock::new();
-static YIELD_FROM: OnceLock<Regex> = OnceLock::new();
-static LIST_CALL: OnceLock<Regex> = OnceLock::new();
-
-fn generator_def() -> &'static Regex {
-    GENERATOR_DEF.get_or_init(|| Regex::new(r"def\s+(\w+)\s*\(").expect("valid regex"))
-}
-
-fn yield_stmt() -> &'static Regex {
-    YIELD_STMT.get_or_init(|| Regex::new(r"\byield\b").expect("valid regex"))
-}
-
-fn yield_from_stmt() -> &'static Regex {
-    YIELD_FROM.get_or_init(|| Regex::new(r"\byield\s+from\b").expect("valid regex"))
-}
-
-fn list_call() -> &'static Regex {
-    LIST_CALL.get_or_init(|| Regex::new(r"list\s*\(\s*(\w+)\s*\(").expect("valid regex"))
-}
+static GENERATOR_DEF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"def\s+(\w+)\s*\(").expect("valid regex"));
+static YIELD_STMT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\byield\b").expect("valid regex"));
+static YIELD_FROM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\byield\s+from\b").expect("valid regex"));
+static LIST_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"list\s*\(\s*(\w+)\s*\(").expect("valid regex"));
 
 /// Detects generator functions with only one yield statement
 pub struct GeneratorMisuseDetector {
@@ -95,11 +79,11 @@ impl GeneratorMisuseDetector {
             }
 
             // `yield from` delegates to a sub-iterator — treat as multi-yield
-            if yield_from_stmt().is_match(line) {
+            if YIELD_FROM.is_match(line) {
                 return (2, in_loop);
             }
 
-            if let Some(m) = yield_stmt().find(line) {
+            if let Some(m) = YIELD_STMT.find(line) {
                 // Skip yield that appears inside a string literal
                 if Self::yield_is_in_string(line, m.start()) {
                     continue;
@@ -164,7 +148,7 @@ impl GeneratorMisuseDetector {
 
         for path in files.files_with_extension("py") {
             if let Some(content) = files.content(path) {
-                for cap in list_call().captures_iter(&content) {
+                for cap in LIST_CALL.captures_iter(&content) {
                     if let Some(func_name) = cap.get(1) {
                         let name = func_name.as_str();
                         // Exclude Python builtins — list(x.list(...)) is not wrapping a generator
@@ -281,7 +265,7 @@ impl Detector for GeneratorMisuseDetector {
                         continue;
                     }
 
-                    if let Some(caps) = generator_def().captures(line) {
+                    if let Some(caps) = GENERATOR_DEF.captures(line) {
                         let func_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
                         let indent = line.chars().take_while(|c| c.is_whitespace()).count();
 

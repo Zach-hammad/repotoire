@@ -12,24 +12,16 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static EXPRESS_APP: OnceLock<Regex> = OnceLock::new();
-static ROUTE_HANDLER: OnceLock<Regex> = OnceLock::new();
-
-fn express_app() -> &'static Regex {
-    EXPRESS_APP.get_or_init(|| {
+static EXPRESS_APP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"express\(\)|require\(["']express["']\)|from ['"]express['"']"#)
             .expect("valid regex")
-    })
-}
-
-fn route_handler() -> &'static Regex {
-    ROUTE_HANDLER.get_or_init(|| {
+    });
+static ROUTE_HANDLER: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\.(get|post|put|delete|patch|all|use)\s*\(").expect("valid regex")
-    })
-}
+    });
 
 /// Security features to check
 struct SecurityFeatures {
@@ -60,7 +52,7 @@ impl SecurityFeatures {
             has_hpp: content.contains("hpp"),
             has_csrf: lower.contains("csrf") || lower.contains("csurf"),
             has_compression: content.contains("compression"),
-            route_count: route_handler().find_iter(content).count(),
+            route_count: ROUTE_HANDLER.find_iter(content).count(),
             auth_middleware_count: Self::count_auth_middleware(content),
         }
     }
@@ -182,7 +174,7 @@ impl Detector for ExpressSecurityDetector {
 
             if let Some(content) = files.content(path) {
                 // Check if this is an Express app
-                if !express_app().is_match(&content) {
+                if !EXPRESS_APP.is_match(&content) {
                     continue;
                 }
 

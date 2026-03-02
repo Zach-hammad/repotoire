@@ -12,14 +12,10 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static LOOSE_EQUALITY: OnceLock<Regex> = OnceLock::new();
-
-fn loose_equality() -> &'static Regex {
-    LOOSE_EQUALITY.get_or_init(|| Regex::new(r"[^!=<>]==[^=]|[^!]==[^=]").expect("valid regex"))
-}
+static LOOSE_EQUALITY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^!=<>]==[^=]|[^!]==[^=]").expect("valid regex"));
 
 pub struct ImplicitCoercionDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -117,7 +113,7 @@ impl Detector for ImplicitCoercionDetector {
                     }
 
                     // Check for == but not === or !==
-                    if loose_equality().is_match(line)
+                    if LOOSE_EQUALITY.is_match(line)
                         && !line.contains("===")
                         && !line.contains("!==")
                     {

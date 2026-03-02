@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::{is_test_context, safety_comment, unsafe_block};
+use super::{is_test_context, SAFETY_COMMENT, UNSAFE_BLOCK};
 
 pub struct UnsafeWithoutSafetyCommentDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -49,7 +49,7 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
                     continue;
                 }
 
-                if !unsafe_block().is_match(line) {
+                if !UNSAFE_BLOCK.is_match(line) {
                     continue;
                 }
 
@@ -69,8 +69,8 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
                 }
 
                 let has_safety = (i.saturating_sub(3)..i)
-                    .any(|j| lines.get(j).is_some_and(|l| safety_comment().is_match(l)));
-                let has_inline_safety = safety_comment().is_match(line);
+                    .any(|j| lines.get(j).is_some_and(|l| SAFETY_COMMENT.is_match(l)));
+                let has_inline_safety = SAFETY_COMMENT.is_match(line);
 
                 if !has_safety && !has_inline_safety {
                     let file_str = path.to_string_lossy();

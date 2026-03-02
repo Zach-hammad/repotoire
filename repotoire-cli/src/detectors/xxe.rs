@@ -11,23 +11,15 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static XXE_PATTERN: OnceLock<Regex> = OnceLock::new();
-static USER_INPUT: OnceLock<Regex> = OnceLock::new();
-
-fn xxe_pattern() -> &'static Regex {
-    XXE_PATTERN.get_or_init(|| {
+static XXE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(xml\.parse|parseXML|XMLParser|DocumentBuilder|SAXParser|etree\.parse|lxml\.etree|xml\.etree|DOMParser|XMLReader|xml\.dom|minidom|pulldom|xml2js|fast-xml-parser|libxml)").expect("valid regex")
-    })
-}
-
-fn user_input() -> &'static Regex {
-    USER_INPUT.get_or_init(|| {
+    });
+static USER_INPUT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(req\.(body|file|files)|request\.(data|files)|uploaded|file_content|input|read\(|getInputStream)").expect("valid regex")
-    })
-}
+    });
 
 /// Get language-specific protection patterns
 fn get_protection_patterns(ext: &str) -> Vec<&'static str> {
@@ -186,7 +178,7 @@ impl XxeDetector {
         let start = parse_line.saturating_sub(10);
         let context = lines[start..parse_line].join(" ");
 
-        user_input().is_match(&context)
+        USER_INPUT.is_match(&context)
     }
 
     /// Find containing function
@@ -252,7 +244,7 @@ impl Detector for XxeDetector {
                         continue;
                     }
 
-                    if !xxe_pattern().is_match(line) {
+                    if !XXE_PATTERN.is_match(line) {
                         continue;
                     }
 

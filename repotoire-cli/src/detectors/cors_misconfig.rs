@@ -11,26 +11,18 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static CORS_PATTERN: OnceLock<Regex> = OnceLock::new();
-static CREDENTIALS_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn cors_pattern() -> &'static Regex {
-    CORS_PATTERN.get_or_init(|| {
+static CORS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r#"(?i)(Access-Control-Allow-Origin|cors.*origin|allowedOrigins?)\s*[:=]\s*["'*]?\*"#,
         )
         .expect("valid regex")
-    })
-}
-
-fn credentials_pattern() -> &'static Regex {
-    CREDENTIALS_PATTERN.get_or_init(|| {
+    });
+static CREDENTIALS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"(?i)(credentials|allow.?credentials|with.?credentials)\s*[:=]\s*(true|["']include["'])"#).expect("valid regex")
-    })
-}
+    });
 
 pub struct CorsMisconfigDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -86,7 +78,7 @@ impl CorsMisconfigDetector {
         let end = (cors_line + 5).min(lines.len());
 
         for line in lines.get(start..end).unwrap_or(&[]) {
-            if credentials_pattern().is_match(line) {
+            if CREDENTIALS_PATTERN.is_match(line) {
                 return true;
             }
         }
@@ -134,7 +126,7 @@ impl Detector for CorsMisconfigDetector {
                         continue;
                     }
 
-                    if cors_pattern().is_match(line) {
+                    if CORS_PATTERN.is_match(line) {
                         let line_num = (i + 1) as u32;
 
                         // Get surrounding context

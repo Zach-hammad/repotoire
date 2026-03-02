@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use tracing::info;
 
 use super::{
-    chain_index, deprecated_torch, manual_seed, pca_svm_call, require_grad_typo, scaler_call,
+    CHAIN_INDEX, DEPRECATED_TORCH, MANUAL_SEED, PCA_SVM_CALL, REQUIRE_GRAD_TYPO, SCALER_CALL,
 };
 
 pub struct MissingRandomSeedDetector {
@@ -61,7 +61,7 @@ impl Detector for MissingRandomSeedDetector {
                     continue;
                 }
 
-                if !manual_seed().is_match(&content) {
+                if !MANUAL_SEED.is_match(&content) {
                     let file_str = path.to_string_lossy();
 
                     findings.push(Finding {
@@ -167,7 +167,7 @@ impl Detector for ChainIndexingDetector {
                         continue;
                     }
 
-                    if chain_index().is_match(line) {
+                    if CHAIN_INDEX.is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;
 
@@ -255,7 +255,7 @@ impl Detector for RequireGradTypoDetector {
                         continue;
                     }
 
-                    if require_grad_typo().is_match(line) {
+                    if REQUIRE_GRAD_TYPO.is_match(line) {
                         let file_str = path.to_string_lossy();
                         let line_num = (i + 1) as u32;
 

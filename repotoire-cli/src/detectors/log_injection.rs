@@ -7,15 +7,11 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn log_pattern() -> &'static Regex {
-    LOG_PATTERN.get_or_init(|| {
+static LOG_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(logger\.|log\.|console\.log|print\(|logging\.)").expect("valid regex")
-    })
-}
+    });
 
 pub struct LogInjectionDetector {
     repository_path: PathBuf,
@@ -57,7 +53,7 @@ impl Detector for LogInjectionDetector {
                         continue;
                     }
 
-                    if log_pattern().is_match(line) {
+                    if LOG_PATTERN.is_match(line) {
                         let has_user_input = line.contains("req.")
                             || line.contains("request")
                             || line.contains("input")

@@ -11,19 +11,15 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::{debug, info};
 
-static RETURN_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn return_pattern() -> &'static Regex {
-    RETURN_PATTERN.get_or_init(|| {
+static RETURN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"^\s*(return\b|throw\b|raise\b|exit\(|sys\.exit|process\.exit|break;|continue;)",
         )
         .expect("valid regex")
-    })
-}
+    });
 
 /// Entry point patterns - these functions are called externally
 const ENTRY_POINT_PATTERNS: &[&str] = &[
@@ -712,7 +708,7 @@ impl UnreachableCodeDetector {
                         continue;
                     }
 
-                    if return_pattern().is_match(line)
+                    if RETURN_PATTERN.is_match(line)
                         && !line.contains("if")
                         && !line.contains("?")
                     {

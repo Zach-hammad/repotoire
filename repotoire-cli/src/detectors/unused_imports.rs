@@ -12,27 +12,14 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static PYTHON_IMPORT: OnceLock<Regex> = OnceLock::new();
-static JS_IMPORT: OnceLock<Regex> = OnceLock::new();
-static WORD: OnceLock<Regex> = OnceLock::new();
-
-fn python_import() -> &'static Regex {
-    PYTHON_IMPORT
-        .get_or_init(|| Regex::new(r"(?:from\s+[\w.]+\s+)?import\s+(.+)").expect("valid regex"))
-}
-
-fn js_import() -> &'static Regex {
-    JS_IMPORT.get_or_init(|| {
+static PYTHON_IMPORT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:from\s+[\w.]+\s+)?import\s+(.+)").expect("valid regex"));
+static JS_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"import\s+(?:\{([^}]+)\}|(\w+))\s+from"#).expect("valid regex")
-    })
-}
-
-fn word() -> &'static Regex {
-    WORD.get_or_init(|| Regex::new(r"\b(\w+)\b").expect("valid regex"))
-}
+    });
+static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\w+)\b").expect("valid regex"));
 
 /// Detects unused imports
 pub struct UnusedImportsDetector {
@@ -56,7 +43,7 @@ impl UnusedImportsDetector {
         let mut symbols = Vec::new();
 
         // Handle "from x import a, b, c" and "import x, y"
-        if let Some(caps) = python_import().captures(line) {
+        if let Some(caps) = PYTHON_IMPORT.captures(line) {
             if let Some(imports) = caps.get(1) {
                 for part in imports.as_str().split(',') {
                     let part = part.trim();
@@ -89,7 +76,7 @@ impl UnusedImportsDetector {
     fn extract_js_imports(line: &str) -> Vec<(String, Option<String>)> {
         let mut symbols = Vec::new();
 
-        if let Some(caps) = js_import().captures(line) {
+        if let Some(caps) = JS_IMPORT.captures(line) {
             // Named imports: { a, b, c }
             if let Some(named) = caps.get(1) {
                 for part in named.as_str().split(',') {
@@ -118,18 +105,18 @@ impl UnusedImportsDetector {
 
     /// Extract symbols listed in __all__ = [...]
     fn extract_all_exports(content: &str) -> HashSet<String> {
-        static ALL_PATTERN: OnceLock<Regex> = OnceLock::new();
-        let pattern = ALL_PATTERN.get_or_init(|| {
+        static ALL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r#"__all__\s*=\s*\[([^\]]+)\]"#).expect("valid regex")
         });
+        let pattern = &*ALL_PATTERN;
 
         let mut exports = HashSet::new();
         if let Some(caps) = pattern.captures(content) {
             if let Some(items) = caps.get(1) {
-                static ITEM_PATTERN: OnceLock<Regex> = OnceLock::new();
-                let item_re = ITEM_PATTERN.get_or_init(|| {
+                static ITEM_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
                     Regex::new(r#"["'](\w+)["']"#).expect("valid regex")
                 });
+                let item_re = &*ITEM_PATTERN;
                 for m in item_re.captures_iter(items.as_str()) {
                     if let Some(name) = m.get(1) {
                         exports.insert(name.as_str().to_string());
@@ -155,7 +142,7 @@ impl UnusedImportsDetector {
             }
 
             // Check for word boundary match
-            for m in word().find_iter(line) {
+            for m in WORD.find_iter(line) {
                 if m.as_str() == symbol {
                     return true;
                 }

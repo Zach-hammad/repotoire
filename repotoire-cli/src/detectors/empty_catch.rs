@@ -43,11 +43,11 @@ impl EmptyCatchDetector {
 
     /// Extract function calls from a code block
     fn extract_calls(lines: &[&str], start: usize, end: usize) -> HashSet<String> {
-        use std::sync::OnceLock;
-        static CALL_RE: OnceLock<regex::Regex> = OnceLock::new();
-        let call_re = CALL_RE.get_or_init(|| {
+        use std::sync::LazyLock;
+        static CALL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
             regex::Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").expect("valid regex")
         });
+        let call_re = &*CALL_RE;
         let mut calls = HashSet::new();
 
         for line in lines.get(start..end).unwrap_or(&[]) {

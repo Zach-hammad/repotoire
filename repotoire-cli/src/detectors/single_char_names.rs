@@ -12,17 +12,13 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static SINGLE_CHAR: OnceLock<Regex> = OnceLock::new();
-
-fn single_char() -> &'static Regex {
-    SINGLE_CHAR.get_or_init(|| {
+static SINGLE_CHAR: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\b(let|var|const|def|int|string|float|double)\s+([a-zA-Z])\s*[=:]")
             .expect("valid regex")
-    })
-}
+    });
 
 /// Context-aware suggestions based on variable name
 fn suggest_name(var: &str, context_line: &str) -> String {
@@ -193,7 +189,7 @@ impl Detector for SingleCharNamesDetector {
                         continue;
                     }
 
-                    if let Some(caps) = single_char().captures(line) {
+                    if let Some(caps) = SINGLE_CHAR.captures(line) {
                         if let Some(var) = caps.get(2) {
                             let v = var.as_str();
                             // Allow common math/loop variables

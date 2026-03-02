@@ -13,14 +13,10 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static FUNC_REF: OnceLock<Regex> = OnceLock::new();
-
-fn func_ref() -> &'static Regex {
-    FUNC_REF.get_or_init(|| Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").expect("valid regex"))
-}
+static FUNC_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").expect("valid regex"));
 
 pub struct CommentedCodeDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -90,7 +86,7 @@ impl CommentedCodeDetector {
     fn extract_func_refs(lines: &[&str], start: usize, end: usize) -> HashSet<String> {
         let mut refs = HashSet::new();
         for line in lines.get(start..end).unwrap_or(&[]) {
-            for cap in func_ref().captures_iter(line) {
+            for cap in FUNC_REF.captures_iter(line) {
                 if let Some(m) = cap.get(1) {
                     let name = m.as_str();
                     // Skip common keywords

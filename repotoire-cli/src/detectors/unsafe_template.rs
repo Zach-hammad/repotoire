@@ -241,17 +241,17 @@ impl UnsafeTemplateDetector {
         let mut findings = Vec::new();
 
         // Pre-compile static-assignment regexes outside the file loop
-        use std::sync::OnceLock;
-        static STATIC_INNERHTML: OnceLock<Regex> = OnceLock::new();
-        let static_innerhtml_pat = STATIC_INNERHTML.get_or_init(|| {
+        use std::sync::LazyLock;
+        static STATIC_INNERHTML: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r#"\.\s*innerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
                 .expect("valid regex")
         });
-        static STATIC_OUTERHTML: OnceLock<Regex> = OnceLock::new();
-        let static_outerhtml_pat = STATIC_OUTERHTML.get_or_init(|| {
+        let static_innerhtml_pat = &*STATIC_INNERHTML;
+        static STATIC_OUTERHTML: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r#"\.\s*outerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
                 .expect("valid regex")
         });
+        let static_outerhtml_pat = &*STATIC_OUTERHTML;
 
         // Walk through JS/TS files (respects .gitignore and .repotoireignore)
         for path in walk_source_files(&self.repository_path, Some(&["js", "jsx", "ts", "tsx"])) {

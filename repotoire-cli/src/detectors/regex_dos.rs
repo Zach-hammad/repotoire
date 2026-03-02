@@ -12,31 +12,19 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static REGEX_CREATE: OnceLock<Regex> = OnceLock::new();
-static VULNERABLE: OnceLock<Regex> = OnceLock::new();
-
-fn regex_create() -> &'static Regex {
-    REGEX_CREATE.get_or_init(|| {
+static REGEX_CREATE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile|regex!|/[^/]+/)")
             .expect("valid regex")
-    })
-}
-
-fn vulnerable() -> &'static Regex {
-    // Patterns that can cause catastrophic backtracking:
-    // - Nested quantifiers: (a+)+ or (a*)*
-    // - Overlapping alternatives: (a|a)+
-    // - Repetition of groups with quantifiers
-    VULNERABLE.get_or_init(|| {
+    });
+static VULNERABLE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"\([^)]*[+*][^)]*\)[+*]|\.\*\.\*|\(\?:[^)]*\)[+*]{2}|\[[^\]]*\][+*]\[[^\]]*\][+*]",
         )
         .expect("valid regex")
-    })
-}
+    });
 
 /// Additional vulnerable patterns
 fn is_vulnerable_pattern(pattern: &str) -> Option<&'static str> {
@@ -196,12 +184,12 @@ impl Detector for RegexDosDetector {
                         continue;
                     }
 
-                    if !regex_create().is_match(line) {
+                    if !REGEX_CREATE.is_match(line) {
                         continue;
                     }
 
                     // Check for vulnerable patterns
-                    let is_vuln = vulnerable().is_match(line);
+                    let is_vuln = VULNERABLE.is_match(line);
                     let pattern = Self::extract_pattern(line);
                     let extra_vuln = pattern.as_ref().and_then(|p| is_vulnerable_pattern(p));
 

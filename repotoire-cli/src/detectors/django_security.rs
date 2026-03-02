@@ -12,38 +12,16 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use tracing::info;
 
-static CSRF_EXEMPT: OnceLock<Regex> = OnceLock::new();
-static DEBUG_TRUE: OnceLock<Regex> = OnceLock::new();
-static RAW_SQL: OnceLock<Regex> = OnceLock::new();
-static SECRET_KEY: OnceLock<Regex> = OnceLock::new();
-static ALLOWED_HOSTS: OnceLock<Regex> = OnceLock::new();
-
-fn csrf_exempt() -> &'static Regex {
-    CSRF_EXEMPT.get_or_init(|| Regex::new(r"@csrf_exempt|csrf_exempt\(").expect("valid regex"))
-}
-
-fn debug_true() -> &'static Regex {
-    DEBUG_TRUE.get_or_init(|| Regex::new(r"DEBUG\s*=\s*True").expect("valid regex"))
-}
-
-fn raw_sql() -> &'static Regex {
-    RAW_SQL.get_or_init(|| {
+static CSRF_EXEMPT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"@csrf_exempt|csrf_exempt\(").expect("valid regex"));
+static DEBUG_TRUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"DEBUG\s*=\s*True").expect("valid regex"));
+static RAW_SQL: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\.raw\(|\.extra\(|RawSQL\(|cursor\.execute").expect("valid regex")
-    })
-}
-
-fn secret_key() -> &'static Regex {
-    SECRET_KEY
-        .get_or_init(|| Regex::new(r#"SECRET_KEY\s*=\s*['"][^'"]{10,}['"]"#).expect("valid regex"))
-}
-
-fn allowed_hosts() -> &'static Regex {
-    ALLOWED_HOSTS
-        .get_or_init(|| Regex::new(r#"ALLOWED_HOSTS\s*=\s*\[\s*['"][*]['"]"#).expect("valid regex"))
-}
+    });
+static SECRET_KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"SECRET_KEY\s*=\s*['"][^'"]{10,}['"]"#).expect("valid regex"));
+static ALLOWED_HOSTS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"ALLOWED_HOSTS\s*=\s*\[\s*['"][*]['"]"#).expect("valid regex"));
 
 pub struct DjangoSecurityDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -133,7 +111,7 @@ impl Detector for DjangoSecurityDetector {
                     let line_num = (i + 1) as u32;
 
                     // Check CSRF exemption
-                    if csrf_exempt().is_match(line) {
+                    if CSRF_EXEMPT.is_match(line) {
                         // Skip decorator definition modules (e.g. django/views/decorators/csrf.py)
                         if path_str.contains("decorators/csrf") {
                             continue;
@@ -219,7 +197,7 @@ impl Detector for DjangoSecurityDetector {
                     }
 
                     // Check DEBUG setting
-                    if debug_true().is_match(line)
+                    if DEBUG_TRUE.is_match(line)
                         && fname.contains("settings")
                         && !fname.contains("dev")
                         && !fname.contains("local")
@@ -266,7 +244,7 @@ impl Detector for DjangoSecurityDetector {
                     }
 
                     // Check hardcoded SECRET_KEY
-                    if secret_key().is_match(line)
+                    if SECRET_KEY.is_match(line)
                         && !line.contains("os.environ")
                         && !line.contains("env(")
                         && fname.contains("settings")
@@ -302,7 +280,7 @@ impl Detector for DjangoSecurityDetector {
                     }
 
                     // Check ALLOWED_HOSTS wildcard
-                    if allowed_hosts().is_match(line)
+                    if ALLOWED_HOSTS.is_match(line)
                         && fname.contains("settings")
                         && !fname.contains("dev")
                         && !fname.contains("local")
@@ -326,7 +304,7 @@ impl Detector for DjangoSecurityDetector {
                     }
 
                     // Check raw SQL
-                    if raw_sql().is_match(line) {
+                    if RAW_SQL.is_match(line) {
                         // Skip ORM/database-internal paths — these files ARE the database layer
                         let lower_path = path_str.to_lowercase();
                         if lower_path.contains("db/backends/")
