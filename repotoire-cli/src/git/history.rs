@@ -415,6 +415,90 @@ impl GitHistory {
         Ok(matching_commits)
     }
 
+    /// Get file commits with pre-computed hunk line ranges.
+    ///
+    /// Returns `(CommitInfo, Vec<(hunk_start, hunk_end)>)` for each commit that touched the file.
+    /// This avoids re-diffing per function — callers can filter by line range in-memory.
+    pub fn get_file_commits_with_hunks(
+        &self,
+        file_path: &str,
+        max_commits: usize,
+    ) -> Result<Vec<(CommitInfo, Vec<(u32, u32)>)>> {
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.set_sorting(Sort::TIME)?;
+        revwalk.push_head()?;
+
+        let mut results = Vec::new();
+
+        for oid_result in revwalk {
+            if results.len() >= max_commits {
+                break;
+            }
+
+            let oid = oid_result?;
+            let commit = self.repo.find_commit(oid)?;
+
+            let parent = commit.parent(0).ok();
+            let tree = commit.tree()?;
+            let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+
+            let mut diff_opts = DiffOptions::new();
+            diff_opts.pathspec(file_path);
+
+            let diff = self.repo.diff_tree_to_tree(
+                parent_tree.as_ref(),
+                Some(&tree),
+                Some(&mut diff_opts),
+            )?;
+
+            if diff.deltas().len() == 0 {
+                continue;
+            }
+
+            // Collect hunk ranges in a single pass
+            let mut hunks = Vec::new();
+            diff.foreach(
+                &mut |_, _| true,
+                None,
+                Some(&mut |_, hunk| {
+                    let start = hunk.new_start();
+                    let end = start + hunk.new_lines();
+                    hunks.push((start, end));
+                    true
+                }),
+                None,
+            )?;
+
+            // Extract commit info with file-scoped stats
+            let stats = diff.stats()?;
+            let author = commit.author();
+            let timestamp = format_git_time(&commit.time());
+            let message = commit
+                .message()
+                .unwrap_or("")
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string();
+
+            let info = CommitInfo {
+                hash: commit.id().to_string()[..12].to_string(),
+                full_hash: commit.id().to_string(),
+                author: author.name().unwrap_or("Unknown").to_string(),
+                author_email: author.email().unwrap_or("").to_string(),
+                timestamp,
+                message,
+                files_changed: vec![file_path.to_string()],
+                insertions: stats.insertions(),
+                deletions: stats.deletions(),
+            };
+
+            results.push((info, hunks));
+        }
+
+        Ok(results)
+    }
+
     /// Check if a commit touched specific lines in a file.
     fn commit_touches_lines(
         &self,

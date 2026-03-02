@@ -469,12 +469,46 @@ impl Detector for AIChurnDetector {
             return Ok(vec![]);
         }
 
-        // Phase 2 (targeted): For functions in high-churn files, get function-level commits
-        info!("AIChurnDetector: Phase 2 - analyzing function-level churn");
+        // Phase 2a (batch): Fetch commits+hunks once per high-churn file
+        info!("AIChurnDetector: Phase 2a - batch-fetching file commits with hunks");
 
         let repo_path_str = repo_path.to_string_lossy();
         let functions = graph.get_functions();
         let analysis_cutoff = Utc::now() - Duration::days(self.analysis_window_days);
+
+        // Collect unique relative paths for high-churn files that have functions
+        let mut files_to_fetch: HashMap<String, bool> = HashMap::new();
+        for func in &functions {
+            if is_test_path(&func.file_path) || func.loc() < self.min_function_lines as u32 {
+                continue;
+            }
+            let relative_path = func
+                .file_path
+                .strip_prefix(repo_path_str.as_ref())
+                .unwrap_or(&func.file_path)
+                .trim_start_matches('/');
+            if high_churn_files.contains_key(relative_path) {
+                files_to_fetch.entry(relative_path.to_string()).or_insert(true);
+            }
+        }
+
+        debug!("AIChurnDetector: Fetching commits+hunks for {} files", files_to_fetch.len());
+
+        // One revwalk per file (not per function!) — each returns commits with pre-computed hunks
+        let mut file_commit_cache: HashMap<String, Vec<(crate::git::history::CommitInfo, Vec<(u32, u32)>)>> = HashMap::new();
+        for file_path in files_to_fetch.keys() {
+            match git_history.get_file_commits_with_hunks(file_path, 100) {
+                Ok(commits_with_hunks) => {
+                    file_commit_cache.insert(file_path.clone(), commits_with_hunks);
+                }
+                Err(e) => {
+                    debug!("AIChurnDetector: Failed to get commits for {}: {}", file_path, e);
+                }
+            }
+        }
+
+        // Phase 2b: For each function, filter cached commits by line range (in-memory, no git calls)
+        info!("AIChurnDetector: Phase 2b - filtering {} functions by line range (in-memory)", functions.len());
         let mut findings = Vec::new();
 
         for func in &functions {
@@ -483,52 +517,36 @@ impl Detector for AIChurnDetector {
                 break;
             }
 
-            // Skip test files
-            if is_test_path(&func.file_path) {
+            if is_test_path(&func.file_path) || func.loc() < self.min_function_lines as u32 {
                 continue;
             }
 
-            // Skip small functions
-            if func.loc() < self.min_function_lines as u32 {
-                continue;
-            }
-
-            // Normalize path: graph stores absolute paths, git stores relative
-            // Strip repo_path prefix and leading '/' to get relative path
             let relative_path = func
                 .file_path
                 .strip_prefix(repo_path_str.as_ref())
                 .unwrap_or(&func.file_path)
                 .trim_start_matches('/');
 
-            // Check if this file is in our high-churn set
-            if !high_churn_files.contains_key(relative_path) {
-                continue;
-            }
+            let cached = match file_commit_cache.get(relative_path) {
+                Some(c) => c,
+                None => continue,
+            };
 
-            // Get function-level commits via line range
             let line_start = func.line_start;
             let line_end = func.line_end;
-
             if line_start == 0 || line_end == 0 {
                 continue;
             }
 
-            let commits = match git_history.get_line_range_commits(
-                relative_path,
-                line_start,
-                line_end,
-                50,
-            ) {
-                Ok(c) => c,
-                Err(e) => {
-                    debug!(
-                        "AIChurnDetector: Failed to get line range commits for {}: {}",
-                        func.qualified_name, e
-                    );
-                    continue;
-                }
-            };
+            // Filter commits by hunk overlap — pure in-memory, zero git calls
+            let commits: Vec<&crate::git::history::CommitInfo> = cached
+                .iter()
+                .filter(|(_, hunks)| {
+                    hunks.iter().any(|&(hs, he)| hs <= line_end && he >= line_start)
+                })
+                .map(|(info, _)| info)
+                .take(50)
+                .collect();
 
             // Need at least 2 commits (creation + modification)
             if commits.len() < 2 {
