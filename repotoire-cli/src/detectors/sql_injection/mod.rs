@@ -24,7 +24,40 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use tracing::{debug, info};
+
+// Static compiled regex patterns (compiled once, shared across all instances)
+
+/// f-string with SQL keywords
+static FSTRING_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+    r#"(?i)f["'].*?\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*?\{[^}]+\}"#
+).expect("valid regex"));
+
+/// String concatenation with SQL keywords
+static CONCAT_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+    r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*["']\s*\+"#
+).expect("valid regex"));
+
+/// .format() with SQL keywords
+static FORMAT_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+    r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*["']\.format\s*\("#
+).expect("valid regex"));
+
+/// % formatting with SQL keywords
+static PERCENT_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+    r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[sdr].*["']\s*%"#
+).expect("valid regex"));
+
+/// JavaScript template literals with SQL keywords
+static JS_TEMPLATE_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+    r#"(?i)`[^`]*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b[^`]*\$\{[^}]+\}[^`]*`"#
+).expect("valid regex"));
+
+/// Go fmt.Sprintf with SQL keywords
+static GO_SPRINTF_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+    r#"(?i)fmt\.Sprintf\s*\(\s*["'`].*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[svdqxXfFeEgGtTpbcoU].*["'`]"#
+).expect("valid regex"));
 
 /// Detects potential SQL injection vulnerabilities
 pub struct SQLInjectionDetector {
@@ -32,15 +65,6 @@ pub struct SQLInjectionDetector {
     repository_path: PathBuf,
     max_findings: usize,
     exclude_dirs: Vec<String>,
-    // Compiled regex patterns
-    fstring_sql_pattern: Regex,
-    concat_sql_pattern: Regex,
-    format_sql_pattern: Regex,
-    percent_sql_pattern: Regex,
-    // JavaScript template literal pattern
-    js_template_sql_pattern: Regex,
-    // Go fmt.Sprintf pattern
-    go_sprintf_sql_pattern: Regex,
     // Taint analyzer for graph-based data flow
     taint_analyzer: TaintAnalyzer,
 }
@@ -63,53 +87,11 @@ impl SQLInjectionDetector {
             .get_option::<Vec<String>>("exclude_dirs")
             .unwrap_or_else(|| DEFAULT_EXCLUDE_DIRS.iter().map(|s| s.to_string()).collect());
 
-        // Compile regex patterns
-        // Pattern 1: f-string with SQL keywords (allow internal quotes)
-        let fstring_sql_pattern = Regex::new(
-            r#"(?i)f["'].*?\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*?\{[^}]+\}"#
-        ).expect("valid regex");
-
-        // Pattern 2: String concatenation with SQL keywords (allow internal quotes)
-        let concat_sql_pattern = Regex::new(
-            r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*["']\s*\+"#
-        ).expect("valid regex");
-
-        // Pattern 3: .format() with SQL keywords (allow internal quotes)
-        let format_sql_pattern = Regex::new(
-            r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*["']\.format\s*\("#
-        ).expect("valid regex");
-
-        // Pattern 4: % formatting with SQL keywords (allow internal quotes)
-        let percent_sql_pattern = Regex::new(
-            r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[sdr].*["']\s*%"#
-        ).expect("valid regex");
-
-        // Pattern 5: JavaScript template literals with SQL keywords
-        // Matches: db.query(`SELECT * FROM users WHERE id = ${userId}`)
-        let js_template_sql_pattern = Regex::new(
-            r#"(?i)`[^`]*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b[^`]*\$\{[^}]+\}[^`]*`"#
-        ).expect("valid regex");
-
-        // Pattern 6: Go fmt.Sprintf with SQL keywords
-        // Matches: fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)
-        // Pattern 6: Go fmt.Sprintf with SQL keywords
-        // Matches: fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)
-        // Also matches: fmt.Sprintf("SELECT * FROM users WHERE name = '%s'", name) with quoted placeholder
-        let go_sprintf_sql_pattern = Regex::new(
-            r#"(?i)fmt\.Sprintf\s*\(\s*["'`].*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[svdqxXfFeEgGtTpbcoU].*["'`]"#
-        ).expect("valid regex");
-
         Self {
             config,
             repository_path,
             max_findings,
             exclude_dirs,
-            fstring_sql_pattern,
-            concat_sql_pattern,
-            format_sql_pattern,
-            percent_sql_pattern,
-            js_template_sql_pattern,
-            go_sprintf_sql_pattern,
             taint_analyzer: TaintAnalyzer::new(),
         }
     }
@@ -369,22 +351,22 @@ impl SQLInjectionDetector {
         let is_structure_var = self.is_sql_structure_variable(line);
 
         // Check f-string pattern
-        if self.fstring_sql_pattern.is_match(line) {
+        if FSTRING_SQL.is_match(line) {
             return Some(("f-string", has_placeholders || is_structure_var));
         }
 
         // Check concatenation pattern
-        if self.concat_sql_pattern.is_match(line) {
+        if CONCAT_SQL.is_match(line) {
             return Some(("concatenation", has_placeholders || is_structure_var));
         }
 
         // Check .format() pattern
-        if self.format_sql_pattern.is_match(line) {
+        if FORMAT_SQL.is_match(line) {
             return Some(("format", has_placeholders || is_structure_var));
         }
 
         // Check % formatting pattern
-        if self.percent_sql_pattern.is_match(line) {
+        if PERCENT_SQL.is_match(line) {
             return Some(("percent_format", has_placeholders || is_structure_var));
         }
 
@@ -392,7 +374,7 @@ impl SQLInjectionDetector {
         // Skip safe tagged templates (Drizzle sql``, Prisma.sql``, etc.)
         // Skip when SQL keyword is actually a variable name (${insert.id})
         // Skip placeholder generation patterns
-        if self.js_template_sql_pattern.is_match(line)
+        if JS_TEMPLATE_SQL.is_match(line)
             && !self.is_safe_tagged_template(line)
             && !self.is_variable_name_false_positive(line)
         {
@@ -407,7 +389,7 @@ impl SQLInjectionDetector {
         }
 
         // Check Go fmt.Sprintf pattern
-        if self.go_sprintf_sql_pattern.is_match(line) {
+        if GO_SPRINTF_SQL.is_match(line) {
             return Some(("go_sprintf", has_placeholders || is_structure_var));
         }
 

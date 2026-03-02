@@ -187,6 +187,9 @@ fn extract_function_spans(lines: &[&str], content: &str) -> Vec<FunctionSpan> {
     let expect_re = &*super::EXPECT_CALL;
     let panic_re = &*PANIC_MACRO;
 
+    // Pre-compute test context in O(n) instead of O(n²) per-line backwards scan
+    let test_context = super::precompute_test_context(lines);
+
     let mut functions: Vec<FunctionSpan> = Vec::new();
     // Simple brace-depth tracker for the current function.
     let mut current_fn: Option<FunctionSpan> = None;
@@ -195,8 +198,8 @@ fn extract_function_spans(lines: &[&str], content: &str) -> Vec<FunctionSpan> {
     let mut fn_brace_start: i32 = 0;
 
     for (i, line) in lines.iter().enumerate() {
-        // Skip test contexts entirely
-        if is_test_context(line, content, i) {
+        // Skip test contexts entirely (O(1) lookup in precomputed array)
+        if test_context[i] {
             // If we're currently inside a function, discard it -- it's test code.
             if current_fn.is_some() {
                 current_fn = None;

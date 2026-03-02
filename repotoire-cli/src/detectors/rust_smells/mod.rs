@@ -57,6 +57,53 @@ pub(crate) fn is_test_context(_line: &str, content: &str, line_idx: usize) -> bo
     _line.contains("_test.rs") || _line.contains("/tests/")
 }
 
+/// Pre-compute test context for all lines in O(n) using brace tracking.
+///
+/// Returns a Vec<bool> where `true` means the line is inside a test region.
+/// Handles `#[cfg(test)]` modules, `mod tests { }` blocks, and `#[test]` functions.
+pub(crate) fn precompute_test_context(lines: &[&str]) -> Vec<bool> {
+    let mut is_test = vec![false; lines.len()];
+    let mut test_brace_depth: Option<i32> = None; // Some(depth) when inside test block
+    let mut brace_depth: i32 = 0;
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+
+        // Detect test region start
+        if test_brace_depth.is_none() {
+            if trimmed.contains("#[cfg(test)]")
+                || trimmed.starts_with("mod tests")
+                || trimmed.contains("#[test]")
+            {
+                test_brace_depth = Some(brace_depth);
+                is_test[i] = true;
+            }
+        }
+
+        // Update brace depth
+        for ch in line.chars() {
+            match ch {
+                '{' => brace_depth += 1,
+                '}' => brace_depth -= 1,
+                _ => {}
+            }
+        }
+
+        // Mark test lines and check for test region end
+        if let Some(start_depth) = test_brace_depth {
+            is_test[i] = true;
+            // Test region ends when brace depth returns to or below the starting depth
+            if brace_depth <= start_depth && i > 0 {
+                // For #[test] on individual functions, end when function closes
+                // For mod tests { }, end when the module closes
+                test_brace_depth = None;
+            }
+        }
+    }
+
+    is_test
+}
+
 /// Check if unwrap is on a known-safe pattern
 pub(crate) fn is_safe_unwrap_context(line: &str, content: &str, line_idx: usize) -> bool {
     let trimmed = line.trim();
