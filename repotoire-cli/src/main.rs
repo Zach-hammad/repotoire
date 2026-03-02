@@ -16,6 +16,14 @@
 #![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::type_complexity)]
 
+#[cfg(feature = "dhat")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
+#[cfg(all(feature = "jemalloc", not(feature = "dhat")))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 pub mod ai;
 pub mod cache;
 pub mod calibrate;
@@ -37,6 +45,9 @@ use clap::Parser;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn main() -> Result<()> {
+    #[cfg(feature = "dhat")]
+    let _profiler = dhat::Profiler::new_heap();
+
     // Initialize logging
     tracing_subscriber::registry()
         .with(fmt::layer())

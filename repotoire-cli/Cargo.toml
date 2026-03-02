@@ -109,6 +109,14 @@ schemars = "1.0"
 axum = "0.8"
 tokio-util = "0.7"
 
+# Profiling / allocator (optional)
+dhat = { version = "0.3", optional = true }
+tikv-jemallocator = { version = "0.6", optional = true }
+
+[features]
+dhat = ["dep:dhat"]
+jemalloc = ["dep:tikv-jemallocator"]
+
 [profile.release]
 lto = true
 codegen-units = 1
