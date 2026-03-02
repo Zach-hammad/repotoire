@@ -18,7 +18,9 @@
 //! ```
 
 use crate::models::{Finding, Severity};
+use crate::parsers::ParseResult;
 use anyhow::{Context, Result};
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -237,6 +239,7 @@ impl IncrementalCache {
     }
 
     /// Cached parse result for a file if unchanged
+    #[allow(dead_code)] // Public API, now primarily used via ConcurrentCacheView
     pub fn cached_parse(&self, path: &Path) -> Option<crate::parsers::ParseResult> {
         let key = path.to_string_lossy().to_string();
         let hash = self.file_hash(path);
@@ -628,6 +631,74 @@ impl IncrementalCache {
             .unwrap_or_else(|_| path.to_path_buf())
             .to_string_lossy()
             .to_string()
+    }
+}
+
+/// Compute the XXH3 content hash of a file without needing an `IncrementalCache` instance.
+/// Used by `ConcurrentCacheView` to pre-validate cache entries.
+fn file_hash_standalone(path: &Path) -> String {
+    match fs::File::open(path) {
+        Ok(mut file) => {
+            let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+            let mut buffer = [0u8; HASH_BUFFER_SIZE];
+
+            loop {
+                match file.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => hasher.update(&buffer[..n]),
+                    Err(_) => break,
+                }
+            }
+
+            format!("{:016x}", hasher.digest())
+        }
+        Err(_) => format!("error:{}", path.display()),
+    }
+}
+
+/// Lock-free concurrent view for parallel read access during parsing.
+///
+/// Created from `IncrementalCache` before entering a `par_iter` loop.
+/// Contains pre-validated cache entries (file hash already checked) so the
+/// parallel loop can do a simple `DashMap::get()` with no file I/O for cache
+/// hits.  New parse results are collected into a separate `DashMap` and merged
+/// back into the `IncrementalCache` after the loop finishes.
+pub struct ConcurrentCacheView {
+    /// Pre-validated cached parse results keyed by file path.
+    pub parse_cache: DashMap<PathBuf, ParseResult>,
+}
+
+impl IncrementalCache {
+    /// Create a concurrent view populated from existing cache data.
+    ///
+    /// Only entries whose on-disk file hash still matches the cached hash are
+    /// included, so consumers can treat every entry as valid without re-hashing.
+    ///
+    /// `files` limits which paths are checked — entries for files not in the
+    /// list are skipped to avoid unnecessary I/O.
+    pub fn concurrent_view(&self, files: &[PathBuf]) -> ConcurrentCacheView {
+        let parse_cache = DashMap::with_capacity(files.len());
+
+        for file in files {
+            let key = file.to_string_lossy().to_string();
+            if let Some(cached) = self.cache.parse_cache.get(&key) {
+                let current_hash = file_hash_standalone(file);
+                if cached.hash == current_hash {
+                    parse_cache.insert(file.clone(), cached.result.clone());
+                }
+            }
+        }
+
+        ConcurrentCacheView { parse_cache }
+    }
+
+    /// Merge new parse results from a `DashMap` back into the persistent cache.
+    ///
+    /// Call this after the parallel parsing loop to persist newly parsed files.
+    pub fn merge_new_parse_results(&mut self, new_results: DashMap<PathBuf, ParseResult>) {
+        for (path, result) in new_results.into_iter() {
+            self.cache_parse_result(&path, &result);
+        }
     }
 }
 

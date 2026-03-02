@@ -5,10 +5,11 @@
 //! - Lite mode parsing (minimal memory)
 //! - Chunked parsing for huge repos
 
-use crate::detectors::IncrementalCache;
+use crate::detectors::ConcurrentCacheView;
 use crate::parsers::{parse_file, ParseResult};
 use anyhow::Result;
 use console::style;
+use dashmap::DashMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::PathBuf;
@@ -21,13 +22,18 @@ pub(super) struct ParsePhaseResult {
     pub total_classes: usize,
 }
 
-/// Parse files in parallel with optional caching
+/// Parse files in parallel with optional caching.
+///
+/// Uses a lock-free `ConcurrentCacheView` (backed by `DashMap`) for reads and
+/// collects new parse results into a separate `DashMap`, avoiding any `Mutex`
+/// contention across rayon threads.
 pub(super) fn parse_files(
     files: &[PathBuf],
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
     is_incremental: bool,
-    cache: &std::sync::Mutex<IncrementalCache>,
+    cache_view: &ConcurrentCacheView,
+    new_results: &DashMap<PathBuf, ParseResult>,
 ) -> Result<ParsePhaseResult> {
     let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
     parse_bar.set_style(bar_style.clone());
@@ -50,15 +56,14 @@ pub(super) fn parse_files(
                 parse_bar.set_position(count as u64);
             }
 
-            // Try cache first
-            if let Ok(cache_guard) = cache.lock() {
-                if let Some(cached) = cache_guard.cached_parse(file_path) {
-                    cache_hits.fetch_add(1, Ordering::Relaxed);
-                    return Some((file_path.clone(), cached));
-                }
+            // Try pre-validated cache (lock-free DashMap read)
+            if let Some(cached) = cache_view.parse_cache.get(file_path) {
+                cache_hits.fetch_add(1, Ordering::Relaxed);
+                let pr: ParseResult = cached.value().clone();
+                return Some((file_path.clone(), pr));
             }
 
-            // Parse and cache
+            // Parse the file
             let result = match parse_file(file_path) {
                 Ok(r) => r,
                 Err(e) => {
@@ -66,9 +71,9 @@ pub(super) fn parse_files(
                     return None;
                 }
             };
-            if let Ok(mut cache_guard) = cache.lock() {
-                cache_guard.cache_parse_result(file_path, &result);
-            }
+
+            // Store new result (lock-free DashMap write)
+            new_results.insert(file_path.clone(), result.clone());
             Some((file_path.clone(), result))
         })
         .collect();
@@ -145,13 +150,17 @@ pub(super) fn parse_files_lite(
     })
 }
 
-/// Chunked parsing for very large repos - processes in batches to limit peak memory
+/// Chunked parsing for very large repos - processes in batches to limit peak memory.
+///
+/// Uses a lock-free `ConcurrentCacheView` for reads and collects new parse
+/// results into a shared `DashMap`.
 pub(super) fn parse_files_chunked(
     files: &[PathBuf],
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
     _is_incremental: bool,
-    cache: &std::sync::Mutex<IncrementalCache>,
+    cache_view: &ConcurrentCacheView,
+    new_results: &DashMap<PathBuf, ParseResult>,
     chunk_size: usize,
 ) -> Result<ParsePhaseResult> {
     let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
@@ -176,19 +185,20 @@ pub(super) fn parse_files_chunked(
                     parse_bar.set_position((chunk_start + count) as u64);
                 }
 
-                // Try cache first
-                if let Some(cached) = cache.lock().ok().and_then(|g| g.cached_parse(file_path)) {
+                // Try pre-validated cache (lock-free DashMap read)
+                if let Some(cached) = cache_view.parse_cache.get(file_path) {
                     cache_hits.fetch_add(1, Ordering::Relaxed);
-                    return Some((file_path.clone(), cached));
+                    let pr: ParseResult = cached.value().clone();
+                    return Some((file_path.clone(), pr));
                 }
 
-                // Parse and cache
+                // Parse the file
                 let result = parse_file(file_path).map_err(|e| {
                     tracing::warn!("Failed to parse {}: {}", file_path.display(), e);
                 }).ok()?;
-                if let Ok(mut cache_guard) = cache.lock() {
-                    cache_guard.cache_parse_result(file_path, &result);
-                }
+
+                // Store new result (lock-free DashMap write)
+                new_results.insert(file_path.clone(), result.clone());
                 Some((file_path.clone(), result))
             })
             .collect();
@@ -199,9 +209,6 @@ pub(super) fn parse_files_chunked(
             total_classes += result.classes.len();
             all_results.push((path, result));
         }
-
-        // Hint to the allocator we're done with this chunk's temp memory
-        // (This helps on some systems but may not make a huge difference)
     }
 
     let hits = cache_hits.load(Ordering::Relaxed);

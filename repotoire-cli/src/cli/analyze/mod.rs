@@ -479,9 +479,6 @@ fn initialize_graph(
         }
 
         let graph = Arc::new(GraphStore::in_memory());
-        let _cache_mutex = std::sync::Mutex::new(IncrementalCache::new(
-            &env.repotoire_dir.join("incremental"),
-        ));
         let parse_result = parse_files_lite(&file_result.files_to_parse, multi, &bar_style)?;
 
         return Ok((graph, file_result, parse_result));
@@ -729,9 +726,13 @@ fn parse_and_build(
             total_classes,
         })
     } else {
-        let cache_mutex = std::sync::Mutex::new(IncrementalCache::new(
+        // Build a lock-free concurrent cache view for parallel parsing.
+        // Pre-validates cached entries so the par_iter loop needs no Mutex.
+        let mut parse_cache = IncrementalCache::new(
             &env.repotoire_dir.join("incremental"),
-        ));
+        );
+        let cache_view = parse_cache.concurrent_view(&file_result.files_to_parse);
+        let new_results = dashmap::DashMap::new();
 
         let result = if file_result.files_to_parse.len() > 10000 {
             parse_files_chunked(
@@ -739,7 +740,8 @@ fn parse_and_build(
                 multi,
                 bar_style,
                 env.config.is_incremental_mode,
-                &cache_mutex,
+                &cache_view,
+                &new_results,
                 5000,
             )?
         } else {
@@ -748,13 +750,14 @@ fn parse_and_build(
                 multi,
                 bar_style,
                 env.config.is_incremental_mode,
-                &cache_mutex,
+                &cache_view,
+                &new_results,
             )?
         };
 
-        if let Ok(mut cache) = cache_mutex.into_inner() {
-            let _ = cache.save_cache();
-        }
+        // Merge newly parsed results back into the persistent cache
+        parse_cache.merge_new_parse_results(new_results);
+        let _ = parse_cache.save_cache();
 
         if result.parse_results.len() > 10000 {
             build_graph_chunked(
