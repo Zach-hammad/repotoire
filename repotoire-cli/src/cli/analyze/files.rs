@@ -10,7 +10,7 @@ use crate::models::Finding;
 
 use anyhow::{Context, Result};
 use console::style;
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 
@@ -185,7 +185,6 @@ fn collect_source_files(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec
         format!("Cannot canonicalize repository path: {}", repo_path.display())
     })?;
     let effective = exclude.effective_patterns();
-    let mut files = Vec::new();
 
     let mut builder = WalkBuilder::new(repo_path);
     builder
@@ -196,34 +195,47 @@ fn collect_source_files(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec
         .require_git(false)
         .add_custom_ignore_filename(".repotoireignore");
 
-    let walker = builder.build();
+    let files = std::sync::Mutex::new(Vec::new());
 
-    for entry in walker.flatten() {
-        let path = entry.path();
-
-        if !path.is_file() {
-            continue;
-        }
-
-        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
-            continue;
-        };
-        if !SUPPORTED_EXTENSIONS.contains(&ext) {
-            continue;
-        }
-
-        // Skip files matching exclusion patterns
-        if let Ok(rel) = path.strip_prefix(repo_path) {
-            let rel_str = rel.to_string_lossy();
-            if effective.iter().any(|p| glob_match(p, &rel_str)) {
-                continue;
+    builder.build_parallel().run(|| {
+        let files = &files;
+        let repo_canonical = &repo_canonical;
+        let effective = &effective;
+        let repo_path_ref = repo_path;
+        Box::new(move |entry| {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
+            let path = entry.path();
+            if !path.is_file() {
+                return WalkState::Continue;
             }
-        }
-        if let Some(validated) = validate_file(path, &repo_canonical) {
-            files.push(validated);
-        }
-    }
+            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+                return WalkState::Continue;
+            };
+            if !SUPPORTED_EXTENSIONS.contains(&ext) {
+                return WalkState::Continue;
+            }
+            // Skip files matching exclusion patterns
+            if let Ok(rel) = path.strip_prefix(repo_path_ref) {
+                let rel_str = rel.to_string_lossy();
+                if effective.iter().any(|p| glob_match(p, &rel_str)) {
+                    return WalkState::Continue;
+                }
+            }
+            if let Some(validated) = validate_file(path, repo_canonical) {
+                if let Ok(mut f) = files.lock() {
+                    f.push(validated);
+                }
+            }
+            WalkState::Continue
+        })
+    });
 
+    // Parallel walk returns files in arbitrary order; sort for deterministic results
+    let mut files = files.into_inner().expect("walk mutex poisoned");
+    files.sort();
     Ok(files)
 }
 
