@@ -115,6 +115,11 @@ codegen-units = 1
 strip = true
 opt-level = 3
 
+[profile.profiling]
+inherits = "release"
+debug = 2
+strip = false
+
 [[bin]]
 name = "repotoire"
 path = "src/main.rs"
