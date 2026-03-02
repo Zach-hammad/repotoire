@@ -3,7 +3,7 @@
 //! This module provides caching of detector findings keyed by file content hash,
 //! enabling incremental analysis that only re-runs detectors on changed files.
 //!
-//! Uses xxhash for speed when available, falls back to md5.
+//! Uses XXH3 (xxhash-rust) for fast, non-cryptographic content fingerprinting.
 //!
 //! # Example
 //!
@@ -265,24 +265,22 @@ impl IncrementalCache {
         self.dirty = true;
     }
 
-    /// Compute fast content hash of a file
+    /// Compute fast content hash of a file using XXH3 (3-5x faster than SipHash)
     pub fn file_hash(&self, path: &Path) -> String {
         match fs::File::open(path) {
             Ok(mut file) => {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::Hasher;
-                let mut hasher = DefaultHasher::new();
+                let mut hasher = xxhash_rust::xxh3::Xxh3::new();
                 let mut buffer = [0u8; HASH_BUFFER_SIZE];
 
                 loop {
                     match file.read(&mut buffer) {
                         Ok(0) => break,
-                        Ok(n) => hasher.write(&buffer[..n]),
+                        Ok(n) => hasher.update(&buffer[..n]),
                         Err(_) => break,
                     }
                 }
 
-                format!("{:016x}", hasher.finish())
+                format!("{:016x}", hasher.digest())
             }
             Err(_) => format!("error:{}", path.display()),
         }
@@ -490,9 +488,7 @@ impl IncrementalCache {
             }
         }
 
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = xxhash_rust::xxh3::Xxh3::new();
 
         // Sort files for deterministic hashing
         let mut sorted_files: Vec<_> = files.iter().collect();
@@ -500,11 +496,12 @@ impl IncrementalCache {
 
         for path in sorted_files {
             // Hash file path and content hash
-            path.to_string_lossy().as_bytes().hash(&mut hasher);
-            self.file_hash(path).hash(&mut hasher);
+            let path_bytes = path.to_string_lossy();
+            hasher.update(path_bytes.as_bytes());
+            hasher.update(self.file_hash(path).as_bytes());
         }
 
-        let hash = format!("{:016x}", hasher.finish());
+        let hash = format!("{:016x}", hasher.digest());
         self.memoized_files_hash = Some((files.len(), hash.clone()));
         hash
     }
