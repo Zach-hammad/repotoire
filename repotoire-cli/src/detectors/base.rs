@@ -79,6 +79,17 @@ impl DetectorResult {
             error: Some(error),
         }
     }
+
+    /// Create a skipped result (used when early termination limit is reached)
+    pub fn skipped(detector_name: &str) -> Self {
+        Self {
+            detector_name: detector_name.to_string(),
+            findings: Vec::new(),
+            duration_ms: 0,
+            success: true,
+            error: None,
+        }
+    }
 }
 
 /// Configuration options for detectors
