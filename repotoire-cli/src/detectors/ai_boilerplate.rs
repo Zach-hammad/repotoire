@@ -109,7 +109,10 @@ fn jaccard_similarity(set1: &HashSet<String>, set2: &HashSet<String>) -> f64 {
     }
 }
 
-/// Cluster functions by AST similarity using single-linkage clustering
+/// Cluster functions by AST similarity using MinHash/LSH + single-linkage clustering.
+///
+/// Uses LSH to find candidate pairs in near-linear time instead of O(n²),
+/// then verifies with exact Jaccard (arXiv:2102.08942).
 fn cluster_by_similarity(
     functions: &[FunctionAST],
     threshold: f64,
@@ -122,14 +125,24 @@ fn cluster_by_similarity(
     let n = functions.len();
     let mut similar_pairs: HashMap<usize, HashSet<usize>> = HashMap::new();
 
-    // Build similarity matrix
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let sim = jaccard_similarity(&functions[i].hash_set, &functions[j].hash_set);
-            if sim >= threshold {
-                similar_pairs.entry(i).or_default().insert(j);
-                similar_pairs.entry(j).or_default().insert(i);
+    // MinHash/LSH: find candidate pairs in near-linear time
+    let sets: Vec<&HashSet<String>> = functions.iter().map(|f| &f.hash_set).collect();
+    let candidates = crate::detectors::ast_fingerprint::lsh_candidate_pairs(&sets);
+
+    // Verify candidates with exact Jaccard + size-ratio pre-filter
+    for (i, j) in &candidates {
+        let size_i = functions[*i].hash_set.len();
+        let size_j = functions[*j].hash_set.len();
+        if size_i > 0 && size_j > 0 {
+            let size_ratio = size_i.min(size_j) as f64 / size_i.max(size_j) as f64;
+            if size_ratio < threshold {
+                continue;
             }
+        }
+        let sim = jaccard_similarity(&functions[*i].hash_set, &functions[*j].hash_set);
+        if sim >= threshold {
+            similar_pairs.entry(*i).or_default().insert(*j);
+            similar_pairs.entry(*j).or_default().insert(*i);
         }
     }
 
@@ -562,20 +575,18 @@ impl Detector for AIBoilerplateDetector {
                 path.extension().and_then(|e| e.to_str()).unwrap_or("")
             );
 
-            let functions = crate::detectors::ast_fingerprint::parse_functions(&content, lang);
+            // Zero-reparse: extract functions AND fingerprints in a single file parse
+            let functions = crate::detectors::ast_fingerprint::parse_functions_with_fingerprints(&content, lang);
 
-            for func in functions {
+            for (func, fp) in functions {
                 let loc = (func.line_end - func.line_start + 1) as usize;
                 if loc < self.min_loc {
                     continue;
                 }
 
-                let hash_set = crate::detectors::ast_fingerprint::structural_fingerprint(&func.body_text, lang);
-                if hash_set.is_empty() {
+                if fp.structural_kinds.is_empty() {
                     continue;
                 }
-
-                let patterns = crate::detectors::ast_fingerprint::detect_patterns(&func.body_text, lang);
 
                 all_functions.push(FunctionAST {
                     qualified_name: format!("{}::{}", path.to_string_lossy(), func.name),
@@ -584,8 +595,8 @@ impl Detector for AIBoilerplateDetector {
                     line_start: func.line_start,
                     line_end: func.line_end,
                     loc,
-                    hash_set,
-                    patterns,
+                    hash_set: fp.structural_kinds,
+                    patterns: fp.patterns,
                     decorators: vec![],
                     parent_class: None,
                     is_method: false,

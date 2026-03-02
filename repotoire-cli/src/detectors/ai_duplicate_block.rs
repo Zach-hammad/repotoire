@@ -191,48 +191,54 @@ impl AIDuplicateBlockDetector {
         }
     }
 
-    /// Find duplicate pairs using Jaccard similarity
+    /// Find duplicate pairs using MinHash/LSH + exact Jaccard verification.
+    ///
+    /// Uses LSH to reduce O(n²) pairwise comparisons to near-linear,
+    /// then verifies candidates with exact Jaccard (arXiv:2102.08942).
     fn find_duplicates(
         &self,
         functions: &[FunctionData],
     ) -> Vec<(FunctionData, FunctionData, f64)> {
+        if functions.len() < 2 {
+            return Vec::new();
+        }
+
+        // Build set references for LSH
+        let sets: Vec<&HashSet<String>> = functions.iter().map(|f| &f.hash_set).collect();
+        let candidates = crate::detectors::ast_fingerprint::lsh_candidate_pairs(&sets);
+
+        debug!(
+            "LSH: {} candidates from {} functions ({:.1}% of {:.0} total pairs)",
+            candidates.len(),
+            functions.len(),
+            candidates.len() as f64 / (functions.len() as f64 * (functions.len() - 1) as f64 / 2.0) * 100.0,
+            functions.len() as f64 * (functions.len() - 1) as f64 / 2.0,
+        );
+
         let mut duplicates: Vec<(FunctionData, FunctionData, f64)> = Vec::new();
-        let mut seen_pairs: HashSet<(String, String)> = HashSet::new();
 
-        for (i, func1) in functions.iter().enumerate() {
-            for func2 in functions.iter().skip(i + 1) {
-                // Skip same-file comparisons
-                if func1.file_path == func2.file_path {
+        for (i, j) in &candidates {
+            let func1 = &functions[*i];
+            let func2 = &functions[*j];
+
+            // Skip same-file comparisons
+            if func1.file_path == func2.file_path {
+                continue;
+            }
+
+            // Size-ratio pre-filter (Jaccard upper bound)
+            if func1.ast_size > 0 && func2.ast_size > 0 {
+                let size_ratio = func1.ast_size.min(func2.ast_size) as f64
+                    / func1.ast_size.max(func2.ast_size) as f64;
+                if size_ratio < self.similarity_threshold {
                     continue;
                 }
+            }
 
-                // Skip if AST sizes are too different (optimization)
-                if func1.ast_size > 0 && func2.ast_size > 0 {
-                    let size_ratio = func1.ast_size.min(func2.ast_size) as f64
-                        / func1.ast_size.max(func2.ast_size) as f64;
-                    if size_ratio < 0.5 {
-                        continue;
-                    }
-                }
-
-                // Create pair key
-                let pair_key = if func1.qualified_name < func2.qualified_name {
-                    (func1.qualified_name.clone(), func2.qualified_name.clone())
-                } else {
-                    (func2.qualified_name.clone(), func1.qualified_name.clone())
-                };
-
-                if seen_pairs.contains(&pair_key) {
-                    continue;
-                }
-                seen_pairs.insert(pair_key);
-
-                // Calculate Jaccard similarity
-                let similarity = jaccard_similarity(&func1.hash_set, &func2.hash_set);
-
-                if similarity >= self.similarity_threshold {
-                    duplicates.push((func1.clone(), func2.clone(), similarity));
-                }
+            // Exact Jaccard verification
+            let similarity = jaccard_similarity(&func1.hash_set, &func2.hash_set);
+            if similarity >= self.similarity_threshold {
+                duplicates.push((func1.clone(), func2.clone(), similarity));
             }
         }
 
@@ -377,25 +383,21 @@ impl Detector for AIDuplicateBlockDetector {
                 path.extension().and_then(|e| e.to_str()).unwrap_or(""),
             );
 
-            let functions = crate::detectors::ast_fingerprint::parse_functions(&content, lang);
+            // Zero-reparse: extract functions AND fingerprints in a single file parse
+            let functions = crate::detectors::ast_fingerprint::parse_functions_with_fingerprints(&content, lang);
 
-            for func in functions {
+            for (func, fp) in functions {
                 let loc = (func.line_end - func.line_start + 1) as usize;
                 if loc < self.min_loc {
                     continue;
                 }
 
-                let hash_set =
-                    crate::detectors::ast_fingerprint::normalized_fingerprint(&func.body_text, lang);
-                if hash_set.is_empty() {
+                if fp.normalized_bigrams.is_empty() {
                     continue;
                 }
 
-                let identifiers =
-                    crate::detectors::ast_fingerprint::extract_identifiers(&func.body_text, lang);
-                let generic_ratio = calculate_generic_ratio(&identifiers);
-
-                let ast_size = hash_set.len();
+                let generic_ratio = calculate_generic_ratio(&fp.identifiers);
+                let ast_size = fp.normalized_bigrams.len();
 
                 all_functions.push(FunctionData {
                     qualified_name: format!("{}::{}", path.to_string_lossy(), func.name),
@@ -404,7 +406,7 @@ impl Detector for AIDuplicateBlockDetector {
                     line_start: func.line_start,
                     line_end: func.line_end,
                     loc,
-                    hash_set,
+                    hash_set: fp.normalized_bigrams,
                     generic_ratio,
                     ast_size,
                 });

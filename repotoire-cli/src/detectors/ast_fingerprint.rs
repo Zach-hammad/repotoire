@@ -25,10 +25,27 @@ pub struct FunctionInfo {
     /// 1-based end line.
     pub line_end: u32,
     /// Full text of the function body.
+    #[allow(dead_code)] // Used in tests and kept for API completeness
     pub body_text: String,
     /// Language the function was parsed from.
     #[allow(dead_code)] // Included in function info
     pub language: Language,
+}
+
+/// Pre-computed fingerprints for a function body.
+///
+/// All fingerprints are extracted in a single AST walk via
+/// [`compute_all_fingerprints`], avoiding redundant tree-sitter parses.
+#[derive(Debug, Clone)]
+pub struct FunctionFingerprints {
+    /// Normalized bigram fingerprint (for duplicate detection).
+    pub normalized_bigrams: HashSet<String>,
+    /// Structural AST kinds (for boilerplate clustering).
+    pub structural_kinds: HashSet<String>,
+    /// All identifier names in the function body.
+    pub identifiers: Vec<String>,
+    /// Detected boilerplate patterns.
+    pub patterns: Vec<super::ai_boilerplate::BoilerplatePattern>,
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +143,7 @@ fn body_field(lang: Language) -> &'static str {
 /// - Rust: `function_item`
 /// - Go: `function_declaration`, `method_declaration`
 /// - Java: `method_declaration`
+#[cfg(test)]
 pub fn parse_functions(content: &str, lang: Language) -> Vec<FunctionInfo> {
     let tree = match parse_root(content, lang) {
         Some(t) => t,
@@ -138,6 +156,7 @@ pub fn parse_functions(content: &str, lang: Language) -> Vec<FunctionInfo> {
     functions
 }
 
+#[cfg(test)]
 fn collect_functions(
     node: Node,
     source: &str,
@@ -174,7 +193,7 @@ fn collect_functions(
 }
 
 // ---------------------------------------------------------------------------
-// structural_fingerprint
+// structural_fingerprint (kept for tests; production uses compute_all_fingerprints)
 // ---------------------------------------------------------------------------
 
 /// Node kinds considered "structural" (statement-level and expression-level).
@@ -240,11 +259,7 @@ fn is_structural_kind(kind: &str) -> bool {
     )
 }
 
-/// Structural fingerprint: collect AST node kinds from a code snippet.
-///
-/// Walks all child nodes and collects the `kind()` string for every node
-/// that is "structural" (statement-level or expression-level, not a leaf
-/// token). Used by `AIBoilerplateDetector` for clustering.
+#[cfg(test)]
 pub fn structural_fingerprint(content: &str, lang: Language) -> HashSet<String> {
     let tree = match parse_root(content, lang) {
         Some(t) => t,
@@ -256,9 +271,9 @@ pub fn structural_fingerprint(content: &str, lang: Language) -> HashSet<String> 
     kinds
 }
 
+#[cfg(test)]
 fn collect_structural_kinds(node: Node, out: &mut HashSet<String>) {
     let kind = node.kind();
-    // Include if it has children (compound node) and is structural
     if node.child_count() > 0 && is_structural_kind(kind) {
         out.insert(kind.to_string());
     }
@@ -272,15 +287,10 @@ fn collect_structural_kinds(node: Node, out: &mut HashSet<String>) {
 }
 
 // ---------------------------------------------------------------------------
-// normalized_fingerprint
+// normalized_fingerprint (kept for tests; production uses compute_all_fingerprints)
 // ---------------------------------------------------------------------------
 
-/// Normalized fingerprint: build bigrams of consecutive node kinds with
-/// identifiers replaced by `$ID`.
-///
-/// This produces a set of pairs like `("if_statement", "binary_expression")`
-/// that capture the structural flow of the code while ignoring variable names.
-/// Used by `AIDuplicateBlockDetector` for near-duplicate detection.
+#[cfg(test)]
 pub fn normalized_fingerprint(content: &str, lang: Language) -> HashSet<String> {
     let tree = match parse_root(content, lang) {
         Some(t) => t,
@@ -300,11 +310,11 @@ pub fn normalized_fingerprint(content: &str, lang: Language) -> HashSet<String> 
     bigrams
 }
 
+#[cfg(test)]
 fn collect_normalized_tokens(node: Node, out: &mut Vec<String>) {
     let kind = node.kind();
 
     if node.child_count() == 0 {
-        // Leaf node — normalize
         match kind {
             "identifier" | "property_identifier" | "field_identifier" | "type_identifier"
             | "shorthand_property_identifier" => {
@@ -320,15 +330,12 @@ fn collect_normalized_tokens(node: Node, out: &mut Vec<String>) {
             "true" | "false" | "none" | "null" | "undefined" => {
                 out.push("$CONST".to_string());
             }
-            // Skip punctuation/operators entirely
             "," | ";" | ":" | "." | "(" | ")" | "{" | "}" | "[" | "]" => {}
             _ => {
-                // Include as-is for structural tokens (keywords, operators)
                 out.push(kind.to_string());
             }
         }
     } else {
-        // Internal node — emit the kind as a structural marker
         if is_structural_kind(kind) {
             out.push(kind.to_string());
         }
@@ -343,12 +350,10 @@ fn collect_normalized_tokens(node: Node, out: &mut Vec<String>) {
 }
 
 // ---------------------------------------------------------------------------
-// extract_identifiers
+// extract_identifiers (kept for tests; production uses compute_all_fingerprints)
 // ---------------------------------------------------------------------------
 
-/// Extract all identifier names from a code snippet.
-///
-/// Walks the AST and collects the text of every `identifier` node.
+#[cfg(test)]
 pub fn extract_identifiers(content: &str, lang: Language) -> Vec<String> {
     let tree = match parse_root(content, lang) {
         Some(t) => t,
@@ -360,6 +365,7 @@ pub fn extract_identifiers(content: &str, lang: Language) -> Vec<String> {
     identifiers
 }
 
+#[cfg(test)]
 fn collect_identifiers(node: Node, source: &str, out: &mut Vec<String>) {
     if node.kind() == "identifier" && node.child_count() == 0 {
         let text = node_text(node, source);
@@ -377,13 +383,10 @@ fn collect_identifiers(node: Node, source: &str, out: &mut Vec<String>) {
 }
 
 // ---------------------------------------------------------------------------
-// detect_patterns
+// detect_patterns (kept for tests; production uses compute_all_fingerprints)
 // ---------------------------------------------------------------------------
 
-/// Detect boilerplate patterns from AST structure.
-///
-/// Walks the AST looking for characteristic node kinds that indicate
-/// common boilerplate patterns (try/except, validation, HTTP methods, etc.).
+#[cfg(test)]
 pub fn detect_patterns(
     content: &str,
     lang: Language,
@@ -486,7 +489,7 @@ pub fn detect_patterns(
     patterns
 }
 
-/// Collect all node kinds in the tree (helper for pattern detection).
+#[cfg(test)]
 fn collect_all_kinds(node: Node, out: &mut HashSet<String>) {
     out.insert(node.kind().to_string());
     let count = node.child_count();
@@ -495,6 +498,438 @@ fn collect_all_kinds(node: Node, out: &mut HashSet<String>) {
             collect_all_kinds(child, out);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Single-pass fingerprinting (combines all feature extraction into one walk)
+// ---------------------------------------------------------------------------
+
+/// Compute all fingerprints for a function body in a single AST parse + walk.
+///
+/// Replaces calling `normalized_fingerprint`, `structural_fingerprint`,
+/// `extract_identifiers`, and `detect_patterns` individually — each of which
+/// re-parses the body with tree-sitter. This function parses once and collects
+/// everything in a single tree traversal.
+#[cfg(test)]
+pub fn compute_all_fingerprints(
+    body_text: &str,
+    lang: Language,
+) -> FunctionFingerprints {
+    let tree = match parse_root(body_text, lang) {
+        Some(t) => t,
+        None => {
+            return FunctionFingerprints {
+                normalized_bigrams: HashSet::new(),
+                structural_kinds: HashSet::new(),
+                identifiers: Vec::new(),
+                patterns: Vec::new(),
+            };
+        }
+    };
+
+    let mut normalized_tokens = Vec::new();
+    let mut structural_kinds = HashSet::new();
+    let mut identifiers = Vec::new();
+    let mut all_kinds = HashSet::new();
+
+    collect_all_features(
+        tree.root_node(),
+        body_text,
+        &mut normalized_tokens,
+        &mut structural_kinds,
+        &mut identifiers,
+        &mut all_kinds,
+    );
+
+    // Build bigrams from normalized tokens
+    let mut normalized_bigrams = HashSet::new();
+    for pair in normalized_tokens.windows(2) {
+        normalized_bigrams.insert(format!("{}:{}", pair[0], pair[1]));
+    }
+
+    // Detect patterns from pre-computed kinds + content
+    let patterns = detect_patterns_from_data(&all_kinds, body_text);
+
+    FunctionFingerprints {
+        normalized_bigrams,
+        structural_kinds,
+        identifiers,
+        patterns,
+    }
+}
+
+/// Parse functions AND compute all fingerprints in a single file parse.
+///
+/// This is the zero-reparse approach inspired by AST-T5 (arXiv:2401.03003):
+/// instead of extracting function body text and re-parsing it, we walk the
+/// body subtree directly during the initial file parse. Eliminates N redundant
+/// tree-sitter parses per file (one per function).
+pub fn parse_functions_with_fingerprints(
+    content: &str,
+    lang: Language,
+) -> Vec<(FunctionInfo, FunctionFingerprints)> {
+    let tree = match parse_root(content, lang) {
+        Some(t) => t,
+        None => return vec![],
+    };
+
+    let kinds: HashSet<&str> = function_node_kinds(lang).iter().copied().collect();
+    let mut results = Vec::new();
+    collect_functions_with_fp(tree.root_node(), content, lang, &kinds, &mut results);
+    results
+}
+
+fn collect_functions_with_fp(
+    node: Node,
+    source: &str,
+    lang: Language,
+    func_kinds: &HashSet<&str>,
+    out: &mut Vec<(FunctionInfo, FunctionFingerprints)>,
+) {
+    if func_kinds.contains(node.kind()) {
+        let name = node
+            .child_by_field_name(name_field(lang))
+            .map(|n| node_text(n, source).to_string())
+            .unwrap_or_else(|| "<anonymous>".to_string());
+
+        let body_node = node.child_by_field_name(body_field(lang));
+        let body_text = body_node
+            .map(|n| node_text(n, source).to_string())
+            .unwrap_or_else(|| node_text(node, source).to_string());
+
+        // Walk body subtree directly — no re-parsing needed
+        let walk_node = body_node.unwrap_or(node);
+        let mut normalized_tokens = Vec::new();
+        let mut structural_kinds = HashSet::new();
+        let mut identifiers = Vec::new();
+        let mut all_kinds = HashSet::new();
+
+        collect_all_features(
+            walk_node,
+            source,
+            &mut normalized_tokens,
+            &mut structural_kinds,
+            &mut identifiers,
+            &mut all_kinds,
+        );
+
+        // Build bigrams
+        let mut normalized_bigrams = HashSet::new();
+        for pair in normalized_tokens.windows(2) {
+            normalized_bigrams.insert(format!("{}:{}", pair[0], pair[1]));
+        }
+
+        // Detect patterns
+        let patterns = detect_patterns_from_data(&all_kinds, &body_text);
+
+        out.push((
+            FunctionInfo {
+                name,
+                line_start: node.start_position().row as u32 + 1,
+                line_end: node.end_position().row as u32 + 1,
+                body_text,
+                language: lang,
+            },
+            FunctionFingerprints {
+                normalized_bigrams,
+                structural_kinds,
+                identifiers,
+                patterns,
+            },
+        ));
+    }
+
+    let count = node.child_count();
+    for i in 0..count {
+        if let Some(child) = node.child(i) {
+            collect_functions_with_fp(child, source, lang, func_kinds, out);
+        }
+    }
+}
+
+/// Single-pass AST walker that collects all feature data simultaneously.
+///
+/// Combines the work of `collect_normalized_tokens`, `collect_structural_kinds`,
+/// `collect_identifiers`, and `collect_all_kinds` into one tree walk.
+fn collect_all_features(
+    node: Node,
+    source: &str,
+    normalized_tokens: &mut Vec<String>,
+    structural_kinds: &mut HashSet<String>,
+    identifiers: &mut Vec<String>,
+    all_kinds: &mut HashSet<String>,
+) {
+    let kind = node.kind();
+
+    // For pattern detection: collect ALL node kinds
+    all_kinds.insert(kind.to_string());
+
+    if node.child_count() == 0 {
+        // Leaf node — normalize for fingerprinting
+        match kind {
+            "identifier" => {
+                normalized_tokens.push("$ID".to_string());
+                // Also collect identifier text
+                let text = node_text(node, source);
+                if !text.is_empty() {
+                    identifiers.push(text.to_string());
+                }
+            }
+            "property_identifier" | "field_identifier" | "type_identifier"
+            | "shorthand_property_identifier" => {
+                normalized_tokens.push("$ID".to_string());
+            }
+            "integer" | "float" | "number" | "number_literal" | "decimal_integer_literal"
+            | "hex_integer_literal" => {
+                normalized_tokens.push("$LIT".to_string());
+            }
+            "string" | "string_literal" | "template_string" | "raw_string_literal" => {
+                normalized_tokens.push("$STR".to_string());
+            }
+            "true" | "false" | "none" | "null" | "undefined" => {
+                normalized_tokens.push("$CONST".to_string());
+            }
+            "," | ";" | ":" | "." | "(" | ")" | "{" | "}" | "[" | "]" => {}
+            _ => {
+                normalized_tokens.push(kind.to_string());
+            }
+        }
+    } else {
+        // Internal node
+        if is_structural_kind(kind) {
+            normalized_tokens.push(kind.to_string());
+            structural_kinds.insert(kind.to_string());
+        }
+    }
+
+    let count = node.child_count();
+    for i in 0..count {
+        if let Some(child) = node.child(i) {
+            collect_all_features(child, source, normalized_tokens, structural_kinds, identifiers, all_kinds);
+        }
+    }
+}
+
+/// Detect boilerplate patterns from pre-computed node kinds and content.
+///
+/// Same logic as [`detect_patterns`] but takes pre-computed data instead of
+/// re-parsing the content.
+fn detect_patterns_from_data(
+    node_kinds: &HashSet<String>,
+    content: &str,
+) -> Vec<super::ai_boilerplate::BoilerplatePattern> {
+    use super::ai_boilerplate::BoilerplatePattern;
+
+    let content_lower = content.to_lowercase();
+    let mut patterns = Vec::new();
+
+    if node_kinds.contains("try_statement")
+        || node_kinds.contains("except_clause")
+        || node_kinds.contains("catch_clause")
+    {
+        patterns.push(BoilerplatePattern::TryExcept);
+    }
+
+    if node_kinds.contains("raise_statement")
+        || node_kinds.contains("throw_statement")
+        || content_lower.contains("error")
+        || content_lower.contains("exception")
+    {
+        patterns.push(BoilerplatePattern::ErrorHandling);
+    }
+
+    let has_if = node_kinds.contains("if_statement") || node_kinds.contains("if_expression");
+    if has_if
+        && (content_lower.contains("valid")
+            || content_lower.contains("check")
+            || content_lower.contains("assert")
+            || content_lower.contains("isinstance"))
+    {
+        patterns.push(BoilerplatePattern::Validation);
+    }
+
+    if content_lower.contains("get(")
+        || content_lower.contains("post(")
+        || content_lower.contains("put(")
+        || content_lower.contains("delete(")
+        || content_lower.contains("patch(")
+        || content_lower.contains("@app.route")
+        || content_lower.contains("@router.")
+    {
+        patterns.push(BoilerplatePattern::HttpMethod);
+    }
+
+    if content_lower.contains("execute")
+        || content_lower.contains("query")
+        || content_lower.contains("cursor")
+        || content_lower.contains("session.")
+        || content_lower.contains("commit(")
+        || content_lower.contains("rollback(")
+    {
+        patterns.push(BoilerplatePattern::Database);
+    }
+
+    if content_lower.contains("create")
+        || content_lower.contains("update")
+        || content_lower.contains("delete")
+        || content_lower.contains("find_by")
+        || content_lower.contains("get_by")
+    {
+        patterns.push(BoilerplatePattern::Crud);
+    }
+
+    if node_kinds.contains("with_statement") || node_kinds.contains("with_clause") {
+        patterns.push(BoilerplatePattern::ContextManager);
+    }
+
+    if node_kinds.contains("for_statement")
+        || node_kinds.contains("while_statement")
+        || node_kinds.contains("for_in_statement")
+    {
+        patterns.push(BoilerplatePattern::Loop);
+    }
+
+    if content_lower.contains("async ")
+        || content_lower.contains("await ")
+        || node_kinds.contains("await_expression")
+    {
+        patterns.push(BoilerplatePattern::Async);
+    }
+
+    patterns
+}
+
+// ---------------------------------------------------------------------------
+// MinHash + LSH for approximate Jaccard similarity (arXiv:2102.08942)
+// ---------------------------------------------------------------------------
+//
+// Instead of O(n²) pairwise Jaccard, MinHash signatures are computed in
+// O(n·k·|set|) and LSH banding finds candidate pairs in near-linear time.
+// Only candidates are verified with exact Jaccard — no false positives in output.
+//
+// Parameters for threshold ≈ 0.70:
+//   b=20 bands, r=5 rows → k=100 hash functions
+//   P(candidate | J=0.70) ≈ 97.5%
+//   P(candidate | J=0.50) ≈ 47%
+//   P(candidate | J=0.30) ≈ 4.8%
+
+/// Number of hash functions for MinHash signatures.
+const MINHASH_NUM_HASHES: usize = 100;
+/// Number of LSH bands.
+const LSH_BANDS: usize = 20;
+/// Rows per band (MINHASH_NUM_HASHES / LSH_BANDS).
+const LSH_ROWS: usize = 5;
+
+/// Pre-computed hash function coefficients for MinHash.
+struct MinHashCoeffs {
+    a: [u64; MINHASH_NUM_HASHES],
+    b: [u64; MINHASH_NUM_HASHES],
+}
+
+impl MinHashCoeffs {
+    /// Generate deterministic coefficients from a fixed seed (reproducible results).
+    fn new() -> Self {
+        let mut state: u64 = 0x12345678_9abcdef0;
+        let mut a = [0u64; MINHASH_NUM_HASHES];
+        let mut b = [0u64; MINHASH_NUM_HASHES];
+        for i in 0..MINHASH_NUM_HASHES {
+            // LCG (Knuth's constants)
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            a[i] = state | 1; // Ensure odd (invertible mod 2^64)
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            b[i] = state;
+        }
+        Self { a, b }
+    }
+}
+
+/// Fast hash for a string element (FxHash-like mixing).
+fn hash_element(s: &str) -> u64 {
+    let mut hash: u64 = 0;
+    for byte in s.bytes() {
+        hash = (hash.rotate_left(5) ^ (byte as u64)).wrapping_mul(0x517cc1b727220a95);
+    }
+    hash
+}
+
+/// Compute MinHash signature for a single set.
+fn minhash_signature(
+    set: &HashSet<String>,
+    coeffs: &MinHashCoeffs,
+) -> [u64; MINHASH_NUM_HASHES] {
+    let mut sig = [u64::MAX; MINHASH_NUM_HASHES];
+    for item in set {
+        let h = hash_element(item);
+        for k in 0..MINHASH_NUM_HASHES {
+            let val = h.wrapping_mul(coeffs.a[k]).wrapping_add(coeffs.b[k]);
+            if val < sig[k] {
+                sig[k] = val;
+            }
+        }
+    }
+    sig
+}
+
+/// Hash an LSH band into a single bucket key.
+fn hash_band(band: &[u64]) -> u64 {
+    let mut hash: u64 = 0;
+    for &val in band {
+        hash = hash.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(val);
+    }
+    hash
+}
+
+/// Find candidate pairs likely to have Jaccard similarity >= ~0.70.
+///
+/// Uses MinHash signatures + LSH banding to reduce O(n²) pairwise
+/// comparisons to near-linear. Returns index pairs (i, j) where i < j.
+/// Callers should verify candidates with exact Jaccard — LSH produces
+/// no false positives (only false negatives at low similarity).
+pub fn lsh_candidate_pairs(sets: &[&HashSet<String>]) -> HashSet<(usize, usize)> {
+    let n = sets.len();
+    if n < 2 {
+        return HashSet::new();
+    }
+
+    let coeffs = MinHashCoeffs::new();
+
+    // Compute all signatures: O(n · k · avg|set|)
+    let signatures: Vec<[u64; MINHASH_NUM_HASHES]> = sets
+        .iter()
+        .map(|set| minhash_signature(set, &coeffs))
+        .collect();
+
+    // LSH banding: O(n · b)
+    let mut candidates = HashSet::new();
+    for band in 0..LSH_BANDS {
+        let start = band * LSH_ROWS;
+        let end = start + LSH_ROWS;
+
+        let mut buckets: std::collections::HashMap<u64, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, sig) in signatures.iter().enumerate() {
+            let bucket_key = hash_band(&sig[start..end]);
+            buckets.entry(bucket_key).or_default().push(i);
+        }
+
+        for bucket in buckets.values() {
+            if bucket.len() < 2 {
+                continue;
+            }
+            for (a_idx, &a) in bucket.iter().enumerate() {
+                for &b in bucket.iter().skip(a_idx + 1) {
+                    let pair = if a < b { (a, b) } else { (b, a) };
+                    candidates.insert(pair);
+                }
+            }
+        }
+    }
+
+    candidates
 }
 
 // ---------------------------------------------------------------------------

@@ -128,42 +128,114 @@ impl DataClumpsDetector {
         vec![]
     }
 
-    /// Find parameter clumps across functions
+    /// Find parameter clumps across functions using an inverted index.
+    ///
+    /// Instead of generating all C(N,k) parameter combinations (exponential),
+    /// uses an inverted-index approach inspired by SourcererCC (arXiv:1512.06448):
+    /// 1. Map each param → set of functions
+    /// 2. For each pair sharing ≥1 param, compute intersection
+    /// 3. Group by intersection, filter by min_occurrences
     fn find_clumps(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<DataClump> {
         let functions = graph.get_functions();
 
-        // Build map of param sets to functions
-        let mut param_to_funcs: HashMap<Vec<String>, Vec<FuncInfo>> = HashMap::new();
-
+        // Step 1: Extract params for qualifying functions
+        let mut func_data: Vec<(FuncInfo, HashSet<String>)> = Vec::new();
         for func in &functions {
             let params = self.extract_params(func);
             if params.len() < self.thresholds.min_params {
                 continue;
             }
+            func_data.push((
+                FuncInfo {
+                    name: func.name.clone(),
+                    qualified_name: func.qualified_name.clone(),
+                    file: func.file_path.clone(),
+                    line: func.line_start,
+                },
+                params.into_iter().collect(),
+            ));
+        }
 
-            // Generate all combinations of min_params or more
-            for size in self.thresholds.min_params..=params.len().min(6) {
-                for combo in combinations(&params, size) {
-                    let mut key = combo;
-                    key.sort();
+        debug!(
+            "DataClumps: {} functions with {}+ params",
+            func_data.len(),
+            self.thresholds.min_params
+        );
 
-                    param_to_funcs.entry(key).or_default().push(FuncInfo {
-                        name: func.name.clone(),
-                        qualified_name: func.qualified_name.clone(),
-                        file: func.file_path.clone(),
-                        line: func.line_start,
-                    });
+        if func_data.len() < self.thresholds.min_occurrences {
+            return vec![];
+        }
+
+        // Step 2: Build inverted index: param → Vec<func_index>
+        let mut param_index: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (idx, (_, params)) in func_data.iter().enumerate() {
+            for param in params {
+                param_index.entry(param.as_str()).or_default().push(idx);
+            }
+        }
+
+        // Step 3: For candidate pairs (sharing ≥1 param), compute intersection
+        let mut seen_pairs: HashSet<(usize, usize)> = HashSet::new();
+        let mut clump_map: HashMap<Vec<String>, HashSet<usize>> = HashMap::new();
+
+        for indices in param_index.values() {
+            if indices.len() < 2 {
+                continue;
+            }
+            for (i_pos, &i) in indices.iter().enumerate() {
+                for &j in &indices[i_pos + 1..] {
+                    let key = if i < j { (i, j) } else { (j, i) };
+                    if !seen_pairs.insert(key) {
+                        continue;
+                    }
+
+                    // Compute param intersection for this pair
+                    let mut shared: Vec<String> = func_data[key.0]
+                        .1
+                        .intersection(&func_data[key.1].1)
+                        .cloned()
+                        .collect();
+
+                    if shared.len() >= self.thresholds.min_params {
+                        shared.sort();
+                        let entry = clump_map.entry(shared).or_default();
+                        entry.insert(key.0);
+                        entry.insert(key.1);
+                    }
                 }
             }
         }
 
-        // Filter to clumps meeting threshold and analyze call relationships
-        let mut clumps: Vec<DataClump> = param_to_funcs
+        // Step 4: Pre-build callees lookup for functions in clumps
+        let funcs_in_clumps: HashSet<usize> = clump_map
+            .values()
+            .flat_map(|indices| indices.iter().copied())
+            .collect();
+
+        let callees_map: HashMap<&str, HashSet<String>> = funcs_in_clumps
+            .iter()
+            .map(|&idx| {
+                let qn = func_data[idx].0.qualified_name.as_str();
+                let callees: HashSet<String> = graph
+                    .get_callees(qn)
+                    .iter()
+                    .map(|c| c.qualified_name.clone())
+                    .collect();
+                (qn, callees)
+            })
+            .collect();
+
+        // Step 5: Filter by min_occurrences, analyze call relationships
+        let mut clumps: Vec<DataClump> = clump_map
             .into_iter()
-            .filter(|(_, funcs)| funcs.len() >= self.thresholds.min_occurrences)
-            .map(|(params, funcs)| {
-                // Analyze call relationships between functions in this clump
-                let (call_count, is_chain) = self.analyze_call_relationships(graph, &funcs);
+            .filter(|(_, func_indices)| func_indices.len() >= self.thresholds.min_occurrences)
+            .map(|(params, func_indices)| {
+                let funcs: Vec<FuncInfo> = func_indices
+                    .iter()
+                    .map(|&idx| func_data[idx].0.clone())
+                    .collect();
+                let (call_count, is_chain) =
+                    self.analyze_call_relationships_cached(&callees_map, &funcs);
                 DataClump {
                     params,
                     funcs,
@@ -186,10 +258,13 @@ impl DataClumpsDetector {
         clumps
     }
 
-    /// Analyze call relationships between functions that share parameters
-    fn analyze_call_relationships(
+    /// Analyze call relationships using pre-built callees lookup table.
+    ///
+    /// Instead of calling `graph.get_callees()` per function per clump (thousands
+    /// of queries), uses a pre-built HashMap for O(1) lookups.
+    fn analyze_call_relationships_cached(
         &self,
-        graph: &dyn crate::graph::GraphQuery,
+        callees_map: &HashMap<&str, HashSet<String>>,
         funcs: &[FuncInfo],
     ) -> (usize, bool) {
         let func_qns: HashSet<&str> = funcs.iter().map(|f| f.qualified_name.as_str()).collect();
@@ -197,18 +272,20 @@ impl DataClumpsDetector {
         let mut has_chain = false;
 
         for func in funcs {
-            let callees = graph.get_callees(&func.qualified_name);
-            for callee in &callees {
-                if func_qns.contains(callee.qualified_name.as_str()) {
-                    call_count += 1;
+            if let Some(callees) = callees_map.get(func.qualified_name.as_str()) {
+                for callee_qn in callees {
+                    if func_qns.contains(callee_qn.as_str()) {
+                        call_count += 1;
 
-                    // Check if callee also calls another function in the clump (chain)
-                    let callee_callees = graph.get_callees(&callee.qualified_name);
-                    for cc in &callee_callees {
-                        if func_qns.contains(cc.qualified_name.as_str())
-                            && cc.qualified_name != func.qualified_name
-                        {
-                            has_chain = true;
+                        // Check if callee also calls another function in the clump (chain)
+                        if let Some(callee_callees) = callees_map.get(callee_qn.as_str()) {
+                            for cc_qn in callee_callees {
+                                if func_qns.contains(cc_qn.as_str())
+                                    && *cc_qn != func.qualified_name
+                                {
+                                    has_chain = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -289,6 +366,7 @@ struct DataClump {
     is_call_chain: bool,
 }
 
+#[derive(Clone)]
 struct FuncInfo {
     name: String,
     qualified_name: String,
@@ -296,7 +374,8 @@ struct FuncInfo {
     line: u32,
 }
 
-/// Generate combinations of k items
+/// Generate combinations of k items (kept for tests only)
+#[cfg(test)]
 fn combinations(items: &[String], k: usize) -> Vec<Vec<String>> {
     if k > items.len() {
         return vec![];
