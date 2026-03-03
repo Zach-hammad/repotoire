@@ -20,7 +20,7 @@ mod scoring;
 mod setup;
 
 use detect::{
-    apply_voting, finish_git_enrichment, run_detectors, run_detectors_streaming,
+    apply_voting, finish_git_enrichment, run_detectors_speculative, run_detectors_streaming,
     start_git_enrichment,
 };
 use files::{collect_file_list, collect_files_for_analysis};
@@ -501,6 +501,11 @@ fn initialize_graph(
 }
 
 /// Phase 3: Run git enrichment and detectors.
+///
+/// Uses speculative execution for normal repos: graph-independent detectors run
+/// in parallel with git enrichment, then graph-dependent detectors run after
+/// git enrichment completes. This overlaps file-local detection with background
+/// git history processing.
 fn execute_detection_phase(
     env: &EnvironmentSetup,
     graph: &Arc<GraphStore>,
@@ -510,19 +515,19 @@ fn execute_detection_phase(
     spinner_style: &ProgressStyle,
     timings: bool,
 ) -> Result<Vec<Finding>> {
-    let git_handle = start_git_enrichment(
-        env.config.no_git,
-        env.quiet_mode,
-        &env.repo_path,
-        Arc::clone(graph),
-        multi,
-        spinner_style,
-    );
-
     let use_streaming = file_result.all_files.len() > 5000;
 
-    let mut findings = if use_streaming {
-        run_detectors_streaming(
+    if use_streaming {
+        // Large repo streaming path (unchanged — no speculative split)
+        let git_handle = start_git_enrichment(
+            env.config.no_git,
+            env.quiet_mode,
+            &env.repo_path,
+            Arc::clone(graph),
+            multi,
+            spinner_style,
+        );
+        let findings = run_detectors_streaming(
             graph,
             &env.repo_path,
             &env.repotoire_dir,
@@ -533,39 +538,55 @@ fn execute_detection_phase(
             spinner_style,
             env.quiet_mode,
             env.config.no_emoji,
-        )?
-    } else {
-        let mut detector_cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
-        run_detectors(
-            graph,
-            &env.repo_path,
-            &env.project_config,
-            skip_detector,
-            env.config.run_external,
-            env.config.workers,
-            multi,
-            spinner_style,
-            env.quiet_mode,
-            env.config.no_emoji,
-            &mut detector_cache,
-            &file_result.all_files,
-            env.style_profile.as_ref(),
-            env.ngram_model.clone(),
-            timings,
-        )?
-    };
-
-    if !use_streaming {
-        let (_voting_stats, _cached_count) = apply_voting(
-            &mut findings,
-            file_result.cached_findings.clone(),
-            env.config.is_incremental_mode,
-            multi,
-            spinner_style,
-        );
+        )?;
+        finish_git_enrichment(git_handle);
+        return Ok(findings);
     }
 
-    finish_git_enrichment(git_handle);
+    // Speculative execution path:
+    // 1. Start git enrichment (background thread)
+    // 2. Run graph-independent detectors NOW (parallel with git enrichment)
+    // 3. Finish git enrichment (wait for background thread)
+    // 4. Run graph-dependent detectors (they need the enriched graph)
+    // 5. Merge findings + apply voting
+
+    let git_handle = start_git_enrichment(
+        env.config.no_git,
+        env.quiet_mode,
+        &env.repo_path,
+        Arc::clone(graph),
+        multi,
+        spinner_style,
+    );
+
+    let mut detector_cache = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
+
+    let mut findings = run_detectors_speculative(
+        graph,
+        &env.repo_path,
+        &env.project_config,
+        skip_detector,
+        env.config.run_external,
+        env.config.workers,
+        multi,
+        spinner_style,
+        env.quiet_mode,
+        env.config.no_emoji,
+        &mut detector_cache,
+        &file_result.all_files,
+        env.style_profile.as_ref(),
+        env.ngram_model.clone(),
+        timings,
+        || finish_git_enrichment(git_handle),
+    )?;
+
+    let (_voting_stats, _cached_count) = apply_voting(
+        &mut findings,
+        file_result.cached_findings.clone(),
+        env.config.is_incremental_mode,
+        multi,
+        spinner_style,
+    );
 
     Ok(findings)
 }

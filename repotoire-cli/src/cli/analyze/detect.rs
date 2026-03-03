@@ -97,7 +97,8 @@ pub(super) fn finish_git_enrichment(
     }
 }
 
-/// Run all detectors on the graph
+/// Run all detectors on the graph (non-speculative fallback)
+#[allow(dead_code)]
 pub(super) fn run_detectors(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
@@ -171,6 +172,137 @@ pub(super) fn run_detectors(
     ));
 
     // Update graph hash for cache validation (findings cached after postprocessing, #65)
+    let graph_hash = cache.compute_all_files_hash(all_files);
+    cache.update_graph_hash(&graph_hash);
+    let _ = cache.save_cache();
+
+    Ok(findings)
+}
+
+/// Run detectors in speculative mode: graph-independent first, then graph-dependent.
+///
+/// Graph-independent detectors run immediately (they only need file content).
+/// Graph-dependent detectors run after git enrichment completes (they need the full graph).
+///
+/// This overlaps file-local detection with git enrichment, reducing total wall-clock time.
+///
+/// The `between_phases` callback is invoked between the two phases, allowing the caller
+/// to finish git enrichment before graph-dependent detectors start.
+pub(super) fn run_detectors_speculative(
+    graph: &Arc<GraphStore>,
+    repo_path: &Path,
+    project_config: &ProjectConfig,
+    skip_detector: &[String],
+    run_external: bool,
+    workers: usize,
+    multi: &MultiProgress,
+    spinner_style: &ProgressStyle,
+    quiet_mode: bool,
+    no_emoji: bool,
+    cache: &mut IncrementalCache,
+    all_files: &[PathBuf],
+    style_profile: Option<&crate::calibrate::StyleProfile>,
+    ngram_model: Option<crate::calibrate::NgramModel>,
+    timings: bool,
+    between_phases: impl FnOnce(),
+) -> Result<Vec<Finding>> {
+    // Check if we can use cached detector results (same fast path as run_detectors)
+    if cache.can_use_cached_detectors(all_files) {
+        let cached_findings = cache.all_cached_graph_findings();
+        if !cached_findings.is_empty() && !quiet_mode {
+            let icon = if no_emoji { "" } else { "⚡ " };
+            println!(
+                "\n{}Using cached detector results ({} findings)",
+                style(icon).bold(),
+                cached_findings.len()
+            );
+            // Still run between_phases so git enrichment finishes cleanly
+            between_phases();
+            return Ok(cached_findings);
+        }
+    }
+
+    if !quiet_mode {
+        let det_icon = if no_emoji { "" } else { "🕵️  " };
+        println!(
+            "\n{}Running detectors (speculative mode)...",
+            style(det_icon).bold()
+        );
+    }
+
+    // Set up engine (same as run_detectors)
+    let hmm_cache_path = repo_path.join(".repotoire");
+    let mut engine = DetectorEngine::new(workers)
+        .with_hmm_cache(hmm_cache_path)
+        .with_timings(timings);
+    let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
+
+    for detector in crate::detectors::default_detectors_with_ngram(
+        repo_path,
+        project_config,
+        style_profile,
+        ngram_model,
+    ) {
+        let name = detector.name();
+        if !skip_set.contains(name) {
+            engine.register(detector);
+        }
+    }
+
+    // All detectors are now built-in pure Rust — no external tools
+    let _ = run_external;
+
+    let source_files = SourceFiles::new(all_files.to_vec(), repo_path.to_path_buf());
+
+    // Phase 1: Graph-independent detectors (run NOW, in parallel with git enrichment)
+    let gi_bar = multi.add(ProgressBar::new_spinner());
+    gi_bar.set_style(spinner_style.clone());
+    gi_bar.set_message("Running file-local detectors...");
+    gi_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let gi_findings = engine.run_graph_independent(graph, &source_files)?;
+    let gi_count = gi_findings.len();
+
+    gi_bar.finish_with_message(format!(
+        "{}File-local detectors: {} findings",
+        style("✓ ").green(),
+        style(gi_count).cyan(),
+    ));
+
+    // Between phases: finish git enrichment so graph is fully enriched
+    between_phases();
+
+    // Phase 2: Graph-dependent detectors (after git enrichment)
+    let gd_bar = multi.add(ProgressBar::new_spinner());
+    gd_bar.set_style(spinner_style.clone());
+    gd_bar.set_message("Running graph-based detectors...");
+    gd_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let gd_findings = engine.run_graph_dependent(graph, &source_files)?;
+    let gd_count = gd_findings.len();
+
+    gd_bar.finish_with_message(format!(
+        "{}Graph-based detectors: {} findings",
+        style("✓ ").green(),
+        style(gd_count).cyan(),
+    ));
+
+    // Merge findings from both phases
+    let mut findings = gi_findings;
+    findings.extend(gd_findings);
+
+    if !quiet_mode {
+        println!(
+            "  {} Ran {} detectors — {} raw issues ({} file-local + {} graph-based)",
+            style("→").dim(),
+            style(engine.detector_count()).cyan(),
+            style(findings.len()).cyan(),
+            style(gi_count).dim(),
+            style(gd_count).dim(),
+        );
+    }
+
+    // Update graph hash for cache validation
     let graph_hash = cache.compute_all_files_hash(all_files);
     cache.update_graph_hash(&graph_hash);
     let _ = cache.save_cache();
