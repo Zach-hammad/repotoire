@@ -56,6 +56,10 @@ impl Detector for PanicDensityDetector {
         "Detects Rust files/functions with a high density of .unwrap(), .expect(), and panic!() calls"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 

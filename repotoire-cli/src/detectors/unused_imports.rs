@@ -168,6 +168,10 @@ impl Detector for UnusedImportsDetector {
         "Detects imports that are never used in the code"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }

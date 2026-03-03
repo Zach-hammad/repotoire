@@ -30,6 +30,10 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
         "Detects unsafe blocks without SAFETY comments"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 

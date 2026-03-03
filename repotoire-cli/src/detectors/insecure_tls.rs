@@ -423,6 +423,9 @@ impl Detector for InsecureTlsDetector {
     fn category(&self) -> &'static str {
         "security"
     }
+    fn requires_graph(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

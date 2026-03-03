@@ -501,6 +501,10 @@ impl Detector for PickleDeserializationDetector {
         "security"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }

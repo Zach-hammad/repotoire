@@ -90,6 +90,10 @@ impl Detector for HardcodedIpsDetector {
         "Detects hardcoded IPs and localhost"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut ip_occurrences: HashMap<String, usize> = HashMap::new();

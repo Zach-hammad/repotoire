@@ -43,6 +43,10 @@ impl Detector for BoxDynTraitDetector {
         "Detects Box<dyn Trait> that could be replaced with generics"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 

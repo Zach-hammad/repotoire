@@ -32,6 +32,10 @@ impl Detector for TorchLoadUnsafeDetector {
         "Detects torch.load() without weights_only=True (pickle RCE)"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
@@ -119,6 +123,10 @@ impl Detector for NanEqualityDetector {
 
     fn description(&self) -> &'static str {
         "Detects comparisons with NaN (always False)"
+    }
+
+    fn requires_graph(&self) -> bool {
+        false
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
@@ -271,6 +279,10 @@ impl Detector for MissingZeroGradDetector {
         "Detects .backward() without zero_grad()"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
@@ -310,6 +322,10 @@ impl Detector for ForwardMethodDetector {
 
     fn description(&self) -> &'static str {
         "Detects model.forward() instead of model()"
+    }
+
+    fn requires_graph(&self) -> bool {
+        false
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {

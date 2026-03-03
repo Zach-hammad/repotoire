@@ -393,13 +393,24 @@ pub trait Detector: Send + Sync {
     /// Scope of this detector - determines when it needs to re-run
     ///
     /// - `FileLocal`: Only analyzes individual files, can be cached per-file
-    /// - `CrossFile`: Analyzes relationships, re-run if any related file changes  
+    /// - `CrossFile`: Analyzes relationships, re-run if any related file changes
     /// - `GraphBased`: Uses full graph, re-run if graph structure changes
     ///
     /// Default is GraphBased (conservative - always re-runs)
     #[allow(dead_code)] // Used by incremental cache to scope detector re-runs
     fn scope(&self) -> DetectorScope {
         DetectorScope::GraphBased
+    }
+
+    /// Whether this detector requires the full code graph to be built.
+    ///
+    /// Detectors that only analyze file content (magic numbers, deep nesting,
+    /// security patterns, etc.) can return `false` to run speculatively
+    /// in parallel with graph building.
+    ///
+    /// Default: `true` (conservative — waits for graph completion)
+    fn requires_graph(&self) -> bool {
+        true
     }
 }
 
@@ -543,5 +554,41 @@ mod tests {
         assert!(is_test_file(Path::new("app.spec.ts")));
         assert!(!is_test_file(Path::new("src/main.py")));
         assert!(!is_test_file(Path::new("testing_utils.py"))); // "testing" != "test"
+    }
+
+    #[test]
+    fn test_requires_graph_annotation_coverage() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        let detectors = crate::detectors::default_detectors(tmp.path());
+
+        let graph_independent: Vec<_> = detectors
+            .iter()
+            .filter(|d| !d.requires_graph())
+            .map(|d| d.name())
+            .collect();
+
+        let graph_dependent: Vec<_> = detectors
+            .iter()
+            .filter(|d| d.requires_graph())
+            .map(|d| d.name())
+            .collect();
+
+        println!(
+            "Graph-independent detectors ({}): {:?}",
+            graph_independent.len(),
+            graph_independent
+        );
+        println!(
+            "Graph-dependent detectors ({}): {:?}",
+            graph_dependent.len(),
+            graph_dependent
+        );
+
+        // At minimum 40 detectors should be graph-independent
+        assert!(
+            graph_independent.len() >= 40,
+            "Expected >= 40 graph-independent detectors, got {}",
+            graph_independent.len()
+        );
     }
 }

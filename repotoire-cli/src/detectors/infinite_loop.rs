@@ -235,6 +235,10 @@ impl Detector for InfiniteLoopDetector {
         "Detects potential infinite loops (while True without break)"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }

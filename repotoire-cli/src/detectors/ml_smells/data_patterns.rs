@@ -46,6 +46,10 @@ impl Detector for MissingRandomSeedDetector {
         "Detects ML training without random seed"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
@@ -147,6 +151,10 @@ impl Detector for ChainIndexingDetector {
         "Detects pandas chain indexing df['a']['b']"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
@@ -241,6 +249,10 @@ impl Detector for RequireGradTypoDetector {
 
     fn description(&self) -> &'static str {
         "Detects require_grad typo (should be requires_grad)"
+    }
+
+    fn requires_graph(&self) -> bool {
+        false
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
@@ -345,6 +357,10 @@ impl Detector for DeprecatedTorchApiDetector {
 
     fn description(&self) -> &'static str {
         "Detects deprecated PyTorch API usage"
+    }
+
+    fn requires_graph(&self) -> bool {
+        false
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {

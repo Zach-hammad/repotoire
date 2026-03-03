@@ -107,6 +107,10 @@ impl Detector for CorsMisconfigDetector {
         "Detects overly permissive CORS configuration"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 

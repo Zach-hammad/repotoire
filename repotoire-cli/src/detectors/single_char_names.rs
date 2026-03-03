@@ -143,6 +143,10 @@ impl Detector for SingleCharNamesDetector {
         "Detects single-character variable names"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let func_map = self.build_function_map(graph);

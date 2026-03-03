@@ -356,6 +356,10 @@ impl Detector for AIComplexitySpikeDetector {
         "ai_generated"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }

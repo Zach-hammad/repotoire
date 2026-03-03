@@ -535,6 +535,9 @@ impl Detector for DepAuditDetector {
     fn description(&self) -> &'static str {
         "Checks dependencies for known vulnerabilities via OSV.dev"
     }
+    fn requires_graph(&self) -> bool {
+        false
+    }
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting dependency vulnerability audit");
 

@@ -362,6 +362,10 @@ impl Detector for AIDuplicateBlockDetector {
         "ai_generated"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }

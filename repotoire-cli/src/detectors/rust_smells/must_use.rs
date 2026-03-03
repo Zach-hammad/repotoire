@@ -30,6 +30,10 @@ impl Detector for MissingMustUseDetector {
         "Detects Result-returning functions without #[must_use]"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let pub_fn_result = Regex::new(

@@ -85,6 +85,10 @@ impl Detector for DebugCodeDetector {
         "Detects debug statements left in code"
     }
 
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut debug_per_file: HashMap<String, usize> = HashMap::new();
