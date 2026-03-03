@@ -551,6 +551,245 @@ impl DetectorEngine {
         Ok(all_findings)
     }
 
+    /// Run only graph-independent detectors.
+    ///
+    /// These can execute before graph building completes since they only
+    /// analyze file content (AST patterns, security patterns, etc).
+    ///
+    /// Returns findings from file-local detectors.
+    pub fn run_graph_independent(
+        &mut self,
+        graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Result<Vec<Finding>> {
+        // Filter detectors to graph-independent only (not requires_graph and not dependent)
+        let gi_detectors: Vec<_> = self
+            .detectors
+            .iter()
+            .filter(|d| !d.requires_graph() && !d.is_dependent())
+            .cloned()
+            .collect();
+
+        if gi_detectors.is_empty() {
+            return Ok(vec![]);
+        }
+
+        info!("Running {} graph-independent detectors", gi_detectors.len());
+
+        let contexts = self.get_or_build_contexts(graph);
+        let finding_count = Arc::new(AtomicUsize::new(0));
+        let completed = Arc::new(AtomicUsize::new(0));
+        let total = gi_detectors.len();
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.workers)
+            .build()?;
+
+        let contexts_clone = Arc::clone(&contexts);
+        let finding_count_clone = Arc::clone(&finding_count);
+        let results: Vec<DetectorResult> = pool.install(|| {
+            gi_detectors
+                .par_iter()
+                .map(|detector| {
+                    if finding_count_clone.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
+                        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                        if let Some(ref callback) = self.progress_callback {
+                            callback(detector.name(), done, total);
+                        }
+                        return DetectorResult::skipped(detector.name());
+                    }
+
+                    let result =
+                        self.run_single_detector(detector, graph, files, &contexts_clone);
+                    finding_count_clone.fetch_add(result.findings.len(), Ordering::Relaxed);
+
+                    let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                    if let Some(ref callback) = self.progress_callback {
+                        callback(detector.name(), done, total);
+                    }
+
+                    result
+                })
+                .collect()
+        });
+
+        let mut findings = Vec::new();
+        let mut detector_timings: Vec<(String, u64)> = Vec::new();
+
+        for result in results {
+            if self.timings_enabled {
+                detector_timings.push((result.detector_name.clone(), result.duration_ms));
+            }
+            if result.success {
+                findings.extend(result.findings);
+            } else if let Some(err) = &result.error {
+                warn!("Detector {} failed: {}", result.detector_name, err);
+            }
+        }
+
+        // Filter out test file findings if enabled
+        if self.skip_test_files {
+            let before_count = findings.len();
+            findings.retain(|finding| !self.is_test_file_finding(finding));
+            let filtered = before_count - findings.len();
+            if filtered > 0 {
+                debug!("Filtered out {} findings from test files", filtered);
+            }
+        }
+
+        if self.timings_enabled && !detector_timings.is_empty() {
+            detector_timings.sort_by(|a, b| b.1.cmp(&a.1));
+            println!("\nSlowest graph-independent detectors:");
+            for (i, (name, ms)) in detector_timings.iter().take(10).enumerate() {
+                println!("  {:>2}. {:<40} {:>6}ms", i + 1, name, ms);
+            }
+        }
+
+        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+        Ok(findings)
+    }
+
+    /// Run only graph-dependent detectors.
+    ///
+    /// Call after graph building and git enrichment complete.
+    /// Runs graph-dependent detectors in parallel, then dependent detectors sequentially.
+    ///
+    /// Returns findings from graph-based detectors.
+    pub fn run_graph_dependent(
+        &mut self,
+        graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Result<Vec<Finding>> {
+        // Filter: detectors that require graph OR are dependent on other detectors
+        let gd_detectors: Vec<_> = self
+            .detectors
+            .iter()
+            .filter(|d| d.requires_graph() || d.is_dependent())
+            .cloned()
+            .collect();
+
+        if gd_detectors.is_empty() {
+            return Ok(vec![]);
+        }
+
+        info!("Running {} graph-dependent detectors", gd_detectors.len());
+
+        let contexts = self.get_or_build_contexts(graph);
+        let hmm_contexts = self.build_hmm_contexts(graph);
+        let finding_count = Arc::new(AtomicUsize::new(0));
+        let completed = Arc::new(AtomicUsize::new(0));
+
+        // Split into parallel (independent but graph-requiring) and sequential (dependent)
+        let (parallel, sequential): (Vec<_>, Vec<_>) =
+            gd_detectors.into_iter().partition(|d| !d.is_dependent());
+
+        let total = parallel.len() + sequential.len();
+
+        // Run parallel graph-dependent detectors
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.workers)
+            .build()?;
+
+        let contexts_clone = Arc::clone(&contexts);
+        let finding_count_clone = Arc::clone(&finding_count);
+        let parallel_results: Vec<DetectorResult> = pool.install(|| {
+            parallel
+                .par_iter()
+                .map(|detector| {
+                    if finding_count_clone.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
+                        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                        if let Some(ref callback) = self.progress_callback {
+                            callback(detector.name(), done, total);
+                        }
+                        return DetectorResult::skipped(detector.name());
+                    }
+
+                    let result =
+                        self.run_single_detector(detector, graph, files, &contexts_clone);
+                    finding_count_clone.fetch_add(result.findings.len(), Ordering::Relaxed);
+
+                    let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                    if let Some(ref callback) = self.progress_callback {
+                        callback(detector.name(), done, total);
+                    }
+
+                    result
+                })
+                .collect()
+        });
+
+        let mut findings = Vec::new();
+        let mut detector_timings: Vec<(String, u64)> = Vec::new();
+
+        for result in parallel_results {
+            if self.timings_enabled {
+                detector_timings.push((result.detector_name.clone(), result.duration_ms));
+            }
+            if result.success {
+                findings.extend(result.findings);
+            } else if let Some(err) = &result.error {
+                warn!("Detector {} failed: {}", result.detector_name, err);
+            }
+        }
+
+        // Run sequential dependent detectors
+        for detector in sequential {
+            if finding_count.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
+                let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                if let Some(ref callback) = self.progress_callback {
+                    callback(detector.name(), done, total);
+                }
+                continue;
+            }
+
+            let result = self.run_single_detector(&detector, graph, files, &contexts);
+            finding_count.fetch_add(result.findings.len(), Ordering::Relaxed);
+
+            let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+            if let Some(ref callback) = self.progress_callback {
+                callback(detector.name(), done, total);
+            }
+
+            if self.timings_enabled {
+                detector_timings.push((result.detector_name.clone(), result.duration_ms));
+            }
+            if result.success {
+                findings.extend(result.findings);
+            } else if let Some(err) = &result.error {
+                warn!("Detector {} failed: {}", result.detector_name, err);
+            }
+        }
+
+        // Filter out test file findings if enabled
+        if self.skip_test_files {
+            let before_count = findings.len();
+            findings.retain(|finding| !self.is_test_file_finding(finding));
+            let filtered = before_count - findings.len();
+            if filtered > 0 {
+                debug!("Filtered out {} findings from test files", filtered);
+            }
+        }
+
+        // Apply HMM-based context filtering (only for graph-dependent since HMM needs graph)
+        let before_hmm = findings.len();
+        findings = self.apply_hmm_context_filter(findings, &hmm_contexts, graph);
+        let hmm_filtered = before_hmm - findings.len();
+        if hmm_filtered > 0 {
+            info!("HMM context filter removed {} false positives", hmm_filtered);
+        }
+
+        if self.timings_enabled && !detector_timings.is_empty() {
+            detector_timings.sort_by(|a, b| b.1.cmp(&a.1));
+            println!("\nSlowest graph-dependent detectors:");
+            for (i, (name, ms)) in detector_timings.iter().take(15).enumerate() {
+                println!("  {:>2}. {:<40} {:>6}ms", i + 1, name, ms);
+            }
+        }
+
+        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+        Ok(findings)
+    }
+
     /// Run all detectors and return detailed results
     ///
     /// Unlike `run()`, this returns individual results for each detector,
@@ -892,6 +1131,7 @@ mod tests {
         name: &'static str,
         findings_count: usize,
         dependent: bool,
+        graph_required: bool,
     }
 
     impl Detector for MockDetector {
@@ -927,6 +1167,10 @@ mod tests {
         fn is_dependent(&self) -> bool {
             self.dependent
         }
+
+        fn requires_graph(&self) -> bool {
+            self.graph_required
+        }
     }
 
     #[test]
@@ -951,12 +1195,14 @@ mod tests {
             name: "Detector1",
             findings_count: 5,
             dependent: false,
+            graph_required: false,
         }));
 
         engine.register(Arc::new(MockDetector {
             name: "Detector2",
             findings_count: 3,
             dependent: true,
+            graph_required: true,
         }));
 
         assert_eq!(engine.detector_count(), 2);
@@ -972,11 +1218,158 @@ mod tests {
                 name: "Test",
                 findings_count: 1,
                 dependent: false,
+                graph_required: false,
             }))
             .build();
 
         assert_eq!(engine.workers, 4);
         assert_eq!(engine.max_findings, 100);
         assert_eq!(engine.detector_count(), 1);
+    }
+
+    #[test]
+    fn test_split_run_partitions_correctly() {
+        use crate::detectors::file_provider::MockFileProvider;
+
+        let store = GraphStore::in_memory();
+        let file_provider = MockFileProvider::new(vec![("src/main.py", "x = 1")]);
+
+        // Create detectors: 2 graph-independent, 2 graph-dependent, 1 dependent
+        let gi_1 = Arc::new(MockDetector {
+            name: "GI_Detector1",
+            findings_count: 3,
+            dependent: false,
+            graph_required: false,
+        });
+        let gi_2 = Arc::new(MockDetector {
+            name: "GI_Detector2",
+            findings_count: 2,
+            dependent: false,
+            graph_required: false,
+        });
+        let gd_1 = Arc::new(MockDetector {
+            name: "GD_Detector1",
+            findings_count: 4,
+            dependent: false,
+            graph_required: true,
+        });
+        let gd_2 = Arc::new(MockDetector {
+            name: "GD_Detector2",
+            findings_count: 1,
+            dependent: false,
+            graph_required: true,
+        });
+        let dep = Arc::new(MockDetector {
+            name: "Dep_Detector",
+            findings_count: 2,
+            dependent: true,
+            graph_required: true,
+        });
+
+        // Run graph-independent split
+        let mut engine_gi = DetectorEngine::new(2).with_skip_test_files(false);
+        engine_gi.register(gi_1.clone());
+        engine_gi.register(gi_2.clone());
+        engine_gi.register(gd_1.clone());
+        engine_gi.register(gd_2.clone());
+        engine_gi.register(dep.clone());
+        let independent = engine_gi
+            .run_graph_independent(&store, &file_provider)
+            .unwrap();
+
+        // Run graph-dependent split
+        let mut engine_gd = DetectorEngine::new(2).with_skip_test_files(false);
+        engine_gd.register(gi_1.clone());
+        engine_gd.register(gi_2.clone());
+        engine_gd.register(gd_1.clone());
+        engine_gd.register(gd_2.clone());
+        engine_gd.register(dep.clone());
+        let dependent = engine_gd
+            .run_graph_dependent(&store, &file_provider)
+            .unwrap();
+
+        // Graph-independent should only have findings from GI detectors: 3 + 2 = 5
+        assert_eq!(
+            independent.len(),
+            5,
+            "Expected 5 graph-independent findings, got {}",
+            independent.len()
+        );
+
+        // Graph-dependent should have findings from GD + dependent: 4 + 1 + 2 = 7
+        assert_eq!(
+            dependent.len(),
+            7,
+            "Expected 7 graph-dependent findings, got {}",
+            dependent.len()
+        );
+
+        // Total should equal full run
+        let split_total = independent.len() + dependent.len();
+        let mut engine_full = DetectorEngine::new(2).with_skip_test_files(false);
+        engine_full.register(gi_1);
+        engine_full.register(gi_2);
+        engine_full.register(gd_1);
+        engine_full.register(gd_2);
+        engine_full.register(dep);
+        let full = engine_full.run(&store, &file_provider).unwrap();
+
+        assert_eq!(
+            split_total,
+            full.len(),
+            "Split total ({}) should equal full run ({})",
+            split_total,
+            full.len()
+        );
+    }
+
+    #[test]
+    fn test_split_detection_completeness() {
+        // Verify every detector is either graph-independent or graph-dependent
+        let all_detectors = crate::detectors::default_detectors(std::path::Path::new("/tmp"));
+        let gi_count = all_detectors
+            .iter()
+            .filter(|d| !d.requires_graph())
+            .count();
+        let gd_count = all_detectors
+            .iter()
+            .filter(|d| d.requires_graph())
+            .count();
+
+        assert_eq!(
+            gi_count + gd_count,
+            all_detectors.len(),
+            "Every detector must be either graph-independent or graph-dependent"
+        );
+
+        // Verify partitioning is exhaustive: no detector is missed by the split
+        let gi_names: Vec<_> = all_detectors
+            .iter()
+            .filter(|d| !d.requires_graph() && !d.is_dependent())
+            .map(|d| d.name())
+            .collect();
+        let gd_names: Vec<_> = all_detectors
+            .iter()
+            .filter(|d| d.requires_graph() || d.is_dependent())
+            .map(|d| d.name())
+            .collect();
+
+        let total_covered = gi_names.len() + gd_names.len();
+        assert_eq!(
+            total_covered,
+            all_detectors.len(),
+            "Split must cover all {} detectors, but only covers {} ({} gi + {} gd)",
+            all_detectors.len(),
+            total_covered,
+            gi_names.len(),
+            gd_names.len()
+        );
+
+        println!(
+            "Detector split: {} graph-independent, {} graph-dependent ({} total)",
+            gi_names.len(),
+            gd_names.len(),
+            all_detectors.len()
+        );
     }
 }
