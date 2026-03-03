@@ -21,6 +21,9 @@ pub struct GraphStore {
     graph: RwLock<DiGraph<CodeNode, CodeEdge>>,
     /// Node lookup by qualified name — DashMap for lock-free concurrent reads
     node_index: DashMap<String, NodeIndex>,
+    /// Cached graph metrics from detectors, reusable by scoring phase.
+    /// Key format: "metric_name:entity_qn" (e.g., "degree_centrality:module.Class")
+    metrics_cache: DashMap<String, f64>,
     /// Persistence layer (optional) — uses redb (ACID, well-maintained)
     db: Option<redb::Database>,
     /// Database path for lazy loading
@@ -47,6 +50,7 @@ impl GraphStore {
         let store = Self {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
+            metrics_cache: DashMap::new(),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: false,
@@ -68,6 +72,7 @@ impl GraphStore {
         Ok(Self {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
+            metrics_cache: DashMap::new(),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: true,
@@ -79,6 +84,7 @@ impl GraphStore {
         Self {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
+            metrics_cache: DashMap::new(),
             db: None,
             db_path: None,
             lazy_mode: false,
@@ -121,11 +127,35 @@ impl GraphStore {
         // DashMap handles capacity internally — no explicit reserve needed
     }
 
+    // ==================== Metrics Cache ====================
+
+    /// Store a computed metric for cross-phase reuse.
+    /// Key format: "metric_name:entity_qn" (e.g., "degree_centrality:module.Class")
+    pub fn cache_metric(&self, key: &str, value: f64) {
+        self.metrics_cache.insert(key.to_string(), value);
+    }
+
+    /// Retrieve a cached metric.
+    pub fn get_cached_metric(&self, key: &str) -> Option<f64> {
+        self.metrics_cache.get(key).map(|r| *r)
+    }
+
+    /// Get all cached metrics with a given prefix.
+    /// Useful for retrieving all metrics of a type (e.g., all "modularity:" metrics).
+    pub fn get_cached_metrics_with_prefix(&self, prefix: &str) -> Vec<(String, f64)> {
+        self.metrics_cache
+            .iter()
+            .filter(|entry| entry.key().starts_with(prefix))
+            .map(|entry| (entry.key().clone(), *entry.value()))
+            .collect()
+    }
+
     /// Clear all data
     pub fn clear(&self) -> Result<()> {
         let mut graph = self.write_graph();
         graph.clear();
         self.node_index.clear();
+        self.metrics_cache.clear();
 
         if let Some(ref db) = self.db {
             let write_txn = db.begin_write()?;

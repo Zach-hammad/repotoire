@@ -263,3 +263,45 @@ fn test_concurrent_read_write_dashmap() {
 
     assert_eq!(store.node_count(), 200);
 }
+
+#[test]
+fn test_metrics_cache() {
+    let store = GraphStore::in_memory();
+
+    // Cache some metrics
+    store.cache_metric("degree_centrality:mod.Class", 0.85);
+    store.cache_metric("modularity:src/auth", 0.72);
+    store.cache_metric("modularity:src/core", 0.91);
+    store.cache_metric("cohesion:mod.Class", 0.65);
+
+    // Retrieve single metric
+    assert_eq!(
+        store.get_cached_metric("degree_centrality:mod.Class"),
+        Some(0.85)
+    );
+    assert_eq!(store.get_cached_metric("nonexistent"), None);
+
+    // Retrieve by prefix
+    let mut modularity = store.get_cached_metrics_with_prefix("modularity:");
+    modularity.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(modularity.len(), 2);
+    assert_eq!(modularity[0], ("modularity:src/auth".to_string(), 0.72));
+    assert_eq!(modularity[1], ("modularity:src/core".to_string(), 0.91));
+
+    // Overwrite
+    store.cache_metric("degree_centrality:mod.Class", 0.90);
+    assert_eq!(
+        store.get_cached_metric("degree_centrality:mod.Class"),
+        Some(0.90)
+    );
+}
+
+#[test]
+fn test_metrics_cache_cleared_on_clear() {
+    let store = GraphStore::in_memory();
+    store.cache_metric("test:metric", 1.0);
+    assert!(store.get_cached_metric("test:metric").is_some());
+
+    store.clear().unwrap();
+    assert!(store.get_cached_metric("test:metric").is_none());
+}
