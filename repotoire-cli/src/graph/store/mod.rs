@@ -24,6 +24,8 @@ pub struct GraphStore {
     /// Cached graph metrics from detectors, reusable by scoring phase.
     /// Key format: "metric_name:entity_qn" (e.g., "degree_centrality:module.Class")
     metrics_cache: DashMap<String, f64>,
+    /// String interner for memory-efficient qualified name storage
+    interner: super::interner::StringInterner,
     /// Persistence layer (optional) — uses redb (ACID, well-maintained)
     db: Option<redb::Database>,
     /// Database path for lazy loading
@@ -51,6 +53,7 @@ impl GraphStore {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
             metrics_cache: DashMap::new(),
+            interner: super::interner::StringInterner::new(),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: false,
@@ -73,6 +76,7 @@ impl GraphStore {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
             metrics_cache: DashMap::new(),
+            interner: super::interner::StringInterner::new(),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: true,
@@ -85,6 +89,7 @@ impl GraphStore {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
             metrics_cache: DashMap::new(),
+            interner: super::interner::StringInterner::new(),
             db: None,
             db_path: None,
             lazy_mode: false,
@@ -125,6 +130,14 @@ impl GraphStore {
         graph.reserve_nodes(estimated_nodes);
         graph.reserve_edges(estimated_edges);
         // DashMap handles capacity internally — no explicit reserve needed
+    }
+
+    // ==================== String Interner ====================
+
+    /// Get the string interner for memory-efficient qualified name storage.
+    /// Use for interning frequently-repeated strings like file paths and qualified names.
+    pub fn interner(&self) -> &super::interner::StringInterner {
+        &self.interner
     }
 
     // ==================== Metrics Cache ====================

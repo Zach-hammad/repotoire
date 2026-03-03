@@ -305,3 +305,21 @@ fn test_metrics_cache_cleared_on_clear() {
     store.clear().unwrap();
     assert!(store.get_cached_metric("test:metric").is_none());
 }
+
+#[test]
+fn test_interner_integration() {
+    let store = GraphStore::in_memory();
+
+    let key1 = store.interner().intern("module.Class.method");
+    let key2 = store.interner().intern("module.Class.method");
+
+    // Same string -> same key
+    assert_eq!(key1, key2);
+
+    // Resolve back to original
+    assert_eq!(store.interner().resolve(key1), "module.Class.method");
+
+    // Different strings -> different keys
+    let key3 = store.interner().intern("module.OtherClass.method");
+    assert_ne!(key1, key3);
+}

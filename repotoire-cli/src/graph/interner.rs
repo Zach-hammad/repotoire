@@ -1,4 +1,3 @@
-#![allow(dead_code)] // Infrastructure module for future large-repo support
 //! String interning for memory-efficient graph storage
 //!
 //! Instead of storing duplicate strings (e.g., file paths repeated for every function),
@@ -84,10 +83,12 @@ impl StringInterner {
 /// A read-only interner for when building is complete
 /// Uses the RodeoReader which is more memory efficient
 #[derive(Debug)]
+#[allow(dead_code)] // Infrastructure for future freeze-after-build optimization
 pub struct ReadOnlyInterner {
     inner: lasso::RodeoReader,
 }
 
+#[allow(dead_code)] // Infrastructure for future freeze-after-build optimization
 impl ReadOnlyInterner {
     /// Convert from a mutable interner (freezes it)
     pub fn from_interner(interner: StringInterner) -> Self {
@@ -125,6 +126,7 @@ impl ReadOnlyInterner {
 /// - CodeNode with Strings: ~200 bytes minimum
 /// - CompactNode with keys: ~40 bytes
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
 pub struct CompactNode {
     pub kind: CompactNodeKind,
     pub name: StrKey,
@@ -137,6 +139,7 @@ pub struct CompactNode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
 pub enum CompactNodeKind {
     File = 0,
     Function = 1,
@@ -144,6 +147,7 @@ pub enum CompactNodeKind {
     Module = 3,
 }
 
+#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
 impl CompactNode {
     /// Create a file node
     pub fn file(interner: &StringInterner, path: &str) -> Self {
@@ -237,6 +241,7 @@ impl CompactNode {
 
 /// Compact edge representation
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
 pub struct CompactEdge {
     pub kind: CompactEdgeKind,
     pub source: StrKey, // qualified_name of source
@@ -246,6 +251,7 @@ pub struct CompactEdge {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
 pub enum CompactEdgeKind {
     Contains = 0,
     Calls = 1,
@@ -253,6 +259,7 @@ pub enum CompactEdgeKind {
     Inherits = 3,
 }
 
+#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
 impl CompactEdge {
     pub fn contains(interner: &StringInterner, source: &str, target: &str) -> Self {
         Self {

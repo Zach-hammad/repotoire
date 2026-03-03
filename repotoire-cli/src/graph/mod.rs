@@ -9,6 +9,8 @@ pub mod store_models;
 pub mod store_query;
 pub mod traits;
 
+#[allow(unused_imports)] // Public API for downstream use — not consumed internally yet
+pub use interner::{StrKey, StringInterner};
 pub use store::GraphStore;
 pub use store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 
