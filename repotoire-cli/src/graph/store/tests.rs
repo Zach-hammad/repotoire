@@ -218,3 +218,48 @@ fn test_minimal_cycle() {
     assert_eq!(cycle.len(), 3, "Minimal cycle should have 3 nodes");
     assert_eq!(cycle[0], "a.py", "Cycle should start with a.py");
 }
+
+#[test]
+fn test_concurrent_read_write_dashmap() {
+    use std::sync::Arc;
+    use std::thread;
+
+    let store = Arc::new(GraphStore::in_memory());
+
+    // Add initial nodes
+    for i in 0..100 {
+        store.add_node(
+            CodeNode::function(&format!("func_{}", i), "test.py")
+                .with_qualified_name(&format!("mod.func_{}", i)),
+        );
+    }
+
+    let mut handles = vec![];
+
+    // 8 reader threads — concurrent lookups via DashMap
+    for _ in 0..8 {
+        let s = Arc::clone(&store);
+        handles.push(thread::spawn(move || {
+            for i in 0..100 {
+                let _ = s.get_node_index(&format!("mod.func_{}", i));
+            }
+        }));
+    }
+
+    // 1 writer thread — inserts new nodes while readers run
+    let s = Arc::clone(&store);
+    handles.push(thread::spawn(move || {
+        for i in 100..200 {
+            s.add_node(
+                CodeNode::function(&format!("func_{}", i), "test.py")
+                    .with_qualified_name(&format!("mod.func_{}", i)),
+            );
+        }
+    }));
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    assert_eq!(store.node_count(), 200);
+}

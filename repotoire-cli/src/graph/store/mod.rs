@@ -4,6 +4,7 @@
 //! No C++ dependencies, builds everywhere.
 
 use anyhow::{Context, Result};
+use dashmap::DashMap;
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
@@ -18,8 +19,8 @@ pub use super::store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 pub struct GraphStore {
     /// In-memory graph
     graph: RwLock<DiGraph<CodeNode, CodeEdge>>,
-    /// Node lookup by qualified name
-    node_index: RwLock<HashMap<String, NodeIndex>>,
+    /// Node lookup by qualified name — DashMap for lock-free concurrent reads
+    node_index: DashMap<String, NodeIndex>,
     /// Persistence layer (optional) — uses redb (ACID, well-maintained)
     db: Option<redb::Database>,
     /// Database path for lazy loading
@@ -45,7 +46,7 @@ impl GraphStore {
 
         let store = Self {
             graph: RwLock::new(DiGraph::new()),
-            node_index: RwLock::new(HashMap::new()),
+            node_index: DashMap::new(),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: false,
@@ -66,7 +67,7 @@ impl GraphStore {
 
         Ok(Self {
             graph: RwLock::new(DiGraph::new()),
-            node_index: RwLock::new(HashMap::new()),
+            node_index: DashMap::new(),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: true,
@@ -77,7 +78,7 @@ impl GraphStore {
     pub fn in_memory() -> Self {
         Self {
             graph: RwLock::new(DiGraph::new()),
-            node_index: RwLock::new(HashMap::new()),
+            node_index: DashMap::new(),
             db: None,
             db_path: None,
             lazy_mode: false,
@@ -106,20 +107,6 @@ impl GraphStore {
             .expect("graph lock poisoned — a thread panicked while holding this lock")
     }
 
-    /// Acquire read lock on the node index. Panics if lock is poisoned (unrecoverable).
-    fn read_index(&self) -> std::sync::RwLockReadGuard<'_, HashMap<String, NodeIndex>> {
-        self.node_index
-            .read()
-            .expect("index lock poisoned — a thread panicked while holding this lock")
-    }
-
-    /// Acquire write lock on the node index. Panics if lock is poisoned (unrecoverable).
-    fn write_index(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<String, NodeIndex>> {
-        self.node_index
-            .write()
-            .expect("index lock poisoned — a thread panicked while holding this lock")
-    }
-
     /// Pre-allocate capacity for the graph and node index.
     ///
     /// Call this before bulk-inserting nodes and edges to avoid repeated
@@ -129,19 +116,16 @@ impl GraphStore {
     /// reallocations still happen.
     pub fn reserve_capacity(&self, estimated_nodes: usize, estimated_edges: usize) {
         let mut graph = self.write_graph();
-        let mut index = self.write_index();
         graph.reserve_nodes(estimated_nodes);
         graph.reserve_edges(estimated_edges);
-        index.reserve(estimated_nodes);
+        // DashMap handles capacity internally — no explicit reserve needed
     }
 
     /// Clear all data
     pub fn clear(&self) -> Result<()> {
         let mut graph = self.write_graph();
-        let mut index = self.write_index();
-
         graph.clear();
-        index.clear();
+        self.node_index.clear();
 
         if let Some(ref db) = self.db {
             let write_txn = db.begin_write()?;
@@ -158,14 +142,24 @@ impl GraphStore {
 
     /// Add a node to the graph
     pub fn add_node(&self, node: CodeNode) -> NodeIndex {
-        let mut graph = self.write_graph();
-        let mut index = self.write_index();
-
         let qn = node.qualified_name.clone();
 
-        // Check if node already exists
-        if let Some(&idx) = index.get(&qn) {
-            // Update existing node
+        // Check if node already exists — read DashMap before acquiring graph write lock
+        if let Some(idx_ref) = self.node_index.get(&qn) {
+            let idx = *idx_ref;
+            drop(idx_ref); // Drop DashMap ref before acquiring graph write lock
+            let mut graph = self.write_graph();
+            if let Some(existing) = graph.node_weight_mut(idx) {
+                *existing = node;
+            }
+            return idx;
+        }
+
+        let mut graph = self.write_graph();
+        // Double-check after acquiring write lock (another thread may have inserted)
+        if let Some(idx_ref) = self.node_index.get(&qn) {
+            let idx = *idx_ref;
+            drop(idx_ref);
             if let Some(existing) = graph.node_weight_mut(idx) {
                 *existing = node;
             }
@@ -173,27 +167,28 @@ impl GraphStore {
         }
 
         let idx = graph.add_node(node);
-        index.insert(qn, idx);
+        self.node_index.insert(qn, idx);
         idx
     }
 
-    /// Add multiple nodes at once (batch operation, single lock acquisition)
+    /// Add multiple nodes at once (batch operation, single graph lock acquisition)
     pub fn add_nodes_batch(&self, nodes: Vec<CodeNode>) -> Vec<NodeIndex> {
         let mut graph = self.write_graph();
-        let mut index = self.write_index();
         let mut indices = Vec::with_capacity(nodes.len());
 
         for node in nodes {
             let qn = node.qualified_name.clone();
 
-            if let Some(&idx) = index.get(&qn) {
+            if let Some(idx_ref) = self.node_index.get(&qn) {
+                let idx = *idx_ref;
+                drop(idx_ref); // Drop DashMap ref while holding graph write lock
                 if let Some(existing) = graph.node_weight_mut(idx) {
                     *existing = node;
                 }
                 indices.push(idx);
             } else {
                 let idx = graph.add_node(node);
-                index.insert(qn, idx);
+                self.node_index.insert(qn, idx);
                 indices.push(idx);
             }
         }
@@ -203,17 +198,14 @@ impl GraphStore {
 
     /// Get node index by qualified name
     pub fn get_node_index(&self, qn: &str) -> Option<NodeIndex> {
-        self.read_index().get(qn).copied()
+        self.node_index.get(qn).map(|r| *r)
     }
 
     /// Get node by qualified name
     pub fn get_node(&self, qn: &str) -> Option<CodeNode> {
-        let index = self.read_index();
+        let idx = self.node_index.get(qn).map(|r| *r)?;
         let graph = self.read_graph();
-
-        index
-            .get(qn)
-            .and_then(|&idx| graph.node_weight(idx).cloned())
+        graph.node_weight(idx).cloned()
     }
 
     /// Update a node's property
@@ -223,31 +215,32 @@ impl GraphStore {
         key: &str,
         value: impl Into<serde_json::Value>,
     ) -> bool {
-        // Lock graph before index to match writer lock ordering across GraphStore (#41)
-        // and avoid TOCTOU/deadlock windows.
+        // Read DashMap index first, then acquire graph write lock
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return false,
+        };
         let mut graph = self.write_graph();
-        let index = self.read_index();
-        if let Some(&idx) = index.get(qn) {
-            if let Some(node) = graph.node_weight_mut(idx) {
-                node.set_property(key, value);
-                return true;
-            }
+        if let Some(node) = graph.node_weight_mut(idx) {
+            node.set_property(key, value);
+            return true;
         }
         false
     }
 
     /// Update multiple properties on a node
     pub fn update_node_properties(&self, qn: &str, props: &[(&str, serde_json::Value)]) -> bool {
-        // Keep lock acquisition order consistent with other graph writers (#41).
+        // Read DashMap index first, then acquire graph write lock
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return false,
+        };
         let mut graph = self.write_graph();
-        let index = self.read_index();
-        if let Some(&idx) = index.get(qn) {
-            if let Some(node) = graph.node_weight_mut(idx) {
-                for (key, value) in props {
-                    node.set_property(key, value.clone());
-                }
-                return true;
+        if let Some(node) = graph.node_weight_mut(idx) {
+            for (key, value) in props {
+                node.set_property(key, value.clone());
             }
+            return true;
         }
         false
     }
@@ -336,10 +329,10 @@ impl GraphStore {
 
     /// Add edge by qualified names (returns false if either node doesn't exist)
     pub fn add_edge_by_name(&self, from_qn: &str, to_qn: &str, edge: CodeEdge) -> bool {
-        let index = self.read_index();
+        let from = self.node_index.get(from_qn).map(|r| *r);
+        let to = self.node_index.get(to_qn).map(|r| *r);
 
-        if let (Some(&from), Some(&to)) = (index.get(from_qn), index.get(to_qn)) {
-            drop(index);
+        if let (Some(from), Some(to)) = (from, to) {
             self.add_edge(from, to, edge);
             true
         } else {
@@ -349,15 +342,20 @@ impl GraphStore {
 
     /// Add multiple edges at once (batch operation)
     pub fn add_edges_batch(&self, edges: Vec<(String, String, CodeEdge)>) -> usize {
-        let index = self.read_index();
-        let mut graph = self.write_graph();
-        let mut added = 0;
+        // Resolve all node indices from DashMap first, before acquiring graph write lock
+        let resolved: Vec<_> = edges
+            .into_iter()
+            .filter_map(|(from_qn, to_qn, edge)| {
+                let from = self.node_index.get(&from_qn).map(|r| *r)?;
+                let to = self.node_index.get(&to_qn).map(|r| *r)?;
+                Some((from, to, edge))
+            })
+            .collect();
 
-        for (from_qn, to_qn, edge) in edges {
-            if let (Some(&from), Some(&to)) = (index.get(&from_qn), index.get(&to_qn)) {
-                graph.add_edge(from, to, edge);
-                added += 1;
-            }
+        let mut graph = self.write_graph();
+        let added = resolved.len();
+        for (from, to, edge) in resolved {
+            graph.add_edge(from, to, edge);
         }
 
         added
@@ -395,138 +393,120 @@ impl GraphStore {
 
     /// Get callers of a function (who calls this?)
     pub fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return vec![],
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph
-                .edges_directed(idx, Direction::Incoming)
-                .filter(|e| e.weight().kind == EdgeKind::Calls)
-                .filter_map(|e| graph.node_weight(e.source()).cloned())
-                .collect()
-        } else {
-            vec![]
-        }
+        graph
+            .edges_directed(idx, Direction::Incoming)
+            .filter(|e| e.weight().kind == EdgeKind::Calls)
+            .filter_map(|e| graph.node_weight(e.source()).cloned())
+            .collect()
     }
 
     /// Get callees of a function (what does this call?)
     pub fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return vec![],
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph
-                .edges_directed(idx, Direction::Outgoing)
-                .filter(|e| e.weight().kind == EdgeKind::Calls)
-                .filter_map(|e| graph.node_weight(e.target()).cloned())
-                .collect()
-        } else {
-            vec![]
-        }
+        graph
+            .edges_directed(idx, Direction::Outgoing)
+            .filter(|e| e.weight().kind == EdgeKind::Calls)
+            .filter_map(|e| graph.node_weight(e.target()).cloned())
+            .collect()
     }
 
     /// Get importers of a module/class (who imports this?)
     pub fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return vec![],
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph
-                .edges_directed(idx, Direction::Incoming)
-                .filter(|e| e.weight().kind == EdgeKind::Imports)
-                .filter_map(|e| graph.node_weight(e.source()).cloned())
-                .collect()
-        } else {
-            vec![]
-        }
+        graph
+            .edges_directed(idx, Direction::Incoming)
+            .filter(|e| e.weight().kind == EdgeKind::Imports)
+            .filter_map(|e| graph.node_weight(e.source()).cloned())
+            .collect()
     }
 
     /// Get parent classes (what does this inherit from?)
     pub fn get_parent_classes(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return vec![],
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph
-                .edges_directed(idx, Direction::Outgoing)
-                .filter(|e| e.weight().kind == EdgeKind::Inherits)
-                .filter_map(|e| graph.node_weight(e.target()).cloned())
-                .collect()
-        } else {
-            vec![]
-        }
+        graph
+            .edges_directed(idx, Direction::Outgoing)
+            .filter(|e| e.weight().kind == EdgeKind::Inherits)
+            .filter_map(|e| graph.node_weight(e.target()).cloned())
+            .collect()
     }
 
     /// Get child classes (what inherits from this?)
     pub fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return vec![],
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph
-                .edges_directed(idx, Direction::Incoming)
-                .filter(|e| e.weight().kind == EdgeKind::Inherits)
-                .filter_map(|e| graph.node_weight(e.source()).cloned())
-                .collect()
-        } else {
-            vec![]
-        }
+        graph
+            .edges_directed(idx, Direction::Incoming)
+            .filter(|e| e.weight().kind == EdgeKind::Inherits)
+            .filter_map(|e| graph.node_weight(e.source()).cloned())
+            .collect()
     }
 
     // ==================== Graph Metrics ====================
 
     /// Get in-degree (fan-in) for a node
     pub fn fan_in(&self, qn: &str) -> usize {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return 0,
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph.edges_directed(idx, Direction::Incoming).count()
-        } else {
-            0
-        }
+        graph.edges_directed(idx, Direction::Incoming).count()
     }
 
     /// Get out-degree (fan-out) for a node
     pub fn fan_out(&self, qn: &str) -> usize {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return 0,
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph.edges_directed(idx, Direction::Outgoing).count()
-        } else {
-            0
-        }
+        graph.edges_directed(idx, Direction::Outgoing).count()
     }
 
     /// Get call fan-in (how many functions call this?)
     pub fn call_fan_in(&self, qn: &str) -> usize {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return 0,
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph
-                .edges_directed(idx, Direction::Incoming)
-                .filter(|e| e.weight().kind == EdgeKind::Calls)
-                .count()
-        } else {
-            0
-        }
+        graph
+            .edges_directed(idx, Direction::Incoming)
+            .filter(|e| e.weight().kind == EdgeKind::Calls)
+            .count()
     }
 
     /// Get call fan-out (how many functions does this call?)
     pub fn call_fan_out(&self, qn: &str) -> usize {
-        let index = self.read_index();
+        let idx = match self.node_index.get(qn).map(|r| *r) {
+            Some(idx) => idx,
+            None => return 0,
+        };
         let graph = self.read_graph();
-
-        if let Some(&idx) = index.get(qn) {
-            graph
-                .edges_directed(idx, Direction::Outgoing)
-                .filter(|e| e.weight().kind == EdgeKind::Calls)
-                .count()
-        } else {
-            0
-        }
+        graph
+            .edges_directed(idx, Direction::Outgoing)
+            .filter(|e| e.weight().kind == EdgeKind::Calls)
+            .count()
     }
 
     /// Get node count
@@ -682,17 +662,15 @@ impl GraphStore {
     ///
     /// This is useful when you want to show the shortest cycle involving a particular file.
     pub fn find_minimal_cycle(&self, start_qn: &str, edge_kind: EdgeKind) -> Option<Vec<String>> {
+        let start_idx = self.node_index.get(start_qn).map(|r| *r)?;
         let graph = self.read_graph();
-        let index = self.read_index();
-
-        let start_idx = index.get(start_qn)?;
 
         // BFS to find shortest cycle back to start
         let mut queue = std::collections::VecDeque::new();
         let mut visited: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
 
-        queue.push_back((*start_idx, vec![*start_idx]));
-        visited.insert(*start_idx, vec![*start_idx]);
+        queue.push_back((start_idx, vec![start_idx]));
+        visited.insert(start_idx, vec![start_idx]);
 
         while let Some((current, path)) = queue.pop_front() {
             for edge in graph.edges_directed(current, Direction::Outgoing) {
@@ -715,7 +693,7 @@ impl GraphStore {
                 let target = edge.target();
 
                 // Found cycle back to start!
-                if target == *start_idx && path.len() > 1 {
+                if target == start_idx && path.len() > 1 {
                     return Some(
                         path.iter()
                             .filter_map(|&idx| graph.node_weight(idx))
@@ -801,7 +779,6 @@ impl GraphStore {
         };
 
         let mut graph = self.write_graph();
-        let mut index = self.write_index();
 
         // Load nodes
         for item in nodes_table.range::<&str>(..)? {
@@ -811,7 +788,7 @@ impl GraphStore {
                 let node: CodeNode = serde_json::from_slice(value.value())?;
                 let qn = node.qualified_name.clone();
                 let idx = graph.add_node(node);
-                index.insert(qn, idx);
+                self.node_index.insert(qn, idx);
             }
         }
 
@@ -826,7 +803,9 @@ impl GraphStore {
             let edges: Vec<(String, String, CodeEdge)> =
                 serde_json::from_slice(edges_entry.value())?;
             for (src_qn, dst_qn, edge) in edges {
-                if let (Some(&src), Some(&dst)) = (index.get(&src_qn), index.get(&dst_qn)) {
+                let src = self.node_index.get(&src_qn).map(|r| *r);
+                let dst = self.node_index.get(&dst_qn).map(|r| *r);
+                if let (Some(src), Some(dst)) = (src, dst) {
                     graph.add_edge(src, dst, edge);
                 }
             }
