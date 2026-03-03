@@ -179,6 +179,87 @@ pub(super) fn collect_files_for_analysis(
     })
 }
 
+/// Walk source files and simultaneously stream them to a channel for immediate parsing.
+///
+/// This enables walk+parse overlap: parser threads can begin work on early files
+/// while the walker is still discovering later files. The returned `Vec<PathBuf>`
+/// contains all discovered files (needed by downstream consumers like incremental
+/// cache validation, detector file provider, and scoring).
+///
+/// The sender is dropped when the walk completes, signaling the channel's end.
+pub(crate) fn walk_files_to_channel(
+    repo_path: &Path,
+    exclude: &ExcludeConfig,
+    sender: crossbeam_channel::Sender<PathBuf>,
+) -> Result<Vec<PathBuf>> {
+    let repo_canonical = repo_path.canonicalize().with_context(|| {
+        format!(
+            "Cannot canonicalize repository path: {}",
+            repo_path.display()
+        )
+    })?;
+    let effective = exclude.effective_patterns();
+
+    let mut builder = WalkBuilder::new(repo_path);
+    builder
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .require_git(false)
+        .add_custom_ignore_filename(".repotoireignore");
+
+    let files = std::sync::Mutex::new(Vec::new());
+
+    builder.build_parallel().run(|| {
+        let files = &files;
+        let repo_canonical = &repo_canonical;
+        let effective = &effective;
+        let repo_path_ref = repo_path;
+        let sender = sender.clone();
+        Box::new(move |entry| {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
+            let path = entry.path();
+            if !path.is_file() {
+                return WalkState::Continue;
+            }
+            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+                return WalkState::Continue;
+            };
+            if !SUPPORTED_EXTENSIONS.contains(&ext) {
+                return WalkState::Continue;
+            }
+            // Skip files matching exclusion patterns
+            if let Ok(rel) = path.strip_prefix(repo_path_ref) {
+                let rel_str = rel.to_string_lossy();
+                if effective.iter().any(|p| glob_match(p, &rel_str)) {
+                    return WalkState::Continue;
+                }
+            }
+            if let Some(validated) = validate_file(path, repo_canonical) {
+                // Send to parse channel (backpressure applies via bounded channel)
+                let _ = sender.send(validated.clone());
+                // Also collect for downstream use
+                if let Ok(mut f) = files.lock() {
+                    f.push(validated);
+                }
+            }
+            WalkState::Continue
+        })
+    });
+
+    // sender drops here (our copy), walker thread copies already dropped above
+    drop(sender);
+
+    // Parallel walk returns files in arbitrary order; sort for deterministic results
+    let mut files = files.into_inner().expect("walk mutex poisoned");
+    files.sort();
+    Ok(files)
+}
+
 /// Collect all source files in the repository, respecting .gitignore
 fn collect_source_files(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
     let repo_canonical = repo_path.canonicalize().with_context(|| {

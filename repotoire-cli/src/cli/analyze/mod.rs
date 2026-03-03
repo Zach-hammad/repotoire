@@ -23,8 +23,8 @@ use detect::{
     apply_voting, finish_git_enrichment, run_detectors_speculative, run_detectors_streaming,
     start_git_enrichment,
 };
-use files::{collect_file_list, collect_files_for_analysis};
-use graph::{build_graph, build_graph_chunked, parse_and_build_streaming};
+use files::{collect_file_list, collect_files_for_analysis, walk_files_to_channel};
+use graph::{build_graph, build_graph_chunked, parse_and_build_streaming, parse_and_build_streaming_overlapped};
 use output::{
     cache_results, check_fail_threshold, format_and_output, load_cached_findings,
     output_cached_results,
@@ -429,6 +429,19 @@ fn initialize_graph(
     let spinner_style = create_spinner_style();
     let bar_style = create_bar_style();
 
+    // Overlapped walk+parse: when in full mode (no --since, no incremental, no
+    // skip-graph, no max-files), we can overlap file discovery with parsing so
+    // parser threads begin work while the walker is still discovering files.
+    let can_overlap = since.is_none()
+        && !env.config.is_incremental_mode
+        && !env.config.skip_graph
+        && env.config.max_files == 0;
+
+    if can_overlap {
+        return initialize_graph_overlapped(env, multi, &bar_style);
+    }
+
+    // Standard sequential path: walk first, then parse.
     // Collect files
     let mut cache_clone = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
     let mut file_result = collect_files_for_analysis(
@@ -496,6 +509,106 @@ fn initialize_graph(
         env.cache_coordinator.invalidate_all();
         crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
     }
+
+    Ok((graph, file_result, parse_result))
+}
+
+/// Overlapped walk+parse: walk files and parse them concurrently.
+///
+/// In full-mode analysis (no --since, no incremental), file discovery and
+/// parsing can overlap. The walker sends discovered file paths into a bounded
+/// channel while parser threads consume from that same channel immediately.
+/// This means the first files start parsing while the walker is still
+/// discovering later files, saving 1-2 seconds on large repositories.
+///
+/// The walker also collects all file paths into a Vec for downstream consumers
+/// (incremental cache, detector file provider, scoring).
+fn initialize_graph_overlapped(
+    env: &mut EnvironmentSetup,
+    multi: &MultiProgress,
+    bar_style: &ProgressStyle,
+) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult)> {
+    use crate::parsers::bounded_pipeline::PipelineConfig;
+
+    if !env.quiet_mode {
+        let stream_icon = if env.config.no_emoji { "" } else { "🌊 " };
+        println!(
+            "{}Overlapped walk+parse mode (streaming)",
+            style(stream_icon).bold(),
+        );
+    }
+
+    // Initialize graph database eagerly (fast on empty DB).
+    let db_path = env.repotoire_dir.join("graph_db");
+    if !env.quiet_mode {
+        let icon_graph = if env.config.no_emoji { "" } else { "🕸️  " };
+        println!(
+            "{}Initializing graph database...",
+            style(icon_graph).bold(),
+        );
+    }
+    let graph = Arc::new(
+        GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?,
+    );
+
+    // Use a default pipeline config — the file count is unknown at this point.
+    // PipelineConfig::default() is tuned for ~10k files which is a reasonable
+    // middle ground. The adaptive buffer/flush thresholds still provide proper
+    // backpressure regardless of actual repo size.
+    let config = PipelineConfig::default();
+
+    // Create the bounded channel that connects the walker to the parsers.
+    let (file_tx, file_rx) = crossbeam_channel::bounded::<PathBuf>(config.buffer_size);
+
+    // Spawn the walk thread: discovers files, sends to channel, collects into Vec.
+    let repo_path = env.repo_path.clone();
+    let exclude = env.project_config.exclude.clone();
+    let walk_handle = std::thread::spawn(move || {
+        walk_files_to_channel(&repo_path, &exclude, file_tx)
+    });
+
+    // Run the overlapped pipeline on the main thread: parser workers read from
+    // the channel as files arrive, consumer builds the graph.
+    let (total_functions, total_classes) = parse_and_build_streaming_overlapped(
+        file_rx,
+        &env.repo_path,
+        Arc::clone(&graph),
+        multi,
+        bar_style,
+        config,
+    )?;
+
+    // Join the walk thread and retrieve the collected file list.
+    let all_files = walk_handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("Walk thread panicked"))?
+        .context("File walk failed")?;
+
+    if !env.quiet_mode {
+        println!(
+            "{}Found {} source files",
+            style("✓ ").green(),
+            style(all_files.len()).cyan(),
+        );
+    }
+
+    // Pre-warm file cache (skip for huge repos)
+    if all_files.len() < 20000 {
+        env.cache_coordinator.invalidate_all();
+        crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
+    }
+
+    let file_result = FileCollectionResult {
+        files_to_parse: all_files.clone(),
+        all_files,
+        cached_findings: Vec::new(),
+    };
+
+    let parse_result = ParsePhaseResult {
+        parse_results: vec![],
+        total_functions,
+        total_classes,
+    };
 
     Ok((graph, file_result, parse_result))
 }

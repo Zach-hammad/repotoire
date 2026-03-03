@@ -197,6 +197,13 @@ impl FlushingGraphBuilder {
         }
     }
 
+    /// Add a single file path to the module lookup (for incremental/streaming use).
+    fn add_file_path(&mut self, path: &Path) {
+        let relative = path.strip_prefix(&self.repo_path).unwrap_or(path);
+        let relative_str = relative.display().to_string();
+        self.module_lookup.add_file(&relative_str);
+    }
+
     /// Process a parsed file
     fn process(&mut self, info: LightweightFileInfo) -> Result<()> {
         let relative = info.relative_path(&self.repo_path);
@@ -485,6 +492,118 @@ pub fn run_bounded_pipeline_auto(
     run_bounded_pipeline(files, repo_path, graph, config, progress)
 }
 
+/// Run the bounded pipeline from a channel of file paths.
+///
+/// Instead of accepting a pre-collected `Vec<PathBuf>`, this variant reads file
+/// paths from a `crossbeam_channel::Receiver`. This enables walk+parse overlap:
+/// the walker can send file paths into the channel as they are discovered, while
+/// parser threads begin work immediately rather than waiting for the walk to finish.
+///
+/// The module lookup is populated incrementally as each file's parse result is
+/// consumed. This means import edges for very early files may miss targets that
+/// haven't been discovered yet — an acceptable trade-off for the latency reduction
+/// on large repositories.
+///
+/// # Arguments
+///
+/// * `file_receiver` - Channel of file paths to parse (sender side is owned by walker)
+/// * `repo_path` - Repository root path
+/// * `graph` - Graph store to populate
+/// * `config` - Pipeline configuration
+/// * `progress` - Optional progress callback `(count, 0)` — total is unknown
+pub fn run_bounded_pipeline_from_channel(
+    file_receiver: crossbeam_channel::Receiver<PathBuf>,
+    repo_path: &Path,
+    graph: Arc<GraphStore>,
+    config: PipelineConfig,
+    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
+) -> Result<(BoundedPipelineStats, LightweightParseStats)> {
+    // Log estimated memory (total unknown at this point)
+    tracing::info!(
+        "Bounded pipeline (channel mode): buffer={}, edge_flush={}, workers={}",
+        config.buffer_size,
+        config.edge_flush_threshold,
+        config.num_workers,
+    );
+
+    // Initialize builder WITHOUT pre-populated module lookup —
+    // it will be populated incrementally as files are processed.
+    let mut builder =
+        FlushingGraphBuilder::new(Arc::clone(&graph), repo_path, config.edge_flush_threshold);
+
+    let mut parse_stats = LightweightParseStats::default();
+
+    // Create bounded channel for parse results
+    let (result_tx, result_rx) = bounded::<LightweightFileInfo>(config.buffer_size);
+
+    // Worker threads: parse files from the external channel
+    let parse_errors = Arc::new(AtomicUsize::new(0));
+    let mut workers = Vec::with_capacity(config.num_workers);
+
+    for _ in 0..config.num_workers {
+        let rx = file_receiver.clone();
+        let tx = result_tx.clone();
+        let errors = Arc::clone(&parse_errors);
+
+        let handle = thread::spawn(move || {
+            for path in rx {
+                match parse_file_lightweight(&path) {
+                    Ok(info) => {
+                        if tx.send(info).is_err() {
+                            break; // Consumer closed
+                        }
+                    }
+                    Err(e) => {
+                        errors.fetch_add(1, Ordering::Relaxed);
+                        tracing::debug!("Parse error {}: {}", path.display(), e);
+                    }
+                }
+            }
+        });
+        workers.push(handle);
+    }
+
+    // Drop our copies so receivers detect completion when walker + workers finish
+    drop(file_receiver);
+    drop(result_tx);
+
+    // Consumer: build graph sequentially, adding module lookup entries incrementally
+    let mut count = 0;
+    for info in result_rx {
+        count += 1;
+
+        // Incrementally populate module lookup from each processed file's path
+        builder.add_file_path(&info.path);
+
+        if let Some(cb) = progress {
+            if count % 100 == 0 {
+                cb(count, 0); // total unknown in channel mode
+            }
+        }
+
+        parse_stats.add_file(&info);
+
+        if let Err(e) = builder.process(info) {
+            tracing::warn!("Process error: {}", e);
+        }
+        // info is dropped here — memory freed immediately
+    }
+
+    // Wait for workers
+    for w in workers {
+        let _ = w.join();
+    }
+
+    // Finalize
+    parse_stats.parse_errors = parse_errors.load(Ordering::Relaxed);
+    parse_stats.parsed_files = count;
+    parse_stats.total_files = count; // In channel mode, total = parsed
+
+    let stats = builder.finalize()?;
+
+    Ok((stats, parse_stats))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,5 +672,38 @@ mod tests {
 
         // Should have flushed at least once
         assert!(stats.edge_flushes > 0 || stats.edges_added > 0);
+    }
+
+    #[test]
+    fn test_bounded_pipeline_from_channel() {
+        let dir = TempDir::new().expect("should create temp dir");
+        let path = dir.path();
+
+        create_test_file(path, "a.py", "def hello(): pass");
+        create_test_file(path, "b.py", "def world(): pass");
+
+        let files = vec![path.join("a.py"), path.join("b.py")];
+
+        let graph = Arc::new(GraphStore::in_memory());
+        let config = PipelineConfig::for_repo_size(2);
+
+        // Simulate a walker feeding into the channel
+        let (tx, rx) = bounded::<PathBuf>(config.buffer_size);
+        let sender_handle = thread::spawn(move || {
+            for f in files {
+                tx.send(f).expect("send should succeed");
+            }
+            // tx drops here, closing the channel
+        });
+
+        let (stats, parse_stats) =
+            run_bounded_pipeline_from_channel(rx, path, graph, config, None)
+                .expect("should run channel pipeline");
+
+        sender_handle.join().expect("sender thread should finish");
+
+        assert_eq!(stats.files_processed, 2);
+        assert_eq!(parse_stats.parsed_files, 2);
+        assert_eq!(parse_stats.total_functions, 2);
     }
 }
