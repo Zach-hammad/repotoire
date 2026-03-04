@@ -323,3 +323,34 @@ fn test_interner_integration() {
     let key3 = store.interner().intern("module.OtherClass.method");
     assert_ne!(key1, key3);
 }
+
+#[test]
+fn test_get_functions_in_file_uses_index() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "app.py").with_qualified_name("app.foo"));
+    store.add_node(CodeNode::function("bar", "app.py").with_qualified_name("app.bar"));
+    store.add_node(CodeNode::function("baz", "other.py").with_qualified_name("other.baz"));
+
+    let app_funcs = store.get_functions_in_file("app.py");
+    assert_eq!(app_funcs.len(), 2);
+
+    let other_funcs = store.get_functions_in_file("other.py");
+    assert_eq!(other_funcs.len(), 1);
+
+    let empty = store.get_functions_in_file("nonexistent.py");
+    assert!(empty.is_empty());
+}
+
+#[test]
+fn test_get_classes_in_file_uses_index() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::class("Foo", "app.py").with_qualified_name("app.Foo"));
+    store.add_node(CodeNode::class("Bar", "app.py").with_qualified_name("app.Bar"));
+    store.add_node(CodeNode::class("Baz", "other.py").with_qualified_name("other.Baz"));
+
+    let app_classes = store.get_classes_in_file("app.py");
+    assert_eq!(app_classes.len(), 2);
+
+    let other_classes = store.get_classes_in_file("other.py");
+    assert_eq!(other_classes.len(), 1);
+}
