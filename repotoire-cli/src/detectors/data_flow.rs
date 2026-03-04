@@ -282,42 +282,54 @@ impl HeuristicFlow {
     }
 
     /// Check if a line calls a sanitizer on a tainted variable.
-    fn is_sanitizer_call(&self, rhs: &str, sanitizers: &HashSet<String>) -> bool {
+    ///
+    /// `sanitizers_lower` must contain pre-lowercased sanitizer patterns.
+    fn is_sanitizer_call(&self, rhs: &str, sanitizers_lower: &[String]) -> bool {
         let rhs_lower = rhs.to_lowercase();
-        sanitizers
+        sanitizers_lower
             .iter()
-            .any(|s| rhs_lower.contains(&s.to_lowercase()))
+            .any(|s| rhs_lower.contains(s.as_str()))
     }
 
     /// Check if a line calls a sink with a tainted argument.
+    ///
+    /// `sinks_lower` is a slice of `(original_name, lowercased_name)` pairs,
+    /// pre-lowercased once at analysis start to avoid per-line allocations.
     fn check_sink_call(
         &self,
         line: &str,
         line_num: usize,
         tainted: &HashMap<String, TaintSource>,
-        sinks: &HashSet<String>,
+        sinks_lower: &[(String, String)],
         sanitized: &HashSet<String>,
     ) -> Vec<SinkReach> {
-        let mut reaches = Vec::new();
         let line_lower = line.to_lowercase();
 
-        for sink in sinks {
-            let sink_lower = sink.to_lowercase();
-            if !line_lower.contains(&sink_lower) {
-                continue;
-            }
+        // Early return: collect only sinks that appear in this line.
+        // Most lines contain no sink at all, so this skips the tainted-var loop entirely.
+        let matching_sinks: Vec<&(String, String)> = sinks_lower
+            .iter()
+            .filter(|(_, lowered)| line_lower.contains(lowered.as_str()))
+            .collect();
 
+        if matching_sinks.is_empty() {
+            return Vec::new();
+        }
+
+        let mut reaches = Vec::new();
+
+        for (original, lowered) in matching_sinks {
             // Check if any tainted variable appears as argument to this sink
             for (var, source) in tainted {
                 if sanitized.contains(var) {
                     continue;
                 }
                 // Check if var appears in the arguments of the sink call
-                if line_contains_var_in_call(line, &sink_lower, var) {
+                if line_contains_var_in_call(line, lowered, var) {
                     reaches.push(SinkReach {
                         variable: var.clone(),
                         taint_source: source.clone(),
-                        sink_pattern: sink.clone(),
+                        sink_pattern: original.clone(),
                         sink_line: line_num,
                         is_sanitized: false,
                         confidence: 0.85,
@@ -342,6 +354,21 @@ impl DataFlowProvider for HeuristicFlow {
     ) -> IntraFlowResult {
         let _ = category; // Available for future category-specific logic
 
+        // Pre-lowercase sources once: Vec<(original, lowered)> for source matching
+        let sources_lower: Vec<(String, String)> = sources
+            .iter()
+            .map(|s| (s.clone(), s.to_lowercase()))
+            .collect();
+
+        // Pre-lowercase sinks once: Vec<(original, lowered)> for sink matching
+        let sinks_lower: Vec<(String, String)> = sinks
+            .iter()
+            .map(|s| (s.clone(), s.to_lowercase()))
+            .collect();
+
+        // Pre-lowercase sanitizers once: Vec<String> (only need lowered form)
+        let sanitizers_lower: Vec<String> = sanitizers.iter().map(|s| s.to_lowercase()).collect();
+
         let mut tainted: HashMap<String, TaintSource> = HashMap::new();
         let mut sanitized: HashSet<String> = HashSet::new();
         let mut sink_reaches: Vec<SinkReach> = Vec::new();
@@ -363,21 +390,16 @@ impl DataFlowProvider for HeuristicFlow {
             if let Some((lhs, rhs)) = self.parse_assignment(line, language) {
                 let rhs_lower = rhs.to_lowercase();
 
-                // Check if RHS contains a taint source
-                let is_source = sources
+                // Check if RHS contains a taint source (using pre-lowercased sources)
+                let matched_source = sources_lower
                     .iter()
-                    .any(|s| rhs_lower.contains(&s.to_lowercase()));
+                    .find(|(_, lowered)| rhs_lower.contains(lowered.as_str()));
 
-                if is_source {
-                    let pattern = sources
-                        .iter()
-                        .find(|s| rhs_lower.contains(&s.to_lowercase()))
-                        .cloned()
-                        .unwrap_or_default();
+                if let Some((original, _)) = matched_source {
                     tainted.insert(
                         lhs.to_string(),
                         TaintSource {
-                            pattern,
+                            pattern: original.clone(),
                             line: line_num,
                         },
                     );
@@ -388,7 +410,7 @@ impl DataFlowProvider for HeuristicFlow {
                 // Step 2: Check if RHS references a tainted variable (propagation)
                 if let Some(source_var) = self.rhs_references_tainted(rhs, &tainted) {
                     // But first check if RHS also calls a sanitizer
-                    if self.is_sanitizer_call(rhs, sanitizers) {
+                    if self.is_sanitizer_call(rhs, &sanitizers_lower) {
                         sanitized.insert(lhs.to_string());
                     } else {
                         // Propagate taint
@@ -401,14 +423,15 @@ impl DataFlowProvider for HeuristicFlow {
                 }
 
                 // Step 3: Check if LHS is being sanitized
-                if self.is_sanitizer_call(rhs, sanitizers) && tainted.contains_key(lhs) {
+                if self.is_sanitizer_call(rhs, &sanitizers_lower) && tainted.contains_key(lhs) {
                     sanitized.insert(lhs.to_string());
                     continue;
                 }
             }
 
             // Step 4: Check if this line has a sink call with tainted arguments
-            let mut reaches = self.check_sink_call(trimmed, line_num, &tainted, sinks, &sanitized);
+            let mut reaches =
+                self.check_sink_call(trimmed, line_num, &tainted, &sinks_lower, &sanitized);
             sink_reaches.append(&mut reaches);
 
             // Also check non-assignment lines that reference tainted vars in sink calls
