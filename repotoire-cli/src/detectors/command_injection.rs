@@ -29,6 +29,8 @@ pub struct CommandInjectionDetector {
     repository_path: PathBuf,
     max_findings: usize,
     taint_analyzer: TaintAnalyzer,
+    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
+    precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
 impl CommandInjectionDetector {
@@ -37,6 +39,8 @@ impl CommandInjectionDetector {
             repository_path: repository_path.into(),
             max_findings: 50,
             taint_analyzer: TaintAnalyzer::new(),
+            precomputed_cross: std::sync::OnceLock::new(),
+            precomputed_intra: std::sync::OnceLock::new(),
         }
     }
 
@@ -56,19 +60,38 @@ impl Detector for CommandInjectionDetector {
         "Detects command injection vulnerabilities"
     }
 
+    fn set_precomputed_taint(
+        &self,
+        cross: Vec<crate::detectors::taint::TaintPath>,
+        intra: Vec<crate::detectors::taint::TaintPath>,
+    ) {
+        let _ = self.precomputed_cross.set(cross);
+        let _ = self.precomputed_intra.set(intra);
+    }
+
+    fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
+        Some(TaintCategory::CommandInjection)
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
-        // Run taint analysis for command injection
-        let mut taint_paths = self
-            .taint_analyzer
-            .trace_taint(graph, TaintCategory::CommandInjection);
-        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &self.taint_analyzer,
-            graph,
-            TaintCategory::CommandInjection,
-            &self.repository_path,
-        );
+        // Run taint analysis for command injection (precomputed or fallback)
+        let mut taint_paths = if let Some(cross) = self.precomputed_cross.get() {
+            cross.clone()
+        } else {
+            self.taint_analyzer.trace_taint(graph, TaintCategory::CommandInjection)
+        };
+        let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
+            intra.clone()
+        } else {
+            crate::detectors::data_flow::run_intra_function_taint(
+                &self.taint_analyzer,
+                graph,
+                TaintCategory::CommandInjection,
+                &self.repository_path,
+            )
+        };
         taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 

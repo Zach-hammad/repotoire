@@ -67,6 +67,9 @@ pub struct SQLInjectionDetector {
     exclude_dirs: Vec<String>,
     // Taint analyzer for graph-based data flow
     taint_analyzer: TaintAnalyzer,
+    // Pre-computed taint results (set by engine before detect())
+    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
+    precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
 impl SQLInjectionDetector {
@@ -93,6 +96,8 @@ impl SQLInjectionDetector {
             max_findings,
             exclude_dirs,
             taint_analyzer: TaintAnalyzer::new(),
+            precomputed_cross: std::sync::OnceLock::new(),
+            precomputed_intra: std::sync::OnceLock::new(),
         }
     }
 
@@ -796,6 +801,19 @@ impl Detector for SQLInjectionDetector {
         Some(&self.config)
     }
 
+    fn set_precomputed_taint(
+        &self,
+        cross: Vec<crate::detectors::taint::TaintPath>,
+        intra: Vec<crate::detectors::taint::TaintPath>,
+    ) {
+        let _ = self.precomputed_cross.set(cross);
+        let _ = self.precomputed_intra.set(intra);
+    }
+
+    fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
+        Some(TaintCategory::SqlInjection)
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting SQL injection detection with taint analysis");
 
@@ -803,17 +821,24 @@ impl Detector for SQLInjectionDetector {
         let mut findings = self.scan_source_files();
 
         // Step 2: Run graph-based taint analysis to find data flow paths
-        let mut taint_paths = self
-            .taint_analyzer
-            .trace_taint(graph, TaintCategory::SqlInjection);
+        // Use precomputed results if available, otherwise fall back to own analysis
+        let mut taint_paths = if let Some(cross) = self.precomputed_cross.get() {
+            cross.clone()
+        } else {
+            self.taint_analyzer.trace_taint(graph, TaintCategory::SqlInjection)
+        };
 
         // Step 2.5: Run intra-function data flow analysis for deeper precision
-        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &self.taint_analyzer,
-            graph,
-            TaintCategory::SqlInjection,
-            &self.repository_path,
-        );
+        let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
+            intra.clone()
+        } else {
+            crate::detectors::data_flow::run_intra_function_taint(
+                &self.taint_analyzer,
+                graph,
+                TaintCategory::SqlInjection,
+                &self.repository_path,
+            )
+        };
         debug!(
             "Intra-function analysis found {} additional taint paths",
             intra_paths.len()

@@ -17,6 +17,8 @@ pub struct LogInjectionDetector {
     repository_path: PathBuf,
     max_findings: usize,
     taint_analyzer: TaintAnalyzer,
+    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
+    precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
 impl LogInjectionDetector {
@@ -25,6 +27,8 @@ impl LogInjectionDetector {
             repository_path: repository_path.into(),
             max_findings: 50,
             taint_analyzer: TaintAnalyzer::new(),
+            precomputed_cross: std::sync::OnceLock::new(),
+            precomputed_intra: std::sync::OnceLock::new(),
         }
     }
 }
@@ -35,6 +39,19 @@ impl Detector for LogInjectionDetector {
     }
     fn description(&self) -> &'static str {
         "Detects user input in logs"
+    }
+
+    fn set_precomputed_taint(
+        &self,
+        cross: Vec<crate::detectors::taint::TaintPath>,
+        intra: Vec<crate::detectors::taint::TaintPath>,
+    ) {
+        let _ = self.precomputed_cross.set(cross);
+        let _ = self.precomputed_intra.set(intra);
+    }
+
+    fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
+        Some(TaintCategory::LogInjection)
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
@@ -90,16 +107,22 @@ impl Detector for LogInjectionDetector {
             }
         }
 
-        // Run taint analysis to adjust severity based on data flow
-        let mut taint_results = self
-            .taint_analyzer
-            .trace_taint(graph, TaintCategory::LogInjection);
-        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &self.taint_analyzer,
-            graph,
-            TaintCategory::LogInjection,
-            &self.repository_path,
-        );
+        // Run taint analysis to adjust severity based on data flow (precomputed or fallback)
+        let mut taint_results = if let Some(cross) = self.precomputed_cross.get() {
+            cross.clone()
+        } else {
+            self.taint_analyzer.trace_taint(graph, TaintCategory::LogInjection)
+        };
+        let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
+            intra.clone()
+        } else {
+            crate::detectors::data_flow::run_intra_function_taint(
+                &self.taint_analyzer,
+                graph,
+                TaintCategory::LogInjection,
+                &self.repository_path,
+            )
+        };
         taint_results.extend(intra_paths);
 
         // Adjust severity based on taint analysis

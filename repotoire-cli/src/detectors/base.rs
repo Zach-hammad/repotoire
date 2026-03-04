@@ -412,6 +412,32 @@ pub trait Detector: Send + Sync {
     fn requires_graph(&self) -> bool {
         true
     }
+
+    /// Inject pre-computed taint analysis results into this detector.
+    ///
+    /// Called by the engine before `detect()` for security detectors that
+    /// use taint analysis. The `cross` paths come from BFS `trace_taint()`
+    /// and the `intra` paths from file-based heuristic analysis.
+    ///
+    /// Security detectors override this to store results in an `OnceLock`,
+    /// then check for pre-computed results in their `detect()` method.
+    ///
+    /// Default: no-op (non-taint detectors ignore this).
+    fn set_precomputed_taint(
+        &self,
+        _cross: Vec<super::taint::TaintPath>,
+        _intra: Vec<super::taint::TaintPath>,
+    ) {
+        // Default: no-op
+    }
+
+    /// Return the taint category this detector uses, if any.
+    ///
+    /// Used by the engine to dispatch the correct pre-computed taint results.
+    /// Only security detectors that use taint analysis need to override this.
+    fn taint_category(&self) -> Option<super::taint::TaintCategory> {
+        None
+    }
 }
 
 /// Progress callback for detector execution

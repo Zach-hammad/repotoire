@@ -67,6 +67,7 @@ fn categorize_deserialize(line: &str) -> (&'static str, &'static str, Severity) 
 pub struct InsecureDeserializeDetector {
     repository_path: PathBuf,
     max_findings: usize,
+    precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
 impl InsecureDeserializeDetector {
@@ -74,6 +75,7 @@ impl InsecureDeserializeDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 50,
+            precomputed_intra: std::sync::OnceLock::new(),
         }
     }
 
@@ -130,6 +132,18 @@ impl Detector for InsecureDeserializeDetector {
     }
     fn description(&self) -> &'static str {
         "Detects insecure deserialization"
+    }
+
+    fn set_precomputed_taint(
+        &self,
+        _cross: Vec<crate::detectors::taint::TaintPath>,
+        intra: Vec<crate::detectors::taint::TaintPath>,
+    ) {
+        let _ = self.precomputed_intra.set(intra);
+    }
+
+    fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
+        Some(crate::detectors::taint::TaintCategory::CodeInjection)
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
@@ -293,14 +307,18 @@ impl Detector for InsecureDeserializeDetector {
             }
         }
 
-        // Supplement with intra-function taint analysis
-        let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
-        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &taint_analyzer,
-            graph,
-            crate::detectors::taint::TaintCategory::CodeInjection,
-            &self.repository_path,
-        );
+        // Supplement with intra-function taint analysis (precomputed or fallback)
+        let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
+            intra.clone()
+        } else {
+            let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
+            crate::detectors::data_flow::run_intra_function_taint(
+                &taint_analyzer,
+                graph,
+                crate::detectors::taint::TaintCategory::CodeInjection,
+                &self.repository_path,
+            )
+        };
         let mut seen: std::collections::HashSet<(String, u32)> = findings
             .iter()
             .filter_map(|f| {

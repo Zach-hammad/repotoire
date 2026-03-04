@@ -57,6 +57,8 @@ pub struct UnsafeTemplateDetector {
     innerhtml_assign_pattern: Regex,
     outerhtml_assign_pattern: Regex,
     document_write_pattern: Regex,
+    // Pre-computed taint results
+    precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
 impl UnsafeTemplateDetector {
@@ -122,6 +124,7 @@ impl UnsafeTemplateDetector {
             innerhtml_assign_pattern,
             outerhtml_assign_pattern,
             document_write_pattern,
+            precomputed_intra: std::sync::OnceLock::new(),
         }
     }
 
@@ -657,6 +660,18 @@ impl Detector for UnsafeTemplateDetector {
         Some(&self.config)
     }
 
+    fn set_precomputed_taint(
+        &self,
+        _cross: Vec<crate::detectors::taint::TaintPath>,
+        intra: Vec<crate::detectors::taint::TaintPath>,
+    ) {
+        let _ = self.precomputed_intra.set(intra);
+    }
+
+    fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
+        Some(crate::detectors::taint::TaintCategory::Xss)
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting unsafe template detection");
 
@@ -680,14 +695,18 @@ impl Detector for UnsafeTemplateDetector {
         // Truncate to max_findings
         findings.truncate(self.max_findings);
 
-        // Supplement with intra-function taint analysis
-        let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
-        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            &taint_analyzer,
-            graph,
-            crate::detectors::taint::TaintCategory::Xss,
-            &self.repository_path,
-        );
+        // Supplement with intra-function taint analysis (precomputed or fallback)
+        let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
+            intra.clone()
+        } else {
+            let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
+            crate::detectors::data_flow::run_intra_function_taint(
+                &taint_analyzer,
+                graph,
+                crate::detectors::taint::TaintCategory::Xss,
+                &self.repository_path,
+            )
+        };
         let mut seen: std::collections::HashSet<(String, u32)> = findings
             .iter()
             .filter_map(|f| {

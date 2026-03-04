@@ -153,6 +153,7 @@ fn get_fix_example(ext: &str) -> &'static str {
 pub struct XxeDetector {
     repository_path: PathBuf,
     max_findings: usize,
+    precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
 impl XxeDetector {
@@ -160,6 +161,7 @@ impl XxeDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 50,
+            precomputed_intra: std::sync::OnceLock::new(),
         }
     }
 
@@ -213,6 +215,19 @@ impl Detector for XxeDetector {
     }
     fn description(&self) -> &'static str {
         "Detects XXE vulnerabilities"
+    }
+
+    fn set_precomputed_taint(
+        &self,
+        _cross: Vec<crate::detectors::taint::TaintPath>,
+        intra: Vec<crate::detectors::taint::TaintPath>,
+    ) {
+        let _ = self.precomputed_intra.set(intra);
+    }
+
+    fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
+        // XXE uses PathTraversal category per #16
+        Some(crate::detectors::taint::TaintCategory::PathTraversal)
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
@@ -347,15 +362,19 @@ impl Detector for XxeDetector {
             }
         }
 
-        // Supplement with intra-function taint analysis
-        let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
-        let intra_paths = crate::detectors::data_flow::run_intra_function_taint(
-            // XXE is closer to PathTraversal (file disclosure) than CodeInjection (#16)
-            &taint_analyzer,
-            graph,
-            crate::detectors::taint::TaintCategory::PathTraversal,
-            &self.repository_path,
-        );
+        // Supplement with intra-function taint analysis (precomputed or fallback)
+        let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
+            intra.clone()
+        } else {
+            let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
+            crate::detectors::data_flow::run_intra_function_taint(
+                // XXE is closer to PathTraversal (file disclosure) than CodeInjection (#16)
+                &taint_analyzer,
+                graph,
+                crate::detectors::taint::TaintCategory::PathTraversal,
+                &self.repository_path,
+            )
+        };
         let mut seen: std::collections::HashSet<(String, u32)> = findings
             .iter()
             .filter_map(|f| {

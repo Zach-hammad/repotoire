@@ -420,6 +420,31 @@ impl DetectorEngine {
         // Build HMM-based contexts for adaptive detection
         let hmm_contexts = self.build_hmm_contexts(graph);
 
+        // Pre-compute centralized taint analysis for all security detectors
+        let repo_path = Some(files.repo_path());
+        if let Some(repo_path) = repo_path {
+            let taint_results = crate::detectors::taint::centralized::run_centralized_taint(
+                graph,
+                repo_path,
+                None,
+            );
+            for detector in &self.detectors {
+                if let Some(category) = detector.taint_category() {
+                    let cross = taint_results
+                        .cross_function
+                        .get(&category)
+                        .cloned()
+                        .unwrap_or_default();
+                    let intra = taint_results
+                        .intra_function
+                        .get(&category)
+                        .cloned()
+                        .unwrap_or_default();
+                    detector.set_precomputed_taint(cross, intra);
+                }
+            }
+        }
+
         // Partition detectors into independent and dependent
         let (independent, dependent): (Vec<_>, Vec<_>) = self
             .detectors
@@ -722,6 +747,33 @@ impl DetectorEngine {
         let finding_count = Arc::new(AtomicUsize::new(0));
         let completed = Arc::new(AtomicUsize::new(0));
 
+        // Pre-compute centralized taint analysis for all security detectors.
+        // This runs taint analysis ONCE for all categories instead of 12x.
+        let repo_path = Some(files.repo_path());
+        if let Some(repo_path) = repo_path {
+            let taint_results = crate::detectors::taint::centralized::run_centralized_taint(
+                graph,
+                repo_path,
+                None,
+            );
+            // Inject pre-computed results into each security detector
+            for detector in &gd_detectors {
+                if let Some(category) = detector.taint_category() {
+                    let cross = taint_results
+                        .cross_function
+                        .get(&category)
+                        .cloned()
+                        .unwrap_or_default();
+                    let intra = taint_results
+                        .intra_function
+                        .get(&category)
+                        .cloned()
+                        .unwrap_or_default();
+                    detector.set_precomputed_taint(cross, intra);
+                }
+            }
+        }
+
         // Split into parallel (independent but graph-requiring) and sequential (dependent)
         let (parallel, sequential): (Vec<_>, Vec<_>) =
             gd_detectors.into_iter().partition(|d| !d.is_dependent());
@@ -847,6 +899,31 @@ impl DetectorEngine {
 
         // Build function contexts
         let contexts = self.get_or_build_contexts(graph);
+
+        // Pre-compute centralized taint analysis
+        let repo_path = Some(files.repo_path());
+        if let Some(repo_path) = repo_path {
+            let taint_results = crate::detectors::taint::centralized::run_centralized_taint(
+                graph,
+                repo_path,
+                None,
+            );
+            for detector in &self.detectors {
+                if let Some(category) = detector.taint_category() {
+                    let cross = taint_results
+                        .cross_function
+                        .get(&category)
+                        .cloned()
+                        .unwrap_or_default();
+                    let intra = taint_results
+                        .intra_function
+                        .get(&category)
+                        .cloned()
+                        .unwrap_or_default();
+                    detector.set_precomputed_taint(cross, intra);
+                }
+            }
+        }
 
         // Partition detectors
         let (independent, dependent): (Vec<_>, Vec<_>) = self
