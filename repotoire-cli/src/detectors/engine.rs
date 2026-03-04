@@ -25,6 +25,7 @@ use crate::detectors::base::{
 };
 use crate::detectors::context_hmm::{ContextClassifier, FunctionContext, FunctionFeatures};
 use crate::detectors::function_context::{FunctionContextBuilder, FunctionContextMap};
+use crate::graph::CachedGraphQuery;
 use crate::graph::GraphStore;
 use crate::models::Finding;
 use anyhow::Result;
@@ -629,6 +630,9 @@ impl DetectorEngine {
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> Result<Vec<Finding>> {
+        let cached = CachedGraphQuery::new(graph);
+        let graph: &dyn crate::graph::GraphQuery = &cached;
+
         // Filter detectors to graph-independent only (not requires_graph and not dependent)
         let gi_detectors: Vec<_> = self
             .detectors
@@ -730,6 +734,9 @@ impl DetectorEngine {
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> Result<Vec<Finding>> {
+        let cached = CachedGraphQuery::new(graph);
+        let graph: &dyn crate::graph::GraphQuery = &cached;
+
         // Filter: detectors that require graph OR are dependent on other detectors
         let gd_detectors: Vec<_> = self
             .detectors
