@@ -425,21 +425,25 @@ pub fn run_bounded_pipeline(
         let tx = result_tx.clone();
         let errors = Arc::clone(&parse_errors);
 
-        let handle = thread::spawn(move || {
-            for path in rx {
-                match parse_file_lightweight(&path) {
-                    Ok(info) => {
-                        if tx.send(info).is_err() {
-                            break; // Consumer closed
+        // Use 8MB stack to handle deeply nested C/C++ files (e.g., CPython)
+        let handle = thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || {
+                for path in rx {
+                    match parse_file_lightweight(&path) {
+                        Ok(info) => {
+                            if tx.send(info).is_err() {
+                                break; // Consumer closed
+                            }
+                        }
+                        Err(e) => {
+                            errors.fetch_add(1, Ordering::Relaxed);
+                            tracing::debug!("Parse error {}: {}", path.display(), e);
                         }
                     }
-                    Err(e) => {
-                        errors.fetch_add(1, Ordering::Relaxed);
-                        tracing::debug!("Parse error {}: {}", path.display(), e);
-                    }
                 }
-            }
-        });
+            })
+            .expect("failed to spawn parser worker thread");
         workers.push(handle);
     }
 
@@ -545,21 +549,25 @@ pub fn run_bounded_pipeline_from_channel(
         let tx = result_tx.clone();
         let errors = Arc::clone(&parse_errors);
 
-        let handle = thread::spawn(move || {
-            for path in rx {
-                match parse_file_lightweight(&path) {
-                    Ok(info) => {
-                        if tx.send(info).is_err() {
-                            break; // Consumer closed
+        // Use 8MB stack to handle deeply nested C/C++ files (e.g., CPython)
+        let handle = thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || {
+                for path in rx {
+                    match parse_file_lightweight(&path) {
+                        Ok(info) => {
+                            if tx.send(info).is_err() {
+                                break; // Consumer closed
+                            }
+                        }
+                        Err(e) => {
+                            errors.fetch_add(1, Ordering::Relaxed);
+                            tracing::debug!("Parse error {}: {}", path.display(), e);
                         }
                     }
-                    Err(e) => {
-                        errors.fetch_add(1, Ordering::Relaxed);
-                        tracing::debug!("Parse error {}: {}", path.display(), e);
-                    }
                 }
-            }
-        });
+            })
+            .expect("failed to spawn parser worker thread");
         workers.push(handle);
     }
 

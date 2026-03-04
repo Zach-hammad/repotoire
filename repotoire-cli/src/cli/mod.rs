@@ -439,6 +439,15 @@ pub enum ConfigAction {
 
 /// Run the CLI with parsed arguments
 pub fn run(cli: Cli) -> Result<()> {
+    // Initialize global rayon thread pool with 8MB stack per thread.
+    // Tree-sitter parsing of deeply nested C/C++ code (e.g., CPython) can
+    // overflow the default 2MB stack. This also benefits recursive detectors.
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(cli.workers)
+        .stack_size(8 * 1024 * 1024) // 8MB stack for tree-sitter on deeply nested C/C++
+        .build_global()
+        .ok(); // Ignore error if global pool already initialized (e.g., in tests)
+
     match cli.command {
         Some(Commands::Init) => init::run(&cli.path),
 

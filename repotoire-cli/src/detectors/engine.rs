@@ -468,6 +468,7 @@ impl DetectorEngine {
         // Run independent detectors in parallel
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.workers)
+            .stack_size(8 * 1024 * 1024) // 8MB stack for deeply nested C/C++ parsing
             .build()?;
 
         let contexts_for_parallel = Arc::clone(&contexts);
@@ -651,6 +652,7 @@ impl DetectorEngine {
 
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.workers)
+            .stack_size(8 * 1024 * 1024) // 8MB stack for deeply nested C/C++ parsing
             .build()?;
 
         let contexts_clone = Arc::clone(&contexts);
@@ -783,6 +785,7 @@ impl DetectorEngine {
         // Run parallel graph-dependent detectors
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.workers)
+            .stack_size(8 * 1024 * 1024) // 8MB stack for deeply nested C/C++ parsing
             .build()?;
 
         let contexts_clone = Arc::clone(&contexts);
@@ -935,6 +938,7 @@ impl DetectorEngine {
         // Run independent in parallel
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.workers)
+            .stack_size(8 * 1024 * 1024) // 8MB stack for deeply nested C/C++ parsing
             .build()?;
 
         let contexts_for_parallel = Arc::clone(&contexts);
