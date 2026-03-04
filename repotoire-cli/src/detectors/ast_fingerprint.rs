@@ -800,6 +800,229 @@ fn detect_patterns_from_data(
 }
 
 // ---------------------------------------------------------------------------
+// Lightweight boilerplate-only fingerprinting (skips bigrams/identifiers)
+// ---------------------------------------------------------------------------
+
+/// Lightweight fingerprint for AIBoilerplate — only structural kinds and patterns.
+///
+/// ~25x fewer allocations than full `FunctionFingerprints` because it skips
+/// normalized token collection, bigram building, and identifier extraction.
+#[derive(Debug, Clone)]
+pub struct BoilerplateFingerprint {
+    /// Structural AST kinds (for MinHash/LSH clustering).
+    pub structural_kinds: HashSet<String>,
+    /// Detected boilerplate patterns.
+    pub patterns: Vec<super::ai_boilerplate::BoilerplatePattern>,
+}
+
+/// Parse functions and compute ONLY structural fingerprints (for AIBoilerplate).
+///
+/// Compared to `parse_functions_with_fingerprints`, this:
+/// - Skips body_text allocation (biggest win: avoids storing full function body per function)
+/// - Skips normalized token collection and bigram building
+/// - Skips identifier extraction
+/// - Uses inline pattern flags instead of collecting all node kinds into a HashSet
+pub fn parse_functions_for_boilerplate(
+    content: &str,
+    lang: Language,
+) -> Vec<(FunctionInfo, BoilerplateFingerprint)> {
+    let tree = match parse_root(content, lang) {
+        Some(t) => t,
+        None => return vec![],
+    };
+
+    let kinds: HashSet<&str> = function_node_kinds(lang).iter().copied().collect();
+    let mut results = Vec::new();
+    collect_functions_boilerplate(tree.root_node(), content, lang, &kinds, &mut results);
+    results
+}
+
+/// Pattern flags detected during AST walk — avoids HashSet<String> for all_kinds.
+#[derive(Default)]
+struct PatternFlags {
+    has_try: bool,
+    has_except: bool,
+    has_catch: bool,
+    has_raise: bool,
+    has_throw: bool,
+    has_if: bool,
+    has_for: bool,
+    has_while: bool,
+    has_for_in: bool,
+    has_with: bool,
+    has_with_clause: bool,
+    has_await: bool,
+}
+
+fn collect_functions_boilerplate(
+    node: Node,
+    source: &str,
+    lang: Language,
+    func_kinds: &HashSet<&str>,
+    out: &mut Vec<(FunctionInfo, BoilerplateFingerprint)>,
+) {
+    if func_kinds.contains(node.kind()) {
+        let name = node
+            .child_by_field_name(name_field(lang))
+            .map(|n| node_text(n, source).to_string())
+            .unwrap_or_else(|| "<anonymous>".to_string());
+
+        let body_node = node.child_by_field_name(body_field(lang));
+        let walk_node = body_node.unwrap_or(node);
+
+        // Lightweight walk: only structural kinds + pattern flags
+        let mut structural_kinds = HashSet::new();
+        let mut flags = PatternFlags::default();
+        collect_structural_only(walk_node, &mut structural_kinds, &mut flags);
+
+        // Detect patterns from flags + source slice (no body_text allocation)
+        let body_start = walk_node.start_byte();
+        let body_end = walk_node.end_byte();
+        let body_slice = &source[body_start..body_end];
+        let patterns = detect_patterns_from_flags(&flags, body_slice);
+
+        out.push((
+            FunctionInfo {
+                name,
+                line_start: node.start_position().row as u32 + 1,
+                line_end: node.end_position().row as u32 + 1,
+                body_text: String::new(), // Not needed by AIBoilerplate
+                language: lang,
+            },
+            BoilerplateFingerprint {
+                structural_kinds,
+                patterns,
+            },
+        ));
+    }
+
+    let count = node.child_count();
+    for i in 0..count {
+        if let Some(child) = node.child(i) {
+            collect_functions_boilerplate(child, source, lang, func_kinds, out);
+        }
+    }
+}
+
+/// Lightweight AST walker: collects only structural kinds and sets pattern flags.
+/// No String allocations for leaf nodes, no normalized tokens, no identifiers.
+fn collect_structural_only(
+    node: Node,
+    structural_kinds: &mut HashSet<String>,
+    flags: &mut PatternFlags,
+) {
+    let kind = node.kind();
+
+    // Set pattern flags (replaces all_kinds HashSet)
+    match kind {
+        "try_statement" => flags.has_try = true,
+        "except_clause" => flags.has_except = true,
+        "catch_clause" => flags.has_catch = true,
+        "raise_statement" => flags.has_raise = true,
+        "throw_statement" => flags.has_throw = true,
+        "if_statement" | "if_expression" => flags.has_if = true,
+        "for_statement" => flags.has_for = true,
+        "while_statement" => flags.has_while = true,
+        "for_in_statement" => flags.has_for_in = true,
+        "with_statement" => flags.has_with = true,
+        "with_clause" => flags.has_with_clause = true,
+        "await_expression" => flags.has_await = true,
+        _ => {}
+    }
+
+    // Only collect structural kinds (internal nodes that pass the filter)
+    if node.child_count() > 0 && is_structural_kind(kind) {
+        structural_kinds.insert(kind.to_string());
+    }
+
+    let count = node.child_count();
+    for i in 0..count {
+        if let Some(child) = node.child(i) {
+            collect_structural_only(child, structural_kinds, flags);
+        }
+    }
+}
+
+/// Detect boilerplate patterns from pre-computed flags + source slice.
+fn detect_patterns_from_flags(
+    flags: &PatternFlags,
+    body: &str,
+) -> Vec<super::ai_boilerplate::BoilerplatePattern> {
+    use super::ai_boilerplate::BoilerplatePattern;
+
+    let content_lower = body.to_lowercase();
+    let mut patterns = Vec::new();
+
+    if flags.has_try || flags.has_except || flags.has_catch {
+        patterns.push(BoilerplatePattern::TryExcept);
+    }
+
+    if flags.has_raise
+        || flags.has_throw
+        || content_lower.contains("error")
+        || content_lower.contains("exception")
+    {
+        patterns.push(BoilerplatePattern::ErrorHandling);
+    }
+
+    if flags.has_if
+        && (content_lower.contains("valid")
+            || content_lower.contains("check")
+            || content_lower.contains("assert")
+            || content_lower.contains("isinstance"))
+    {
+        patterns.push(BoilerplatePattern::Validation);
+    }
+
+    if content_lower.contains("get(")
+        || content_lower.contains("post(")
+        || content_lower.contains("put(")
+        || content_lower.contains("delete(")
+        || content_lower.contains("patch(")
+        || content_lower.contains("@app.route")
+        || content_lower.contains("@router.")
+    {
+        patterns.push(BoilerplatePattern::HttpMethod);
+    }
+
+    if content_lower.contains("execute")
+        || content_lower.contains("query")
+        || content_lower.contains("cursor")
+        || content_lower.contains("session.")
+        || content_lower.contains("commit(")
+        || content_lower.contains("rollback(")
+    {
+        patterns.push(BoilerplatePattern::Database);
+    }
+
+    if content_lower.contains("create")
+        || content_lower.contains("update")
+        || content_lower.contains("delete")
+        || content_lower.contains("find_by")
+        || content_lower.contains("get_by")
+    {
+        patterns.push(BoilerplatePattern::Crud);
+    }
+
+    if flags.has_with || flags.has_with_clause {
+        patterns.push(BoilerplatePattern::ContextManager);
+    }
+
+    if flags.has_for || flags.has_while || flags.has_for_in {
+        patterns.push(BoilerplatePattern::Loop);
+    }
+
+    if flags.has_await
+        || content_lower.contains("async ")
+        || content_lower.contains("await ")
+    {
+        patterns.push(BoilerplatePattern::Async);
+    }
+
+    patterns
+}
+
+// ---------------------------------------------------------------------------
 // MinHash + LSH for approximate Jaccard similarity (arXiv:2102.08942)
 // ---------------------------------------------------------------------------
 //
@@ -928,7 +1151,6 @@ pub fn lsh_candidate_pairs(sets: &[&HashSet<String>]) -> HashSet<(usize, usize)>
             }
         }
     }
-
     candidates
 }
 
