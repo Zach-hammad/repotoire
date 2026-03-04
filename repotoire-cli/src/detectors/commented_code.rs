@@ -127,7 +127,7 @@ impl Detector for CommentedCodeDetector {
     }
 
     fn requires_graph(&self) -> bool {
-        false
+        true
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {

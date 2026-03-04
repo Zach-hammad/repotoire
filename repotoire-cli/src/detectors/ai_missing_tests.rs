@@ -336,7 +336,7 @@ impl Detector for AIMissingTestsDetector {
     }
 
     fn requires_graph(&self) -> bool {
-        false
+        true
     }
 
     fn config(&self) -> Option<&DetectorConfig> {

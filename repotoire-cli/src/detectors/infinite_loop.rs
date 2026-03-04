@@ -236,7 +236,7 @@ impl Detector for InfiniteLoopDetector {
     }
 
     fn requires_graph(&self) -> bool {
-        false
+        true
     }
 
     fn config(&self) -> Option<&DetectorConfig> {

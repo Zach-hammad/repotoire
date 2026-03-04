@@ -427,7 +427,7 @@ impl Detector for AIChurnDetector {
     }
 
     fn requires_graph(&self) -> bool {
-        false
+        true
     }
 
     fn config(&self) -> Option<&DetectorConfig> {
