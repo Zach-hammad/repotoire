@@ -576,7 +576,9 @@ impl DetectorEngine {
 
         info!("Running {} graph-independent detectors", gi_detectors.len());
 
-        let contexts = self.get_or_build_contexts(graph);
+        // Graph-independent detectors don't use function contexts, so pass an empty map.
+        // Actual contexts will be built lazily when run_graph_dependent() is called.
+        let contexts: Arc<FunctionContextMap> = Arc::new(HashMap::new());
         let finding_count = Arc::new(AtomicUsize::new(0));
         let completed = Arc::new(AtomicUsize::new(0));
         let total = gi_detectors.len();
