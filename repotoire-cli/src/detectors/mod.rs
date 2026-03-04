@@ -16,6 +16,7 @@
 pub mod base;
 pub mod content_classifier;
 mod engine;
+pub mod file_cache;
 pub mod file_provider;
 pub mod streaming_engine;
 
@@ -152,6 +153,9 @@ mod xxe;
 pub use base::{
     DetectionSummary, Detector, DetectorConfig, DetectorResult, DetectorScope, ProgressCallback,
 };
+
+// Re-export file cache
+pub use file_cache::FileContentCache;
 
 // Re-export file provider
 pub use file_provider::{FileProvider, SourceFiles};
