@@ -191,6 +191,27 @@ impl DetectorEngine {
             return empty;
         }
 
+        // Pre-compute fan-in and fan-out in one O(n) pass to avoid
+        // repeated graph queries in sort comparators and feature extraction.
+        let mut callers_map: HashMap<String, Vec<crate::graph::CodeNode>> = functions
+            .iter()
+            .map(|f| {
+                (
+                    f.qualified_name.clone(),
+                    graph.get_callers(&f.qualified_name),
+                )
+            })
+            .collect();
+        let mut fan_out_map: HashMap<String, usize> = functions
+            .iter()
+            .map(|f| {
+                (
+                    f.qualified_name.clone(),
+                    graph.get_callees(&f.qualified_name).len(),
+                )
+            })
+            .collect();
+
         // Limit function count to prevent OOM on huge codebases
         const MAX_FUNCTIONS_FOR_HMM: usize = 20_000;
         if functions.len() > MAX_FUNCTIONS_FOR_HMM {
@@ -201,14 +222,23 @@ impl DetectorEngine {
             );
             // Keep functions with highest fan-in (most important to classify correctly)
             functions.sort_by(|a, b| {
-                let a_callers = graph.get_callers(&a.qualified_name).len();
-                let b_callers = graph.get_callers(&b.qualified_name).len();
-                b_callers.cmp(&a_callers)
+                let a_fi = callers_map
+                    .get(&a.qualified_name)
+                    .map_or(0, |c| c.len());
+                let b_fi = callers_map
+                    .get(&b.qualified_name)
+                    .map_or(0, |c| c.len());
+                b_fi.cmp(&a_fi)
             });
             functions.truncate(MAX_FUNCTIONS_FOR_HMM);
+            // Prune maps to only retained functions
+            let retained: std::collections::HashSet<&str> =
+                functions.iter().map(|f| f.qualified_name.as_str()).collect();
+            callers_map.retain(|k, _| retained.contains(k.as_str()));
+            fan_out_map.retain(|k, _| retained.contains(k.as_str()));
         }
 
-        // Compute graph statistics for normalization
+        // Compute graph statistics for normalization using pre-computed maps
         let mut max_fan_in = 1usize;
         let mut max_fan_out = 1usize;
         let mut total_complexity = 0i64;
@@ -217,8 +247,13 @@ impl DetectorEngine {
         let mut total_params = 0usize;
 
         for func in &functions {
-            let fan_in = graph.get_callers(&func.qualified_name).len();
-            let fan_out = graph.get_callees(&func.qualified_name).len();
+            let fan_in = callers_map
+                .get(&func.qualified_name)
+                .map_or(0, |c| c.len());
+            let fan_out = fan_out_map
+                .get(&func.qualified_name)
+                .copied()
+                .unwrap_or(0);
             max_fan_in = max_fan_in.max(fan_in);
             max_fan_out = max_fan_out.max(fan_out);
 
@@ -239,13 +274,19 @@ impl DetectorEngine {
         let avg_loc = total_loc as f64 / functions.len().max(1) as f64;
         let avg_params = total_params as f64 / functions.len().max(1) as f64;
 
-        // Extract features for training
+        // Extract features for training using pre-computed callers/fan-out
         let mut function_data = Vec::new();
 
         for func in &functions {
-            let callers = graph.get_callers(&func.qualified_name);
+            let callers = callers_map
+                .get(&func.qualified_name)
+                .cloned()
+                .unwrap_or_default();
             let fan_in = callers.len();
-            let fan_out = graph.get_callees(&func.qualified_name).len();
+            let fan_out = fan_out_map
+                .get(&func.qualified_name)
+                .copied()
+                .unwrap_or(0);
             let caller_files: std::collections::HashSet<_> =
                 callers.iter().map(|c| &c.file_path).collect();
 
