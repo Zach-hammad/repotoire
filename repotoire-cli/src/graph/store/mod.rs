@@ -21,6 +21,13 @@ pub struct GraphStore {
     graph: RwLock<DiGraph<CodeNode, CodeEdge>>,
     /// Node lookup by qualified name — DashMap for lock-free concurrent reads
     node_index: DashMap<String, NodeIndex>,
+    /// Spatial index: file_path → [(line_start, line_end, NodeIndex)] for O(1) function lookup.
+    /// Populated during add_node/add_nodes_batch for Function nodes.
+    function_spatial_index: DashMap<String, Vec<(u32, u32, NodeIndex)>>,
+    /// File-scoped function index: file_path → [NodeIndex] for O(1) get_functions_in_file().
+    file_functions_index: DashMap<String, Vec<NodeIndex>>,
+    /// File-scoped class index: file_path → [NodeIndex] for O(1) get_classes_in_file().
+    file_classes_index: DashMap<String, Vec<NodeIndex>>,
     /// Cached graph metrics from detectors, reusable by scoring phase.
     /// Key format: "metric_name:entity_qn" (e.g., "degree_centrality:module.Class")
     metrics_cache: DashMap<String, f64>,
@@ -52,6 +59,9 @@ impl GraphStore {
         let store = Self {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
+            function_spatial_index: DashMap::new(),
+            file_functions_index: DashMap::new(),
+            file_classes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             db: Some(db),
@@ -75,6 +85,9 @@ impl GraphStore {
         Ok(Self {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
+            function_spatial_index: DashMap::new(),
+            file_functions_index: DashMap::new(),
+            file_classes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             db: Some(db),
@@ -88,6 +101,9 @@ impl GraphStore {
         Self {
             graph: RwLock::new(DiGraph::new()),
             node_index: DashMap::new(),
+            function_spatial_index: DashMap::new(),
+            file_functions_index: DashMap::new(),
+            file_classes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             db: None,
@@ -168,6 +184,9 @@ impl GraphStore {
         let mut graph = self.write_graph();
         graph.clear();
         self.node_index.clear();
+        self.function_spatial_index.clear();
+        self.file_functions_index.clear();
+        self.file_classes_index.clear();
         self.metrics_cache.clear();
 
         if let Some(ref db) = self.db {
@@ -186,6 +205,12 @@ impl GraphStore {
     /// Add a node to the graph
     pub fn add_node(&self, node: CodeNode) -> NodeIndex {
         let qn = node.qualified_name.clone();
+        let is_function = node.kind == NodeKind::Function;
+        let file_path = if is_function { Some(node.file_path.clone()) } else { None };
+        let line_start = node.line_start;
+        let line_end = node.line_end;
+        let is_class = node.kind == NodeKind::Class;
+        let class_file_path = if is_class { Some(node.file_path.clone()) } else { None };
 
         // Check if node already exists — read DashMap before acquiring graph write lock
         if let Some(idx_ref) = self.node_index.get(&qn) {
@@ -211,6 +236,30 @@ impl GraphStore {
 
         let idx = graph.add_node(node);
         self.node_index.insert(qn, idx);
+
+        // Populate spatial index and file-scoped function index
+        if is_function {
+            if let Some(fp) = file_path {
+                self.function_spatial_index
+                    .entry(fp.clone())
+                    .or_default()
+                    .push((line_start, line_end, idx));
+                self.file_functions_index
+                    .entry(fp)
+                    .or_default()
+                    .push(idx);
+            }
+        }
+        // Populate file-scoped class index
+        if is_class {
+            if let Some(fp) = class_file_path {
+                self.file_classes_index
+                    .entry(fp)
+                    .or_default()
+                    .push(idx);
+            }
+        }
+
         idx
     }
 
@@ -221,6 +270,12 @@ impl GraphStore {
 
         for node in nodes {
             let qn = node.qualified_name.clone();
+            let is_function = node.kind == NodeKind::Function;
+            let file_path = if is_function { Some(node.file_path.clone()) } else { None };
+            let line_start = node.line_start;
+            let line_end = node.line_end;
+            let is_class = node.kind == NodeKind::Class;
+            let class_file_path = if is_class { Some(node.file_path.clone()) } else { None };
 
             if let Some(idx_ref) = self.node_index.get(&qn) {
                 let idx = *idx_ref;
@@ -232,6 +287,30 @@ impl GraphStore {
             } else {
                 let idx = graph.add_node(node);
                 self.node_index.insert(qn, idx);
+
+                // Populate spatial index and file-scoped function index
+                if is_function {
+                    if let Some(fp) = file_path {
+                        self.function_spatial_index
+                            .entry(fp.clone())
+                            .or_default()
+                            .push((line_start, line_end, idx));
+                        self.file_functions_index
+                            .entry(fp)
+                            .or_default()
+                            .push(idx);
+                    }
+                }
+                // Populate file-scoped class index
+                if is_class {
+                    if let Some(fp) = class_file_path {
+                        self.file_classes_index
+                            .entry(fp)
+                            .or_default()
+                            .push(idx);
+                    }
+                }
+
                 indices.push(idx);
             }
         }
@@ -314,26 +393,43 @@ impl GraphStore {
         self.get_nodes_by_kind(NodeKind::Class)
     }
 
-    /// Get functions in a specific file
+    /// Get functions in a specific file. O(1) DashMap lookup + O(K) node reads
+    /// where K = number of functions in the file (typically <30).
     pub fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-        let graph = self.read_graph();
-
-        graph
-            .node_weights()
-            .filter(|n| n.kind == NodeKind::Function && n.file_path == file_path)
-            .cloned()
-            .collect()
+        if let Some(indices) = self.file_functions_index.get(file_path) {
+            let graph = self.read_graph();
+            indices.value().iter()
+                .filter_map(|&idx| graph.node_weight(idx).cloned())
+                .collect()
+        } else {
+            vec![]
+        }
     }
 
-    /// Get classes in a specific file
-    pub fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+    /// Find the function containing a specific line in a file. O(1) DashMap lookup +
+    /// O(N) scan of functions in that file (typically <30 functions per file).
+    pub fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
+        let entries = self.function_spatial_index.get(file_path)?;
         let graph = self.read_graph();
+        for &(start, end, idx) in entries.value() {
+            if start <= line && end >= line {
+                return graph.node_weight(idx).cloned();
+            }
+        }
+        None
+    }
 
-        graph
-            .node_weights()
-            .filter(|n| n.kind == NodeKind::Class && n.file_path == file_path)
-            .cloned()
-            .collect()
+    /// Get classes in a specific file. O(1) DashMap lookup + O(K) node reads
+    /// where K = number of classes in the file (typically <10).
+    pub fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+        if let Some(indices) = self.file_classes_index.get(file_path) {
+            let graph = self.read_graph();
+            indices.value().iter()
+                .filter_map(|&idx| graph.node_weight(idx).cloned())
+                .collect()
+        } else {
+            vec![]
+        }
     }
 
     /// Get functions with complexity above threshold
