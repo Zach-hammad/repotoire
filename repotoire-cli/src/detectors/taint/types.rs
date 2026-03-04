@@ -80,6 +80,83 @@ impl TaintCategory {
             TaintCategory::LogInjection => "Log Injection",
         }
     }
+
+    /// Literal strings that MUST appear in file content for this taint category
+    /// to be relevant. Files without any of these patterns are skipped entirely.
+    pub fn quick_reject_patterns(&self) -> &'static [&'static str] {
+        match self {
+            TaintCategory::SqlInjection => &[
+                "execute",
+                "cursor",
+                "query",
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "sql",
+                "SQL",
+                "db.",
+            ],
+            TaintCategory::CommandInjection => &[
+                "exec",
+                "spawn",
+                "system",
+                "popen",
+                "subprocess",
+                "shell",
+                "Process",
+            ],
+            TaintCategory::Xss => &[
+                "innerHTML",
+                "document.write",
+                "dangerouslySetInnerHTML",
+                "render",
+                "template",
+                "html",
+            ],
+            TaintCategory::Ssrf => &[
+                "fetch",
+                "request",
+                "http",
+                "urllib",
+                "requests.get",
+                "curl",
+                "urlopen",
+            ],
+            TaintCategory::PathTraversal => &[
+                "open(",
+                "readFile",
+                "readdir",
+                "path.join",
+                "os.path",
+                "file_get_contents",
+            ],
+            TaintCategory::CodeInjection => &[
+                "eval(",
+                "exec(",
+                "compile(",
+                "Function(",
+                "setInterval(",
+                "setTimeout(",
+            ],
+            TaintCategory::LogInjection => &[
+                "log(",
+                "logger",
+                "logging",
+                "console.log",
+                "print(",
+                "warn(",
+                "error(",
+            ],
+        }
+    }
+
+    /// Check if file content might contain relevant sinks for this category.
+    pub fn file_might_be_relevant(&self, content: &str) -> bool {
+        self.quick_reject_patterns()
+            .iter()
+            .any(|p| content.contains(p))
+    }
 }
 
 /// A path from a taint source to a sink through the call graph
@@ -127,5 +204,57 @@ impl TaintPath {
                 self.sink_function
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pre_filter_skips_irrelevant_files() {
+        let content = "def hello():\n    print('world')\n";
+        assert!(!TaintCategory::SqlInjection.file_might_be_relevant(content));
+
+        let content_sql = "cursor.execute(query)";
+        assert!(TaintCategory::SqlInjection.file_might_be_relevant(content_sql));
+    }
+
+    #[test]
+    fn test_pre_filter_all_categories_have_patterns() {
+        let categories = [
+            TaintCategory::SqlInjection,
+            TaintCategory::CommandInjection,
+            TaintCategory::Xss,
+            TaintCategory::Ssrf,
+            TaintCategory::PathTraversal,
+            TaintCategory::CodeInjection,
+            TaintCategory::LogInjection,
+        ];
+        for cat in &categories {
+            assert!(
+                !cat.quick_reject_patterns().is_empty(),
+                "{:?} should have quick-reject patterns",
+                cat
+            );
+        }
+    }
+
+    #[test]
+    fn test_pre_filter_command_injection() {
+        let irrelevant = "def add(a, b):\n    return a + b\n";
+        assert!(!TaintCategory::CommandInjection.file_might_be_relevant(irrelevant));
+
+        let relevant = "subprocess.run(cmd)";
+        assert!(TaintCategory::CommandInjection.file_might_be_relevant(relevant));
+    }
+
+    #[test]
+    fn test_pre_filter_xss() {
+        let irrelevant = "fn compute(x: i32) -> i32 { x * 2 }";
+        assert!(!TaintCategory::Xss.file_might_be_relevant(irrelevant));
+
+        let relevant = "element.innerHTML = userInput;";
+        assert!(TaintCategory::Xss.file_might_be_relevant(relevant));
     }
 }

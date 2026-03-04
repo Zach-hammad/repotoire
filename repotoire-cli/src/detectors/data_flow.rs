@@ -508,6 +508,11 @@ pub fn run_intra_function_taint(
             },
         };
 
+        // Pre-filter: skip files that don't contain any relevant sink patterns
+        if !category.file_might_be_relevant(&content) {
+            continue;
+        }
+
         // Extract function body from source
         let line_start = func.line_start as usize;
         let line_end = func.get_i64("lineEnd").unwrap_or(0) as usize;
