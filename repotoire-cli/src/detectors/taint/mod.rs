@@ -587,16 +587,26 @@ impl TaintAnalyzer {
         graph: &dyn crate::graph::GraphQuery,
         category: TaintCategory,
     ) -> Vec<TaintPath> {
-        let mut paths = Vec::new();
-        let functions = graph.get_functions();
+        self.trace_taint_with_functions(graph, category, None)
+    }
 
-        // Find all potential source functions (route handlers, input processors)
-        let source_funcs: Vec<_> = functions
-            .iter()
-            .filter(|f| self.is_potential_source_function(f, category))
-            .collect();
+    /// Trace taint paths, optionally reusing a pre-fetched function list.
+    pub fn trace_taint_with_functions(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        category: TaintCategory,
+        functions: Option<&[crate::graph::CodeNode]>,
+    ) -> Vec<TaintPath> {
+        let owned_functions;
+        let functions = match functions {
+            Some(f) => f,
+            None => {
+                owned_functions = graph.get_functions();
+                &owned_functions
+            }
+        };
 
-        // Find all sink functions
+        // Find sink functions FIRST — if none exist, skip entirely
         let sink_funcs: Vec<_> = functions
             .iter()
             .filter(|f| {
@@ -604,15 +614,34 @@ impl TaintAnalyzer {
             })
             .collect();
 
-        // For each source, BFS to find paths to sinks
+        if sink_funcs.is_empty() {
+            return Vec::new();
+        }
+
+        // Build sink set ONCE (outside source loop)
+        let sink_qns: HashSet<&str> = sink_funcs
+            .iter()
+            .map(|f| f.qualified_name.as_str())
+            .collect();
+
+        // Find source functions
+        let source_funcs: Vec<_> = functions
+            .iter()
+            .filter(|f| self.is_potential_source_function(f, category))
+            .collect();
+
+        if source_funcs.is_empty() {
+            return Vec::new();
+        }
+
+        let mut paths = Vec::new();
+
+        // BFS from each source to find paths to sinks
         for source in &source_funcs {
             let source_paths = self.bfs_to_sinks(
                 graph,
                 &source.qualified_name,
-                &sink_funcs
-                    .iter()
-                    .map(|f| f.qualified_name.as_str())
-                    .collect::<HashSet<_>>(),
+                &sink_qns,
                 category,
             );
 
@@ -629,7 +658,7 @@ impl TaintAnalyzer {
                         call_chain,
                         is_sanitized: sanitizer.is_some(),
                         sanitizer,
-                        confidence: 0.7, // Base confidence for graph-traced paths
+                        confidence: 0.7,
                     });
                 }
             }
@@ -638,37 +667,18 @@ impl TaintAnalyzer {
         paths
     }
 
-    /// Check if a function is a potential taint source (e.g., route handler)
+    /// Check if a function is a potential taint source (e.g., route handler).
+    ///
+    /// Uses a two-tier approach to avoid false positives in large non-web codebases:
+    /// - **Strong signals** (route decorators, explicit source patterns) → always match
+    /// - **Weak signals** (handler-like names: `get_*`, `handle_*`, `view`) → require
+    ///   corroborating evidence from the file path (must look web-related)
     fn is_potential_source_function(
         &self,
         func: &crate::graph::CodeNode,
         _category: TaintCategory,
     ) -> bool {
-        let name_lower = func.name.to_lowercase();
-        let qn_lower = func.qualified_name.to_lowercase();
-
-        // Route handlers are typically taint sources
-        let is_route_handler = name_lower.contains("handler")
-            || name_lower.contains("controller")
-            || name_lower.contains("view")
-            || name_lower.contains("endpoint")
-            || name_lower.starts_with("get_")
-            || name_lower.starts_with("post_")
-            || name_lower.starts_with("put_")
-            || name_lower.starts_with("delete_")
-            || name_lower.starts_with("patch_")
-            || name_lower.starts_with("handle_");
-
-        // Check if function references any source patterns
-        let references_source = if let Some(sources) = self.sources.get(&_category) {
-            sources.iter().any(|s| {
-                qn_lower.contains(&s.to_lowercase()) || name_lower.contains(&s.to_lowercase())
-            })
-        } else {
-            false
-        };
-
-        // Check properties for route decorator indicators
+        // Strong signal: route decorator — always a source
         let has_route_decorator = func
             .get_str("decorators")
             .map(|d| {
@@ -680,7 +690,57 @@ impl TaintAnalyzer {
             })
             .unwrap_or(false);
 
-        is_route_handler || references_source || has_route_decorator
+        if has_route_decorator {
+            return true;
+        }
+
+        // Strong signal: function name/qn contains actual source patterns (request.body, etc.)
+        let name_lower = func.name.to_lowercase();
+        let qn_lower = func.qualified_name.to_lowercase();
+
+        let references_source = if let Some(sources) = self.sources.get(&_category) {
+            sources.iter().any(|s| {
+                qn_lower.contains(&s.to_lowercase()) || name_lower.contains(&s.to_lowercase())
+            })
+        } else {
+            false
+        };
+
+        if references_source {
+            return true;
+        }
+
+        // Weak signal: handler-like name patterns — require corroborating file path evidence.
+        // Without this, patterns like `get_*` match thousands of functions in non-web
+        // codebases (e.g., CPython's get_item, get_type, get_value, ...).
+        let has_handler_name = name_lower.contains("handler")
+            || name_lower.contains("controller")
+            || name_lower.contains("view")
+            || name_lower.contains("endpoint")
+            || name_lower.starts_with("get_")
+            || name_lower.starts_with("post_")
+            || name_lower.starts_with("put_")
+            || name_lower.starts_with("delete_")
+            || name_lower.starts_with("patch_")
+            || name_lower.starts_with("handle_");
+
+        if !has_handler_name {
+            return false;
+        }
+
+        // Corroborating evidence: file path looks web-related
+        let path_lower = func.file_path.to_lowercase();
+        path_lower.contains("route")
+            || path_lower.contains("view")
+            || path_lower.contains("handler")
+            || path_lower.contains("controller")
+            || path_lower.contains("endpoint")
+            || path_lower.contains("/api/")
+            || path_lower.contains("/api.")
+            || path_lower.contains("/web/")
+            || path_lower.contains("/server/")
+            || path_lower.contains("/app/")
+            || path_lower.contains("app.")
     }
 
     /// BFS from a source function to find paths to any sink

@@ -81,9 +81,11 @@ pub fn run_centralized_taint(
     let start = std::time::Instant::now();
 
     // Phase 1: Cross-function BFS taint for all categories
+    // Fetch function list ONCE and share across all 7 categories
+    let functions = graph.get_functions();
     let mut cross_function: HashMap<TaintCategory, Vec<TaintPath>> = HashMap::new();
     for &category in ALL_CATEGORIES {
-        let paths = analyzer.trace_taint(graph, category);
+        let paths = analyzer.trace_taint_with_functions(graph, category, Some(&functions));
         if !paths.is_empty() {
             debug!(
                 "Cross-function taint for {:?}: {} paths",
