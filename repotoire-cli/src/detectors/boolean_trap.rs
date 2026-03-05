@@ -90,6 +90,13 @@ impl Detector for BooleanTrapDetector {
             }
         }
 
+        // Pre-build name→CodeNode map once — O(N) instead of O(N) per finding
+        let func_by_name: std::collections::HashMap<String, crate::graph::store_models::CodeNode> = graph
+            .get_functions()
+            .into_iter()
+            .map(|f| (f.name.clone(), f))
+            .collect();
+
         // Second pass: create findings with graph context
         for (path, line_num, func_name, bool_count) in trap_calls {
             if findings.len() >= self.max_findings {
@@ -98,11 +105,8 @@ impl Detector for BooleanTrapDetector {
 
             let call_count = func_call_counts.get(&func_name).copied().unwrap_or(1);
 
-            // Find the function definition in graph
-            let func_def = graph
-                .get_functions()
-                .into_iter()
-                .find(|f| f.name == func_name);
+            // Find the function definition in graph — O(1) lookup
+            let func_def = func_by_name.get(&func_name);
 
             // Build context
             let mut notes = Vec::new();
@@ -118,7 +122,7 @@ impl Detector for BooleanTrapDetector {
                 ));
             }
 
-            if let Some(ref def) = func_def {
+            if let Some(def) = func_def {
                 if let Some(params) = def.get_str("params") {
                     notes.push(format!("📝 Function params: {}", params));
                 }
