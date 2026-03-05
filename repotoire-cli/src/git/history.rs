@@ -105,6 +105,28 @@ fn process_diff_delta(
     }
 }
 
+/// Create DiffOptions tuned for performance.
+///
+/// - `skip_binary_check`: avoids decompressing blobs just to detect binary files
+/// - `context_lines(0)`: no surrounding context needed for analysis
+/// - `ignore_submodules`: skip submodule diffing
+fn fast_diff_opts() -> DiffOptions {
+    let mut opts = DiffOptions::new();
+    opts.skip_binary_check(true);
+    opts.ignore_submodules(true);
+    opts.context_lines(0);
+    opts.interhunk_lines(0);
+    opts
+}
+
+/// Create fast DiffOptions with an exact pathspec filter.
+fn fast_pathspec_opts(path: &str) -> DiffOptions {
+    let mut opts = fast_diff_opts();
+    opts.pathspec(path);
+    opts.disable_pathspec_match(true);
+    opts
+}
+
 /// Check whether a commit is before the given timestamp cutoff
 fn is_commit_before(commit: &git2::Commit, since: Option<DateTime<Utc>>) -> bool {
     let Some(since_ts) = since else { return false };
@@ -157,7 +179,7 @@ impl GitHistory {
         revwalk.push_head()?;
 
         let mut commits = Vec::new();
-        let _file_path_normalized = Path::new(file_path);
+        let mut diff_opts = fast_pathspec_opts(file_path);
 
         for oid_result in revwalk {
             if commits.len() >= max_commits {
@@ -171,9 +193,6 @@ impl GitHistory {
             let parent = commit.parent(0).ok();
             let tree = commit.tree()?;
             let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
-
-            let mut diff_opts = DiffOptions::new();
-            diff_opts.pathspec(file_path);
 
             let diff = self.repo.diff_tree_to_tree(
                 parent_tree.as_ref(),
@@ -268,7 +287,10 @@ impl GitHistory {
 
         let mut revwalk = self.repo.revwalk()?;
         revwalk.set_sorting(Sort::TIME)?;
+        revwalk.simplify_first_parent()?;
         revwalk.push_head()?;
+
+        let mut diff_opts = fast_diff_opts();
 
         for (commit_count, oid_result) in revwalk.enumerate() {
             if commit_count >= max_commits {
@@ -285,7 +307,7 @@ impl GitHistory {
 
             let diff = self
                 .repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
 
             let author = commit.author().name().unwrap_or("Unknown").to_string();
             let timestamp = format_git_time(&commit.time());
@@ -318,8 +340,7 @@ impl GitHistory {
         let tree = commit.tree()?;
         let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
 
-        let mut diff_opts = DiffOptions::new();
-        diff_opts.pathspec(file_path);
+        let mut diff_opts = fast_pathspec_opts(file_path);
 
         let diff =
             self.repo
@@ -346,9 +367,10 @@ impl GitHistory {
         let tree = commit.tree()?;
         let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
 
+        let mut diff_opts = fast_diff_opts();
         let diff = self
             .repo
-            .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+            .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
 
         let mut files_changed = Vec::new();
         diff.foreach(
@@ -440,6 +462,7 @@ impl GitHistory {
         revwalk.push_head()?;
 
         let mut results = Vec::new();
+        let mut diff_opts = fast_pathspec_opts(file_path);
 
         for oid_result in revwalk {
             if results.len() >= max_commits {
@@ -452,9 +475,6 @@ impl GitHistory {
             let parent = commit.parent(0).ok();
             let tree = commit.tree()?;
             let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
-
-            let mut diff_opts = DiffOptions::new();
-            diff_opts.pathspec(file_path);
 
             let diff = self.repo.diff_tree_to_tree(
                 parent_tree.as_ref(),
@@ -530,11 +550,13 @@ impl GitHistory {
 
         let mut revwalk = self.repo.revwalk()?;
         revwalk.set_sorting(Sort::TIME)?;
+        revwalk.simplify_first_parent()?;
         revwalk.push_head()?;
 
         let max_total_commits = 500;
         let mut saturated = 0usize;
         let total_target = target_files.len();
+        let mut broad_opts = fast_diff_opts();
 
         for (idx, oid_result) in revwalk.enumerate() {
             if idx >= max_total_commits || saturated >= total_target {
@@ -551,7 +573,7 @@ impl GitHistory {
             // Full diff to identify which target files appear in this commit
             let diff = self
                 .repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut broad_opts))?;
 
             // Check deltas for target files (fast: iterates tree comparison structs)
             let mut matched: Vec<String> = Vec::new();
@@ -584,8 +606,7 @@ impl GitHistory {
 
             // For each matched file, pathspec diff for accurate hunks + stats
             for file_path in matched {
-                let mut diff_opts = DiffOptions::new();
-                diff_opts.pathspec(file_path.as_str());
+                let mut diff_opts = fast_pathspec_opts(file_path.as_str());
 
                 let file_diff = self.repo.diff_tree_to_tree(
                     parent_tree.as_ref(),
@@ -665,7 +686,10 @@ impl GitHistory {
 
         let mut revwalk = self.repo.revwalk()?;
         revwalk.set_sorting(Sort::TIME)?;
+        revwalk.simplify_first_parent()?;
         revwalk.push_head()?;
+
+        let mut diff_opts = fast_diff_opts();
 
         for (idx, oid_result) in revwalk.enumerate() {
             if idx >= max_commits {
@@ -681,57 +705,23 @@ impl GitHistory {
 
             let diff = self
                 .repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
 
-            // Single foreach pass: extract per-file hunk ranges + per-hunk line counts.
-            // We use RefCell because diff.foreach takes separate closures that can't
-            // share mutable borrows directly.
+            // Extract per-file hunk ranges using file_cb + hunk_cb only (no line_cb).
+            // Dropping line_cb avoids libgit2 decompressing file content for every
+            // line of every file in the diff. We approximate insertions/deletions from
+            // hunk header metadata: new_lines ≈ insertions, old_lines ≈ deletions.
+            // This is slightly less precise but dramatically faster.
+            //
+            // RefCell needed because file_cb (mutable borrow of current_file) and
+            // hunk_cb (read of current_file) are separate closures passed to foreach.
             use std::cell::RefCell;
-
-            struct ForeachState {
-                current_file: Option<String>,
-                file_hunks: HashMap<String, Vec<HunkDetail>>,
-                current_hunk_start: u32,
-                current_hunk_end: u32,
-                current_hunk_insertions: usize,
-                current_hunk_deletions: usize,
-                in_hunk: bool,
-            }
-
-            impl ForeachState {
-                fn flush_hunk(&mut self) {
-                    if self.in_hunk {
-                        if let Some(ref file) = self.current_file {
-                            self.file_hunks
-                                .entry(file.clone())
-                                .or_default()
-                                .push(HunkDetail {
-                                    new_start: self.current_hunk_start,
-                                    new_end: self.current_hunk_end,
-                                    insertions: self.current_hunk_insertions,
-                                    deletions: self.current_hunk_deletions,
-                                });
-                        }
-                        self.in_hunk = false;
-                    }
-                }
-            }
-
-            let state = RefCell::new(ForeachState {
-                current_file: None,
-                file_hunks: HashMap::new(),
-                current_hunk_start: 0,
-                current_hunk_end: 0,
-                current_hunk_insertions: 0,
-                current_hunk_deletions: 0,
-                in_hunk: false,
-            });
+            let current_file: RefCell<Option<String>> = RefCell::new(None);
+            let mut file_hunks: HashMap<String, Vec<HunkDetail>> = HashMap::new();
 
             diff.foreach(
                 &mut |delta, _progress| {
-                    let mut s = state.borrow_mut();
-                    s.flush_hunk();
-                    s.current_file = delta
+                    *current_file.borrow_mut() = delta
                         .new_file()
                         .path()
                         .map(|p| p.to_string_lossy().to_string());
@@ -739,31 +729,18 @@ impl GitHistory {
                 },
                 None, // binary_cb
                 Some(&mut |_delta, hunk| {
-                    let mut s = state.borrow_mut();
-                    s.flush_hunk();
-                    s.current_hunk_start = hunk.new_start();
-                    s.current_hunk_end = hunk.new_start() + hunk.new_lines();
-                    s.current_hunk_insertions = 0;
-                    s.current_hunk_deletions = 0;
-                    s.in_hunk = true;
-                    true
-                }),
-                Some(&mut |_delta, _hunk, line| {
-                    let mut s = state.borrow_mut();
-                    match line.origin() {
-                        '+' => s.current_hunk_insertions += 1,
-                        '-' => s.current_hunk_deletions += 1,
-                        _ => {}
+                    if let Some(ref file) = *current_file.borrow() {
+                        file_hunks.entry(file.clone()).or_default().push(HunkDetail {
+                            new_start: hunk.new_start(),
+                            new_end: hunk.new_start() + hunk.new_lines(),
+                            insertions: hunk.new_lines() as usize,
+                            deletions: hunk.old_lines() as usize,
+                        });
                     }
                     true
                 }),
+                None, // no line_cb — avoids per-line content decompression
             )?;
-
-            // Flush final hunk and extract data
-            let mut s = state.borrow_mut();
-            s.flush_hunk();
-            let file_hunks = std::mem::take(&mut s.file_hunks);
-            drop(s);
 
             // Now process the collected data for this commit
             if file_hunks.is_empty() {
@@ -833,8 +810,7 @@ impl GitHistory {
         let tree = commit.tree()?;
         let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
 
-        let mut diff_opts = DiffOptions::new();
-        diff_opts.pathspec(file_path);
+        let mut diff_opts = fast_pathspec_opts(file_path);
 
         let diff =
             self.repo
