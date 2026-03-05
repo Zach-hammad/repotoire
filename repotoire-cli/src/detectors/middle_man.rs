@@ -92,16 +92,11 @@ impl MiddleManDetector {
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
     ) -> Option<DelegationAnalysis> {
-        let functions = graph.get_functions();
-
-        // Find methods belonging to this class
-        let methods: Vec<_> = functions
+        // Find methods belonging to this class using file-scoped index (O(1) lookup)
+        let file_funcs = graph.get_functions_in_file(&class.file_path);
+        let methods: Vec<_> = file_funcs
             .iter()
-            .filter(|f| {
-                f.file_path == class.file_path
-                    && f.line_start >= class.line_start
-                    && f.line_end <= class.line_end
-            })
+            .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
             .collect();
 
         if methods.len() < self.thresholds.min_methods {
