@@ -184,7 +184,9 @@ impl DetectorEngine {
         };
 
         info!("Building HMM function contexts from graph...");
+        let t_hmm_start = std::time::Instant::now();
         let mut functions = graph.get_functions();
+        eprintln!("PERF_HMM: get_functions: {} in {:?}", functions.len(), t_hmm_start.elapsed());
 
         if functions.is_empty() {
             let empty = Arc::new(HashMap::new());
@@ -192,26 +194,33 @@ impl DetectorEngine {
             return empty;
         }
 
-        // Pre-compute fan-in and fan-out in one O(n) pass to avoid
-        // repeated graph queries in sort comparators and feature extraction.
-        let mut callers_map: HashMap<String, Vec<crate::graph::CodeNode>> = functions
+        // Build caller file paths and fan-out from call edges in a single pass
+        // (replaces 2×N per-function graph queries with 1 bulk get_calls)
+        let t_calls = std::time::Instant::now();
+        let calls = graph.get_calls();
+        eprintln!("PERF_HMM: get_calls: {} edges in {:?}", calls.len(), t_calls.elapsed());
+        let func_file_lookup: HashMap<&str, &str> = functions
             .iter()
-            .map(|f| {
-                (
-                    f.qualified_name.clone(),
-                    graph.get_callers(&f.qualified_name),
-                )
-            })
+            .map(|f| (f.qualified_name.as_str(), f.file_path.as_str()))
+            .collect();
+        let mut callers_map: HashMap<String, Vec<String>> = functions
+            .iter()
+            .map(|f| (f.qualified_name.clone(), Vec::new()))
             .collect();
         let mut fan_out_map: HashMap<String, usize> = functions
             .iter()
-            .map(|f| {
-                (
-                    f.qualified_name.clone(),
-                    graph.get_callees(&f.qualified_name).len(),
-                )
-            })
+            .map(|f| (f.qualified_name.clone(), 0))
             .collect();
+        for (caller_qn, callee_qn) in &calls {
+            if let Some(&caller_file) = func_file_lookup.get(caller_qn.as_str()) {
+                if let Some(callers) = callers_map.get_mut(callee_qn.as_str()) {
+                    callers.push(caller_file.to_string());
+                }
+            }
+            if let Some(count) = fan_out_map.get_mut(caller_qn.as_str()) {
+                *count += 1;
+            }
+        }
 
         // Limit function count to prevent OOM on huge codebases
         const MAX_FUNCTIONS_FOR_HMM: usize = 20_000;
@@ -288,8 +297,8 @@ impl DetectorEngine {
                 .get(&func.qualified_name)
                 .copied()
                 .unwrap_or(0);
-            let caller_files: std::collections::HashSet<_> =
-                callers.iter().map(|c| &c.file_path).collect();
+            let caller_files: std::collections::HashSet<&str> =
+                callers.iter().map(|c| c.as_str()).collect();
 
             let loc = func.line_end.saturating_sub(func.line_start) + 1;
             let address_taken = func
@@ -318,8 +327,11 @@ impl DetectorEngine {
             function_data.push((features, fan_in, fan_out, address_taken));
         }
 
+        eprintln!("PERF_HMM: feature extraction done in {:?}", t_hmm_start.elapsed());
         // Bootstrap training from call graph patterns
+        let t_train = std::time::Instant::now();
         classifier.train(&function_data);
+        eprintln!("PERF_HMM: training done in {:?}", t_train.elapsed());
 
         // Save trained model to cache
         if let Some(path) = cache_path {
@@ -501,6 +513,10 @@ impl DetectorEngine {
                 })
                 .collect()
         });
+
+        // Sort independent results by detector name for deterministic finding order
+        let mut independent_results = independent_results;
+        independent_results.sort_by(|a, b| a.detector_name.cmp(&b.detector_name));
 
         // Collect findings from independent detectors
         let mut all_findings: Vec<Finding> = Vec::new();
@@ -687,6 +703,10 @@ impl DetectorEngine {
                 .collect()
         });
 
+        // Sort by detector name for deterministic finding order
+        let mut results = results;
+        results.sort_by(|a, b| a.detector_name.cmp(&b.detector_name));
+
         let mut findings = Vec::new();
         let mut detector_timings: Vec<(String, u64)> = Vec::new();
 
@@ -751,11 +771,18 @@ impl DetectorEngine {
 
         info!("Running {} graph-dependent detectors", gd_detectors.len());
 
+        let t0 = std::time::Instant::now();
         let contexts = self.get_or_build_contexts(graph);
+        eprintln!("PERF_GD: get_or_build_contexts: {:?}", t0.elapsed());
+
+        let t1 = std::time::Instant::now();
         let hmm_contexts = self.build_hmm_contexts(graph);
+        eprintln!("PERF_GD: build_hmm_contexts: {:?}", t1.elapsed());
+
         let finding_count = Arc::new(AtomicUsize::new(0));
         let completed = Arc::new(AtomicUsize::new(0));
 
+        let t2 = std::time::Instant::now();
         // Pre-compute centralized taint analysis for all security detectors.
         // This runs taint analysis ONCE for all categories instead of 12x.
         let repo_path = Some(files.repo_path());
@@ -783,7 +810,10 @@ impl DetectorEngine {
             }
         }
 
+        eprintln!("PERF_GD: taint pre-compute: {:?}", t2.elapsed());
+
         // Split into parallel (independent but graph-requiring) and sequential (dependent)
+        let t3 = std::time::Instant::now();
         let (parallel, sequential): (Vec<_>, Vec<_>) =
             gd_detectors.into_iter().partition(|d| !d.is_dependent());
 
@@ -809,8 +839,12 @@ impl DetectorEngine {
                         return DetectorResult::skipped(detector.name());
                     }
 
+                    eprintln!("PERF_DET_GD_START: {}", detector.name());
+                    let t_det = std::time::Instant::now();
                     let result =
                         self.run_single_detector(detector, graph, files, &contexts_clone);
+                    let det_ms = t_det.elapsed().as_millis();
+                    eprintln!("PERF_DET_GD: {} = {}ms ({} findings)", detector.name(), det_ms, result.findings.len());
                     finding_count_clone.fetch_add(result.findings.len(), Ordering::Relaxed);
 
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -822,6 +856,12 @@ impl DetectorEngine {
                 })
                 .collect()
         });
+
+        eprintln!("PERF_GD: parallel detectors: {:?}", t3.elapsed());
+
+        // Sort by detector name for deterministic finding order
+        let mut parallel_results = parallel_results;
+        parallel_results.sort_by(|a, b| a.detector_name.cmp(&b.detector_name));
 
         let mut findings = Vec::new();
         let mut detector_timings: Vec<(String, u64)> = Vec::new();
@@ -838,6 +878,7 @@ impl DetectorEngine {
         }
 
         // Run sequential dependent detectors
+        eprintln!("PERF_GD: starting {} sequential detectors", sequential.len());
         for detector in sequential {
             if finding_count.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
                 let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -847,7 +888,11 @@ impl DetectorEngine {
                 continue;
             }
 
+            eprintln!("PERF_DET_SEQ_START: {}", detector.name());
+            let t_seq = std::time::Instant::now();
             let result = self.run_single_detector(&detector, graph, files, &contexts);
+            let seq_ms = t_seq.elapsed().as_millis();
+            eprintln!("PERF_DET_SEQ: {} = {}ms ({} findings)", detector.name(), seq_ms, result.findings.len());
             finding_count.fetch_add(result.findings.len(), Ordering::Relaxed);
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -866,19 +911,24 @@ impl DetectorEngine {
         }
 
         // Filter out test file findings if enabled
+        eprintln!("PERF_GD: post-filter start, {} findings", findings.len());
         if self.skip_test_files {
+            let t_test_filter = std::time::Instant::now();
             let before_count = findings.len();
             findings.retain(|finding| !self.is_test_file_finding(finding));
             let filtered = before_count - findings.len();
+            eprintln!("PERF_GD: test file filter: {} → {} in {:?}", before_count, findings.len(), t_test_filter.elapsed());
             if filtered > 0 {
                 debug!("Filtered out {} findings from test files", filtered);
             }
         }
 
         // Apply HMM-based context filtering (only for graph-dependent since HMM needs graph)
+        let t_hmm_filter = std::time::Instant::now();
         let before_hmm = findings.len();
         findings = self.apply_hmm_context_filter(findings, &hmm_contexts, graph);
         let hmm_filtered = before_hmm - findings.len();
+        eprintln!("PERF_GD: HMM filter: {} → {} findings in {:?}", before_hmm, findings.len(), t_hmm_filter.elapsed());
         if hmm_filtered > 0 {
             info!("HMM context filter removed {} false positives", hmm_filtered);
         }
@@ -1010,60 +1060,65 @@ impl DetectorEngine {
         // Detectors that should skip HANDLER functions
         const DEAD_CODE_DETECTORS: &[&str] = &["UnreachableCodeDetector", "DeadCodeDetector"];
 
-        findings.retain(|finding| {
-            // Try to get the function associated with this finding
-            let func_name = self.extract_function_from_finding(finding, graph);
+        // Pre-build file+line → function index (avoid calling get_functions() per finding)
+        let all_functions = graph.get_functions();
+        let mut func_by_file: HashMap<String, Vec<&crate::graph::CodeNode>> = HashMap::new();
+        for func in &all_functions {
+            func_by_file.entry(func.file_path.clone()).or_default().push(func);
+        }
 
-            if let Some(name) = func_name {
-                if let Some(context) = hmm_contexts.get(&name) {
-                    // Skip coupling findings for utility/handler/test functions
-                    if COUPLING_DETECTORS
-                        .iter()
-                        .any(|d| finding.detector.contains(d))
-                        && context.skip_coupling()
-                    {
-                        debug!(
-                            "HMM filter: skipping coupling finding for {} (context: {:?})",
-                            name, context
-                        );
-                        return false;
-                    }
+        // Parallel filter via rayon — each finding is independent
+        let engine = &self;
+        let findings: Vec<Finding> = findings
+            .into_par_iter()
+            .filter(|finding| {
+                let func_name = engine.extract_function_from_finding_fast(finding, &func_by_file);
 
-                    // Skip dead code findings for handler functions
-                    if DEAD_CODE_DETECTORS
-                        .iter()
-                        .any(|d| finding.detector.contains(d))
-                        && context.skip_dead_code()
-                    {
-                        debug!(
-                            "HMM filter: skipping dead code finding for {} (context: {:?})",
-                            name, context
-                        );
-                        return false;
+                if let Some(name) = func_name {
+                    if let Some(context) = hmm_contexts.get(&name) {
+                        // Skip coupling findings for utility/handler/test functions
+                        if COUPLING_DETECTORS
+                            .iter()
+                            .any(|d| finding.detector.contains(d))
+                            && context.skip_coupling()
+                        {
+                            return false;
+                        }
+
+                        // Skip dead code findings for handler functions
+                        if DEAD_CODE_DETECTORS
+                            .iter()
+                            .any(|d| finding.detector.contains(d))
+                            && context.skip_dead_code()
+                        {
+                            return false;
+                        }
                     }
                 }
-            }
 
-            true
-        });
+                true
+            })
+            .collect();
 
         findings
     }
 
-    /// Try to extract the function qualified name from a finding
-    fn extract_function_from_finding(
+    /// Try to extract the function qualified name from a finding (fast: pre-built index)
+    fn extract_function_from_finding_fast(
         &self,
         finding: &Finding,
-        graph: &dyn crate::graph::GraphQuery,
+        func_by_file: &HashMap<String, Vec<&crate::graph::CodeNode>>,
     ) -> Option<String> {
         // Try to find function by file path and line number
         if let (Some(file), Some(line)) = (finding.affected_files.first(), finding.line_start) {
             let file_str = file.to_string_lossy();
 
-            // Look up function in graph by location
-            for func in graph.get_functions() {
-                if func.file_path == file_str && func.line_start <= line && func.line_end >= line {
-                    return Some(func.qualified_name.clone());
+            // Look up function in pre-built file index
+            if let Some(funcs) = func_by_file.get(file_str.as_ref()) {
+                for func in funcs {
+                    if func.line_start <= line && func.line_end >= line {
+                        return Some(func.qualified_name.clone());
+                    }
                 }
             }
         }
@@ -1073,10 +1128,12 @@ impl DetectorEngine {
             let parts: Vec<&str> = finding.title.splitn(2, ':').collect();
             if parts.len() == 2 {
                 let name = parts[1].trim();
-                // Look up in graph
-                for func in graph.get_functions() {
-                    if func.name == name || func.qualified_name.ends_with(name) {
-                        return Some(func.qualified_name.clone());
+                // Look up in all functions by name
+                for funcs in func_by_file.values() {
+                    for func in funcs {
+                        if func.name == name || func.qualified_name.ends_with(name) {
+                            return Some(func.qualified_name.clone());
+                        }
                     }
                 }
             }
