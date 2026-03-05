@@ -360,6 +360,20 @@ impl Detector for InsecureCryptoDetector {
                 continue;
             }
 
+            // Cheap pre-filter: skip files without crypto-related keywords
+            // to avoid expensive masked_content() tree-sitter parsing
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            let raw_lower = raw.to_ascii_lowercase();
+            if !raw_lower.contains("md5") && !raw_lower.contains("sha1")
+                && !raw_lower.contains("sha-1") && !raw_lower.contains("hashlib")
+                && !raw_lower.contains("messagedigest")
+            {
+                continue;
+            }
+
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut in_non_crypto_func = false;
