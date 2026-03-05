@@ -127,30 +127,7 @@ impl UnusedImportsDetector {
         exports
     }
 
-    /// Check if a symbol is used in the content after the import
-    fn is_symbol_used(content: &str, symbol: &str, import_line: usize) -> bool {
-        let lines: Vec<&str> = content.lines().collect();
-
-        // Skip common false positives
-        if symbol == "_" || symbol == "annotations" || symbol == "TYPE_CHECKING" {
-            return true;
-        }
-
-        for (i, line) in lines.iter().enumerate() {
-            if i <= import_line {
-                continue;
-            }
-
-            // Check for word boundary match
-            for m in WORD.find_iter(line) {
-                if m.as_str() == symbol {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
+    // Symbol usage is checked via pre-built HashSet in detect(), not per-symbol scanning
 }
 
 impl Default for UnusedImportsDetector {
@@ -204,6 +181,27 @@ impl Detector for UnusedImportsDetector {
             if let Some(content) = files.content(path) {
                 let all_exports = Self::extract_all_exports(&content);
                 let lines: Vec<&str> = content.lines().collect();
+
+                // Build word set from non-import lines ONCE per file.
+                // O(N) instead of O(K×N) per-symbol scanning.
+                let usage_set: HashSet<&str> = {
+                    let mut set = HashSet::new();
+                    for line in &lines {
+                        let trimmed = line.trim();
+                        let is_import = if ext == "py" {
+                            (trimmed.starts_with("import ") || trimmed.starts_with("from "))
+                                && (line.len() - line.trim_start().len()) < 4
+                        } else {
+                            trimmed.starts_with("import ")
+                        };
+                        if !is_import {
+                            for m in WORD.find_iter(line) {
+                                set.insert(m.as_str());
+                            }
+                        }
+                    }
+                    set
+                };
 
                 let mut in_type_checking = false;
                 let mut type_checking_indent: usize = 0;
@@ -301,10 +299,15 @@ impl Detector for UnusedImportsDetector {
                     };
 
                     for (symbol, _alias) in imports {
+                        // Skip common false positives
+                        if symbol == "_" || symbol == "annotations" || symbol == "TYPE_CHECKING" {
+                            continue;
+                        }
                         if all_exports.contains(&symbol) {
                             continue;
                         }
-                        if !Self::is_symbol_used(&content, &symbol, line_num) {
+                        // O(1) lookup in pre-built word set instead of O(N) file re-scan
+                        if !usage_set.contains(symbol.as_str()) {
                             unused_per_file
                                 .entry(path.to_path_buf())
                                 .or_default()
