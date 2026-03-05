@@ -66,6 +66,17 @@ impl Detector for BooleanTrapDetector {
         let mut trap_calls: Vec<(PathBuf, u32, String, usize)> = Vec::new();
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "cs"]) {
+            // Cheap pre-filter: skip files without boolean literals
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("true") && !raw.contains("True")
+                && !raw.contains("false") && !raw.contains("False")
+            {
+                continue;
+            }
+
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
@@ -90,12 +101,13 @@ impl Detector for BooleanTrapDetector {
             }
         }
 
-        // Pre-build name→CodeNode map once — O(N) instead of O(N) per finding
-        let func_by_name: std::collections::HashMap<String, crate::graph::store_models::CodeNode> = graph
-            .get_functions()
-            .into_iter()
-            .map(|f| (f.name.clone(), f))
-            .collect();
+        // Lazily build name→CodeNode map (only if there are trap calls)
+        let func_by_name: Option<std::collections::HashMap<String, crate::graph::store_models::CodeNode>> =
+            if trap_calls.is_empty() {
+                None
+            } else {
+                Some(graph.get_functions().into_iter().map(|f| (f.name.clone(), f)).collect())
+            };
 
         // Second pass: create findings with graph context
         for (path, line_num, func_name, bool_count) in trap_calls {
@@ -106,7 +118,7 @@ impl Detector for BooleanTrapDetector {
             let call_count = func_call_counts.get(&func_name).copied().unwrap_or(1);
 
             // Find the function definition in graph — O(1) lookup
-            let func_def = func_by_name.get(&func_name);
+            let func_def = func_by_name.as_ref().and_then(|m| m.get(&func_name));
 
             // Build context
             let mut notes = Vec::new();
