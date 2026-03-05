@@ -9,9 +9,9 @@ use petgraph::algo::tarjan_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 pub use super::store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 
@@ -33,6 +33,9 @@ pub struct GraphStore {
     metrics_cache: DashMap<String, f64>,
     /// String interner for memory-efficient qualified name storage
     interner: super::interner::StringInterner,
+    /// Persistent edge dedup set: prevents duplicate (from, to, kind) edges across batches.
+    /// O(1) lookup instead of O(degree) graph scan per insertion.
+    edge_set: Mutex<HashSet<(NodeIndex, NodeIndex, EdgeKind)>>,
     /// Persistence layer (optional) — uses redb (ACID, well-maintained)
     db: Option<redb::Database>,
     /// Database path for lazy loading
@@ -64,6 +67,7 @@ impl GraphStore {
             file_classes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
+            edge_set: Mutex::new(HashSet::new()),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: false,
@@ -90,6 +94,7 @@ impl GraphStore {
             file_classes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
+            edge_set: Mutex::new(HashSet::new()),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: true,
@@ -106,6 +111,7 @@ impl GraphStore {
             file_classes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
+            edge_set: Mutex::new(HashSet::new()),
             db: None,
             db_path: None,
             lazy_mode: false,
@@ -172,11 +178,13 @@ impl GraphStore {
     /// Get all cached metrics with a given prefix.
     /// Useful for retrieving all metrics of a type (e.g., all "modularity:" metrics).
     pub fn get_cached_metrics_with_prefix(&self, prefix: &str) -> Vec<(String, f64)> {
-        self.metrics_cache
+        let mut results: Vec<(String, f64)> = self.metrics_cache
             .iter()
             .filter(|entry| entry.key().starts_with(prefix))
             .map(|entry| (entry.key().clone(), *entry.value()))
-            .collect()
+            .collect();
+        results.sort_by(|a, b| a.0.cmp(&b.0));
+        results
     }
 
     /// Clear all data
@@ -367,15 +375,17 @@ impl GraphStore {
         false
     }
 
-    /// Get all nodes of a specific kind
+    /// Get all nodes of a specific kind (sorted by qualified_name for determinism)
     pub fn get_nodes_by_kind(&self, kind: NodeKind) -> Vec<CodeNode> {
         let graph = self.read_graph();
 
-        graph
+        let mut nodes: Vec<CodeNode> = graph
             .node_weights()
             .filter(|n| n.kind == kind)
             .cloned()
-            .collect()
+            .collect();
+        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        nodes
     }
 
     /// Get all files
@@ -432,36 +442,45 @@ impl GraphStore {
         }
     }
 
-    /// Get functions with complexity above threshold
+    /// Get functions with complexity above threshold (sorted by qualified_name for determinism)
     pub fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
         let graph = self.read_graph();
 
-        graph
+        let mut nodes: Vec<CodeNode> = graph
             .node_weights()
             .filter(|n| {
                 n.kind == NodeKind::Function && n.complexity().is_some_and(|c| c >= min_complexity)
             })
             .cloned()
-            .collect()
+            .collect();
+        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        nodes
     }
 
-    /// Get functions with many parameters
+    /// Get functions with many parameters (sorted by qualified_name for determinism)
     pub fn get_long_param_functions(&self, min_params: i64) -> Vec<CodeNode> {
         let graph = self.read_graph();
 
-        graph
+        let mut nodes: Vec<CodeNode> = graph
             .node_weights()
             .filter(|n| {
                 n.kind == NodeKind::Function && n.param_count().is_some_and(|p| p >= min_params)
             })
             .cloned()
-            .collect()
+            .collect();
+        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        nodes
     }
 
     // ==================== Edge Operations ====================
 
-    /// Add an edge between nodes by index
+    /// Add an edge between nodes by index (skips if duplicate edge exists)
     pub fn add_edge(&self, from: NodeIndex, to: NodeIndex, edge: CodeEdge) {
+        let mut set = self.edge_set.lock().expect("edge_set lock poisoned");
+        if !set.insert((from, to, edge.kind)) {
+            return; // duplicate
+        }
+        drop(set);
         let mut graph = self.write_graph();
         graph.add_edge(from, to, edge);
     }
@@ -479,7 +498,7 @@ impl GraphStore {
         }
     }
 
-    /// Add multiple edges at once (batch operation)
+    /// Add multiple edges at once (batch operation, deduplicated across all batches)
     pub fn add_edges_batch(&self, edges: Vec<(String, String, CodeEdge)>) -> usize {
         // Resolve all node indices from DashMap first, before acquiring graph write lock
         let resolved: Vec<_> = edges
@@ -491,20 +510,28 @@ impl GraphStore {
             })
             .collect();
 
+        let total = resolved.len();
+        // Deduplicate using persistent edge_set — catches cross-batch duplicates
+        let mut set = self.edge_set.lock().expect("edge_set lock poisoned");
         let mut graph = self.write_graph();
-        let added = resolved.len();
+        let mut added = 0;
         for (from, to, edge) in resolved {
-            graph.add_edge(from, to, edge);
+            if set.insert((from, to, edge.kind)) {
+                graph.add_edge(from, to, edge);
+                added += 1;
+            }
         }
+
+        eprintln!("PERF_DEDUP: batch {total} resolved → {added} unique ({} dupes), set size: {}", total - added, set.len());
 
         added
     }
 
-    /// Get all edges of a specific kind as (source_qn, target_qn) pairs
+    /// Get all edges of a specific kind as (source_qn, target_qn) pairs (sorted for determinism)
     pub fn get_edges_by_kind(&self, kind: EdgeKind) -> Vec<(String, String)> {
         let graph = self.read_graph();
 
-        graph
+        let mut edges: Vec<(String, String)> = graph
             .edge_references()
             .filter(|e| e.weight().kind == kind)
             .filter_map(|e| {
@@ -512,7 +539,53 @@ impl GraphStore {
                 let dst = graph.node_weight(e.target())?;
                 Some((src.qualified_name.clone(), dst.qualified_name.clone()))
             })
-            .collect()
+            .collect();
+        edges.sort();
+        edges
+    }
+
+    /// Get all edges in the graph as (source_qn, dest_qn, edge_kind) tuples.
+    /// Results are sorted for deterministic comparison in tests.
+    pub fn get_all_edges(&self) -> Vec<(String, String, EdgeKind)> {
+        let graph = self.read_graph();
+        let mut edges: Vec<_> = graph
+            .edge_references()
+            .filter_map(|e| {
+                let src_node = graph.node_weight(e.source())?;
+                let dst_node = graph.node_weight(e.target())?;
+                Some((
+                    src_node.qualified_name.clone(),
+                    dst_node.qualified_name.clone(),
+                    e.weight().kind,
+                ))
+            })
+            .collect();
+        edges.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        edges
+    }
+
+    /// Compute coupling stats directly from the graph without materializing string pairs.
+    /// Returns (total_call_count, cross_module_call_count) where "module" is the
+    /// parent directory of each function's file_path.
+    pub fn compute_coupling_stats(&self) -> (usize, usize) {
+        let graph = self.read_graph();
+        let mut total = 0usize;
+        let mut cross_module = 0usize;
+
+        for e in graph.edge_references() {
+            if e.weight().kind != EdgeKind::Calls {
+                continue;
+            }
+            total += 1;
+            if let (Some(src), Some(dst)) = (graph.node_weight(e.source()), graph.node_weight(e.target())) {
+                let src_mod = std::path::Path::new(&src.file_path).parent();
+                let dst_mod = std::path::Path::new(&dst.file_path).parent();
+                if src_mod != dst_mod {
+                    cross_module += 1;
+                }
+            }
+        }
+        (total, cross_module)
     }
 
     /// Get all import edges (file -> file)
@@ -530,74 +603,84 @@ impl GraphStore {
         self.get_edges_by_kind(EdgeKind::Inherits)
     }
 
-    /// Get callers of a function (who calls this?)
+    /// Get callers of a function (who calls this?) — sorted by qualified_name for determinism
     pub fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
         let idx = match self.node_index.get(qn).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
         let graph = self.read_graph();
-        graph
+        let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Incoming)
             .filter(|e| e.weight().kind == EdgeKind::Calls)
             .filter_map(|e| graph.node_weight(e.source()).cloned())
-            .collect()
+            .collect();
+        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        nodes
     }
 
-    /// Get callees of a function (what does this call?)
+    /// Get callees of a function (what does this call?) — sorted by qualified_name for determinism
     pub fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
         let idx = match self.node_index.get(qn).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
         let graph = self.read_graph();
-        graph
+        let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Outgoing)
             .filter(|e| e.weight().kind == EdgeKind::Calls)
             .filter_map(|e| graph.node_weight(e.target()).cloned())
-            .collect()
+            .collect();
+        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        nodes
     }
 
-    /// Get importers of a module/class (who imports this?)
+    /// Get importers of a module/class (who imports this?) — sorted by qualified_name for determinism
     pub fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
         let idx = match self.node_index.get(qn).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
         let graph = self.read_graph();
-        graph
+        let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Incoming)
             .filter(|e| e.weight().kind == EdgeKind::Imports)
             .filter_map(|e| graph.node_weight(e.source()).cloned())
-            .collect()
+            .collect();
+        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        nodes
     }
 
-    /// Get parent classes (what does this inherit from?)
+    /// Get parent classes (what does this inherit from?) — sorted by qualified_name for determinism
     pub fn get_parent_classes(&self, qn: &str) -> Vec<CodeNode> {
         let idx = match self.node_index.get(qn).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
         let graph = self.read_graph();
-        graph
+        let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Outgoing)
             .filter(|e| e.weight().kind == EdgeKind::Inherits)
             .filter_map(|e| graph.node_weight(e.target()).cloned())
-            .collect()
+            .collect();
+        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        nodes
     }
 
-    /// Get child classes (what inherits from this?)
+    /// Get child classes (what inherits from this?) — sorted by qualified_name for determinism
     pub fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
         let idx = match self.node_index.get(qn).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
         let graph = self.read_graph();
-        graph
+        let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Incoming)
             .filter(|e| e.weight().kind == EdgeKind::Inherits)
             .filter_map(|e| graph.node_weight(e.source()).cloned())
-            .collect()
+            .collect();
+        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        nodes
     }
 
     // ==================== Graph Metrics ====================
@@ -658,10 +741,10 @@ impl GraphStore {
         self.read_graph().edge_count()
     }
 
-    /// Get statistics
-    pub fn stats(&self) -> HashMap<String, i64> {
+    /// Get statistics (BTreeMap for deterministic key order)
+    pub fn stats(&self) -> BTreeMap<String, i64> {
         let graph = self.read_graph();
-        let mut stats = HashMap::new();
+        let mut stats = BTreeMap::new();
 
         let mut file_count = 0i64;
         let mut func_count = 0i64;
@@ -739,7 +822,11 @@ impl GraphStore {
             .flat_map(|e| [e.source(), e.target()])
             .collect();
 
-        for orig_idx in relevant_nodes {
+        // Sort by NodeIndex for deterministic filtered-graph construction
+        let mut sorted_nodes: Vec<NodeIndex> = relevant_nodes.into_iter().collect();
+        sorted_nodes.sort_by_key(|idx| idx.index());
+
+        for orig_idx in sorted_nodes {
             let new_idx = filtered_graph.add_node(orig_idx);
             idx_map.insert(orig_idx, new_idx);
             reverse_map.insert(new_idx, orig_idx);
@@ -941,10 +1028,12 @@ impl GraphStore {
         if let Some(edges_entry) = edges_table.get("__edges__")? {
             let edges: Vec<(String, String, CodeEdge)> =
                 serde_json::from_slice(edges_entry.value())?;
+            let mut set = self.edge_set.lock().expect("edge_set lock poisoned");
             for (src_qn, dst_qn, edge) in edges {
                 let src = self.node_index.get(&src_qn).map(|r| *r);
                 let dst = self.node_index.get(&dst_qn).map(|r| *r);
                 if let (Some(src), Some(dst)) = (src, dst) {
+                    set.insert((src, dst, edge.kind));
                     graph.add_edge(src, dst, edge);
                 }
             }
