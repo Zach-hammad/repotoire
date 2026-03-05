@@ -38,6 +38,26 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 
+/// Unresolved cross-file edge buffered during Phase 1 for deferred resolution.
+#[derive(Debug, Clone)]
+enum DeferredEdgeKind {
+    /// Cross-file function call: caller_qn is the caller qualified name,
+    /// callee_name is the callee's bare name (e.g., "helper_from_b").
+    Call {
+        caller_qn: String,
+        callee_name: String,
+        /// Whether the callee has a module qualifier (e.g., "module.func").
+        has_module_qualifier: bool,
+    },
+    /// Cross-file import: file_path is the importing file's relative path,
+    /// import_path is the import path string.
+    Import {
+        file_path: String,
+        import_path: String,
+        is_type_only: bool,
+    },
+}
+
 /// Configuration for the bounded pipeline
 #[derive(Debug, Clone)]
 pub struct PipelineConfig {
@@ -138,6 +158,9 @@ struct FlushingGraphBuilder {
     edge_buffer: Vec<(String, String, CodeEdge)>,
     edge_flush_threshold: usize,
 
+    // Deferred cross-file edges for Phase 2 resolution
+    deferred_edges: Vec<DeferredEdgeKind>,
+
     // Stats
     stats: BoundedPipelineStats,
 }
@@ -184,6 +207,7 @@ impl FlushingGraphBuilder {
             module_lookup: ModuleLookupCompact::default(),
             edge_buffer: Vec::with_capacity(edge_flush_threshold.min(10_000)),
             edge_flush_threshold,
+            deferred_edges: Vec::new(),
             stats: BoundedPipelineStats::default(),
         }
     }
@@ -273,7 +297,7 @@ impl FlushingGraphBuilder {
             ));
         }
 
-        // Resolve and buffer call edges
+        // Resolve call edges — same-file immediately, cross-file deferred
         for call in &info.calls {
             let callee_name = call
                 .callee
@@ -281,41 +305,34 @@ impl FlushingGraphBuilder {
                 .next()
                 .unwrap_or(&call.callee);
 
-            // Check same file first
+            // Check same file first (always resolvable)
             let same_file_match = info
                 .functions
                 .iter()
                 .find(|f| f.name == callee_name)
                 .map(|f| f.qualified_name.clone());
 
-            // For cross-file lookup, skip ambiguous bare method names to avoid
-            // conflating unrelated methods (e.g., str::find vs user fn find)
-            let callee_qn = same_file_match.or_else(|| {
-                let has_module = call.callee.contains(':') || call.callee.contains('.');
-                if !has_module
-                    && crate::cli::analyze::graph::AMBIGUOUS_METHOD_NAMES.contains(&callee_name)
-                {
-                    return None;
-                }
-                self.function_lookup.get(callee_name).cloned()
-            });
-
-            if let Some(qn) = callee_qn {
+            if let Some(qn) = same_file_match {
                 self.edge_buffer
                     .push((call.caller.clone(), qn, CodeEdge::calls()));
+            } else {
+                // Cross-file call — defer to Phase 2
+                let has_module = call.callee.contains(':') || call.callee.contains('.');
+                self.deferred_edges.push(DeferredEdgeKind::Call {
+                    caller_qn: call.caller.clone(),
+                    callee_name: callee_name.to_string(),
+                    has_module_qualifier: has_module,
+                });
             }
         }
 
-        // Resolve and buffer import edges
+        // Defer all import edges to Phase 2 (need complete module lookup)
         for import in &info.imports {
-            if let Some(target) = self.module_lookup.find_match(&import.path) {
-                if target != &relative {
-                    let edge =
-                        CodeEdge::imports().with_property("is_type_only", import.is_type_only);
-                    self.edge_buffer
-                        .push((relative.clone(), target.clone(), edge));
-                }
-            }
+            self.deferred_edges.push(DeferredEdgeKind::Import {
+                file_path: relative.clone(),
+                import_path: import.path.clone(),
+                is_type_only: import.is_type_only,
+            });
         }
 
         // Track peak buffer size
@@ -349,8 +366,73 @@ impl FlushingGraphBuilder {
         Ok(())
     }
 
-    /// Finalize - flush remaining edges and save
+    /// Finalize — Phase 2: resolve deferred cross-file edges, flush, and save
     fn finalize(mut self) -> Result<BoundedPipelineStats> {
+        // Phase 2: sort deferred edges for deterministic resolution order
+        self.deferred_edges.sort_by(|a, b| {
+            match (a, b) {
+                (
+                    DeferredEdgeKind::Call { caller_qn: a_src, callee_name: a_tgt, .. },
+                    DeferredEdgeKind::Call { caller_qn: b_src, callee_name: b_tgt, .. },
+                ) => a_src.cmp(b_src).then_with(|| a_tgt.cmp(b_tgt)),
+                (
+                    DeferredEdgeKind::Import { file_path: a_src, import_path: a_tgt, .. },
+                    DeferredEdgeKind::Import { file_path: b_src, import_path: b_tgt, .. },
+                ) => a_src.cmp(b_src).then_with(|| a_tgt.cmp(b_tgt)),
+                (DeferredEdgeKind::Call { .. }, DeferredEdgeKind::Import { .. }) => std::cmp::Ordering::Less,
+                (DeferredEdgeKind::Import { .. }, DeferredEdgeKind::Call { .. }) => std::cmp::Ordering::Greater,
+            }
+        });
+
+        let deferred_count = self.deferred_edges.len();
+        let mut resolved_count = 0usize;
+
+        for deferred in std::mem::take(&mut self.deferred_edges) {
+            match deferred {
+                DeferredEdgeKind::Call {
+                    caller_qn,
+                    callee_name,
+                    has_module_qualifier,
+                } => {
+                    if !has_module_qualifier
+                        && crate::cli::analyze::graph::AMBIGUOUS_METHOD_NAMES
+                            .contains(&callee_name.as_str())
+                    {
+                        continue;
+                    }
+                    if let Some(callee_qn) = self.function_lookup.get(&callee_name) {
+                        self.edge_buffer.push((
+                            caller_qn,
+                            callee_qn.clone(),
+                            CodeEdge::calls(),
+                        ));
+                        resolved_count += 1;
+                    }
+                }
+                DeferredEdgeKind::Import {
+                    file_path,
+                    import_path,
+                    is_type_only,
+                } => {
+                    if let Some(target) = self.module_lookup.find_match(&import_path) {
+                        if *target != file_path {
+                            let edge = CodeEdge::imports()
+                                .with_property("is_type_only", is_type_only);
+                            self.edge_buffer
+                                .push((file_path, target.clone(), edge));
+                            resolved_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::info!(
+            "Phase 2: resolved {}/{} deferred cross-file edges",
+            resolved_count,
+            deferred_count
+        );
+
         self.flush_edges()?;
         self.graph.save()?;
         Ok(self.stats)
