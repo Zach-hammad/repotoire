@@ -805,4 +805,125 @@ mod tests {
         assert_eq!(parse_stats.parsed_files, 2);
         assert_eq!(parse_stats.total_functions, 2);
     }
+
+    /// Verify that the overlapped pipeline produces identical graphs regardless of
+    /// the order files arrive. This is the core determinism invariant.
+    #[test]
+    fn test_overlapped_pipeline_deterministic_across_file_orders() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path();
+
+        // module_a imports module_b and calls helper_from_b
+        create_test_file(
+            path,
+            "module_a.py",
+            "from module_b import helper_from_b\n\ndef main():\n    helper_from_b()\n",
+        );
+        // module_b defines helper_from_b and calls main from module_a
+        create_test_file(
+            path,
+            "module_b.py",
+            "from module_a import main\n\ndef helper_from_b():\n    main()\n",
+        );
+
+        // Run N times with alternating file order via channel
+        let mut edge_snapshots: Vec<Vec<String>> = Vec::new();
+
+        for run_idx in 0..5 {
+            let graph = Arc::new(GraphStore::in_memory());
+            let config = PipelineConfig::for_repo_size(2);
+
+            let (tx, rx) = bounded::<PathBuf>(config.buffer_size);
+
+            // Alternate file order between runs
+            let files = if run_idx % 2 == 0 {
+                vec![path.join("module_a.py"), path.join("module_b.py")]
+            } else {
+                vec![path.join("module_b.py"), path.join("module_a.py")]
+            };
+
+            let sender = thread::spawn(move || {
+                for f in files {
+                    tx.send(f).expect("send");
+                }
+            });
+
+            let (_stats, _parse_stats) =
+                run_bounded_pipeline_from_channel(rx, path, graph.clone(), config, None)
+                    .expect("pipeline should succeed");
+
+            sender.join().expect("sender thread");
+
+            // Collect all edges as sorted strings for comparison
+            let mut edges: Vec<String> = graph
+                .get_all_edges()
+                .into_iter()
+                .map(|(src, dst, kind)| format!("{} --{:?}--> {}", src, kind, dst))
+                .collect();
+            edges.sort();
+            edge_snapshots.push(edges);
+        }
+
+        // All runs must produce identical edge sets
+        for (i, snapshot) in edge_snapshots.iter().enumerate().skip(1) {
+            assert_eq!(
+                &edge_snapshots[0], snapshot,
+                "Run {} edges differ from run 0",
+                i
+            );
+        }
+    }
+
+    /// Verify that the file-list pipeline variant is also deterministic
+    /// with the two-phase approach.
+    #[test]
+    fn test_bounded_pipeline_deterministic_cross_file_calls() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path();
+
+        create_test_file(
+            path,
+            "module_a.py",
+            "from module_b import helper_from_b\n\ndef main():\n    helper_from_b()\n",
+        );
+        create_test_file(
+            path,
+            "module_b.py",
+            "from module_a import main\n\ndef helper_from_b():\n    main()\n",
+        );
+
+        let mut edge_snapshots: Vec<Vec<String>> = Vec::new();
+
+        for run_idx in 0..5 {
+            let graph = Arc::new(GraphStore::in_memory());
+            let config = PipelineConfig::for_repo_size(2);
+
+            // Alternate file order
+            let files = if run_idx % 2 == 0 {
+                vec![path.join("module_a.py"), path.join("module_b.py")]
+            } else {
+                vec![path.join("module_b.py"), path.join("module_a.py")]
+            };
+
+            let (_stats, _parse_stats) =
+                run_bounded_pipeline(files, path, graph.clone(), config, None)
+                    .expect("pipeline should succeed");
+
+            let mut edges: Vec<String> = graph
+                .get_all_edges()
+                .into_iter()
+                .map(|(src, dst, kind)| format!("{} --{:?}--> {}", src, kind, dst))
+                .collect();
+            edges.sort();
+            edge_snapshots.push(edges);
+        }
+
+        for (i, snapshot) in edge_snapshots.iter().enumerate().skip(1) {
+            assert_eq!(
+                &edge_snapshots[0], snapshot,
+                "Run {} edges differ from run 0",
+                i
+            );
+        }
+    }
 }
