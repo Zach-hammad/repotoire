@@ -235,8 +235,6 @@ impl<'a> ClassContextBuilder<'a> {
 
         info!("Building class context for {} classes", class_count);
 
-        // Get all functions to map methods to classes
-        let functions = self.graph.get_functions();
         let calls = self.graph.get_calls();
 
         // Build call lookup: function qn -> set of called qns
@@ -250,58 +248,46 @@ impl<'a> ClassContextBuilder<'a> {
             map
         };
 
-        // Build class method map: class qn -> vec of method qns
-        let class_methods: HashMap<&str, Vec<&crate::graph::CodeNode>> = {
-            let mut map: HashMap<&str, Vec<&crate::graph::CodeNode>> = HashMap::new();
+        // Build class method map: class qn -> vec of method nodes
+        // Uses file-scoped index (O(1) per file) instead of O(F × C) nested loop
+        let class_methods: HashMap<&str, Vec<crate::graph::store_models::CodeNode>> = {
+            let mut map: HashMap<&str, Vec<crate::graph::store_models::CodeNode>> = HashMap::new();
 
-            for func in &functions {
-                // Methods belong to a class if they share file and are within class line range
-                for class in &classes {
-                    if func.file_path == class.file_path
-                        && func.line_start >= class.line_start
-                        && func.line_end <= class.line_end
-                    {
-                        map.entry(class.qualified_name.as_str())
-                            .or_default()
-                            .push(func);
-                        break;
-                    }
+            for class in &classes {
+                let file_funcs = self.graph.get_functions_in_file(&class.file_path);
+                let methods: Vec<_> = file_funcs
+                    .into_iter()
+                    .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
+                    .collect();
+                if !methods.is_empty() {
+                    map.insert(class.qualified_name.as_str(), methods);
                 }
             }
             map
         };
 
         // Build class usage map: how many other classes use each class
+        // O(E) approach: build method→class reverse map, then iterate call edges
         let class_usages: HashMap<&str, usize> = {
+            // Build reverse map: method_qn → class_qn
+            let mut method_to_class: HashMap<&str, &str> = HashMap::new();
+            for (class_qn, methods) in &class_methods {
+                for method in methods {
+                    method_to_class.insert(method.qualified_name.as_str(), class_qn);
+                }
+            }
+
+            // For each call edge, if caller and callee belong to different classes,
+            // record that caller's class uses callee's class
+            let mut class_pair_seen: HashSet<(&str, &str)> = HashSet::new();
             let mut usages: HashMap<&str, usize> = HashMap::new();
 
-            // Count calls from methods of other classes to this class's methods
-            for class in &classes {
-                let my_methods: HashSet<&str> = class_methods
-                    .get(class.qualified_name.as_str())
-                    .map(|m| m.iter().map(|f| f.qualified_name.as_str()).collect())
-                    .unwrap_or_default();
-
-                for other in &classes {
-                    if other.qualified_name == class.qualified_name {
-                        continue;
-                    }
-
-                    let other_methods: Vec<&str> = class_methods
-                        .get(other.qualified_name.as_str())
-                        .map(|m| m.iter().map(|f| f.qualified_name.as_str()).collect())
-                        .unwrap_or_default();
-
-                    // Check if any method of other class calls any method of this class
-                    let calls_my_class = other_methods.iter().any(|method| {
-                        call_map
-                            .get(method)
-                            .map(|callees| callees.iter().any(|c| my_methods.contains(c)))
-                            .unwrap_or(false)
-                    });
-
-                    if calls_my_class {
-                        *usages.entry(class.qualified_name.as_str()).or_insert(0) += 1;
+            for (caller, callee) in &calls {
+                let caller_class = method_to_class.get(caller.as_str());
+                let callee_class = method_to_class.get(callee.as_str());
+                if let (Some(&from_class), Some(&to_class)) = (caller_class, callee_class) {
+                    if from_class != to_class && class_pair_seen.insert((from_class, to_class)) {
+                        *usages.entry(to_class).or_insert(0) += 1;
                     }
                 }
             }
