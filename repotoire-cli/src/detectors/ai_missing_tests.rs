@@ -453,38 +453,67 @@ impl Detector for AIMissingTestsDetector {
     ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        // Get all test functions (from context or name/path patterns)
-        let test_funcs: HashSet<String> = graph
-            .get_functions()
-            .iter()
-            .filter(|f| {
-                // Check context first
-                if let Some(ctx) = contexts.get(&f.qualified_name) {
-                    if ctx.is_test || ctx.role == FunctionRole::Test {
-                        return true;
-                    }
-                }
-                // Fall back to name/path patterns
+        // Single call to get_functions() — cached by CachedGraphQuery
+        let all_functions = graph.get_functions();
+
+        // Build test function name sets for O(1) lookup:
+        // - exact_tests: "test_funcname" for direct match
+        // - suffix_set: "_funcname" suffixes present in any test name
+        // - infix_set: "_funcname_" infixes present in any test name
+        let mut exact_tests: HashSet<String> = HashSet::new();
+        let mut test_names: Vec<String> = Vec::new();
+
+        for f in &all_functions {
+            let is_test = if let Some(ctx) = contexts.get(&f.qualified_name) {
+                ctx.is_test || ctx.role == FunctionRole::Test
+            } else {
                 Self::is_test_function(&f.name, &f.file_path)
-            })
-            .map(|f| f.name.clone())
-            .collect();
+            };
+            if is_test {
+                exact_tests.insert(f.name.clone());
+                test_names.push(f.name.clone());
+            }
+        }
 
         debug!(
             "AIMissingTestsDetector: found {} test functions",
-            test_funcs.len()
+            exact_tests.len()
         );
 
+        // Pre-build a set of all suffixes and infixes present in test names.
+        // For each test name like "test_parse_header_fields", we extract:
+        //   suffixes: {"_fields", "_header_fields", "_parse_header_fields"}
+        //   infixes:  {"_parse_", "_header_", "_fields_", "_parse_header_", "_header_fields_"}
+        // Then for a candidate func "parse", we check if "_parse" is in suffix_set
+        // or "_parse_" is in infix_set — both O(1) HashSet lookups.
+        let mut suffix_set: HashSet<String> = HashSet::new();
+        let mut infix_set: HashSet<String> = HashSet::new();
+        for tname in &test_names {
+            // Find all underscore positions to extract word-boundary segments
+            let bytes = tname.as_bytes();
+            for (i, &b) in bytes.iter().enumerate() {
+                if b == b'_' {
+                    // suffix from this underscore to end: "_funcname"
+                    suffix_set.insert(tname[i..].to_string());
+                    // infix: for each later underscore j, "_segment_"
+                    for (j, &b2) in bytes[i + 1..].iter().enumerate() {
+                        if b2 == b'_' {
+                            let end = i + 1 + j + 1; // include the trailing underscore
+                            infix_set.insert(tname[i..end].to_string());
+                        }
+                    }
+                }
+            }
+        }
+
         // Find complex public functions without tests
-        for func in graph.get_functions() {
-            // Check context first for test detection
+        for func in &all_functions {
+            // Skip test functions
             if let Some(ctx) = contexts.get(&func.qualified_name) {
                 if ctx.is_test || ctx.role == FunctionRole::Test {
                     continue;
                 }
             }
-
-            // Fall back to name/path pattern check
             if Self::is_test_function(&func.name, &func.file_path) {
                 continue;
             }
@@ -527,18 +556,14 @@ impl Detector for AIMissingTestsDetector {
                 continue;
             }
 
-            // Check if there's a test for this function
-            // Use word-boundary matching: test name must contain _FUNCNAME as a
-            // suffix or _FUNCNAME_ as an infix (not just substring — otherwise
-            // a function named "get" matches "test_get_users")
+            // Check if there's a test for this function — all O(1) lookups
             let test_name = format!("test_{}", func.name);
-            let suffix_pattern = format!("_{}", func.name);
-            let has_test = test_funcs.contains(&test_name)
-                || (func.name.len() >= 4
-                    && test_funcs.iter().any(|t| {
-                        t.ends_with(&suffix_pattern)
-                            || t.contains(&format!("_{}_", func.name))
-                    }));
+            let has_test = exact_tests.contains(&test_name)
+                || (func.name.len() >= 4 && {
+                    let suffix_pattern = format!("_{}", func.name);
+                    let infix_pattern = format!("_{}_", func.name);
+                    suffix_set.contains(&suffix_pattern) || infix_set.contains(&infix_pattern)
+                });
             if !has_test {
                 let severity = if complexity > 15 {
                     Severity::High
