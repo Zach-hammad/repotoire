@@ -85,18 +85,6 @@ impl CorsMisconfigDetector {
         false
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<String> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| f.name)
-    }
 }
 
 impl Detector for CorsMisconfigDetector {
@@ -121,6 +109,19 @@ impl Detector for CorsMisconfigDetector {
 
             let path_str = path.to_string_lossy().to_string();
 
+            // Cheap pre-filter: skip files without CORS-related keywords
+            // to avoid expensive masked_content() tree-sitter parsing
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            let raw_lower = raw.to_ascii_lowercase();
+            if !raw_lower.contains("cors") && !raw_lower.contains("access-control")
+                && !raw_lower.contains("allowedorigin")
+            {
+                continue;
+            }
+
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
@@ -143,7 +144,7 @@ impl Detector for CorsMisconfigDetector {
                         let has_credentials = Self::allows_credentials(&lines, i);
                         let is_sensitive = Self::involves_sensitive_data(line, surrounding);
                         let containing_func =
-                            Self::find_containing_function(graph, &path_str, line_num);
+                            graph.find_function_at(&path_str, line_num).map(|f| f.name);
 
                         // Skip if clearly dev-only
                         if is_dev_only {

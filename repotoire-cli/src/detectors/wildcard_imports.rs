@@ -45,18 +45,18 @@ impl WildcardImportsDetector {
             .and_then(|caps| caps.get(1).or(caps.get(2)).map(|m| m.as_str().to_string()))
     }
 
-    /// Find what symbols from a module are actually used in the file
+    /// Find what symbols from a module are actually used in the file.
+    /// Uses a pre-built index to avoid O(N) full graph scans per call.
     fn find_used_symbols(
         content: &str,
         module: &str,
-        graph: &dyn crate::graph::GraphQuery,
+        all_functions: &[crate::graph::store_models::CodeNode],
     ) -> Vec<String> {
-        // Get all functions/classes from the module
-        let module_symbols: HashSet<String> = graph
-            .get_functions()
-            .into_iter()
+        // Filter to functions from this module
+        let module_symbols: HashSet<&str> = all_functions
+            .iter()
             .filter(|f| f.file_path.contains(module) || f.qualified_name.starts_with(module))
-            .map(|f| f.name)
+            .map(|f| f.name.as_str())
             .collect();
 
         // Check which are used in the content
@@ -64,6 +64,7 @@ impl WildcardImportsDetector {
             .into_iter()
             .filter(|sym| content.contains(sym))
             .take(10)
+            .map(|s| s.to_string())
             .collect()
     }
 }
@@ -82,6 +83,9 @@ impl Detector for WildcardImportsDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
+
+        // Pre-fetch all functions once — O(N) instead of O(N) per wildcard import
+        let all_functions = graph.get_functions();
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java"]) {
             if findings.len() >= self.max_findings {
@@ -112,7 +116,7 @@ impl Detector for WildcardImportsDetector {
                         let module_name = Self::extract_module_name(line);
                         let used_symbols = module_name
                             .as_ref()
-                            .map(|m| Self::find_used_symbols(&content, m, graph))
+                            .map(|m| Self::find_used_symbols(&content, m, &all_functions))
                             .unwrap_or_default();
 
                         let mut notes = Vec::new();
