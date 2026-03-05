@@ -68,25 +68,6 @@ impl MutableDefaultArgsDetector {
         }
     }
 
-    /// Find function info from graph
-    fn get_function_info(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        func_name: &str,
-    ) -> (usize, bool) {
-        if let Some(func) = graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.name == func_name)
-        {
-            let callers = graph.get_callers(&func.qualified_name);
-            let is_public = !func_name.starts_with('_');
-            (callers.len(), is_public)
-        } else {
-            (0, !func_name.starts_with('_'))
-        }
-    }
-
     /// Check if function modifies the default arg (makes bug more likely)
     fn modifies_default(
         content: &str,
@@ -124,6 +105,13 @@ impl Detector for MutableDefaultArgsDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
+        // Pre-build lookup: (file_path, func_name) → CodeNode — O(N) once instead of O(N) per match
+        let func_lookup: std::collections::HashMap<(String, String), crate::graph::store_models::CodeNode> = graph
+            .get_functions()
+            .into_iter()
+            .map(|f| ((f.file_path.clone(), f.name.clone()), f))
+            .collect();
+
         for path in files.files_with_extension("py") {
             if findings.len() >= self.max_findings {
                 break;
@@ -145,17 +133,15 @@ impl Detector for MutableDefaultArgsDetector {
                         let param_name = caps.get(2).map(|m| m.as_str()).unwrap_or("arg");
                         let mutable_type = caps.get(3).map(|m| m.as_str()).unwrap_or("[]");
 
-                        // Get function info from graph
-                        let (caller_count, is_public) =
-                            Self::get_function_info(graph, &path_str, func_name);
-
-                        // Find function end for mutation check
-                        let func_end = graph
-                            .get_functions()
-                            .into_iter()
-                            .find(|f| f.file_path == path_str && f.name == func_name)
-                            .map(|f| f.line_end as usize)
-                            .unwrap_or(i + 20);
+                        // Get function info from pre-built lookup — O(1)
+                        let key = (path_str.clone(), func_name.to_string());
+                        let (caller_count, is_public, func_end) = if let Some(func) = func_lookup.get(&key) {
+                            let callers = graph.get_callers(&func.qualified_name);
+                            let is_pub = !func_name.starts_with('_');
+                            (callers.len(), is_pub, func.line_end as usize)
+                        } else {
+                            (0, !func_name.starts_with('_'), i + 20)
+                        };
 
                         let modifies = Self::modifies_default(&content, i, func_end, param_name);
 

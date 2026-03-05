@@ -73,6 +73,7 @@ impl EmptyCatchDetector {
     fn assess_risk(
         calls: &HashSet<String>,
         graph: &dyn crate::graph::GraphQuery,
+        func_qn_map: &std::collections::HashMap<String, String>,
     ) -> (Severity, Vec<String>) {
         let io_patterns = [
             "read", "write", "open", "close", "fetch", "request", "send", "recv", "connect",
@@ -90,9 +91,10 @@ impl EmptyCatchDetector {
         }
 
         // Check graph for functions with many callees (complex operations)
+        // func_qn_map is pre-built once in detect() — O(1) lookup per call
         for call in calls {
-            if let Some(func) = graph.get_functions().into_iter().find(|f| f.name == *call) {
-                let callees = graph.get_callees(&func.qualified_name);
+            if let Some(qn) = func_qn_map.get(call.as_str()) {
+                let callees = graph.get_callees(qn);
                 if callees.len() > 5 {
                     risk_notes.push(format!(
                         "📊 `{}` is complex ({} internal calls)",
@@ -120,6 +122,7 @@ impl EmptyCatchDetector {
         ext: &str,
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
+        func_qn_map: &std::collections::HashMap<String, String>,
     ) -> Vec<Finding> {
         let mut findings = vec![];
         let content = match files.content(path) {
@@ -298,7 +301,7 @@ impl EmptyCatchDetector {
                 let (severity, risk_notes) =
                     if let Some(try_start) = Self::find_try_block_start(&lines, catch_line) {
                         let calls = Self::extract_calls(&lines, try_start, catch_line);
-                        let (sev, notes) = Self::assess_risk(&calls, graph);
+                        let (sev, notes) = Self::assess_risk(&calls, graph, func_qn_map);
 
                         if !calls.is_empty() {
                             (sev, notes)
@@ -383,12 +386,19 @@ impl Detector for EmptyCatchDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
+        // Pre-build name→qualified_name map once — O(N) instead of O(N) per catch block
+        let func_qn_map: std::collections::HashMap<String, String> = graph
+            .get_functions()
+            .into_iter()
+            .map(|f| (f.name, f.qualified_name))
+            .collect();
+
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "cs"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            findings.extend(self.scan_file(path, ext, graph, files));
+            findings.extend(self.scan_file(path, ext, graph, files, &func_qn_map));
         }
 
         info!(
