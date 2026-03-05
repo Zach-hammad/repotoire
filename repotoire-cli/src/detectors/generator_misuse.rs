@@ -170,13 +170,13 @@ impl GeneratorMisuseDetector {
     }
 
     /// Check if generator is consumed lazily anywhere
-    fn is_consumed_lazily(&self, func_name: &str, graph: &dyn crate::graph::GraphQuery) -> bool {
+    fn is_consumed_lazily(
+        func_name: &str,
+        graph: &dyn crate::graph::GraphQuery,
+        func_map: &std::collections::HashMap<String, crate::graph::store_models::CodeNode>,
+    ) -> bool {
         // Check callers to see how the generator is consumed
-        if let Some(func) = graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.name == func_name)
-        {
+        if let Some(func) = func_map.get(func_name) {
             let callers = graph.get_callers(&func.qualified_name);
 
             for caller in callers {
@@ -244,6 +244,9 @@ impl Detector for GeneratorMisuseDetector {
         // Find generators that are always list()-wrapped
         let list_wrapped = self.find_list_wrapped_generators(graph, files);
 
+        // Lazy func_map: only built if we need to check lazy consumption
+        let mut func_map: Option<std::collections::HashMap<String, crate::graph::store_models::CodeNode>> = None;
+
         for path in files.files_with_extension("py") {
             if findings.len() >= self.max_findings {
                 break;
@@ -256,7 +259,16 @@ impl Detector for GeneratorMisuseDetector {
                 continue;
             }
 
-            if let Some(content) = files.content(path) {
+            // Cheap pre-filter: skip files without yield keyword
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("yield") {
+                continue;
+            }
+
+            if let Some(content) = Some(raw) {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (i, line) in lines.iter().enumerate() {
@@ -346,7 +358,13 @@ impl Detector for GeneratorMisuseDetector {
 
                         // Generator always wrapped in list() = defeats the purpose
                         if list_wrapped.contains(func_name)
-                            && !self.is_consumed_lazily(func_name, graph)
+                            && !Self::is_consumed_lazily(
+                                func_name,
+                                graph,
+                                func_map.get_or_insert_with(|| {
+                                    graph.get_functions().into_iter().map(|f| (f.name.clone(), f)).collect()
+                                }),
+                            )
                             && !Self::is_consumed_lazily_in_files(func_name, files)
                         {
                             findings.push(Finding {
