@@ -85,18 +85,6 @@ impl InsecureCookieDetector {
         }
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<String> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| f.name)
-    }
 }
 
 struct CookieFlags {
@@ -135,6 +123,19 @@ impl Detector for InsecureCookieDetector {
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
+            // Cheap pre-filter: skip files without cookie-setting patterns
+            // to avoid expensive masked_content() tree-sitter parsing
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("set_cookie") && !raw.contains("setCookie")
+                && !raw.contains("setcookie") && !raw.contains(".cookie(")
+                && !raw.contains("res.cookie")
+            {
+                continue;
+            }
+
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
 
@@ -153,7 +154,7 @@ impl Detector for InsecureCookieDetector {
                             Self::is_sensitive_cookie(line, &surrounding);
                         let flags = Self::check_cookie_flags(&lines, i);
                         let containing_func =
-                            Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.name);
 
                         // Collect missing flags
                         let mut missing = Vec::new();

@@ -114,39 +114,6 @@ impl HardcodedTimeoutDetector {
         ("General timeout".to_string(), false)
     }
 
-    /// Count occurrences of the same timeout value
-    fn count_occurrences(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> HashMap<u64, usize> {
-        let mut counts: HashMap<u64, usize> = HashMap::new();
-
-        for path in files.files() {
-            if let Some(content) = files.masked_content(path) {
-                for line in content.lines() {
-                    if let Some(caps) = TIMEOUT_PATTERN.captures(line) {
-                        if let Some(val) = caps.get(2) {
-                            if let Ok(v) = val.as_str().parse::<u64>() {
-                                *counts.entry(v).or_default() += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        counts
-    }
-
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<String> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| f.name)
-    }
 }
 
 impl Detector for HardcodedTimeoutDetector {
@@ -163,19 +130,36 @@ impl Detector for HardcodedTimeoutDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
+        let mut occurrence_counts: HashMap<u64, usize> = HashMap::new();
 
-        // Count occurrences for context
-        let occurrence_counts = self.count_occurrences(files);
+        // Single pass: collect matches AND count occurrences
+        struct TimeoutMatch {
+            path: std::path::PathBuf,
+            line_num: u32,
+            value: u64,
+            line_text: String,
+        }
+        let mut matches: Vec<TimeoutMatch> = Vec::new();
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "jsx", "tsx"]) {
-            if findings.len() >= self.max_findings {
-                break;
-            }
-
-            let path_str = path.to_string_lossy().to_string();
+            let path_str = path.to_string_lossy();
 
             // Skip test files and config files
             if crate::detectors::base::is_test_path(&path_str) || path_str.contains("config") {
+                continue;
+            }
+
+            // Cheap pre-filter: skip files without timeout-related keywords
+            // to avoid expensive masked_content() tree-sitter parsing
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            let raw_lower = raw.to_ascii_lowercase();
+            if !raw_lower.contains("timeout") && !raw_lower.contains("sleep")
+                && !raw_lower.contains("delay") && !raw_lower.contains("wait")
+                && !raw_lower.contains("setinterval") && !raw_lower.contains("settimeout")
+            {
                 continue;
             }
 
@@ -187,104 +171,112 @@ impl Detector for HardcodedTimeoutDetector {
                         continue;
                     }
 
-                    // Skip comments
                     let trimmed = line.trim();
                     if trimmed.starts_with("//") || trimmed.starts_with("#") {
                         continue;
                     }
 
                     if let Some(caps) = TIMEOUT_PATTERN.captures(line) {
-                        if let (Some(keyword), Some(val)) = (caps.get(1), caps.get(2)) {
-                            let _keyword_str = keyword.as_str();
+                        if let (Some(_keyword), Some(val)) = (caps.get(1), caps.get(2)) {
                             let value: u64 = val.as_str().parse().unwrap_or(0);
-                            let occurrences = occurrence_counts.get(&value).copied().unwrap_or(1);
-                            let (context, is_network) = Self::analyze_context(line);
-                            let containing_func =
-                                Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-
-                            // Calculate severity
-                            let severity = if is_network || occurrences > 3 {
-                                Severity::Medium // Network or repeated timeout constants
-                            } else {
-                                Severity::Low
-                            };
-
-                            // Build context notes
-                            let mut notes = Vec::new();
-                            notes.push(format!("⏱️ Duration: {}", format_duration(value)));
-                            notes.push(format!("📍 Context: {}", context));
-                            if occurrences > 1 {
-                                notes.push(format!("📊 Same value used {} times", occurrences));
-                            }
-                            if let Some(func) = containing_func {
-                                notes.push(format!("📦 In function: `{}`", func));
-                            }
-
-                            let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
-
-                            let const_name = suggest_constant_name(line, value);
-
-                            let suggestion = if occurrences > 3 {
-                                format!(
-                                    "This timeout value appears {} times. Extract to a centralized config:\n\n\
-                                     ```python\n\
-                                     # config.py\n\
-                                     {} = {}  # {}\n\
-                                     \n\
-                                     # usage\n\
-                                     from config import {}\n\
-                                     requests.get(url, timeout={}/1000)\n\
-                                     ```",
-                                    occurrences, const_name, value, format_duration(value),
-                                    const_name, const_name
-                                )
-                            } else if is_network {
-                                format!(
-                                    "Network timeouts should be configurable:\n\n\
-                                     ```python\n\
-                                     import os\n\
-                                     {} = int(os.environ.get('{}', '{}'))\n\
-                                     ```",
-                                    const_name, const_name, value
-                                )
-                            } else {
-                                format!(
-                                    "Extract to a named constant:\n\n\
-                                     ```python\n\
-                                     {} = {}  # {}\n\
-                                     ```",
-                                    const_name,
-                                    value,
-                                    format_duration(value)
-                                )
-                            };
-
-                            findings.push(Finding {
-                                id: String::new(),
-                                detector: "HardcodedTimeoutDetector".to_string(),
-                                severity,
-                                title: format!("Hardcoded timeout: {}", format_duration(value)),
-                                description: format!(
-                                    "Magic timeout value `{}` makes configuration and tuning difficult.{}",
-                                    value, context_notes
-                                ),
-                                affected_files: vec![path.to_path_buf()],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
-                                suggested_fix: Some(suggestion),
-                                estimated_effort: Some("5 minutes".to_string()),
-                                category: Some("maintainability".to_string()),
-                                cwe_id: None,
-                                why_it_matters: Some(
-                                    "Hardcoded timeouts are hard to find, tune, and change across environments. \
-                                     Network timeouts especially need to be configurable based on deployment.".to_string()
-                                ),
-                                ..Default::default()
+                            *occurrence_counts.entry(value).or_default() += 1;
+                            matches.push(TimeoutMatch {
+                                path: path.to_path_buf(),
+                                line_num: (i + 1) as u32,
+                                value,
+                                line_text: line.to_string(),
                             });
                         }
                     }
                 }
             }
+        }
+
+        // Generate findings using accumulated counts
+        for m in &matches {
+            if findings.len() >= self.max_findings {
+                break;
+            }
+            let occurrences = occurrence_counts.get(&m.value).copied().unwrap_or(1);
+            let (context, is_network) = Self::analyze_context(&m.line_text);
+            let path_str = m.path.to_string_lossy();
+            let containing_func =
+                graph.find_function_at(&path_str, m.line_num).map(|f| f.name);
+
+            let severity = if is_network || occurrences > 3 {
+                Severity::Medium
+            } else {
+                Severity::Low
+            };
+
+            let mut notes = Vec::new();
+            notes.push(format!("⏱️ Duration: {}", format_duration(m.value)));
+            notes.push(format!("📍 Context: {}", context));
+            if occurrences > 1 {
+                notes.push(format!("📊 Same value used {} times", occurrences));
+            }
+            if let Some(func) = containing_func {
+                notes.push(format!("📦 In function: `{}`", func));
+            }
+
+            let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
+            let const_name = suggest_constant_name(&m.line_text, m.value);
+
+            let suggestion = if occurrences > 3 {
+                format!(
+                    "This timeout value appears {} times. Extract to a centralized config:\n\n\
+                     ```python\n\
+                     # config.py\n\
+                     {} = {}  # {}\n\
+                     \n\
+                     # usage\n\
+                     from config import {}\n\
+                     requests.get(url, timeout={}/1000)\n\
+                     ```",
+                    occurrences, const_name, m.value, format_duration(m.value),
+                    const_name, const_name
+                )
+            } else if is_network {
+                format!(
+                    "Network timeouts should be configurable:\n\n\
+                     ```python\n\
+                     import os\n\
+                     {} = int(os.environ.get('{}', '{}'))\n\
+                     ```",
+                    const_name, const_name, m.value
+                )
+            } else {
+                format!(
+                    "Extract to a named constant:\n\n\
+                     ```python\n\
+                     {} = {}  # {}\n\
+                     ```",
+                    const_name, m.value, format_duration(m.value)
+                )
+            };
+
+            findings.push(Finding {
+                id: String::new(),
+                detector: "HardcodedTimeoutDetector".to_string(),
+                severity,
+                title: format!("Hardcoded timeout: {}", format_duration(m.value)),
+                description: format!(
+                    "Magic timeout value `{}` makes configuration and tuning difficult.{}",
+                    m.value, context_notes
+                ),
+                affected_files: vec![m.path.clone()],
+                line_start: Some(m.line_num),
+                line_end: Some(m.line_num),
+                suggested_fix: Some(suggestion),
+                estimated_effort: Some("5 minutes".to_string()),
+                category: Some("maintainability".to_string()),
+                cwe_id: None,
+                why_it_matters: Some(
+                    "Hardcoded timeouts are hard to find, tune, and change across environments. \
+                     Network timeouts especially need to be configurable based on deployment.".to_string()
+                ),
+                ..Default::default()
+            });
         }
 
         info!(
