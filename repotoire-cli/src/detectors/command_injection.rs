@@ -100,6 +100,21 @@ impl Detector for CommandInjectionDetector {
                 break;
             }
 
+            // Cheap pre-filter: skip files without shell execution patterns
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("os.system") && !raw.contains("os.popen")
+                && !raw.contains("subprocess") && !raw.contains("child_process")
+                && !raw.contains("execSync") && !raw.contains("execAsync")
+                && !raw.contains("spawnSync") && !raw.contains("shell_exec")
+                && !raw.contains("proc_open") && !raw.contains("exec.Command")
+                && !raw.contains("shell=True") && !raw.contains("shell: true")
+            {
+                continue;
+            }
+
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let file_str = path.to_string_lossy();
