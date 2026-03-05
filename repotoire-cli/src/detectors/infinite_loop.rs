@@ -192,11 +192,11 @@ impl InfiniteLoopDetector {
     }
 
     /// Check if any called function contains break/return/raise
-    fn calls_exit_function(calls: &[String], graph: &dyn crate::graph::GraphQuery) -> Vec<String> {
+    fn calls_exit_function(calls: &[String], func_by_name: &std::collections::HashMap<String, &crate::graph::CodeNode>) -> Vec<String> {
         let mut exit_funcs = Vec::new();
 
         for call in calls {
-            if let Some(func) = graph.get_functions().into_iter().find(|f| f.name == *call) {
+            if let Some(func) = func_by_name.get(call) {
                 if let Ok(content) = std::fs::read_to_string(&func.file_path) {
                     let lines: Vec<&str> = content.lines().collect();
                     let start = func.line_start.saturating_sub(1) as usize;
@@ -246,6 +246,10 @@ impl Detector for InfiniteLoopDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
+        // Lazily build name→function lookup (only if needed for exit-function analysis)
+        let all_functions = graph.get_functions();
+        let mut func_by_name: Option<std::collections::HashMap<String, &crate::graph::CodeNode>> = None;
+
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "c", "cpp"]) {
             if findings.len() >= self.max_findings {
                 break;
@@ -264,6 +268,23 @@ impl Detector for InfiniteLoopDetector {
             }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+            // Cheap pre-filter: skip files without loop patterns
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("while True")
+                && !raw.contains("while(true")
+                && !raw.contains("while (true")
+                && !raw.contains("while(1)")
+                && !raw.contains("while (1)")
+                && !raw.contains("for(;;")
+                && !raw.contains("for (;;")
+                && !raw.contains("loop {")
+            {
+                continue;
+            }
 
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
@@ -312,7 +333,10 @@ impl Detector for InfiniteLoopDetector {
 
                         // Find called functions and check if they exit
                         let calls = Self::find_called_functions(&lines, i, indent);
-                        let exit_funcs = Self::calls_exit_function(&calls, graph);
+                        let map = func_by_name.get_or_insert_with(|| {
+                            all_functions.iter().map(|f| (f.name.clone(), f)).collect()
+                        });
+                        let exit_funcs = Self::calls_exit_function(&calls, map);
 
                         let has_exit = has_direct_exit || !exit_funcs.is_empty();
 
