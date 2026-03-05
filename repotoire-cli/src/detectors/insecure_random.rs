@@ -180,19 +180,16 @@ impl InsecureRandomDetector {
         (SecurityContext::Unknown, "unknown".to_string())
     }
 
-    /// Find functions that use insecure random and are called by security-related code
+    /// Find functions that use insecure random and are called by security-related code.
+    /// Uses pre-built name→CodeNode map for O(1) lookup instead of O(N) graph scan.
     fn find_security_callers(
-        &self,
         graph: &dyn crate::graph::GraphQuery,
         func_name: &str,
+        func_map: &std::collections::HashMap<String, crate::graph::store_models::CodeNode>,
     ) -> Vec<String> {
         let mut security_callers = Vec::new();
 
-        if let Some(func) = graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.name == func_name)
-        {
+        if let Some(func) = func_map.get(func_name) {
             let callers = graph.get_callers(&func.qualified_name);
 
             for caller in callers {
@@ -212,18 +209,6 @@ impl InsecureRandomDetector {
         security_callers
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<String> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| f.name)
-    }
 }
 
 #[derive(PartialEq)]
@@ -248,6 +233,10 @@ impl Detector for InsecureRandomDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
+        // Lazily build name→CodeNode map for O(1) lookup in find_security_callers.
+        // Only populated on first use (most runs on large codebases find 0 matches).
+        let mut func_map: Option<std::collections::HashMap<String, crate::graph::store_models::CodeNode>> = None;
+
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "c", "cpp"]) {
             if findings.len() >= self.max_findings {
                 break;
@@ -261,6 +250,18 @@ impl Detector for InsecureRandomDetector {
             }
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+            // Cheap pre-filter: skip files without random-related patterns
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("random") && !raw.contains("rand(")
+                && !raw.contains("srand(") && !raw.contains("mt_rand")
+                && !raw.contains("lcg_value") && !raw.contains("uniqid")
+            {
+                continue;
+            }
 
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
@@ -278,11 +279,14 @@ impl Detector for InsecureRandomDetector {
 
                         let (context, usage) = Self::analyze_usage(line, &surrounding);
                         let containing_func =
-                            Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.name);
 
                         // Check if function is called by security code
                         let security_callers = if let Some(ref func) = containing_func {
-                            self.find_security_callers(graph, func)
+                            let map = func_map.get_or_insert_with(|| {
+                                graph.get_functions().into_iter().map(|f| (f.name.clone(), f)).collect()
+                            });
+                            Self::find_security_callers(graph, func, map)
                         } else {
                             vec![]
                         };
