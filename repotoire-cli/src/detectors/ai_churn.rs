@@ -17,7 +17,7 @@ use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
 
@@ -447,20 +447,24 @@ impl Detector for AIChurnDetector {
             }
         };
 
-        // Phase 1 (fast): Get file-level churn in a single revwalk
-        info!("AIChurnDetector: Phase 1 - collecting file-level churn (up to 500 commits)");
-        let all_file_churn = match git_history.get_all_file_churn(500) {
-            Ok(churn) => churn,
+        // Single-pass: collect file churn counts + per-file commit/hunk data in one revwalk.
+        // Replaces the previous two-phase approach (get_all_file_churn + get_batch_file_commits_with_hunks)
+        // which walked 500 commits twice. Also extracts per-hunk insertion/deletion counts for
+        // function-level accuracy (previously used file-wide stats).
+        info!("AIChurnDetector: Single-pass churn + hunk extraction (up to 500 commits)");
+        let (churn_counts, file_commit_cache) = match git_history.get_churn_and_hunks(500, 100) {
+            Ok(data) => data,
             Err(e) => {
-                warn!("AIChurnDetector: Failed to get file churn: {}. Falling back.", e);
+                warn!("AIChurnDetector: Failed to get churn data: {}. Falling back.", e);
                 return self.detect_without_git_history(graph);
             }
         };
 
         // Filter to high-churn files (commit_count > 5)
-        let high_churn_files: HashMap<String, _> = all_file_churn
+        let high_churn_files: HashSet<String> = churn_counts
             .into_iter()
-            .filter(|(_, churn)| churn.commit_count > 5)
+            .filter(|(_, count)| *count > 5)
+            .map(|(path, _)| path)
             .collect();
 
         debug!(
@@ -469,49 +473,16 @@ impl Detector for AIChurnDetector {
         );
 
         if high_churn_files.is_empty() {
-            info!("AIChurnDetector: No high-churn files found, skipping Phase 2");
+            info!("AIChurnDetector: No high-churn files found");
             return Ok(vec![]);
         }
 
-        // Phase 2a (batch): Fetch commits+hunks once per high-churn file
-        info!("AIChurnDetector: Phase 2a - batch-fetching file commits with hunks");
-
+        // For each function in high-churn files, compute function-level churn from hunk overlap
         let repo_path_str = repo_path.to_string_lossy();
         let functions = graph.get_functions();
         let analysis_cutoff = Utc::now() - Duration::days(self.analysis_window_days);
 
-        // Collect unique relative paths for high-churn files that have functions
-        let mut files_to_fetch: HashMap<String, bool> = HashMap::new();
-        for func in &functions {
-            if is_test_path(&func.file_path) || func.loc() < self.min_function_lines as u32 {
-                continue;
-            }
-            let relative_path = func
-                .file_path
-                .strip_prefix(repo_path_str.as_ref())
-                .unwrap_or(&func.file_path)
-                .trim_start_matches('/');
-            if high_churn_files.contains_key(relative_path) {
-                files_to_fetch.entry(relative_path.to_string()).or_insert(true);
-            }
-        }
-
-        debug!("AIChurnDetector: Fetching commits+hunks for {} files", files_to_fetch.len());
-
-        // Batch revwalk: single pass through commit history for all files
-        // (replaces N parallel revwalks + N repository opens with 1 revwalk)
-        let file_paths: Vec<String> = files_to_fetch.into_keys().collect();
-        let file_commit_cache: HashMap<String, Vec<(crate::git::history::CommitInfo, Vec<(u32, u32)>)>> =
-            match git_history.get_batch_file_commits_with_hunks(&file_paths, 100) {
-                Ok(cache) => cache,
-                Err(e) => {
-                    warn!("AIChurnDetector: Batch commit fetch failed: {}. Returning empty.", e);
-                    return Ok(vec![]);
-                }
-            };
-
-        // Phase 2b: For each function, filter cached commits by line range (in-memory, no git calls)
-        info!("AIChurnDetector: Phase 2b - filtering {} functions by line range (in-memory)", functions.len());
+        info!("AIChurnDetector: Filtering {} functions by hunk overlap (in-memory)", functions.len());
         let mut findings = Vec::new();
 
         for func in &functions {
@@ -530,6 +501,11 @@ impl Detector for AIChurnDetector {
                 .unwrap_or(&func.file_path)
                 .trim_start_matches('/');
 
+            // Skip files that aren't high-churn
+            if !high_churn_files.contains(relative_path) {
+                continue;
+            }
+
             let cached = match file_commit_cache.get(relative_path) {
                 Some(c) => c,
                 None => continue,
@@ -541,23 +517,36 @@ impl Detector for AIChurnDetector {
                 continue;
             }
 
-            // Filter commits by hunk overlap — pure in-memory, zero git calls
-            let commits: Vec<&crate::git::history::CommitInfo> = cached
-                .iter()
-                .filter(|(_, hunks)| {
-                    hunks.iter().any(|&(hs, he)| hs <= line_end && he >= line_start)
-                })
-                .map(|(info, _)| info)
-                .take(50)
-                .collect();
+            // Filter commits by hunk overlap and compute function-level line counts.
+            // Only count insertions/deletions from hunks that actually overlap the function range,
+            // giving more accurate churn metrics than the previous file-wide stats.
+            let mut func_commits: Vec<(&crate::git::history::CommitInfo, usize, usize)> = Vec::new();
+            for (info, hunks) in cached {
+                let mut func_ins = 0usize;
+                let mut func_del = 0usize;
+                let mut overlaps = false;
 
-            // Need at least 2 commits (creation + modification)
-            if commits.len() < 2 {
+                for hunk in hunks {
+                    if hunk.new_start <= line_end && hunk.new_end >= line_start {
+                        overlaps = true;
+                        func_ins += hunk.insertions;
+                        func_del += hunk.deletions;
+                    }
+                }
+
+                if overlaps {
+                    func_commits.push((info, func_ins, func_del));
+                }
+            }
+
+            // Cap and need at least 2 commits (creation + modification)
+            func_commits.truncate(50);
+            if func_commits.len() < 2 {
                 continue;
             }
 
             // Commits are sorted newest-first. The last one is the creation commit.
-            let creation_commit = commits.last().expect("commits has >= 2 elements");
+            let (creation_commit, _, _) = func_commits.last().expect("has >= 2 elements");
             let created_at = chrono::DateTime::parse_from_rfc3339(&creation_commit.timestamp)
                 .ok()
                 .map(|dt| dt.with_timezone(&Utc));
@@ -569,9 +558,10 @@ impl Detector for AIChurnDetector {
                 }
             }
 
-            // Build modifications from all commits except the creation commit
+            // Build modifications from all commits except the creation commit,
+            // using function-level insertion/deletion counts
             let mut modifications = Vec::new();
-            for commit in commits.iter().take(commits.len() - 1) {
+            for &(commit, func_ins, func_del) in func_commits.iter().take(func_commits.len() - 1) {
                 let ts = chrono::DateTime::parse_from_rfc3339(&commit.timestamp)
                     .ok()
                     .map(|dt| dt.with_timezone(&Utc));
@@ -580,8 +570,8 @@ impl Detector for AIChurnDetector {
                     modifications.push(Modification {
                         timestamp,
                         commit_sha: commit.hash.clone(),
-                        lines_added: commit.insertions,
-                        lines_deleted: commit.deletions,
+                        lines_added: func_ins,
+                        lines_deleted: func_del,
                     });
                 }
             }

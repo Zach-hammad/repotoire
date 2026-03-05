@@ -50,6 +50,20 @@ pub struct FileChurn {
     pub last_author: Option<String>,
 }
 
+/// Per-hunk detail with line range and insertion/deletion counts.
+/// Used by `get_churn_and_hunks` for function-level accuracy.
+#[derive(Debug, Clone)]
+pub struct HunkDetail {
+    /// Start line in the new file (1-indexed)
+    pub new_start: u32,
+    /// End line in the new file (exclusive)
+    pub new_end: u32,
+    /// Lines added in this hunk
+    pub insertions: usize,
+    /// Lines deleted in this hunk
+    pub deletions: usize,
+}
+
 /// Git history analyzer using libgit2.
 pub struct GitHistory {
     repo: Repository,
@@ -621,6 +635,187 @@ impl GitHistory {
         }
 
         Ok(results)
+    }
+
+    /// Single-pass churn + hunk extraction for the AIChurnDetector.
+    ///
+    /// Combines what was previously two separate revwalks:
+    /// 1. `get_all_file_churn` — count commits per file
+    /// 2. `get_batch_file_commits_with_hunks` — collect commit+hunk data for target files
+    ///
+    /// Uses `diff.foreach(file_cb, hunk_cb, line_cb)` on the full diff to extract
+    /// per-file hunk ranges and per-hunk insertion/deletion counts in a single pass.
+    /// This eliminates both the duplicate revwalk and all per-file pathspec diffs.
+    ///
+    /// Returns (churn_map, file_commit_map) where:
+    /// - churn_map: file → commit_count (for filtering high-churn files)
+    /// - file_commit_map: file → Vec<(CommitInfo, Vec<HunkDetail>)>
+    ///   where HunkDetail has hunk range + per-hunk insertions/deletions
+    pub fn get_churn_and_hunks(
+        &self,
+        max_commits: usize,
+        max_commits_per_file: usize,
+    ) -> Result<(
+        HashMap<String, usize>,
+        HashMap<String, Vec<(CommitInfo, Vec<HunkDetail>)>>,
+    )> {
+        let mut churn_counts: HashMap<String, usize> = HashMap::new();
+        let mut file_commits: HashMap<String, Vec<(CommitInfo, Vec<HunkDetail>)>> = HashMap::new();
+        let mut file_commit_counts: HashMap<String, usize> = HashMap::new();
+
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.set_sorting(Sort::TIME)?;
+        revwalk.push_head()?;
+
+        for (idx, oid_result) in revwalk.enumerate() {
+            if idx >= max_commits {
+                break;
+            }
+
+            let oid = oid_result?;
+            let commit = self.repo.find_commit(oid)?;
+
+            let parent = commit.parent(0).ok();
+            let tree = commit.tree()?;
+            let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+
+            let diff = self
+                .repo
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+
+            // Single foreach pass: extract per-file hunk ranges + per-hunk line counts.
+            // We use RefCell because diff.foreach takes separate closures that can't
+            // share mutable borrows directly.
+            use std::cell::RefCell;
+
+            struct ForeachState {
+                current_file: Option<String>,
+                file_hunks: HashMap<String, Vec<HunkDetail>>,
+                current_hunk_start: u32,
+                current_hunk_end: u32,
+                current_hunk_insertions: usize,
+                current_hunk_deletions: usize,
+                in_hunk: bool,
+            }
+
+            impl ForeachState {
+                fn flush_hunk(&mut self) {
+                    if self.in_hunk {
+                        if let Some(ref file) = self.current_file {
+                            self.file_hunks
+                                .entry(file.clone())
+                                .or_default()
+                                .push(HunkDetail {
+                                    new_start: self.current_hunk_start,
+                                    new_end: self.current_hunk_end,
+                                    insertions: self.current_hunk_insertions,
+                                    deletions: self.current_hunk_deletions,
+                                });
+                        }
+                        self.in_hunk = false;
+                    }
+                }
+            }
+
+            let state = RefCell::new(ForeachState {
+                current_file: None,
+                file_hunks: HashMap::new(),
+                current_hunk_start: 0,
+                current_hunk_end: 0,
+                current_hunk_insertions: 0,
+                current_hunk_deletions: 0,
+                in_hunk: false,
+            });
+
+            diff.foreach(
+                &mut |delta, _progress| {
+                    let mut s = state.borrow_mut();
+                    s.flush_hunk();
+                    s.current_file = delta
+                        .new_file()
+                        .path()
+                        .map(|p| p.to_string_lossy().to_string());
+                    true
+                },
+                None, // binary_cb
+                Some(&mut |_delta, hunk| {
+                    let mut s = state.borrow_mut();
+                    s.flush_hunk();
+                    s.current_hunk_start = hunk.new_start();
+                    s.current_hunk_end = hunk.new_start() + hunk.new_lines();
+                    s.current_hunk_insertions = 0;
+                    s.current_hunk_deletions = 0;
+                    s.in_hunk = true;
+                    true
+                }),
+                Some(&mut |_delta, _hunk, line| {
+                    let mut s = state.borrow_mut();
+                    match line.origin() {
+                        '+' => s.current_hunk_insertions += 1,
+                        '-' => s.current_hunk_deletions += 1,
+                        _ => {}
+                    }
+                    true
+                }),
+            )?;
+
+            // Flush final hunk and extract data
+            let mut s = state.borrow_mut();
+            s.flush_hunk();
+            let file_hunks = std::mem::take(&mut s.file_hunks);
+            drop(s);
+
+            // Now process the collected data for this commit
+            if file_hunks.is_empty() {
+                continue;
+            }
+
+            let author = commit.author();
+            let timestamp = format_git_time(&commit.time());
+            let message = commit
+                .message()
+                .unwrap_or("")
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let hash_str = commit.id().to_string();
+            let short_hash = hash_str[..12.min(hash_str.len())].to_string();
+
+            for (file_path, hunks) in file_hunks {
+                // Always count churn
+                *churn_counts.entry(file_path.clone()).or_default() += 1;
+
+                // Only collect detailed commit data up to the per-file cap
+                let count = file_commit_counts.entry(file_path.clone()).or_default();
+                if *count >= max_commits_per_file {
+                    continue;
+                }
+
+                let total_ins: usize = hunks.iter().map(|h| h.insertions).sum();
+                let total_del: usize = hunks.iter().map(|h| h.deletions).sum();
+
+                let info = CommitInfo {
+                    hash: short_hash.clone(),
+                    full_hash: hash_str.clone(),
+                    author: author.name().unwrap_or("Unknown").to_string(),
+                    author_email: author.email().unwrap_or("").to_string(),
+                    timestamp: timestamp.clone(),
+                    message: message.clone(),
+                    files_changed: vec![file_path.clone()],
+                    insertions: total_ins,
+                    deletions: total_del,
+                };
+
+                file_commits
+                    .entry(file_path.clone())
+                    .or_default()
+                    .push((info, hunks));
+                *count += 1;
+            }
+        }
+
+        Ok((churn_counts, file_commits))
     }
 
     /// Check if a commit touched specific lines in a file.
