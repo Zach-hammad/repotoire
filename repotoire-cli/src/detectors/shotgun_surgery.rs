@@ -72,16 +72,12 @@ impl ShotgunSurgeryDetector {
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
     ) -> Option<ImpactAnalysis> {
-        let functions = graph.get_functions();
-
-        // Find all methods belonging to this class
-        let methods: Vec<_> = functions
+        // Find all methods belonging to this class using file-scoped index (O(1) lookup)
+        // instead of scanning all 71k functions.
+        let file_funcs = graph.get_functions_in_file(&class.file_path);
+        let methods: Vec<_> = file_funcs
             .iter()
-            .filter(|f| {
-                f.file_path == class.file_path
-                    && f.line_start >= class.line_start
-                    && f.line_end <= class.line_end
-            })
+            .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
             .collect();
 
         // Collect all external callers of all methods
@@ -121,7 +117,8 @@ impl ShotgunSurgeryDetector {
         })
     }
 
-    /// Trace how far changes cascade through the call graph
+    /// Trace how far changes cascade through the call graph.
+    /// Caps expansion per level to avoid explosive growth on dense graphs.
     #[allow(clippy::only_used_in_recursion)]
     fn trace_cascade_depth(
         &self,
@@ -129,15 +126,25 @@ impl ShotgunSurgeryDetector {
         callers: &HashSet<String>,
         depth: usize,
     ) -> usize {
+        // Cap at depth 3; also cap per-level expansion to avoid O(N^3) on dense graphs
+        const MAX_PER_LEVEL: usize = 50;
         if depth >= 3 || callers.is_empty() {
             return depth;
         }
 
         let mut next_level: HashSet<String> = HashSet::new();
         for caller_qn in callers {
+            // Use fan-in check to skip callers with no upstream
+            if graph.call_fan_in(caller_qn) == 0 {
+                continue;
+            }
             for upstream in graph.get_callers(caller_qn) {
                 if !callers.contains(&upstream.qualified_name) {
                     next_level.insert(upstream.qualified_name.clone());
+                    if next_level.len() >= MAX_PER_LEVEL {
+                        // Enough evidence of cascade — return early
+                        return self.trace_cascade_depth(graph, &next_level, depth + 1);
+                    }
                 }
             }
         }
@@ -226,6 +233,7 @@ impl Detector for ShotgunSurgeryDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let all_functions = graph.get_functions();
 
         for class in graph.get_classes() {
             // Skip interfaces
@@ -418,7 +426,8 @@ impl Detector for ShotgunSurgeryDetector {
             "recv",
         ];
 
-        for func in graph.get_functions() {
+        let min_fan_in = self.thresholds.min_callers * 2;
+        for func in &all_functions {
             // Skip common trait implementations
             let name_lower = func.name.to_lowercase();
             if SKIP_METHODS
@@ -454,11 +463,12 @@ impl Detector for ShotgunSurgeryDetector {
                 continue;
             }
 
-            let callers = graph.get_callers(&func.qualified_name);
-            if callers.len() < self.thresholds.min_callers * 2 {
+            // Fast O(1) fan-in check before expensive get_callers() clone
+            if graph.call_fan_in(&func.qualified_name) < min_fan_in {
                 continue;
             }
 
+            let callers = graph.get_callers(&func.qualified_name);
             let _caller_files: HashSet<_> = callers.iter().map(|c| &c.file_path).collect();
             let caller_modules: HashSet<_> = callers
                 .iter()
