@@ -377,32 +377,6 @@ impl SecretDetector {
     }
 }
 
-impl SecretDetector {
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<(String, usize, bool)> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| {
-                let callers = graph.get_callers(&f.qualified_name);
-                let name_lower = f.name.to_lowercase();
-
-                // Check if this is a config/init function
-                let is_config = name_lower.contains("config")
-                    || name_lower.contains("init")
-                    || name_lower.contains("setup")
-                    || name_lower.contains("settings");
-
-                (f.name, callers.len(), is_config)
-            })
-    }
-}
-
 impl Detector for SecretDetector {
     fn name(&self) -> &'static str {
         "secret-detection"
@@ -439,6 +413,29 @@ impl Detector for SecretDetector {
                 continue;
             }
 
+            // Cheap pre-filter: skip files without any secret-related patterns
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("AKIA")          // AWS
+                && !raw.contains("ghp_")      // GitHub
+                && !raw.contains("sk_live_")  // Stripe
+                && !raw.contains("SG.")       // SendGrid
+                && !raw.contains("PRIVATE KEY") // Private keys
+                && !raw.contains("api_key") && !raw.contains("api-key") && !raw.contains("apikey")
+                && !raw.contains("API_KEY") && !raw.contains("API-KEY") && !raw.contains("APIKEY")
+                && !raw.contains("password") && !raw.contains("PASSWORD")
+                && !raw.contains("passwd") && !raw.contains("PASSWD")
+                && !raw.contains("secret") && !raw.contains("SECRET")
+                && !raw.contains("postgres://") && !raw.contains("mysql://")
+                && !raw.contains("mongodb://") && !raw.contains("redis://")
+                && !raw.contains("xoxb-") && !raw.contains("xoxp-")
+                && !raw.contains("xoxa-") && !raw.contains("xoxr-")
+            {
+                continue;
+            }
+
             debug!("Scanning for secrets: {}", path.display());
             if let Some(content) = files.masked_content(path) {
                 findings.extend(self.scan_file(path, &content));
@@ -452,9 +449,15 @@ impl Detector for SecretDetector {
             {
                 let path_str = file_path.to_string_lossy().to_string();
 
-                if let Some((func_name, callers, is_config)) =
-                    Self::find_containing_function(graph, &path_str, line)
-                {
+                if let Some(f) = graph.find_function_at(&path_str, line) {
+                    let callers = graph.get_callers(&f.qualified_name).len();
+                    let name_lower = f.name.to_lowercase();
+                    let is_config = name_lower.contains("config")
+                        || name_lower.contains("init")
+                        || name_lower.contains("setup")
+                        || name_lower.contains("settings");
+                    let func_name = f.name;
+
                     let mut notes = Vec::new();
                     notes.push(format!(
                         "📦 In function: `{}` ({} callers)",
