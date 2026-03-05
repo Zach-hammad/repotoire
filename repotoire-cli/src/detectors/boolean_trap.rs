@@ -77,6 +77,12 @@ impl Detector for BooleanTrapDetector {
                 continue;
             }
 
+            // Tighter pre-filter: check raw content for adjacent boolean args pattern
+            // before paying for masked_content line scanning (~90% of files eliminated)
+            if !BOOL_ARGS.is_match(&raw) {
+                continue;
+            }
+
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {

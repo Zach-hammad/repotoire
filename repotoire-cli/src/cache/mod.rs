@@ -80,6 +80,13 @@ impl FileCache {
                 self.contents.insert(path.clone(), Arc::new(content));
             }
         });
+
+        // Pre-warm masked content in parallel (tree-sitter parse + string/comment stripping).
+        // This front-loads the masking cost so detectors get cache hits instead of paying
+        // the ~2-3ms tree-sitter parse on first access.
+        paths.par_iter().for_each(|path| {
+            let _ = self.masked_content(path);
+        });
     }
 
     /// File content (cached, lazy-loading)
