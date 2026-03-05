@@ -368,6 +368,23 @@ impl EvalDetector {
                 continue;
             }
 
+            // Cheap pre-filter: skip files without any eval/exec keywords
+            let raw = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            if !raw.contains("eval(")
+                && !raw.contains("exec(")
+                && !raw.contains("__import__")
+                && !raw.contains("import_module")
+                && !raw.contains("os.system")
+                && !raw.contains("os.popen")
+                && !raw.contains("subprocess")
+                && !raw.contains("shell=True")
+            {
+                continue;
+            }
+
             let content = match crate::cache::global_cache().masked_content(&path) {
                 Some(c) => c.to_string(),
                 None => continue,
