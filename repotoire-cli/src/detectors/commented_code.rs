@@ -106,12 +106,9 @@ impl CommentedCodeDetector {
 
     /// Check how many referenced functions exist in the graph
     fn check_func_existence(
-        graph: &dyn crate::graph::GraphQuery,
+        all_func_names: &HashSet<String>,
         refs: &HashSet<String>,
     ) -> (usize, usize) {
-        let all_func_names: HashSet<String> =
-            graph.get_functions().into_iter().map(|f| f.name).collect();
-
         let existing = refs.iter().filter(|r| all_func_names.contains(*r)).count();
         let missing = refs.len() - existing;
         (existing, missing)
@@ -132,6 +129,10 @@ impl Detector for CommentedCodeDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
+
+        // Pre-build function name set once — O(N) instead of O(N) per commented block
+        let all_func_names: HashSet<String> =
+            graph.get_functions().into_iter().map(|f| f.name).collect();
 
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]) {
             if findings.len() >= self.max_findings {
@@ -201,7 +202,7 @@ impl Detector for CommentedCodeDetector {
                         if code_lines >= self.min_lines && has_strong {
                             // === Graph-enhanced analysis ===
                             let func_refs = Self::extract_func_refs(&lines, start, j);
-                            let (existing, missing) = Self::check_func_existence(graph, &func_refs);
+                            let (existing, missing) = Self::check_func_existence(&all_func_names, &func_refs);
 
                             // Build analysis notes
                             let mut notes = Vec::new();

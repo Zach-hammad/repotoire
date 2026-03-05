@@ -67,11 +67,7 @@ impl TestInProductionDetector {
 
     /// Check if this file is imported by production code
     fn is_imported_by_production(graph: &dyn crate::graph::GraphQuery, file_path: &str) -> bool {
-        let funcs: Vec<_> = graph
-            .get_functions()
-            .into_iter()
-            .filter(|f| f.file_path == file_path)
-            .collect();
+        let funcs = graph.get_functions_in_file(file_path);
 
         for func in funcs {
             for caller in graph.get_callers(&func.qualified_name) {
@@ -86,19 +82,6 @@ impl TestInProductionDetector {
         false
     }
 
-    /// Find containing function
-    #[allow(dead_code)] // Helper for graph-based detection
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<String> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| f.name)
-    }
 }
 
 impl Detector for TestInProductionDetector {

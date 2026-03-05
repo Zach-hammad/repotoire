@@ -63,11 +63,7 @@ impl LargeFilesDetector {
         graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
     ) -> FileAnalysis {
-        let functions: Vec<_> = graph
-            .get_functions()
-            .into_iter()
-            .filter(|f| f.file_path == file_path)
-            .collect();
+        let functions = graph.get_functions_in_file(file_path);
 
         let func_count = functions.len();
 
