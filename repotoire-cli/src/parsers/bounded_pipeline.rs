@@ -37,7 +37,7 @@ use crate::parsers::lightweight::{LightweightFileInfo, LightweightParseStats};
 use crate::parsers::parse_file_lightweight;
 use anyhow::Result;
 use crossbeam_channel::bounded;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -159,7 +159,7 @@ struct FlushingGraphBuilder {
     repo_path: PathBuf,
 
     // Lookup indexes (grow with repo but much smaller than full file info)
-    function_lookup: HashMap<String, String>,
+    function_lookup: BTreeMap<String, String>,
     module_lookup: ModuleLookupCompact,
 
     // Buffered edges (flushed periodically)
@@ -176,7 +176,7 @@ struct FlushingGraphBuilder {
 /// Compact module lookup - only stores what we need
 #[derive(Debug, Default)]
 struct ModuleLookupCompact {
-    by_stem: HashMap<String, Vec<String>>,
+    by_stem: BTreeMap<String, Vec<String>>,
 }
 
 impl ModuleLookupCompact {
@@ -187,6 +187,14 @@ impl ModuleLookupCompact {
                 .entry(stem.to_string())
                 .or_default()
                 .push(relative_path.to_string());
+        }
+    }
+
+    /// Sort all candidate vecs for deterministic resolution.
+    /// Must be called after all files have been added (end of Phase 1).
+    fn sort_candidates(&mut self) {
+        for candidates in self.by_stem.values_mut() {
+            candidates.sort();
         }
     }
 
@@ -211,7 +219,7 @@ impl FlushingGraphBuilder {
         Self {
             graph,
             repo_path: repo_path.to_path_buf(),
-            function_lookup: HashMap::new(),
+            function_lookup: BTreeMap::new(),
             module_lookup: ModuleLookupCompact::default(),
             edge_buffer: Vec::with_capacity(edge_flush_threshold.min(10_000)),
             edge_flush_threshold,
@@ -377,6 +385,9 @@ impl FlushingGraphBuilder {
 
     /// Finalize — Phase 2: resolve deferred cross-file edges, flush, and save
     fn finalize(mut self) -> Result<BoundedPipelineStats> {
+        // Sort module lookup candidates so find_match() returns deterministic results.
+        self.module_lookup.sort_candidates();
+
         // Phase 2: sort deferred edges for deterministic resolution order.
         // DeferredEdgeKind derives Ord — variants ordered by discriminant (Call < Import),
         // then by all fields in declaration order, guaranteeing a total order.
