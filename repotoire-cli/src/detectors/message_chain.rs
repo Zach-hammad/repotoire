@@ -210,7 +210,14 @@ impl MessageChainDetector {
         let mut findings = Vec::new();
         let mut reported_in_chain: HashSet<String> = HashSet::new();
 
-        for func in graph.get_functions() {
+        // Pre-build qualified_name → file_path map for O(1) lookups (avoid repeated get_functions())
+        let all_functions = graph.get_functions();
+        let qn_to_file: HashMap<String, String> = all_functions
+            .iter()
+            .map(|f| (f.qualified_name.clone(), f.file_path.clone()))
+            .collect();
+
+        for func in all_functions {
             // Skip if already reported as part of another chain
             if reported_in_chain.contains(&func.qualified_name) {
                 continue;
@@ -255,15 +262,9 @@ impl MessageChainDetector {
 
             // Skip chains where all functions are in the same file
             // (same-file decomposition is usually intentional)
-            let all_funcs = graph.get_functions();
-            let files_in_chain: HashSet<String> = chain_members
+            let files_in_chain: HashSet<&String> = chain_members
                 .iter()
-                .filter_map(|qn| {
-                    all_funcs
-                        .iter()
-                        .find(|f| f.qualified_name == *qn)
-                        .map(|f| f.file_path.clone())
-                })
+                .filter_map(|qn| qn_to_file.get(qn))
                 .collect();
             if files_in_chain.len() <= 1 {
                 continue; // All in same file — normal decomposition
