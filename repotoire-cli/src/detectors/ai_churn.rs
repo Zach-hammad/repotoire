@@ -17,7 +17,6 @@ use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
@@ -499,22 +498,17 @@ impl Detector for AIChurnDetector {
 
         debug!("AIChurnDetector: Fetching commits+hunks for {} files", files_to_fetch.len());
 
-        // Parallel revwalk per file — each thread opens its own git2::Repository
+        // Batch revwalk: single pass through commit history for all files
+        // (replaces N parallel revwalks + N repository opens with 1 revwalk)
         let file_paths: Vec<String> = files_to_fetch.into_keys().collect();
-        let file_commit_cache: HashMap<String, Vec<(crate::git::history::CommitInfo, Vec<(u32, u32)>)>> = file_paths
-            .par_iter()
-            .filter_map(|file_path| {
-                // Each thread opens its own Repository (libgit2 is thread-safe with separate instances)
-                let thread_git = crate::git::history::GitHistory::new(repo_path).ok()?;
-                match thread_git.get_file_commits_with_hunks(file_path, 100) {
-                    Ok(commits_with_hunks) => Some((file_path.clone(), commits_with_hunks)),
-                    Err(e) => {
-                        debug!("AIChurnDetector: Failed to get commits for {}: {}", file_path, e);
-                        None
-                    }
+        let file_commit_cache: HashMap<String, Vec<(crate::git::history::CommitInfo, Vec<(u32, u32)>)>> =
+            match git_history.get_batch_file_commits_with_hunks(&file_paths, 100) {
+                Ok(cache) => cache,
+                Err(e) => {
+                    warn!("AIChurnDetector: Batch commit fetch failed: {}. Returning empty.", e);
+                    return Ok(vec![]);
                 }
-            })
-            .collect();
+            };
 
         // Phase 2b: For each function, filter cached commits by line range (in-memory, no git calls)
         info!("AIChurnDetector: Phase 2b - filtering {} functions by line range (in-memory)", functions.len());

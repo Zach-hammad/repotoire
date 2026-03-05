@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use git2::{DiffOptions, Repository, Sort};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tracing::debug;
 
@@ -290,9 +290,6 @@ impl GitHistory {
                 None,
             )?;
 
-            // Get line stats
-            let _stats = diff.stats()?;
-            // Note: Per-file line stats require iterating patches, done in get_commit_file_stats
         }
 
         Ok(churn_map)
@@ -494,6 +491,133 @@ impl GitHistory {
             };
 
             results.push((info, hunks));
+        }
+
+        Ok(results)
+    }
+
+    /// Batch-fetch commits with hunks for multiple files in a single revwalk.
+    ///
+    /// Instead of N separate revwalks (one per file), walks commit history once
+    /// and collects hunk data for all target files simultaneously. This eliminates
+    /// N-1 redundant revwalks and N-1 repository opens.
+    pub fn get_batch_file_commits_with_hunks(
+        &self,
+        target_files: &[String],
+        max_commits_per_file: usize,
+    ) -> Result<HashMap<String, Vec<(CommitInfo, Vec<(u32, u32)>)>>> {
+        if target_files.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let target_set: HashSet<&str> = target_files.iter().map(|s| s.as_str()).collect();
+        let mut results: HashMap<String, Vec<(CommitInfo, Vec<(u32, u32)>)>> = HashMap::new();
+        let mut commit_counts: HashMap<String, usize> = HashMap::new();
+
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.set_sorting(Sort::TIME)?;
+        revwalk.push_head()?;
+
+        let max_total_commits = 500;
+        let mut saturated = 0usize;
+        let total_target = target_files.len();
+
+        for (idx, oid_result) in revwalk.enumerate() {
+            if idx >= max_total_commits || saturated >= total_target {
+                break;
+            }
+
+            let oid = oid_result?;
+            let commit = self.repo.find_commit(oid)?;
+
+            let parent = commit.parent(0).ok();
+            let tree = commit.tree()?;
+            let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+
+            // Full diff to identify which target files appear in this commit
+            let diff = self
+                .repo
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+
+            // Check deltas for target files (fast: iterates tree comparison structs)
+            let mut matched: Vec<String> = Vec::new();
+            for delta in diff.deltas() {
+                if let Some(path) = delta.new_file().path() {
+                    let p = path.to_string_lossy();
+                    if target_set.contains(p.as_ref()) {
+                        let count = commit_counts.get(p.as_ref()).copied().unwrap_or(0);
+                        if count < max_commits_per_file {
+                            matched.push(p.to_string());
+                        }
+                    }
+                }
+            }
+
+            if matched.is_empty() {
+                continue;
+            }
+
+            // Extract commit metadata once
+            let author = commit.author();
+            let timestamp = format_git_time(&commit.time());
+            let message = commit
+                .message()
+                .unwrap_or("")
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string();
+
+            // For each matched file, pathspec diff for accurate hunks + stats
+            for file_path in matched {
+                let mut diff_opts = DiffOptions::new();
+                diff_opts.pathspec(file_path.as_str());
+
+                let file_diff = self.repo.diff_tree_to_tree(
+                    parent_tree.as_ref(),
+                    Some(&tree),
+                    Some(&mut diff_opts),
+                )?;
+
+                if file_diff.deltas().len() == 0 {
+                    continue;
+                }
+
+                let mut hunks = Vec::new();
+                file_diff.foreach(
+                    &mut |_, _| true,
+                    None,
+                    Some(&mut |_, hunk| {
+                        let start = hunk.new_start();
+                        let end = start + hunk.new_lines();
+                        hunks.push((start, end));
+                        true
+                    }),
+                    None,
+                )?;
+
+                let stats = file_diff.stats()?;
+
+                let info = CommitInfo {
+                    hash: commit.id().to_string()[..12].to_string(),
+                    full_hash: commit.id().to_string(),
+                    author: author.name().unwrap_or("Unknown").to_string(),
+                    author_email: author.email().unwrap_or("").to_string(),
+                    timestamp: timestamp.clone(),
+                    message: message.clone(),
+                    files_changed: vec![file_path.clone()],
+                    insertions: stats.insertions(),
+                    deletions: stats.deletions(),
+                };
+
+                results.entry(file_path.clone()).or_default().push((info, hunks));
+
+                let count = commit_counts.entry(file_path).or_default();
+                *count += 1;
+                if *count >= max_commits_per_file {
+                    saturated += 1;
+                }
+            }
         }
 
         Ok(results)
