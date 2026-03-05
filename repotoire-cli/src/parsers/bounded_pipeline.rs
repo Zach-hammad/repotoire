@@ -13,12 +13,17 @@
 //!
 //! Allocation:
 //!   - Parse results in-flight: 500MB max (buffer_size × ~5KB per file)
-//!   - Deferred edges: 500MB max (flush every 50k edges)
+//!   - Intra-file edge buffer: flushed periodically at edge_flush_threshold
+//!   - Deferred cross-file edges: accumulated until Phase 2 (finalize)
 //!   - Graph database: 500MB
+//!
+//! Two-phase edge resolution:
+//!   - Phase 1: intra-file edges resolve immediately, cross-file edges deferred
+//!   - Phase 2: deferred edges sorted and resolved with complete symbol tables
 //!
 //! Backpressure:
 //!   - When channel is full, parsers BLOCK (no memory growth)
-//!   - When edges hit threshold, consumer flushes to disk
+//!   - When intra-file edges hit threshold, consumer flushes to graph
 //! ```
 //!
 //! # Key Differences from unbounded pipelines
@@ -39,7 +44,10 @@ use std::sync::Arc;
 use std::thread;
 
 /// Unresolved cross-file edge buffered during Phase 1 for deferred resolution.
-#[derive(Debug, Clone)]
+///
+/// Derives `Ord` so `Vec::sort()` produces a total, deterministic order:
+/// variants ordered by discriminant (Call < Import), then by field declaration order.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum DeferredEdgeKind {
     /// Cross-file function call: caller_qn is the caller qualified name,
     /// callee_name is the callee's bare name (e.g., "helper_from_b").
@@ -335,9 +343,10 @@ impl FlushingGraphBuilder {
             });
         }
 
-        // Track peak buffer size
-        if self.edge_buffer.len() > self.stats.peak_edges_buffered {
-            self.stats.peak_edges_buffered = self.edge_buffer.len();
+        // Track peak buffer size (both resolved edge_buffer and deferred cross-file edges)
+        let combined = self.edge_buffer.len() + self.deferred_edges.len();
+        if combined > self.stats.peak_edges_buffered {
+            self.stats.peak_edges_buffered = combined;
         }
 
         // Flush edges if threshold reached
@@ -368,21 +377,10 @@ impl FlushingGraphBuilder {
 
     /// Finalize — Phase 2: resolve deferred cross-file edges, flush, and save
     fn finalize(mut self) -> Result<BoundedPipelineStats> {
-        // Phase 2: sort deferred edges for deterministic resolution order
-        self.deferred_edges.sort_by(|a, b| {
-            match (a, b) {
-                (
-                    DeferredEdgeKind::Call { caller_qn: a_src, callee_name: a_tgt, .. },
-                    DeferredEdgeKind::Call { caller_qn: b_src, callee_name: b_tgt, .. },
-                ) => a_src.cmp(b_src).then_with(|| a_tgt.cmp(b_tgt)),
-                (
-                    DeferredEdgeKind::Import { file_path: a_src, import_path: a_tgt, .. },
-                    DeferredEdgeKind::Import { file_path: b_src, import_path: b_tgt, .. },
-                ) => a_src.cmp(b_src).then_with(|| a_tgt.cmp(b_tgt)),
-                (DeferredEdgeKind::Call { .. }, DeferredEdgeKind::Import { .. }) => std::cmp::Ordering::Less,
-                (DeferredEdgeKind::Import { .. }, DeferredEdgeKind::Call { .. }) => std::cmp::Ordering::Greater,
-            }
-        });
+        // Phase 2: sort deferred edges for deterministic resolution order.
+        // DeferredEdgeKind derives Ord — variants ordered by discriminant (Call < Import),
+        // then by all fields in declaration order, guaranteeing a total order.
+        self.deferred_edges.sort();
 
         let deferred_count = self.deferred_edges.len();
         let mut resolved_count = 0usize;
@@ -586,9 +584,9 @@ pub fn run_bounded_pipeline_auto(
 /// parser threads begin work immediately rather than waiting for the walk to finish.
 ///
 /// The module lookup is populated incrementally as each file's parse result is
-/// consumed. This means import edges for very early files may miss targets that
-/// haven't been discovered yet — an acceptable trade-off for the latency reduction
-/// on large repositories.
+/// consumed. Cross-file edges (calls and imports) are deferred to Phase 2
+/// (`finalize()`) where they are resolved against complete symbol tables,
+/// ensuring deterministic graphs regardless of file discovery order.
 ///
 /// # Arguments
 ///
