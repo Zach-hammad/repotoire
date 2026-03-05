@@ -140,16 +140,11 @@ impl LazyClassDetector {
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
     ) -> usize {
-        let functions = graph.get_functions();
-
-        // Find methods belonging to this class (by file + line range)
-        let class_methods: Vec<&crate::graph::CodeNode> = functions
+        // Find methods belonging to this class using file-scoped index (O(1) lookup)
+        let file_funcs = graph.get_functions_in_file(&class.file_path);
+        let class_methods: Vec<_> = file_funcs
             .iter()
-            .filter(|f| {
-                f.file_path == class.file_path
-                    && f.line_start >= class.line_start
-                    && f.line_end <= class.line_end
-            })
+            .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
             .collect();
 
         if class_methods.is_empty() {
@@ -158,8 +153,10 @@ impl LazyClassDetector {
 
         // Collect all unique external callers
         let mut external_callers: HashSet<String> = HashSet::new();
+        let mut get_callers_calls = 0usize;
 
         for method in &class_methods {
+            get_callers_calls += 1;
             for caller in graph.get_callers(&method.qualified_name) {
                 // External = not in same file or not in class line range
                 let is_external = caller.file_path != class.file_path
@@ -217,8 +214,9 @@ impl Detector for LazyClassDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let classes = graph.get_classes();
 
-        for class in graph.get_classes() {
+        for class in classes {
             // Skip bundled/generated code: path check (semantic) + content check (additional)
             if crate::detectors::content_classifier::is_likely_bundled_path(&class.file_path) {
                 continue;
