@@ -142,16 +142,19 @@ fn jaccard_similarity(set1: &HashSet<String>, set2: &HashSet<String>) -> f64 {
     }
 }
 
+/// Pre-built set for O(1) generic identifier lookup
+static GENERIC_SET: std::sync::LazyLock<HashSet<&'static str>> =
+    std::sync::LazyLock::new(|| GENERIC_IDENTIFIERS.iter().copied().collect());
+
 /// Calculate ratio of generic identifiers in a function
 fn calculate_generic_ratio(identifiers: &[String]) -> f64 {
     if identifiers.is_empty() {
         return 0.0;
     }
 
-    let generic_set: HashSet<&str> = GENERIC_IDENTIFIERS.iter().copied().collect();
     let generic_count = identifiers
         .iter()
-        .filter(|id| generic_set.contains(id.to_lowercase().as_str()))
+        .filter(|id| GENERIC_SET.contains(id.to_lowercase().as_str()))
         .count();
 
     generic_count as f64 / identifiers.len() as f64
@@ -383,9 +386,23 @@ impl Detector for AIDuplicateBlockDetector {
                 None => continue,
             };
 
-            let lang = crate::parsers::lightweight::Language::from_extension(
-                path.extension().and_then(|e| e.to_str()).unwrap_or(""),
-            );
+            // Cheap pre-filter: skip files without function definitions
+            // to avoid expensive tree-sitter parsing
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let has_functions = match ext {
+                "py" => content.contains("\ndef ") || content.starts_with("def "),
+                "js" | "jsx" => content.contains("function ") || content.contains("=> ") || content.contains("=>{"),
+                "ts" | "tsx" => content.contains("function ") || content.contains("=> ") || content.contains("=>{"),
+                "go" => content.contains("\nfunc ") || content.starts_with("func "),
+                "rs" => content.contains("\nfn ") || content.starts_with("fn ") || content.contains(" fn "),
+                "java" => content.contains("void ") || content.contains("public ") || content.contains("private "),
+                _ => true, // Don't skip unknown extensions
+            };
+            if !has_functions {
+                continue;
+            }
+
+            let lang = crate::parsers::lightweight::Language::from_extension(ext);
 
             // Zero-reparse: extract functions AND fingerprints in a single file parse
             let functions = crate::detectors::ast_fingerprint::parse_functions_with_fingerprints(&content, lang);
