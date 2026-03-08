@@ -516,15 +516,10 @@ fn initialize_graph(
     // Parse files and build graph
     let parse_result = parse_and_build(env, &file_result, &graph, multi, &bar_style)?;
 
-    // Save graph cache for future incremental runs (background thread)
-    {
-        let cache_path = env.repotoire_dir.join("graph_cache.bin");
-        let graph_for_cache = Arc::clone(&graph);
-        std::thread::spawn(move || {
-            if let Err(e) = graph_for_cache.save_graph_cache(&cache_path) {
-                tracing::warn!("Failed to save graph cache: {}", e);
-            }
-        });
+    // Save graph cache for future incremental runs (background thread).
+    // Guard: skip if incremental mode with no changed files (cache is already warm).
+    if !file_result.files_to_parse.is_empty() || !env.config.is_incremental_mode {
+        spawn_graph_cache_save(&graph, &env.repotoire_dir);
     }
 
     Ok((graph, file_result, parse_result, None))
@@ -670,16 +665,9 @@ fn initialize_graph_overlapped(
         total_classes,
     };
 
-    // Save graph cache for future incremental runs (background thread)
-    {
-        let cache_path = env.repotoire_dir.join("graph_cache.bin");
-        let graph_for_cache = Arc::clone(&graph);
-        std::thread::spawn(move || {
-            if let Err(e) = graph_for_cache.save_graph_cache(&cache_path) {
-                tracing::warn!("Failed to save graph cache: {}", e);
-            }
-        });
-    }
+    // Save graph cache for future incremental runs (background thread).
+    // The overlapped path always builds a fresh graph, so always save.
+    spawn_graph_cache_save(&graph, &env.repotoire_dir);
 
     Ok((graph, file_result, parse_result, Some(gi_findings)))
 }
@@ -810,6 +798,25 @@ fn generate_reports(
 // ============================================================================
 // Internal helpers
 // ============================================================================
+
+/// Spawn a background thread to save the graph cache.
+///
+/// The thread handle is intentionally detached (fire-and-forget). This is safe
+/// because `save_graph_cache` uses atomic write-to-temp-then-rename: the worst
+/// case on early process exit is that no cache file is saved (a stale `.bin.tmp`
+/// may remain), never a corrupt cache.
+fn spawn_graph_cache_save(graph: &Arc<GraphStore>, repotoire_dir: &Path) {
+    let cache_path = repotoire_dir.join("graph_cache.bin");
+    let graph_for_cache = Arc::clone(graph);
+    std::thread::spawn(move || {
+        let start = std::time::Instant::now();
+        if let Err(e) = graph_for_cache.save_graph_cache(&cache_path) {
+            tracing::warn!("Failed to save graph cache: {}", e);
+        } else {
+            tracing::debug!("Graph cache saved in {:?}", start.elapsed());
+        }
+    });
+}
 
 /// Apply max_files limit to file collection result.
 fn apply_max_files_limit(

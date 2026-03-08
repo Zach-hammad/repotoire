@@ -1209,8 +1209,17 @@ impl GraphStore {
     // ==================== Graph Cache (bincode) ====================
 
     /// Save the in-memory graph to a bincode cache file for fast reload.
+    ///
+    /// The RwLock read guard is dropped immediately after cloning the graph,
+    /// so serialization and I/O happen without holding the lock. The file is
+    /// written atomically via write-to-temp-then-rename so a crash mid-write
+    /// never leaves a corrupt cache on disk.
     pub fn save_graph_cache(&self, cache_path: &std::path::Path) -> Result<()> {
-        let graph = self.read_graph();
+        // Clone graph under lock, then drop the guard immediately.
+        // The temporary RwLockReadGuard is dropped at the end of this statement.
+        let graph_clone = self.read_graph().clone();
+
+        // DashMap iteration doesn't hold the graph RwLock
         let node_index: HashMap<String, NodeIndex> = self.node_index.iter()
             .map(|entry| (entry.key().clone(), *entry.value()))
             .collect();
@@ -1221,19 +1230,26 @@ impl GraphStore {
         let cache = GraphCache {
             version: GRAPH_CACHE_VERSION,
             binary_version: env!("CARGO_PKG_VERSION").to_string(),
-            graph: graph.clone(),
+            graph: graph_clone,
             node_index,
             file_all_nodes,
         };
 
+        // Serialize and write — no lock held
         let bytes = bincode::serialize(&cache)
             .context("Failed to serialize graph cache")?;
 
         if let Some(parent) = cache_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(cache_path, bytes)
+
+        // Atomic write: write to .tmp then rename, so a crash mid-write
+        // never leaves a corrupt cache file.
+        let tmp_path = cache_path.with_extension("bin.tmp");
+        std::fs::write(&tmp_path, &bytes)
             .context("Failed to write graph cache")?;
+        std::fs::rename(&tmp_path, cache_path)
+            .context("Failed to finalize graph cache")?;
 
         Ok(())
     }
