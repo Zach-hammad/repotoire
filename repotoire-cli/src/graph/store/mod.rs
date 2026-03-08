@@ -6,19 +6,26 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use petgraph::algo::tarjan_scc;
-use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::visit::EdgeRef;
+use petgraph::stable_graph::{NodeIndex, StableGraph};
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::Direction;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 
 pub use super::store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
+
+/// Call maps cache type: (qn_to_idx, callers_by_idx, callees_by_idx)
+type CallMapsRaw = (
+    HashMap<String, usize>,
+    HashMap<usize, Vec<usize>>,
+    HashMap<usize, Vec<usize>>,
+);
 
 /// Pure Rust graph store - replaces Kuzu
 pub struct GraphStore {
     /// In-memory graph
-    graph: RwLock<DiGraph<CodeNode, CodeEdge>>,
+    graph: RwLock<StableGraph<CodeNode, CodeEdge>>,
     /// Node lookup by qualified name — DashMap for lock-free concurrent reads
     node_index: DashMap<String, NodeIndex>,
     /// Spatial index: file_path → [(line_start, line_end, NodeIndex)] for O(1) function lookup.
@@ -36,6 +43,9 @@ pub struct GraphStore {
     /// Persistent edge dedup set: prevents duplicate (from, to, kind) edges across batches.
     /// O(1) lookup instead of O(degree) graph scan per insertion.
     edge_set: Mutex<HashSet<(NodeIndex, NodeIndex, EdgeKind)>>,
+    /// Cached call maps from build_call_maps_raw() — computed once, reused by
+    /// both DetectorEngine (CachedGraphQuery) and postprocess (FP filter).
+    call_maps_cache: OnceLock<CallMapsRaw>,
     /// Persistence layer (optional) — uses redb (ACID, well-maintained)
     db: Option<redb::Database>,
     /// Database path for lazy loading
@@ -60,7 +70,7 @@ impl GraphStore {
         let db = redb::Database::create(&db_file).context("Failed to open redb database")?;
 
         let store = Self {
-            graph: RwLock::new(DiGraph::new()),
+            graph: RwLock::new(StableGraph::new()),
             node_index: DashMap::new(),
             function_spatial_index: DashMap::new(),
             file_functions_index: DashMap::new(),
@@ -68,6 +78,7 @@ impl GraphStore {
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             edge_set: Mutex::new(HashSet::new()),
+            call_maps_cache: OnceLock::new(),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: false,
@@ -87,7 +98,7 @@ impl GraphStore {
         let db = redb::Database::create(&db_file).context("Failed to open redb database")?;
 
         Ok(Self {
-            graph: RwLock::new(DiGraph::new()),
+            graph: RwLock::new(StableGraph::new()),
             node_index: DashMap::new(),
             function_spatial_index: DashMap::new(),
             file_functions_index: DashMap::new(),
@@ -95,6 +106,7 @@ impl GraphStore {
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             edge_set: Mutex::new(HashSet::new()),
+            call_maps_cache: OnceLock::new(),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: true,
@@ -104,7 +116,7 @@ impl GraphStore {
     /// Create an in-memory only store (no persistence)
     pub fn in_memory() -> Self {
         Self {
-            graph: RwLock::new(DiGraph::new()),
+            graph: RwLock::new(StableGraph::new()),
             node_index: DashMap::new(),
             function_spatial_index: DashMap::new(),
             file_functions_index: DashMap::new(),
@@ -112,6 +124,7 @@ impl GraphStore {
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             edge_set: Mutex::new(HashSet::new()),
+            call_maps_cache: OnceLock::new(),
             db: None,
             db_path: None,
             lazy_mode: false,
@@ -127,14 +140,14 @@ impl GraphStore {
     // These helpers centralise the `.expect()` calls with clear messages.
 
     /// Acquire read lock on the graph. Panics if lock is poisoned (unrecoverable).
-    fn read_graph(&self) -> std::sync::RwLockReadGuard<'_, DiGraph<CodeNode, CodeEdge>> {
+    fn read_graph(&self) -> std::sync::RwLockReadGuard<'_, StableGraph<CodeNode, CodeEdge>> {
         self.graph
             .read()
             .expect("graph lock poisoned — a thread panicked while holding this lock")
     }
 
     /// Acquire write lock on the graph. Panics if lock is poisoned (unrecoverable).
-    fn write_graph(&self) -> std::sync::RwLockWriteGuard<'_, DiGraph<CodeNode, CodeEdge>> {
+    fn write_graph(&self) -> std::sync::RwLockWriteGuard<'_, StableGraph<CodeNode, CodeEdge>> {
         self.graph
             .write()
             .expect("graph lock poisoned — a thread panicked while holding this lock")
@@ -147,11 +160,10 @@ impl GraphStore {
     /// and `estimated_edges` values are hints — over-estimating is cheap
     /// (a bit of extra memory), under-estimating just means some
     /// reallocations still happen.
-    pub fn reserve_capacity(&self, estimated_nodes: usize, estimated_edges: usize) {
-        let mut graph = self.write_graph();
-        graph.reserve_nodes(estimated_nodes);
-        graph.reserve_edges(estimated_edges);
-        // DashMap handles capacity internally — no explicit reserve needed
+    pub fn reserve_capacity(&self, _estimated_nodes: usize, _estimated_edges: usize) {
+        // StableGraph (petgraph 0.7) does not expose reserve_nodes/reserve_edges.
+        // Pre-allocation happens via StableGraph::with_capacity at construction
+        // time if needed. This is a no-op to keep the public API stable.
     }
 
     // ==================== String Interner ====================
@@ -500,7 +512,7 @@ impl GraphStore {
 
     /// Add multiple edges at once (batch operation, deduplicated across all batches)
     pub fn add_edges_batch(&self, edges: Vec<(String, String, CodeEdge)>) -> usize {
-        // Resolve all node indices from DashMap first, before acquiring graph write lock
+        // Phase 1: Resolve all node indices from DashMap (lock-free reads)
         let resolved: Vec<_> = edges
             .into_iter()
             .filter_map(|(from_qn, to_qn, edge)| {
@@ -510,19 +522,24 @@ impl GraphStore {
             })
             .collect();
 
-        let total = resolved.len();
-        // Deduplicate using persistent edge_set — catches cross-batch duplicates
-        let mut set = self.edge_set.lock().expect("edge_set lock poisoned");
-        let mut graph = self.write_graph();
-        let mut added = 0;
-        for (from, to, edge) in resolved {
-            if set.insert((from, to, edge.kind)) {
+        // Phase 2: Dedup under edge_set mutex only (no graph write lock needed)
+        let unique: Vec<_> = {
+            let mut set = self.edge_set.lock().expect("edge_set lock poisoned");
+            resolved
+                .into_iter()
+                .filter(|(from, to, edge)| set.insert((*from, *to, edge.kind)))
+                .collect()
+        };
+        // edge_set mutex released here
+
+        // Phase 3: Insert deduplicated edges under graph write lock
+        let added = unique.len();
+        if added > 0 {
+            let mut graph = self.write_graph();
+            for (from, to, edge) in unique {
                 graph.add_edge(from, to, edge);
-                added += 1;
             }
         }
-
-        eprintln!("PERF_DEDUP: batch {total} resolved → {added} unique ({} dupes), set size: {}", total - added, set.len());
 
         added
     }
@@ -542,6 +559,78 @@ impl GraphStore {
             .collect();
         edges.sort();
         edges
+    }
+
+    /// Build call maps directly from petgraph, avoiding 12.5M+ (String, String) allocation.
+    ///
+    /// Iterates petgraph edges once, resolving NodeIndex → function list index
+    /// via an intermediate HashMap. No String allocation for edge data.
+    /// Function ordering matches get_functions() (sorted by qualified_name).
+    pub fn build_call_maps_raw(
+        &self,
+    ) -> (
+        HashMap<String, usize>,
+        HashMap<usize, Vec<usize>>,
+        HashMap<usize, Vec<usize>>,
+    ) {
+        // Return cached result if already computed (avoids 74-103ms rebuild in postprocess)
+        if let Some(cached) = self.call_maps_cache.get() {
+            return cached.clone();
+        }
+
+        use petgraph::visit::EdgeRef;
+        let graph = self.read_graph();
+
+        // Collect function nodes with their petgraph NodeIndex
+        let mut funcs_pg: Vec<(NodeIndex, &CodeNode)> = graph
+            .node_indices()
+            .filter_map(|idx| {
+                let node = graph.node_weight(idx)?;
+                if node.kind == NodeKind::Function {
+                    Some((idx, node))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort by qualified_name to match get_functions() ordering
+        funcs_pg.sort_by(|a, b| a.1.qualified_name.cmp(&b.1.qualified_name));
+
+        // petgraph NodeIndex → function list position
+        let pg_to_func: HashMap<NodeIndex, usize> = funcs_pg
+            .iter()
+            .enumerate()
+            .map(|(i, (pg_idx, _))| (*pg_idx, i))
+            .collect();
+
+        // qn → function list index
+        let qn_to_idx: HashMap<String, usize> = funcs_pg
+            .iter()
+            .enumerate()
+            .map(|(i, (_, node))| (node.qualified_name.clone(), i))
+            .collect();
+
+        // Build callers/callees from call edges — zero String allocation
+        let mut callers: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut callees: HashMap<usize, Vec<usize>> = HashMap::new();
+
+        for edge in graph.edge_references() {
+            if edge.weight().kind == EdgeKind::Calls {
+                if let (Some(&from), Some(&to)) = (
+                    pg_to_func.get(&edge.source()),
+                    pg_to_func.get(&edge.target()),
+                ) {
+                    callers.entry(to).or_default().push(from);
+                    callees.entry(from).or_default().push(to);
+                }
+            }
+        }
+
+        let result = (qn_to_idx, callers, callees);
+        // Cache for subsequent calls (postprocess FP filter reuse)
+        let _ = self.call_maps_cache.set(result.clone());
+        result
     }
 
     /// Get all edges in the graph as (source_qn, dest_qn, edge_kind) tuples.
@@ -799,7 +888,7 @@ impl GraphStore {
 
         // Build a filtered subgraph with only edges of the specified kind
         // This is more efficient than filtering during SCC traversal
-        let mut filtered_graph: DiGraph<NodeIndex, ()> = DiGraph::new();
+        let mut filtered_graph: StableGraph<NodeIndex, ()> = StableGraph::new();
         let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
         let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
 
