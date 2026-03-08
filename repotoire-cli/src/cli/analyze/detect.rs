@@ -326,12 +326,13 @@ pub(super) fn run_detectors_speculative(
 
         // Run GI + GD pre-compute in parallel using thread::scope
         let (gi_result, gd_precomputed) = std::thread::scope(|s| {
-            // Background thread: GD pre-compute (contexts + HMM + taint)
+            // Background thread: GD pre-compute (contexts + HMM + taint + DetectorContext)
             let precompute_handle = s.spawn(|| {
                 crate::detectors::precompute_gd_startup(
                     graph.as_ref(),
                     &repo_path_clone,
                     Some(&hmm_cache_path_clone),
+                    all_files,
                 )
             });
 
@@ -376,6 +377,7 @@ pub(super) fn run_detectors_speculative(
                     graph.as_ref(),
                     &repo_path_clone,
                     Some(&hmm_cache_path_clone),
+                    all_files,
                 )
             });
             // Wait for git enrichment while GD precompute runs in parallel

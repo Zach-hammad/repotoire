@@ -39,6 +39,186 @@ use tracing::{debug, error, info, warn};
 /// Maximum findings to keep to prevent memory exhaustion
 const MAX_FINDINGS_LIMIT: usize = 10_000;
 
+/// Pre-computed data for graph-dependent detector startup.
+/// Built by `precompute_gd_startup()` and injected via `inject_gd_precomputed()`.
+pub struct GdPrecomputed {
+    pub contexts: Arc<FunctionContextMap>,
+    pub hmm_contexts: Arc<HashMap<String, FunctionContext>>,
+    pub taint_results: crate::detectors::taint::centralized::CentralizedTaintResults,
+    pub detector_context: Arc<super::DetectorContext>,
+}
+
+/// Build all GD pre-compute data (contexts + HMM + taint) as a standalone computation.
+///
+/// This does NOT require `&mut DetectorEngine` — it only reads the graph and files.
+/// Can run in parallel with GI detectors via `thread::scope`.
+pub fn precompute_gd_startup(
+    graph: &dyn crate::graph::GraphQuery,
+    repo_path: &std::path::Path,
+    hmm_cache_path: Option<&std::path::PathBuf>,
+    source_files: &[std::path::PathBuf],
+) -> GdPrecomputed {
+    // Four-way parallel: contexts, taint, HMM, and DetectorContext are all independent.
+    //   Thread 1: taint (1.5s)           — cross-function + intra-function taint
+    //   Thread 2: HMM (0.4s)             — Hidden Markov Model context extraction
+    //   Thread 3: DetectorContext (~0.3s) — callers/callees maps, file contents, class hierarchy
+    //   Main:     contexts (1.5s)         — adjacency + betweenness + context map
+    //   Total:    max(1.5, 1.5, 0.4, 0.3) ≈ 1.5s (zero additional wall-clock cost)
+    let (contexts, hmm_contexts, taint_results, detector_context) = std::thread::scope(|s| {
+        // Thread 1: Taint analysis
+        let taint_handle = s.spawn(|| {
+            crate::detectors::taint::centralized::run_centralized_taint(
+                graph, repo_path, None,
+            )
+        });
+
+        // Thread 2: HMM context extraction
+        let hmm_handle = s.spawn(|| {
+            build_hmm_contexts_standalone(graph, hmm_cache_path)
+        });
+
+        // Thread 3: DetectorContext (callers/callees maps, file contents, class hierarchy)
+        let ctx_handle = s.spawn(|| {
+            Arc::new(super::DetectorContext::build(graph, source_files))
+        });
+
+        // Main thread: Function contexts (adjacency + betweenness + context map)
+        let ctx = FunctionContextBuilder::new(graph).build();
+
+        let taint = taint_handle.join().expect("taint thread panicked");
+        let hmm = hmm_handle.join().expect("HMM thread panicked");
+        let det_ctx = ctx_handle.join().expect("DetectorContext thread panicked");
+        (ctx, hmm, taint, det_ctx)
+    });
+
+    GdPrecomputed {
+        contexts: Arc::new(contexts),
+        hmm_contexts: Arc::new(hmm_contexts),
+        taint_results,
+        detector_context,
+    }
+}
+
+/// Standalone HMM context building (no &mut self needed).
+/// Same logic as `DetectorEngine::build_hmm_contexts` but callable from free function.
+fn build_hmm_contexts_standalone(
+    graph: &dyn crate::graph::GraphQuery,
+    hmm_cache_path: Option<&std::path::PathBuf>,
+) -> HashMap<String, FunctionContext> {
+    // Try to load cached HMM+CRF model
+    let mut classifier = if let Some(path) = hmm_cache_path {
+        let model_path = path.join("hmm_model.json");
+        if model_path.exists() {
+            info!("Loading cached HMM+CRF model from {:?}", model_path);
+            ContextClassifier::load(&model_path).unwrap_or_else(|| {
+                ContextClassifier::for_codebase(Some(&model_path))
+            })
+        } else {
+            ContextClassifier::new()
+        }
+    } else {
+        ContextClassifier::new()
+    };
+
+    info!("Building HMM function contexts from graph (standalone)...");
+    let mut functions = graph.get_functions();
+
+    if functions.is_empty() {
+        return HashMap::new();
+    }
+
+    // Build call data from index-based adjacency
+    let (adj, rev_adj, qn_to_idx) = graph.get_call_adjacency();
+    let file_paths: Vec<String> = functions.iter().map(|f| f.file_path.clone()).collect();
+
+    // Limit function count to prevent OOM on huge codebases
+    const MAX_FUNCTIONS_FOR_HMM: usize = 20_000;
+    if functions.len() > MAX_FUNCTIONS_FOR_HMM {
+        warn!(
+            "Limiting HMM analysis to {} functions (codebase has {})",
+            MAX_FUNCTIONS_FOR_HMM, functions.len()
+        );
+        functions.sort_by(|a, b| {
+            let a_fi = qn_to_idx.get(&a.qualified_name).and_then(|&idx| rev_adj.get(idx)).map_or(0, |v| v.len());
+            let b_fi = qn_to_idx.get(&b.qualified_name).and_then(|&idx| rev_adj.get(idx)).map_or(0, |v| v.len());
+            b_fi.cmp(&a_fi)
+        });
+        functions.truncate(MAX_FUNCTIONS_FOR_HMM);
+    }
+
+    // Compute graph statistics for normalization
+    let mut max_fan_in = 1usize;
+    let mut max_fan_out = 1usize;
+    let mut total_complexity = 0i64;
+    let mut complexity_count = 0usize;
+    let mut total_loc = 0u32;
+    let mut total_params = 0usize;
+
+    for func in &functions {
+        let idx = qn_to_idx.get(&func.qualified_name).copied().unwrap_or(0);
+        let fan_in = rev_adj.get(idx).map_or(0, |v| v.len());
+        let fan_out = adj.get(idx).map_or(0, |v| v.len());
+        max_fan_in = max_fan_in.max(fan_in);
+        max_fan_out = max_fan_out.max(fan_out);
+        if let Some(c) = func.complexity() {
+            total_complexity += c;
+            complexity_count += 1;
+        }
+        total_loc += func.line_end.saturating_sub(func.line_start) + 1;
+        total_params += 3;
+    }
+
+    let avg_complexity = if complexity_count > 0 { total_complexity as f64 / complexity_count as f64 } else { 10.0 };
+    let avg_loc = total_loc as f64 / functions.len().max(1) as f64;
+    let avg_params = total_params as f64 / functions.len().max(1) as f64;
+
+    // Extract features
+    let mut function_data = Vec::new();
+    for func in &functions {
+        let idx = qn_to_idx.get(&func.qualified_name).copied().unwrap_or(0);
+        let fan_in = rev_adj.get(idx).map_or(0, |v| v.len());
+        let fan_out = adj.get(idx).map_or(0, |v| v.len());
+        let caller_files_count = rev_adj.get(idx).map_or(0, |callers| {
+            callers.iter()
+                .filter_map(|&ci| file_paths.get(ci).map(|s| s.as_str()))
+                .collect::<std::collections::HashSet<&str>>()
+                .len()
+        });
+        let loc = func.line_end.saturating_sub(func.line_start) + 1;
+        let address_taken = func.properties.get("address_taken").and_then(|v| v.as_bool()).unwrap_or(false);
+        let features = FunctionFeatures::extract(
+            &func.name, &func.file_path, fan_in, fan_out, max_fan_in, max_fan_out,
+            caller_files_count, func.complexity(), avg_complexity, loc, avg_loc,
+            3, avg_params, address_taken,
+        );
+        function_data.push((features, fan_in, fan_out, address_taken));
+    }
+
+    classifier.train(&function_data);
+
+    // Save trained model to cache
+    if let Some(path) = hmm_cache_path {
+        if let Err(e) = std::fs::create_dir_all(path) {
+            warn!("Failed to create HMM cache directory: {}", e);
+        } else {
+            let model_path = path.join("hmm_model.json");
+            if let Err(e) = classifier.save(&model_path) {
+                warn!("Failed to save HMM model: {}", e);
+            }
+        }
+    }
+
+    // Classify all functions
+    let mut contexts = HashMap::new();
+    for (func, (features, _, _, _)) in functions.iter().zip(function_data.iter()) {
+        let context = classifier.classify(&func.qualified_name, features);
+        contexts.insert(func.qualified_name.clone(), context);
+    }
+
+    info!("Classified {} functions using HMM (standalone)", contexts.len());
+    contexts
+}
+
 /// Orchestrates code smell detection across all registered detectors
 pub struct DetectorEngine {
     /// Registered detectors
@@ -60,6 +240,8 @@ pub struct DetectorEngine {
     hmm_cache_path: Option<std::path::PathBuf>,
     /// Whether to print per-detector timing report
     timings_enabled: bool,
+    /// Whether GD pre-compute data has been injected via `inject_gd_precomputed`
+    gd_precomputed: bool,
 }
 
 impl DetectorEngine {
@@ -87,6 +269,7 @@ impl DetectorEngine {
             skip_test_files: true, // Skip test files by default
             hmm_cache_path: None,
             timings_enabled: false,
+            gd_precomputed: false,
         }
     }
 
@@ -184,9 +367,7 @@ impl DetectorEngine {
         };
 
         info!("Building HMM function contexts from graph...");
-        let t_hmm_start = std::time::Instant::now();
         let mut functions = graph.get_functions();
-        eprintln!("PERF_HMM: get_functions: {} in {:?}", functions.len(), t_hmm_start.elapsed());
 
         if functions.is_empty() {
             let empty = Arc::new(HashMap::new());
@@ -194,33 +375,11 @@ impl DetectorEngine {
             return empty;
         }
 
-        // Build caller file paths and fan-out from call edges in a single pass
-        // (replaces 2×N per-function graph queries with 1 bulk get_calls)
-        let t_calls = std::time::Instant::now();
-        let calls = graph.get_calls();
-        eprintln!("PERF_HMM: get_calls: {} edges in {:?}", calls.len(), t_calls.elapsed());
-        let func_file_lookup: HashMap<&str, &str> = functions
-            .iter()
-            .map(|f| (f.qualified_name.as_str(), f.file_path.as_str()))
-            .collect();
-        let mut callers_map: HashMap<String, Vec<String>> = functions
-            .iter()
-            .map(|f| (f.qualified_name.clone(), Vec::new()))
-            .collect();
-        let mut fan_out_map: HashMap<String, usize> = functions
-            .iter()
-            .map(|f| (f.qualified_name.clone(), 0))
-            .collect();
-        for (caller_qn, callee_qn) in &calls {
-            if let Some(&caller_file) = func_file_lookup.get(caller_qn.as_str()) {
-                if let Some(callers) = callers_map.get_mut(callee_qn.as_str()) {
-                    callers.push(caller_file.to_string());
-                }
-            }
-            if let Some(count) = fan_out_map.get_mut(caller_qn.as_str()) {
-                *count += 1;
-            }
-        }
+        // Build call data from index-based adjacency (avoids 12.5M String pair clone)
+        let (adj, rev_adj, qn_to_idx) = graph.get_call_adjacency();
+        // Pre-extract file paths indexed by original function position (owned, since
+        // functions may be sorted/truncated later but adj/rev_adj use original indices)
+        let file_paths: Vec<String> = functions.iter().map(|f| f.file_path.clone()).collect();
 
         // Limit function count to prevent OOM on huge codebases
         const MAX_FUNCTIONS_FOR_HMM: usize = 20_000;
@@ -232,23 +391,20 @@ impl DetectorEngine {
             );
             // Keep functions with highest fan-in (most important to classify correctly)
             functions.sort_by(|a, b| {
-                let a_fi = callers_map
+                let a_fi = qn_to_idx
                     .get(&a.qualified_name)
-                    .map_or(0, |c| c.len());
-                let b_fi = callers_map
+                    .and_then(|&idx| rev_adj.get(idx))
+                    .map_or(0, |v| v.len());
+                let b_fi = qn_to_idx
                     .get(&b.qualified_name)
-                    .map_or(0, |c| c.len());
+                    .and_then(|&idx| rev_adj.get(idx))
+                    .map_or(0, |v| v.len());
                 b_fi.cmp(&a_fi)
             });
             functions.truncate(MAX_FUNCTIONS_FOR_HMM);
-            // Prune maps to only retained functions
-            let retained: std::collections::HashSet<&str> =
-                functions.iter().map(|f| f.qualified_name.as_str()).collect();
-            callers_map.retain(|k, _| retained.contains(k.as_str()));
-            fan_out_map.retain(|k, _| retained.contains(k.as_str()));
         }
 
-        // Compute graph statistics for normalization using pre-computed maps
+        // Compute graph statistics for normalization using adjacency lists
         let mut max_fan_in = 1usize;
         let mut max_fan_out = 1usize;
         let mut total_complexity = 0i64;
@@ -257,13 +413,9 @@ impl DetectorEngine {
         let mut total_params = 0usize;
 
         for func in &functions {
-            let fan_in = callers_map
-                .get(&func.qualified_name)
-                .map_or(0, |c| c.len());
-            let fan_out = fan_out_map
-                .get(&func.qualified_name)
-                .copied()
-                .unwrap_or(0);
+            let idx = qn_to_idx.get(&func.qualified_name).copied().unwrap_or(0);
+            let fan_in = rev_adj.get(idx).map_or(0, |v| v.len());
+            let fan_out = adj.get(idx).map_or(0, |v| v.len());
             max_fan_in = max_fan_in.max(fan_in);
             max_fan_out = max_fan_out.max(fan_out);
 
@@ -284,21 +436,21 @@ impl DetectorEngine {
         let avg_loc = total_loc as f64 / functions.len().max(1) as f64;
         let avg_params = total_params as f64 / functions.len().max(1) as f64;
 
-        // Extract features for training using pre-computed callers/fan-out
+        // Extract features for training using adjacency-based fan-in/fan-out
         let mut function_data = Vec::new();
 
         for func in &functions {
-            let callers = callers_map
-                .get(&func.qualified_name)
-                .cloned()
-                .unwrap_or_default();
-            let fan_in = callers.len();
-            let fan_out = fan_out_map
-                .get(&func.qualified_name)
-                .copied()
-                .unwrap_or(0);
-            let caller_files: std::collections::HashSet<&str> =
-                callers.iter().map(|c| c.as_str()).collect();
+            let idx = qn_to_idx.get(&func.qualified_name).copied().unwrap_or(0);
+            let fan_in = rev_adj.get(idx).map_or(0, |v| v.len());
+            let fan_out = adj.get(idx).map_or(0, |v| v.len());
+            // Count unique caller file paths from adjacency indices
+            let caller_files_count = rev_adj.get(idx).map_or(0, |callers| {
+                callers
+                    .iter()
+                    .filter_map(|&ci| file_paths.get(ci).map(|s| s.as_str()))
+                    .collect::<std::collections::HashSet<&str>>()
+                    .len()
+            });
 
             let loc = func.line_end.saturating_sub(func.line_start) + 1;
             let address_taken = func
@@ -314,7 +466,7 @@ impl DetectorEngine {
                 fan_out,
                 max_fan_in,
                 max_fan_out,
-                caller_files.len(),
+                caller_files_count,
                 func.complexity(),
                 avg_complexity,
                 loc,
@@ -327,11 +479,8 @@ impl DetectorEngine {
             function_data.push((features, fan_in, fan_out, address_taken));
         }
 
-        eprintln!("PERF_HMM: feature extraction done in {:?}", t_hmm_start.elapsed());
         // Bootstrap training from call graph patterns
-        let t_train = std::time::Instant::now();
         classifier.train(&function_data);
-        eprintln!("PERF_HMM: training done in {:?}", t_train.elapsed());
 
         // Save trained model to cache
         if let Some(path) = cache_path {
@@ -383,6 +532,39 @@ impl DetectorEngine {
         self.hmm_contexts
             .as_ref()
             .and_then(|ctx| ctx.get(qualified_name).copied())
+    }
+
+    /// Inject pre-computed GD data (contexts, HMM, taint) into the engine.
+    ///
+    /// After calling this, `run_graph_dependent()` will skip the pre-compute phase
+    /// and use the injected data directly.
+    pub fn inject_gd_precomputed(&mut self, pre: GdPrecomputed) {
+        self.function_contexts = Some(pre.contexts);
+        self.hmm_contexts = Some(pre.hmm_contexts);
+
+        // Inject taint results into each security detector
+        for detector in &self.detectors {
+            if let Some(category) = detector.taint_category() {
+                let cross = pre.taint_results
+                    .cross_function
+                    .get(&category)
+                    .cloned()
+                    .unwrap_or_default();
+                let intra = pre.taint_results
+                    .intra_function
+                    .get(&category)
+                    .cloned()
+                    .unwrap_or_default();
+                detector.set_precomputed_taint(cross, intra);
+            }
+        }
+
+        // Inject detector context into all detectors
+        for detector in &self.detectors {
+            detector.set_detector_context(Arc::clone(&pre.detector_context));
+        }
+
+        self.gd_precomputed = true;
     }
 
     /// Register a detector
@@ -600,8 +782,13 @@ impl DetectorEngine {
         }
 
         // Apply HMM-based context filtering
+        let all_functions = graph.get_functions_shared();
+        let mut func_by_file: HashMap<&str, Vec<&crate::graph::CodeNode>> = HashMap::new();
+        for func in all_functions.iter() {
+            func_by_file.entry(&func.file_path).or_default().push(func);
+        }
         let before_hmm = all_findings.len();
-        all_findings = self.apply_hmm_context_filter(all_findings, &hmm_contexts, graph);
+        all_findings = self.apply_hmm_context_filter(all_findings, &hmm_contexts, &func_by_file);
         let hmm_filtered = before_hmm - all_findings.len();
         if hmm_filtered > 0 {
             info!(
@@ -642,7 +829,7 @@ impl DetectorEngine {
     ///
     /// Returns findings from file-local detectors.
     pub fn run_graph_independent(
-        &mut self,
+        &self,
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> Result<Vec<Finding>> {
@@ -771,49 +958,46 @@ impl DetectorEngine {
 
         info!("Running {} graph-dependent detectors", gd_detectors.len());
 
-        let t0 = std::time::Instant::now();
-        let contexts = self.get_or_build_contexts(graph);
-        eprintln!("PERF_GD: get_or_build_contexts: {:?}", t0.elapsed());
+        // If GD data was pre-computed (overlapped with GI), skip the startup phase.
+        // Otherwise, compute contexts + HMM + taint now (fallback for non-speculative paths).
+        let (contexts, hmm_contexts) = if self.gd_precomputed {
+            let ctx = self.function_contexts.clone().unwrap_or_else(|| Arc::new(HashMap::new()));
+            let hmm = self.hmm_contexts.clone().unwrap_or_else(|| Arc::new(HashMap::new()));
+            (ctx, hmm)
+        } else {
+            // Original pre-compute path (taint || context+HMM)
+            let repo_path = files.repo_path().to_path_buf();
 
-        let t1 = std::time::Instant::now();
-        let hmm_contexts = self.build_hmm_contexts(graph);
-        eprintln!("PERF_GD: build_hmm_contexts: {:?}", t1.elapsed());
+            let (ctx, hmm, taint_results) = std::thread::scope(|s| {
+                let taint_handle = s.spawn(|| {
+                    crate::detectors::taint::centralized::run_centralized_taint(
+                        graph, &repo_path, None,
+                    )
+                });
+
+                let ctx = self.get_or_build_contexts(graph);
+                let hmm = self.build_hmm_contexts(graph);
+
+                let taint = taint_handle.join().expect("taint thread panicked");
+                (ctx, hmm, taint)
+            });
+
+            // Inject taint results into each security detector
+            for detector in &gd_detectors {
+                if let Some(category) = detector.taint_category() {
+                    let cross = taint_results.cross_function.get(&category).cloned().unwrap_or_default();
+                    let intra = taint_results.intra_function.get(&category).cloned().unwrap_or_default();
+                    detector.set_precomputed_taint(cross, intra);
+                }
+            }
+
+            (ctx, hmm)
+        };
 
         let finding_count = Arc::new(AtomicUsize::new(0));
         let completed = Arc::new(AtomicUsize::new(0));
 
-        let t2 = std::time::Instant::now();
-        // Pre-compute centralized taint analysis for all security detectors.
-        // This runs taint analysis ONCE for all categories instead of 12x.
-        let repo_path = Some(files.repo_path());
-        if let Some(repo_path) = repo_path {
-            let taint_results = crate::detectors::taint::centralized::run_centralized_taint(
-                graph,
-                repo_path,
-                None,
-            );
-            // Inject pre-computed results into each security detector
-            for detector in &gd_detectors {
-                if let Some(category) = detector.taint_category() {
-                    let cross = taint_results
-                        .cross_function
-                        .get(&category)
-                        .cloned()
-                        .unwrap_or_default();
-                    let intra = taint_results
-                        .intra_function
-                        .get(&category)
-                        .cloned()
-                        .unwrap_or_default();
-                    detector.set_precomputed_taint(cross, intra);
-                }
-            }
-        }
-
-        eprintln!("PERF_GD: taint pre-compute: {:?}", t2.elapsed());
-
         // Split into parallel (independent but graph-requiring) and sequential (dependent)
-        let t3 = std::time::Instant::now();
         let (parallel, sequential): (Vec<_>, Vec<_>) =
             gd_detectors.into_iter().partition(|d| !d.is_dependent());
 
@@ -839,12 +1023,8 @@ impl DetectorEngine {
                         return DetectorResult::skipped(detector.name());
                     }
 
-                    eprintln!("PERF_DET_GD_START: {}", detector.name());
-                    let t_det = std::time::Instant::now();
                     let result =
                         self.run_single_detector(detector, graph, files, &contexts_clone);
-                    let det_ms = t_det.elapsed().as_millis();
-                    eprintln!("PERF_DET_GD: {} = {}ms ({} findings)", detector.name(), det_ms, result.findings.len());
                     finding_count_clone.fetch_add(result.findings.len(), Ordering::Relaxed);
 
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -856,8 +1036,6 @@ impl DetectorEngine {
                 })
                 .collect()
         });
-
-        eprintln!("PERF_GD: parallel detectors: {:?}", t3.elapsed());
 
         // Sort by detector name for deterministic finding order
         let mut parallel_results = parallel_results;
@@ -878,7 +1056,6 @@ impl DetectorEngine {
         }
 
         // Run sequential dependent detectors
-        eprintln!("PERF_GD: starting {} sequential detectors", sequential.len());
         for detector in sequential {
             if finding_count.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
                 let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -888,11 +1065,7 @@ impl DetectorEngine {
                 continue;
             }
 
-            eprintln!("PERF_DET_SEQ_START: {}", detector.name());
-            let t_seq = std::time::Instant::now();
             let result = self.run_single_detector(&detector, graph, files, &contexts);
-            let seq_ms = t_seq.elapsed().as_millis();
-            eprintln!("PERF_DET_SEQ: {} = {}ms ({} findings)", detector.name(), seq_ms, result.findings.len());
             finding_count.fetch_add(result.findings.len(), Ordering::Relaxed);
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -911,24 +1084,25 @@ impl DetectorEngine {
         }
 
         // Filter out test file findings if enabled
-        eprintln!("PERF_GD: post-filter start, {} findings", findings.len());
         if self.skip_test_files {
-            let t_test_filter = std::time::Instant::now();
             let before_count = findings.len();
             findings.retain(|finding| !self.is_test_file_finding(finding));
             let filtered = before_count - findings.len();
-            eprintln!("PERF_GD: test file filter: {} → {} in {:?}", before_count, findings.len(), t_test_filter.elapsed());
             if filtered > 0 {
                 debug!("Filtered out {} findings from test files", filtered);
             }
         }
 
         // Apply HMM-based context filtering (only for graph-dependent since HMM needs graph)
-        let t_hmm_filter = std::time::Instant::now();
+        // Use get_functions_ref() to avoid cloning 71K CodeNodes from the cache.
+        let cached_funcs = cached.get_functions_ref();
+        let mut func_by_file: HashMap<&str, Vec<&crate::graph::CodeNode>> = HashMap::new();
+        for func in cached_funcs {
+            func_by_file.entry(&func.file_path).or_default().push(func);
+        }
         let before_hmm = findings.len();
-        findings = self.apply_hmm_context_filter(findings, &hmm_contexts, graph);
+        findings = self.apply_hmm_context_filter(findings, &hmm_contexts, &func_by_file);
         let hmm_filtered = before_hmm - findings.len();
-        eprintln!("PERF_GD: HMM filter: {} → {} findings in {:?}", before_hmm, findings.len(), t_hmm_filter.elapsed());
         if hmm_filtered > 0 {
             info!("HMM context filter removed {} false positives", hmm_filtered);
         }
@@ -1045,52 +1219,55 @@ impl DetectorEngine {
     /// - Downgrade severity for functions with lenient contexts
     fn apply_hmm_context_filter(
         &self,
-        mut findings: Vec<Finding>,
+        findings: Vec<Finding>,
         hmm_contexts: &HashMap<String, FunctionContext>,
-        graph: &dyn crate::graph::GraphQuery,
+        func_by_file: &HashMap<&str, Vec<&crate::graph::CodeNode>>,
     ) -> Vec<Finding> {
-        // Detectors that should skip UTILITY functions
-        const COUPLING_DETECTORS: &[&str] = &[
+        use rustc_hash::FxHashSet;
+
+        // Build O(1) lookup sets for relevant detector names
+        static COUPLING_DETECTORS: &[&str] = &[
             "DegreeCentralityDetector",
             "ShotgunSurgeryDetector",
             "FeatureEnvyDetector",
             "InappropriateIntimacyDetector",
         ];
+        static DEAD_CODE_DETECTORS: &[&str] = &["UnreachableCodeDetector", "DeadCodeDetector"];
 
-        // Detectors that should skip HANDLER functions
-        const DEAD_CODE_DETECTORS: &[&str] = &["UnreachableCodeDetector", "DeadCodeDetector"];
+        let coupling_set: FxHashSet<&str> = COUPLING_DETECTORS.iter().copied().collect();
+        let dead_code_set: FxHashSet<&str> = DEAD_CODE_DETECTORS.iter().copied().collect();
 
-        // Pre-build file+line → function index (avoid calling get_functions() per finding)
-        let all_functions = graph.get_functions();
-        let mut func_by_file: HashMap<String, Vec<&crate::graph::CodeNode>> = HashMap::new();
-        for func in &all_functions {
-            func_by_file.entry(func.file_path.clone()).or_default().push(func);
-        }
+        // Pre-sort functions by line_start for binary search (done once, shared by all findings)
+        let sorted_by_file: HashMap<&str, Vec<&crate::graph::CodeNode>> = func_by_file
+            .iter()
+            .map(|(&file, funcs)| {
+                let mut sorted = funcs.clone();
+                sorted.sort_unstable_by_key(|f| f.line_start);
+                (file, sorted)
+            })
+            .collect();
 
-        // Parallel filter via rayon — each finding is independent
-        let engine = &self;
-        let findings: Vec<Finding> = findings
+        // Parallel filter — each finding is independent
+        findings
             .into_par_iter()
             .filter(|finding| {
-                let func_name = engine.extract_function_from_finding_fast(finding, &func_by_file);
+                let is_coupling = coupling_set.contains(finding.detector.as_str());
+                let is_dead_code = dead_code_set.contains(finding.detector.as_str());
 
-                if let Some(name) = func_name {
-                    if let Some(context) = hmm_contexts.get(&name) {
-                        // Skip coupling findings for utility/handler/test functions
-                        if COUPLING_DETECTORS
-                            .iter()
-                            .any(|d| finding.detector.contains(d))
-                            && context.skip_coupling()
-                        {
+                // Skip non-relevant detectors immediately (no function lookup needed)
+                if !is_coupling && !is_dead_code {
+                    return true;
+                }
+
+                // Look up function by file + line (binary search)
+                let func_qn = Self::find_function_at_line(finding, &sorted_by_file);
+
+                if let Some(qn) = func_qn {
+                    if let Some(context) = hmm_contexts.get(qn) {
+                        if is_coupling && context.skip_coupling() {
                             return false;
                         }
-
-                        // Skip dead code findings for handler functions
-                        if DEAD_CODE_DETECTORS
-                            .iter()
-                            .any(|d| finding.detector.contains(d))
-                            && context.skip_dead_code()
-                        {
+                        if is_dead_code && context.skip_dead_code() {
                             return false;
                         }
                     }
@@ -1098,44 +1275,29 @@ impl DetectorEngine {
 
                 true
             })
-            .collect();
-
-        findings
+            .collect()
     }
 
-    /// Try to extract the function qualified name from a finding (fast: pre-built index)
-    fn extract_function_from_finding_fast(
-        &self,
+    /// Find function qualified name at a finding's file+line using binary search.
+    /// Returns a reference to avoid String allocation.
+    fn find_function_at_line<'b>(
         finding: &Finding,
-        func_by_file: &HashMap<String, Vec<&crate::graph::CodeNode>>,
-    ) -> Option<String> {
-        // Try to find function by file path and line number
-        if let (Some(file), Some(line)) = (finding.affected_files.first(), finding.line_start) {
-            let file_str = file.to_string_lossy();
+        sorted_by_file: &HashMap<&str, Vec<&'b crate::graph::CodeNode>>,
+    ) -> Option<&'b str> {
+        let (file, line) = match (finding.affected_files.first(), finding.line_start) {
+            (Some(f), Some(l)) => (f, l),
+            _ => return None,
+        };
 
-            // Look up function in pre-built file index
-            if let Some(funcs) = func_by_file.get(file_str.as_ref()) {
-                for func in funcs {
-                    if func.line_start <= line && func.line_end >= line {
-                        return Some(func.qualified_name.clone());
-                    }
-                }
-            }
-        }
+        let file_str = file.to_string_lossy();
+        let funcs = sorted_by_file.get(file_str.as_ref())?;
 
-        // Fallback: try to extract from title (e.g., "Dead function: func_name")
-        if finding.title.contains(':') {
-            let parts: Vec<&str> = finding.title.splitn(2, ':').collect();
-            if parts.len() == 2 {
-                let name = parts[1].trim();
-                // Look up in all functions by name
-                for funcs in func_by_file.values() {
-                    for func in funcs {
-                        if func.name == name || func.qualified_name.ends_with(name) {
-                            return Some(func.qualified_name.clone());
-                        }
-                    }
-                }
+        // Binary search: find the last function whose line_start <= line
+        let idx = funcs.partition_point(|f| f.line_start <= line);
+        if idx > 0 {
+            let func = funcs[idx - 1];
+            if func.line_end >= line {
+                return Some(&func.qualified_name);
             }
         }
 

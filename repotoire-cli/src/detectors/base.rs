@@ -438,6 +438,15 @@ pub trait Detector: Send + Sync {
     fn taint_category(&self) -> Option<super::taint::TaintCategory> {
         None
     }
+
+    /// Inject shared pre-computed detector context.
+    ///
+    /// Called by the engine before `detect()` for detectors that benefit from
+    /// pre-built callers/callees maps, file content cache, or class hierarchy.
+    /// Default: no-op.
+    fn set_detector_context(&self, _ctx: Arc<super::DetectorContext>) {
+        // Default: no-op
+    }
 }
 
 /// Progress callback for detector execution

@@ -15,6 +15,7 @@
 
 pub mod base;
 pub mod content_classifier;
+pub mod detector_context;
 mod engine;
 pub mod file_cache;
 pub mod file_provider;
@@ -154,6 +155,9 @@ pub use base::{
     DetectionSummary, Detector, DetectorConfig, DetectorResult, DetectorScope, ProgressCallback,
 };
 
+// Re-export detector context
+pub use detector_context::DetectorContext;
+
 // Re-export file cache
 pub use file_cache::FileContentCache;
 
@@ -161,7 +165,7 @@ pub use file_cache::FileContentCache;
 pub use file_provider::{FileProvider, SourceFiles};
 
 // Re-export engine
-pub use engine::{DetectorEngine, DetectorEngineBuilder};
+pub use engine::{DetectorEngine, DetectorEngineBuilder, GdPrecomputed, precompute_gd_startup};
 
 // Re-export graph-based detector implementations
 pub use circular_dependency::CircularDependencyDetector;
