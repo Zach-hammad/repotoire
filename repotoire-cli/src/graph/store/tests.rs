@@ -418,3 +418,81 @@ fn test_file_all_nodes_index_populated() {
     let b_nodes = store.file_all_nodes_index.get("src/b.rs").unwrap();
     assert_eq!(b_nodes.len(), 1);
 }
+
+// ==================== Delta Patching Tests ====================
+
+#[test]
+fn test_remove_file_entities() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo").with_lines(1, 10));
+    store.add_node(CodeNode::function("bar", "src/a.rs").with_qualified_name("a.bar").with_lines(12, 20));
+    store.add_node(CodeNode::function("baz", "src/b.rs").with_qualified_name("b.baz").with_lines(1, 10));
+    store.add_edges_batch(vec![
+        ("a.foo".to_string(), "a.bar".to_string(), CodeEdge::new(EdgeKind::Calls)),
+        ("a.foo".to_string(), "b.baz".to_string(), CodeEdge::new(EdgeKind::Calls)),
+    ]);
+
+    assert_eq!(store.get_functions().len(), 3);
+
+    // Remove file a.rs
+    store.remove_file_entities(&[std::path::PathBuf::from("src/a.rs")]);
+
+    // a.rs nodes gone
+    assert!(store.get_node("a.foo").is_none());
+    assert!(store.get_node("a.bar").is_none());
+    // b.rs node still exists
+    assert!(store.get_node("b.baz").is_some());
+
+    // Only 1 function remaining
+    let funcs = store.get_functions();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].qualified_name, "b.baz");
+
+    // Edge from a.foo to b.baz should be gone
+    assert_eq!(store.get_callers("b.baz").len(), 0);
+}
+
+#[test]
+fn test_delta_patching_roundtrip() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo").with_lines(1, 10));
+    store.add_node(CodeNode::function("bar", "src/b.rs").with_qualified_name("b.bar").with_lines(1, 10));
+    store.add_edges_batch(vec![
+        ("a.foo".to_string(), "b.bar".to_string(), CodeEdge::new(EdgeKind::Calls)),
+    ]);
+
+    // Save
+    let tmp = tempfile::TempDir::new().unwrap();
+    let cache_path = tmp.path().join("cache.bin");
+    store.save_graph_cache(&cache_path).unwrap();
+
+    // Load
+    let loaded = GraphStore::load_graph_cache(&cache_path).unwrap();
+    assert_eq!(loaded.get_functions().len(), 2);
+
+    // Patch: remove a.rs, add new version
+    loaded.remove_file_entities(&[std::path::PathBuf::from("src/a.rs")]);
+    assert_eq!(loaded.get_functions().len(), 1);
+
+    // Re-add with modified content
+    loaded.add_node(CodeNode::function("foo_v2", "src/a.rs").with_qualified_name("a.foo_v2").with_lines(1, 15));
+    loaded.add_edges_batch(vec![
+        ("a.foo_v2".to_string(), "b.bar".to_string(), CodeEdge::new(EdgeKind::Calls)),
+    ]);
+
+    assert_eq!(loaded.get_functions().len(), 2);
+    assert!(loaded.get_node("a.foo").is_none());
+    assert!(loaded.get_node("a.foo_v2").is_some());
+    assert_eq!(loaded.get_callers("b.bar").len(), 1);
+    assert_eq!(loaded.get_callers("b.bar")[0].qualified_name, "a.foo_v2");
+}
+
+#[test]
+fn test_remove_nonexistent_file() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo").with_lines(1, 10));
+
+    // Removing a file that doesn't exist should be a no-op
+    store.remove_file_entities(&[std::path::PathBuf::from("src/nonexistent.rs")]);
+    assert_eq!(store.get_functions().len(), 1);
+}

@@ -1146,6 +1146,66 @@ impl GraphStore {
         Ok(())
     }
 
+    // ==================== Delta Patching ====================
+
+    /// Remove all nodes and edges belonging to a set of files.
+    /// Used for delta patching: remove stale data before re-parsing changed files.
+    ///
+    /// StableGraph allows safe node removal without invalidating other indexes.
+    pub fn remove_file_entities(&self, files: &[std::path::PathBuf]) {
+        let mut graph = self.write_graph();
+        let mut edge_set = self.edge_set.lock().unwrap();
+
+        for file in files {
+            let file_str = file.to_string_lossy();
+
+            // Get all nodes in this file from the reverse index
+            let node_idxs: Vec<NodeIndex> = self
+                .file_all_nodes_index
+                .remove(file_str.as_ref())
+                .map(|(_, v)| v)
+                .unwrap_or_default();
+
+            for idx in &node_idxs {
+                // Collect all edges (outgoing and incoming) connected to this node
+                let mut edge_ids: Vec<_> = graph
+                    .edges_directed(*idx, Direction::Outgoing)
+                    .map(|e| e.id())
+                    .collect();
+                let incoming: Vec<_> = graph
+                    .edges_directed(*idx, Direction::Incoming)
+                    .map(|e| e.id())
+                    .collect();
+                edge_ids.extend(incoming);
+                edge_ids.sort();
+                edge_ids.dedup();
+
+                // Remove edges from edge_set and graph
+                for eid in edge_ids {
+                    if let Some((src, tgt)) = graph.edge_endpoints(eid) {
+                        if let Some(edge) = graph.edge_weight(eid) {
+                            edge_set.remove(&(src, tgt, edge.kind));
+                        }
+                    }
+                    graph.remove_edge(eid);
+                }
+
+                // Remove the node from QN index
+                if let Some(node) = graph.node_weight(*idx) {
+                    self.node_index.remove(&node.qualified_name);
+                }
+
+                // Remove the node from graph (StableGraph handles this safely)
+                graph.remove_node(*idx);
+            }
+
+            // Clean up file-scoped indexes
+            self.file_functions_index.remove(file_str.as_ref());
+            self.file_classes_index.remove(file_str.as_ref());
+            self.function_spatial_index.remove(file_str.as_ref());
+        }
+    }
+
     // ==================== Graph Cache (bincode) ====================
 
     /// Save the in-memory graph to a bincode cache file for fast reload.
