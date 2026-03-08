@@ -516,6 +516,17 @@ fn initialize_graph(
     // Parse files and build graph
     let parse_result = parse_and_build(env, &file_result, &graph, multi, &bar_style)?;
 
+    // Save graph cache for future incremental runs (background thread)
+    {
+        let cache_path = env.repotoire_dir.join("graph_cache.bin");
+        let graph_for_cache = Arc::clone(&graph);
+        std::thread::spawn(move || {
+            if let Err(e) = graph_for_cache.save_graph_cache(&cache_path) {
+                tracing::warn!("Failed to save graph cache: {}", e);
+            }
+        });
+    }
+
     Ok((graph, file_result, parse_result, None))
 }
 
@@ -658,6 +669,17 @@ fn initialize_graph_overlapped(
         total_functions,
         total_classes,
     };
+
+    // Save graph cache for future incremental runs (background thread)
+    {
+        let cache_path = env.repotoire_dir.join("graph_cache.bin");
+        let graph_for_cache = Arc::clone(&graph);
+        std::thread::spawn(move || {
+            if let Err(e) = graph_for_cache.save_graph_cache(&cache_path) {
+                tracing::warn!("Failed to save graph cache: {}", e);
+            }
+        });
+    }
 
     Ok((graph, file_result, parse_result, Some(gi_findings)))
 }
@@ -822,12 +844,42 @@ fn apply_max_files_limit(
 }
 
 /// Initialize graph database (lazy mode for 20k+ files).
+///
+/// In incremental mode, tries to load a persistent graph cache first and
+/// delta-patches it by removing entities for changed files. Falls back to
+/// creating a fresh graph when no cache exists.
 fn init_graph_db(
     env: &EnvironmentSetup,
     file_result: &FileCollectionResult,
     multi: &MultiProgress,
 ) -> Result<Arc<GraphStore>> {
     let db_path = env.repotoire_dir.join("graph_db");
+    let cache_path = env.repotoire_dir.join("graph_cache.bin");
+
+    // Try loading persistent graph cache for incremental mode
+    if env.config.is_incremental_mode {
+        if let Some(cached_store) = GraphStore::load_graph_cache(&cache_path) {
+            // Delta patch: remove entities for changed files so re-parse can add updated ones
+            if !file_result.files_to_parse.is_empty() {
+                tracing::info!(
+                    "Delta patching graph: removing {} changed files",
+                    file_result.files_to_parse.len()
+                );
+                cached_store.remove_file_entities(&file_result.files_to_parse);
+            }
+            if !env.quiet_mode {
+                let icon_graph = if env.config.no_emoji { "" } else { "🕸️  " };
+                println!(
+                    "{}Loaded graph cache ({} files delta-patched)",
+                    style(icon_graph).bold(),
+                    file_result.files_to_parse.len()
+                );
+            }
+            return Ok(Arc::new(cached_store));
+        }
+    }
+
+    // Cold path: create fresh graph
     let use_lazy = file_result.all_files.len() > 20000;
 
     if !env.quiet_mode {
