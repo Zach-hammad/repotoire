@@ -12,8 +12,9 @@ use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 use tracing::{debug, info};
 
 /// Thresholds for shotgun surgery detection
@@ -43,6 +44,7 @@ impl Default for ShotgunSurgeryThresholds {
 pub struct ShotgunSurgeryDetector {
     config: DetectorConfig,
     thresholds: ShotgunSurgeryThresholds,
+    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl ShotgunSurgeryDetector {
@@ -50,6 +52,7 @@ impl ShotgunSurgeryDetector {
         Self {
             config: DetectorConfig::new(),
             thresholds: ShotgunSurgeryThresholds::default(),
+            detector_context: OnceLock::new(),
         }
     }
 
@@ -63,7 +66,11 @@ impl ShotgunSurgeryDetector {
             critical_modules: ((config.get_option_or("critical_modules", 4) as f64) * multiplier)
                 as usize,
         };
-        Self { config, thresholds }
+        Self {
+            config,
+            thresholds,
+            detector_context: OnceLock::new(),
+        }
     }
 
     /// Analyze impact of changing a class
@@ -86,18 +93,37 @@ impl ShotgunSurgeryDetector {
         let mut caller_modules: HashSet<String> = HashSet::new();
 
         for method in &methods {
-            for caller in graph.get_callers(&method.qualified_name) {
-                // Skip internal callers (same class)
-                if caller.file_path == class.file_path
-                    && caller.line_start >= class.line_start
-                    && caller.line_end <= class.line_end
-                {
-                    continue;
+            if let Some(ctx) = self.detector_context.get() {
+                // Fast path: use pre-built callers map (avoids Vec<CodeNode> clone)
+                if let Some(caller_qn_list) = ctx.callers_by_qn.get(&method.qualified_name) {
+                    for caller_qn in caller_qn_list {
+                        if let Some(caller_node) = graph.get_node(caller_qn) {
+                            // Skip internal callers (same class)
+                            if caller_node.file_path == class.file_path
+                                && caller_node.line_start >= class.line_start
+                                && caller_node.line_end <= class.line_end
+                            {
+                                continue;
+                            }
+                            all_callers.insert(caller_qn.clone());
+                            caller_files.insert(caller_node.file_path.clone());
+                            caller_modules.insert(Self::extract_module(&caller_node.file_path));
+                        }
+                    }
                 }
-
-                all_callers.insert(caller.qualified_name.clone());
-                caller_files.insert(caller.file_path.clone());
-                caller_modules.insert(Self::extract_module(&caller.file_path));
+            } else {
+                // Fallback: use graph.get_callers() (test path / no context)
+                for caller in graph.get_callers(&method.qualified_name) {
+                    if caller.file_path == class.file_path
+                        && caller.line_start >= class.line_start
+                        && caller.line_end <= class.line_end
+                    {
+                        continue;
+                    }
+                    all_callers.insert(caller.qualified_name.clone());
+                    caller_files.insert(caller.file_path.clone());
+                    caller_modules.insert(Self::extract_module(&caller.file_path));
+                }
             }
         }
 
@@ -138,12 +164,26 @@ impl ShotgunSurgeryDetector {
             if graph.call_fan_in(caller_qn) == 0 {
                 continue;
             }
-            for upstream in graph.get_callers(caller_qn) {
-                if !callers.contains(&upstream.qualified_name) {
-                    next_level.insert(upstream.qualified_name.clone());
-                    if next_level.len() >= MAX_PER_LEVEL {
-                        // Enough evidence of cascade — return early
-                        return self.trace_cascade_depth(graph, &next_level, depth + 1);
+            if let Some(ctx) = self.detector_context.get() {
+                // Fast path: pre-built callers map
+                if let Some(upstream_list) = ctx.callers_by_qn.get(caller_qn) {
+                    for upstream_qn in upstream_list {
+                        if !callers.contains(upstream_qn) {
+                            next_level.insert(upstream_qn.clone());
+                            if next_level.len() >= MAX_PER_LEVEL {
+                                return self.trace_cascade_depth(graph, &next_level, depth + 1);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Fallback: use graph.get_callers()
+                for upstream in graph.get_callers(caller_qn) {
+                    if !callers.contains(&upstream.qualified_name) {
+                        next_level.insert(upstream.qualified_name.clone());
+                        if next_level.len() >= MAX_PER_LEVEL {
+                            return self.trace_cascade_depth(graph, &next_level, depth + 1);
+                        }
                     }
                 }
             }
@@ -231,11 +271,15 @@ impl Detector for ShotgunSurgeryDetector {
         Some(&self.config)
     }
 
+    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
+        let _ = self.detector_context.set(ctx);
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        let all_functions = graph.get_functions();
+        let all_functions = graph.get_functions_shared();
 
-        for class in graph.get_classes() {
+        for class in graph.get_classes_shared().iter() {
             // Skip interfaces
             if class.qualified_name.contains("::interface::") {
                 continue;
@@ -427,7 +471,12 @@ impl Detector for ShotgunSurgeryDetector {
         ];
 
         let min_fan_in = self.thresholds.min_callers * 2;
-        for func in &all_functions {
+        for func in all_functions.iter() {
+            // Fast O(1) fan-in check first — eliminates 99%+ functions before string ops
+            if graph.call_fan_in(&func.qualified_name) < min_fan_in {
+                continue;
+            }
+
             // Skip common trait implementations
             let name_lower = func.name.to_lowercase();
             if SKIP_METHODS
@@ -463,19 +512,11 @@ impl Detector for ShotgunSurgeryDetector {
                 continue;
             }
 
-            // Fast O(1) fan-in check before expensive get_callers() clone
-            if graph.call_fan_in(&func.qualified_name) < min_fan_in {
-                continue;
-            }
+            // Zero-copy: count caller modules without cloning CodeNodes
+            let module_count = graph.caller_module_spread(&func.qualified_name);
 
-            let callers = graph.get_callers(&func.qualified_name);
-            let _caller_files: HashSet<_> = callers.iter().map(|c| &c.file_path).collect();
-            let caller_modules: HashSet<_> = callers
-                .iter()
-                .map(|c| Self::extract_module(&c.file_path))
-                .collect();
-
-            if caller_modules.len() >= self.thresholds.critical_modules {
+            if module_count >= self.thresholds.critical_modules {
+                let fan_in = graph.call_fan_in(&func.qualified_name);
                 findings.push(Finding {
                     id: String::new(),
                     detector: "ShotgunSurgeryDetector".to_string(),
@@ -485,8 +526,8 @@ impl Detector for ShotgunSurgeryDetector {
                         "Function '{}' is called from {} places across {} modules.\n\n\
                          Changes will have wide-reaching effects.",
                         func.name,
-                        callers.len(),
-                        caller_modules.len()
+                        fan_in,
+                        module_count
                     ),
                     affected_files: vec![func.file_path.clone().into()],
                     line_start: Some(func.line_start),

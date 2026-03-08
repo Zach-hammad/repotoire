@@ -13,6 +13,7 @@ use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 use tracing::{debug, info};
 
 /// Paths that indicate dynamically-dispatched code (called via tables, not direct calls)
@@ -251,6 +252,7 @@ pub struct DeadCodeDetector {
     thresholds: DeadCodeThresholds,
     entry_points: HashSet<String>,
     magic_methods: HashSet<String>,
+    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl DeadCodeDetector {
@@ -269,6 +271,7 @@ impl DeadCodeDetector {
             thresholds,
             entry_points,
             magic_methods,
+            detector_context: OnceLock::new(),
         }
     }
 
@@ -452,41 +455,54 @@ impl DeadCodeDetector {
             return false;
         }
 
-        // Read the relevant lines from the source
-        match std::fs::read_to_string(file_path) {
-            Ok(content) => {
-                let lines: Vec<&str> = content.lines().collect();
-                let line_idx = (line_start as usize).saturating_sub(1);
+        // Try DetectorContext file_contents first, fall back to fs::read_to_string
+        let path = std::path::Path::new(file_path);
+        let owned_content;
+        let content: &str = if let Some(cached) = self
+            .detector_context
+            .get()
+            .and_then(|ctx| ctx.file_contents.get(path))
+        {
+            cached
+        } else {
+            match std::fs::read_to_string(file_path) {
+                Ok(c) => {
+                    owned_content = c;
+                    &owned_content
+                }
+                Err(e) => {
+                    debug!("Could not read file {}: {}", file_path, e);
+                    return false;
+                }
+            }
+        };
 
-                // Check the function's line and the line before for export keyword
-                for offset in 0..=1 {
-                    if line_idx >= offset {
-                        if let Some(line) = lines.get(line_idx - offset) {
-                            let trimmed = line.trim();
-                            debug!(
-                                "Checking line {} for export: '{}'",
-                                line_idx - offset + 1,
-                                trimmed
-                            );
-                            // Check for various export patterns
-                            if trimmed.starts_with("export ")
-                                || trimmed.starts_with("export{")
-                                || trimmed.contains("module.exports")
-                                || trimmed.contains("exports.")
-                            {
-                                debug!("Found export pattern in {}", file_path);
-                                return true;
-                            }
-                        }
+        let lines: Vec<&str> = content.lines().collect();
+        let line_idx = (line_start as usize).saturating_sub(1);
+
+        // Check the function's line and the line before for export keyword
+        for offset in 0..=1 {
+            if line_idx >= offset {
+                if let Some(line) = lines.get(line_idx - offset) {
+                    let trimmed = line.trim();
+                    debug!(
+                        "Checking line {} for export: '{}'",
+                        line_idx - offset + 1,
+                        trimmed
+                    );
+                    // Check for various export patterns
+                    if trimmed.starts_with("export ")
+                        || trimmed.starts_with("export{")
+                        || trimmed.contains("module.exports")
+                        || trimmed.contains("exports.")
+                    {
+                        debug!("Found export pattern in {}", file_path);
+                        return true;
                     }
                 }
-                false
-            }
-            Err(e) => {
-                debug!("Could not read file {}: {}", file_path, e);
-                false
             }
         }
+        false
     }
 
     /// Check if a function name is a magic method
@@ -688,12 +704,13 @@ impl DeadCodeDetector {
         // Get all functions
         let functions = graph.get_functions();
 
-        // Sort by complexity (descending) for prioritization
+        // Sort by complexity (descending) for prioritization, then by qualified_name for determinism
         let mut functions: Vec<_> = functions.into_iter().collect();
         functions.sort_by(|a, b| {
             b.complexity()
                 .unwrap_or(0)
                 .cmp(&a.complexity().unwrap_or(0))
+                .then_with(|| a.qualified_name.cmp(&b.qualified_name))
         });
 
         for func in functions {
@@ -737,16 +754,28 @@ impl DeadCodeDetector {
                 continue;
             }
 
-            // Check if function has any callers
-            let callers = graph.get_callers(&func.qualified_name);
-            if !callers.is_empty() {
+            // Check if function has any callers — use fan-in count (O(1), zero allocation)
+            // instead of get_callers() which clones Vec<CodeNode> per call
+            if graph.call_fan_in(&func.qualified_name) > 0 {
                 continue; // Function is called, not dead
             }
 
             // Check if method is called via self.method() in same file (Rust parser limitation)
-            if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(file_path))
-            {
+            let path = std::path::Path::new(file_path);
+            let ctx_content: Option<&str> = self
+                .detector_context
+                .get()
+                .and_then(|ctx| ctx.file_contents.get(path))
+                .map(|s| &**s);
+            // Fall back to global_cache if DetectorContext unavailable
+            let cached_arc;
+            let content_str: Option<&str> = if ctx_content.is_some() {
+                ctx_content
+            } else {
+                cached_arc = crate::cache::global_cache().content(path);
+                cached_arc.as_ref().map(|s| s.as_str())
+            };
+            if let Some(content) = content_str {
                 let self_call = format!("self.{}(", name);
                 let self_call_alt = format!("self.{},", name); // Passed as closure
                 if content.contains(&self_call) || content.contains(&self_call_alt) {
@@ -810,13 +839,16 @@ impl DeadCodeDetector {
         // Get all classes
         let classes = graph.get_classes();
 
-        // Sort by complexity (descending)
+        // Sort by complexity (descending), then by qualified_name for determinism
         let mut classes: Vec<_> = classes.into_iter().collect();
         classes.sort_by(|a, b| {
             b.complexity()
                 .unwrap_or(0)
                 .cmp(&a.complexity().unwrap_or(0))
+                .then_with(|| a.qualified_name.cmp(&b.qualified_name))
         });
+
+        let imports = graph.get_imports();
 
         for class in classes {
             let name = &class.name;
@@ -855,8 +887,7 @@ impl DeadCodeDetector {
             }
 
             // Check if class has any callers (instantiation)
-            let callers = graph.get_callers(&class.qualified_name);
-            if !callers.is_empty() {
+            if graph.call_fan_in(&class.qualified_name) > 0 {
                 continue;
             }
 
@@ -869,7 +900,6 @@ impl DeadCodeDetector {
             // Check if class's file is imported by other files
             // This catches Python "from module import Class" patterns
             let class_file = class.file_path.to_lowercase();
-            let imports = graph.get_imports();
             let file_is_imported = imports.iter().any(|(_, target)| {
                 let target_lower = target.to_lowercase();
                 // Match if the import target contains the class's file path
@@ -941,9 +971,12 @@ impl Detector for DeadCodeDetector {
         Some(&self.config)
     }
 
+    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
+        let _ = self.detector_context.set(ctx);
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting dead code detection");
-
         let mut findings = Vec::new();
 
         // Find dead functions

@@ -12,7 +12,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, OnceLock};
 use tracing::info;
 
 static LOOP: LazyLock<Regex> = LazyLock::new(|| {
@@ -61,6 +61,7 @@ pub struct RegexInLoopDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
+    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl RegexInLoopDetector {
@@ -68,36 +69,50 @@ impl RegexInLoopDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 50,
+            detector_context: OnceLock::new(),
         }
     }
 
-    /// Find functions that compile regexes
+    /// Find functions that compile regexes.
+    /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).
     fn find_regex_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut regex_funcs = HashSet::new();
+        let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let ctx = self.detector_context.get();
 
-        for func in graph.get_functions() {
-            // Check if function compiles regex
-            if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
-            {
-                let lines: Vec<&str> = content.lines().collect();
-                let start = func.line_start.saturating_sub(1) as usize;
-                let end = (func.line_end as usize).min(lines.len());
+        for func in graph.get_functions_shared().iter() {
+            let lines = file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+                let path = std::path::Path::new(&func.file_path);
+                // Try DetectorContext first, fall back to global_cache
+                if let Some(content) = ctx.and_then(|c| c.file_contents.get(path)).map(|s| &**s) {
+                    content.lines().map(String::from).collect()
+                } else {
+                    crate::cache::global_cache()
+                        .content(path)
+                        .map(|c| c.lines().map(String::from).collect())
+                        .unwrap_or_default()
+                }
+            });
 
-                // Check if the function itself uses caching patterns
-                let func_body = lines.get(start..end).unwrap_or(&[]).join("\n");
-                let func_is_cached = func_body.contains("get_or_init")
-                    || func_body.contains("OnceLock")
-                    || func_body.contains("OnceCell")
-                    || func_body.contains("lazy_static")
-                    || func_body.contains("LazyLock");
+            let start = func.line_start.saturating_sub(1) as usize;
+            let end = (func.line_end as usize).min(lines.len());
 
-                if !func_is_cached {
-                    for line in lines.get(start..end).unwrap_or(&[]) {
-                        if REGEX_NEW.is_match(line) && !is_cached_regex(line) {
-                            regex_funcs.insert(func.qualified_name.clone());
-                            break;
-                        }
+            // Check if the function itself uses caching patterns
+            let func_is_cached = lines.get(start..end).map(|slice| {
+                slice.iter().any(|line| {
+                    line.contains("get_or_init")
+                        || line.contains("OnceLock")
+                        || line.contains("OnceCell")
+                        || line.contains("lazy_static")
+                        || line.contains("LazyLock")
+                })
+            }).unwrap_or(false);
+
+            if !func_is_cached {
+                for line in lines.get(start..end).unwrap_or(&[]) {
+                    if REGEX_NEW.is_match(line) && !is_cached_regex(line) {
+                        regex_funcs.insert(func.qualified_name.clone());
+                        break;
                     }
                 }
             }
@@ -121,18 +136,45 @@ impl RegexInLoopDetector {
         }
         visited.insert(func_qn.to_string());
 
-        for callee in graph.get_callees(func_qn) {
-            if regex_funcs.contains(&callee.qualified_name) {
-                return Some(callee.name.clone());
+        if let Some(ctx) = self.detector_context.get() {
+            // Fast path: use pre-built callees map
+            if let Some(callee_qn_list) = ctx.callees_by_qn.get(func_qn) {
+                for callee_qn in callee_qn_list {
+                    if regex_funcs.contains(callee_qn) {
+                        let callee_name = graph.get_node(callee_qn)
+                            .map(|n| n.name.clone())
+                            .unwrap_or_else(|| callee_qn.clone());
+                        return Some(callee_name);
+                    }
+                    let callee_name = graph.get_node(callee_qn)
+                        .map(|n| n.name.clone())
+                        .unwrap_or_else(|| callee_qn.clone());
+                    if let Some(chain) = self.calls_regex_transitively(
+                        graph,
+                        callee_qn,
+                        regex_funcs,
+                        visited,
+                        depth + 1,
+                    ) {
+                        return Some(format!("{} \u{2192} {}", callee_name, chain));
+                    }
+                }
             }
-            if let Some(chain) = self.calls_regex_transitively(
-                graph,
-                &callee.qualified_name,
-                regex_funcs,
-                visited,
-                depth + 1,
-            ) {
-                return Some(format!("{} → {}", callee.name, chain));
+        } else {
+            // Fallback: use graph.get_callees()
+            for callee in graph.get_callees(func_qn) {
+                if regex_funcs.contains(&callee.qualified_name) {
+                    return Some(callee.name.clone());
+                }
+                if let Some(chain) = self.calls_regex_transitively(
+                    graph,
+                    &callee.qualified_name,
+                    regex_funcs,
+                    visited,
+                    depth + 1,
+                ) {
+                    return Some(format!("{} \u{2192} {}", callee.name, chain));
+                }
             }
         }
         None
@@ -145,6 +187,10 @@ impl Detector for RegexInLoopDetector {
     }
     fn description(&self) -> &'static str {
         "Detects regex compilation inside loops"
+    }
+
+    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
+        let _ = self.detector_context.set(ctx);
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
@@ -270,7 +316,10 @@ impl Detector for RegexInLoopDetector {
         // Skip Rust files — OnceLock/lazy_static caching is pervasive and
         // the call graph can't distinguish cached from uncached compilation
         if !regex_funcs.is_empty() {
-            for func in graph.get_functions() {
+            let mut graph_file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+            let ctx = self.detector_context.get();
+
+            for func in graph.get_functions_shared().iter() {
                 if findings.len() >= self.max_findings {
                     break;
                 }
@@ -279,32 +328,55 @@ impl Detector for RegexInLoopDetector {
                     continue;
                 }
 
-                // Check if function contains a loop
-                let has_loop = if let Some(content) =
-                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
-                {
-                    let lines: Vec<&str> = content.lines().collect();
-                    let start = func.line_start.saturating_sub(1) as usize;
-                    let end = (func.line_end as usize).min(lines.len());
+                // Check if function contains a loop (per-file line caching)
+                let lines = graph_file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+                    let path = std::path::Path::new(&func.file_path);
+                    // Try DetectorContext first, fall back to global_cache
+                    if let Some(content) = ctx.and_then(|c| c.file_contents.get(path)).map(|s| &**s) {
+                        content.lines().map(String::from).collect()
+                    } else {
+                        crate::cache::global_cache()
+                            .content(path)
+                            .map(|c| c.lines().map(String::from).collect())
+                            .unwrap_or_default()
+                    }
+                });
 
-                    lines
-                        .get(start..end)
-                        .map(|slice| slice.iter().any(|line| LOOP.is_match(line)))
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
+                let start = func.line_start.saturating_sub(1) as usize;
+                let end = (func.line_end as usize).min(lines.len());
+
+                let has_loop = lines
+                    .get(start..end)
+                    .map(|slice| slice.iter().any(|line| LOOP.is_match(line)))
+                    .unwrap_or(false);
 
                 if !has_loop {
                     continue;
                 }
 
                 // Check callees for regex compilation
-                for callee in graph.get_callees(&func.qualified_name) {
+                // Collect callee (qn, name) pairs from context or graph fallback
+                let callee_pairs: Vec<(String, String)> = if let Some(c) = ctx {
+                    c.callees_by_qn.get(&func.qualified_name)
+                        .map(|v| v.iter().map(|qn| {
+                            let name = graph.get_node(qn)
+                                .map(|n| n.name.clone())
+                                .unwrap_or_else(|| qn.clone());
+                            (qn.clone(), name)
+                        }).collect())
+                        .unwrap_or_default()
+                } else {
+                    graph.get_callees(&func.qualified_name)
+                        .into_iter()
+                        .map(|c| (c.qualified_name.clone(), c.name.clone()))
+                        .collect()
+                };
+
+                for (callee_qn, callee_name) in &callee_pairs {
                     let mut visited = HashSet::new();
                     if let Some(chain) = self.calls_regex_transitively(
                         graph,
-                        &callee.qualified_name,
+                        callee_qn,
                         &regex_funcs,
                         &mut visited,
                         0,
@@ -316,9 +388,9 @@ impl Detector for RegexInLoopDetector {
                             title: format!("Hidden regex in loop: {}", func.name),
                             description: format!(
                                 "Function '{}' contains a loop and calls '{}' which compiles a regex.\n\n\
-                                 **Call chain:** {} → {}\n\n\
+                                 **Call chain:** {} \u{2192} {}\n\n\
                                  This may cause regex compilation on every iteration.",
-                                func.name, callee.name, callee.name, chain
+                                func.name, callee_name, callee_name, chain
                             ),
                             affected_files: vec![PathBuf::from(&func.file_path)],
                             line_start: Some(func.line_start),
