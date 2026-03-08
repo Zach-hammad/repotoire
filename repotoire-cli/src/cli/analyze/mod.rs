@@ -20,8 +20,8 @@ mod scoring;
 mod setup;
 
 use detect::{
-    apply_voting, finish_git_enrichment, run_detectors_speculative, run_detectors_streaming,
-    start_git_enrichment,
+    apply_voting, finish_git_enrichment, run_detectors_speculative,
+    run_gi_detectors, start_git_enrichment,
 };
 use files::{collect_file_list, collect_files_for_analysis, walk_files_to_channel};
 use graph::{build_graph, build_graph_chunked, parse_and_build_streaming, parse_and_build_streaming_overlapped};
@@ -34,7 +34,7 @@ use postprocess::postprocess_findings;
 use scoring::{build_health_report, calculate_scores};
 use setup::{
     create_bar_style, create_spinner_style, setup_environment, EnvironmentSetup,
-    FileCollectionResult, ScoreResult, SUPPORTED_EXTENSIONS,
+    FileCollectionResult, ScoreResult,
 };
 
 use crate::detectors::IncrementalCache;
@@ -87,6 +87,9 @@ pub fn run(
     let start_time = Instant::now();
     let mut phase_timings: Vec<(&str, std::time::Duration)> = Vec::new();
 
+    // Clear per-run caches (important for MCP long-running server)
+    crate::parsers::clear_structural_fingerprint_cache();
+
     // Phase 1: Validate repository and setup environment
     let phase_start = Instant::now();
     let mut env = setup_environment(
@@ -136,9 +139,10 @@ pub fn run(
         return Ok(result);
     }
 
-    // Phase 2: Initialize graph and collect files
+    // Phase 2: Initialize graph, collect files, and optionally run GI detectors
     let phase_start = Instant::now();
-    let (graph, file_result, parse_result) = initialize_graph(&mut env, &since, &MultiProgress::new())?;
+    let (graph, file_result, parse_result, early_gi_findings) =
+        initialize_graph(&mut env, &since, &MultiProgress::new(), &skip_detector, timings)?;
     phase_timings.push(("init+parse", phase_start.elapsed()));
 
     if file_result.all_files.is_empty() {
@@ -217,6 +221,7 @@ pub fn run(
         &multi,
         &spinner_style,
         timings,
+        early_gi_findings,
     )?;
     phase_timings.push(("detect", phase_start.elapsed()));
 
@@ -421,24 +426,31 @@ fn try_cached_fast_path(
 }
 
 /// Phase 2: Initialize graph database, collect files, and parse.
+///
+/// Returns `(graph, files, parse_result, Option<gi_findings>)`.
+/// When the overlapped pipeline is used, GI detectors run in parallel with
+/// parse+graph, so `gi_findings` is Some. Otherwise None.
 fn initialize_graph(
     env: &mut EnvironmentSetup,
     since: &Option<String>,
     multi: &MultiProgress,
-) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult)> {
+    skip_detector: &[String],
+    timings: bool,
+) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult, Option<Vec<Finding>>)> {
     let spinner_style = create_spinner_style();
     let bar_style = create_bar_style();
 
-    // Overlapped walk+parse: when in full mode (no --since, no incremental, no
-    // skip-graph, no max-files), we can overlap file discovery with parsing so
-    // parser threads begin work while the walker is still discovering files.
+    // Overlapped walk+parse+GI: when in full mode (no --since, no incremental, no
+    // skip-graph, no max-files), we overlap file discovery with parsing AND
+    // run GI detectors in parallel with parse. GI detectors only need the file
+    // list (not the graph), so they can start ~100ms into the pipeline.
     let can_overlap = since.is_none()
         && !env.config.is_incremental_mode
         && !env.config.skip_graph
         && env.config.max_files == 0;
 
     if can_overlap {
-        return initialize_graph_overlapped(env, multi, &bar_style);
+        return initialize_graph_overlapped(env, multi, &bar_style, skip_detector, timings);
     }
 
     // Standard sequential path: walk first, then parse.
@@ -471,6 +483,7 @@ fn initialize_graph(
                 total_functions: 0,
                 total_classes: 0,
             },
+            None,
         ));
     }
 
@@ -494,7 +507,7 @@ fn initialize_graph(
         let graph = Arc::new(GraphStore::in_memory());
         let parse_result = parse_files_lite(&file_result.files_to_parse, multi, &bar_style)?;
 
-        return Ok((graph, file_result, parse_result));
+        return Ok((graph, file_result, parse_result, None));
     }
 
     // Initialize graph database
@@ -503,37 +516,36 @@ fn initialize_graph(
     // Parse files and build graph
     let parse_result = parse_and_build(env, &file_result, &graph, multi, &bar_style)?;
 
-    // Pre-warm file cache (skip for huge repos)
-    if file_result.all_files.len() < 20000 {
-        // Clear stale data across all cache layers before re-warming (#13)
-        env.cache_coordinator.invalidate_all();
-        crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
-    }
-
-    Ok((graph, file_result, parse_result))
+    Ok((graph, file_result, parse_result, None))
 }
 
-/// Overlapped walk+parse: walk files and parse them concurrently.
+/// Overlapped walk+parse+GI: walk, parse, and run GI detectors concurrently.
 ///
-/// In full-mode analysis (no --since, no incremental), file discovery and
-/// parsing can overlap. The walker sends discovered file paths into a bounded
-/// channel while parser threads consume from that same channel immediately.
-/// This means the first files start parsing while the walker is still
-/// discovering later files, saving 1-2 seconds on large repositories.
+/// Three-way overlap:
+///   1. Walker discovers files → sends to parse channel + publishes file list
+///   2. Parse pipeline consumes from channel → builds graph (3.8s)
+///   3. GI detectors start as soon as file list is ready (~100ms) and run in
+///      parallel with parse (1.8s), finishing well before parse completes
 ///
-/// The walker also collects all file paths into a Vec for downstream consumers
-/// (incremental cache, detector file provider, scoring).
+/// Timeline:
+///   [Walk 100ms] ─→ [early_files published]
+///                    ├→ [Parse + Graph Build 3.7s] ─────────────→ graph ready
+///                    └→ [GI detectors 1.8s] ─→ done (overlapped)
+///
+/// This removes GI from the critical path: GI runs "for free" during parse.
 fn initialize_graph_overlapped(
     env: &mut EnvironmentSetup,
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
-) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult)> {
+    skip_detector: &[String],
+    timings: bool,
+) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult, Option<Vec<Finding>>)> {
     use crate::parsers::bounded_pipeline::PipelineConfig;
 
     if !env.quiet_mode {
         let stream_icon = if env.config.no_emoji { "" } else { "🌊 " };
         println!(
-            "{}Overlapped walk+parse mode (streaming)",
+            "{}Overlapped walk+parse+GI mode (streaming)",
             style(stream_icon).bold(),
         );
     }
@@ -551,34 +563,76 @@ fn initialize_graph_overlapped(
         GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?,
     );
 
-    // Use a default pipeline config — the file count is unknown at this point.
-    // PipelineConfig::default() is tuned for ~10k files which is a reasonable
-    // middle ground. The adaptive buffer/flush thresholds still provide proper
-    // backpressure regardless of actual repo size.
     let config = PipelineConfig::default();
-
-    // Create the bounded channel that connects the walker to the parsers.
     let (file_tx, file_rx) = crossbeam_channel::bounded::<PathBuf>(config.buffer_size);
 
-    // Spawn the walk thread: discovers files, sends to channel, collects into Vec.
+    // OnceLock for early file list publication — walker sets this as soon as
+    // all files are discovered, allowing GI detectors to start immediately.
+    let early_files: Arc<std::sync::OnceLock<Vec<PathBuf>>> =
+        Arc::new(std::sync::OnceLock::new());
+    let early_files_for_walker = Arc::clone(&early_files);
+
     let repo_path = env.repo_path.clone();
     let exclude = env.project_config.exclude.clone();
     let walk_handle = std::thread::spawn(move || {
-        walk_files_to_channel(&repo_path, &exclude, file_tx)
+        walk_files_to_channel(&repo_path, &exclude, file_tx, Some(early_files_for_walker))
     });
 
-    // Run the overlapped pipeline on the main thread: parser workers read from
-    // the channel as files arrive, consumer builds the graph.
-    let (total_functions, total_classes) = parse_and_build_streaming_overlapped(
-        file_rx,
-        &env.repo_path,
-        Arc::clone(&graph),
-        multi,
-        bar_style,
-        config,
-    )?;
+    // Borrow references for thread::scope closures
+    let repo_path_ref = &env.repo_path;
+    let project_config_ref = &env.project_config;
+    let style_profile_ref = env.style_profile.as_ref();
+    let ngram_clone = env.ngram_model.clone();
+    let workers = env.config.workers;
 
-    // Join the walk thread and retrieve the collected file list.
+    // Run parse pipeline + GI detectors in parallel via thread::scope.
+    // thread::scope ensures all threads complete before we proceed, and
+    // allows borrowing from the enclosing scope.
+    let (parse_result_inner, gi_findings) = std::thread::scope(|s| {
+        // Thread 1: Parse pipeline — consumes files from channel, builds graph
+        let graph_for_parse = Arc::clone(&graph);
+        let parse_handle = s.spawn(move || {
+            parse_and_build_streaming_overlapped(
+                file_rx,
+                repo_path_ref,
+                graph_for_parse,
+                multi,
+                bar_style,
+                config,
+            )
+        });
+
+        // Thread 2: GI detectors — wait for early_files, then run
+        let gi_handle = s.spawn(|| {
+            // Spin-wait for file list (walker finishes in ~100ms)
+            let files = loop {
+                if let Some(f) = early_files.get() {
+                    break f;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            };
+
+            run_gi_detectors(
+                files,
+                repo_path_ref,
+                project_config_ref,
+                skip_detector,
+                style_profile_ref,
+                ngram_clone,
+                workers,
+                timings,
+            )
+        });
+
+        let parse_res = parse_handle.join().expect("parse thread panicked");
+        let gi_res = gi_handle.join().expect("GI thread panicked");
+        (parse_res, gi_res)
+    });
+
+    let (total_functions, total_classes) = parse_result_inner?;
+    let gi_findings = gi_findings?;
+    let gi_count = gi_findings.len();
+
     let all_files = walk_handle
         .join()
         .map_err(|_| anyhow::anyhow!("Walk thread panicked"))?
@@ -586,16 +640,11 @@ fn initialize_graph_overlapped(
 
     if !env.quiet_mode {
         println!(
-            "{}Found {} source files",
+            "{}Found {} source files, {} GI findings (overlapped with parse)",
             style("✓ ").green(),
             style(all_files.len()).cyan(),
+            style(gi_count).cyan(),
         );
-    }
-
-    // Pre-warm file cache (skip for huge repos)
-    if all_files.len() < 20000 {
-        env.cache_coordinator.invalidate_all();
-        crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
     }
 
     let file_result = FileCollectionResult {
@@ -610,7 +659,7 @@ fn initialize_graph_overlapped(
         total_classes,
     };
 
-    Ok((graph, file_result, parse_result))
+    Ok((graph, file_result, parse_result, Some(gi_findings)))
 }
 
 /// Phase 3: Run git enrichment and detectors.
@@ -619,6 +668,10 @@ fn initialize_graph_overlapped(
 /// in parallel with git enrichment, then graph-dependent detectors run after
 /// git enrichment completes. This overlaps file-local detection with background
 /// git history processing.
+///
+/// When `pre_gi_findings` is Some, the GI phase was already executed during
+/// parse (Parse ∥ GI overlap). The detection phase skips GI and only runs
+/// GD pre-compute + GD parallel detectors.
 fn execute_detection_phase(
     env: &EnvironmentSetup,
     graph: &Arc<GraphStore>,
@@ -627,35 +680,8 @@ fn execute_detection_phase(
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
     timings: bool,
+    pre_gi_findings: Option<Vec<Finding>>,
 ) -> Result<Vec<Finding>> {
-    let use_streaming = file_result.all_files.len() > 5000;
-
-    if use_streaming {
-        // Large repo streaming path (unchanged — no speculative split)
-        let git_handle = start_git_enrichment(
-            env.config.no_git,
-            env.quiet_mode,
-            &env.repo_path,
-            Arc::clone(graph),
-            multi,
-            spinner_style,
-        );
-        let findings = run_detectors_streaming(
-            graph,
-            &env.repo_path,
-            &env.repotoire_dir,
-            &env.project_config,
-            skip_detector,
-            env.config.run_external,
-            multi,
-            spinner_style,
-            env.quiet_mode,
-            env.config.no_emoji,
-        )?;
-        finish_git_enrichment(git_handle);
-        return Ok(findings);
-    }
-
     // Speculative execution path:
     // 1. Start git enrichment (background thread)
     // 2. Run graph-independent detectors NOW (parallel with git enrichment)
@@ -691,6 +717,7 @@ fn execute_detection_phase(
         env.ngram_model.clone(),
         timings,
         || finish_git_enrichment(git_handle),
+        pre_gi_findings,
     )?;
 
     let (_voting_stats, _cached_count) = apply_voting(

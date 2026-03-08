@@ -2,7 +2,6 @@
 //!
 //! This module contains all detector-related logic:
 //! - Running detectors on the code graph
-//! - Streaming detection for huge repos
 //! - Git history enrichment
 //! - Voting and consolidation
 //! - Incremental caching
@@ -179,6 +178,47 @@ pub(super) fn run_detectors(
     Ok(findings)
 }
 
+/// Run GI detectors standalone — used for Parse ∥ GI overlap.
+///
+/// Creates its own DetectorEngine, registers all detectors, and runs only the
+/// graph-independent subset. Uses a dummy empty graph since GI detectors don't
+/// query the graph for meaningful data.
+pub(super) fn run_gi_detectors(
+    files: &[PathBuf],
+    repo_path: &Path,
+    project_config: &ProjectConfig,
+    skip_detector: &[String],
+    style_profile: Option<&crate::calibrate::StyleProfile>,
+    ngram_model: Option<crate::calibrate::NgramModel>,
+    workers: usize,
+    timings: bool,
+) -> Result<Vec<Finding>> {
+    let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
+    let hmm_cache_path = repo_path.join(".repotoire");
+    let mut engine = DetectorEngine::new(workers)
+        .with_hmm_cache(hmm_cache_path)
+        .with_timings(timings);
+
+    for detector in crate::detectors::default_detectors_with_ngram(
+        repo_path,
+        project_config,
+        style_profile,
+        ngram_model,
+    ) {
+        let name = detector.name();
+        if !skip_set.contains(name) {
+            engine.register(detector);
+        }
+    }
+
+    let source_files = SourceFiles::new(files.to_vec(), repo_path.to_path_buf());
+
+    // GI detectors don't use the graph — pass a dummy empty one to avoid
+    // any locking contention with the concurrent parse+graph pipeline.
+    let dummy_graph = GraphStore::in_memory();
+    engine.run_graph_independent(&dummy_graph, &source_files)
+}
+
 /// Run detectors in speculative mode: graph-independent first, then graph-dependent.
 ///
 /// Graph-independent detectors run immediately (they only need file content).
@@ -188,6 +228,10 @@ pub(super) fn run_detectors(
 ///
 /// The `between_phases` callback is invoked between the two phases, allowing the caller
 /// to finish git enrichment before graph-dependent detectors start.
+///
+/// If `pre_gi_findings` is Some, the GI phase was already executed during parse
+/// (Parse ∥ GI overlap). In that case, we skip the GI phase and only run
+/// GD pre-compute + GD parallel detectors.
 pub(super) fn run_detectors_speculative(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
@@ -205,6 +249,7 @@ pub(super) fn run_detectors_speculative(
     ngram_model: Option<crate::calibrate::NgramModel>,
     timings: bool,
     between_phases: impl FnOnce(),
+    pre_gi_findings: Option<Vec<Finding>>,
 ) -> Result<Vec<Finding>> {
     // Check if we can use cached detector results (same fast path as run_detectors)
     if cache.can_use_cached_detectors(all_files) {
@@ -254,25 +299,101 @@ pub(super) fn run_detectors_speculative(
 
     let source_files = SourceFiles::new(all_files.to_vec(), repo_path.to_path_buf());
 
-    // Phase 1: Graph-independent detectors (run NOW, in parallel with git enrichment)
-    let gi_bar = multi.add(ProgressBar::new_spinner());
-    gi_bar.set_style(spinner_style.clone());
-    gi_bar.set_message("Running file-local detectors...");
-    gi_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+    // If GI findings were pre-computed during parse (Parse ∥ GI overlap),
+    // skip the GI phase and only run GD pre-compute + GD parallel.
+    let has_pre_gi = pre_gi_findings.is_some();
+    let (gi_findings, gi_count) = if let Some(gi) = pre_gi_findings {
+        let count = gi.len();
+        (gi, count)
+    } else {
+        // Pipeline parallelism: overlap GI detectors with GD pre-compute.
+        // GI detectors only need file content (no graph contexts, HMM, or taint).
+        // GD pre-compute (contexts + HMM + taint) only reads the graph.
+        // These are fully independent and can run simultaneously.
+        //
+        // Timeline:
+        //   [GI detectors] ─────────┐
+        //   [GD pre-compute] ───────┤→ [GD parallel detectors]
+        //   [git enrichment] ───────┘
 
-    let gi_findings = engine.run_graph_independent(graph, &source_files)?;
-    let gi_count = gi_findings.len();
+        let gi_bar = multi.add(ProgressBar::new_spinner());
+        gi_bar.set_style(spinner_style.clone());
+        gi_bar.set_message("Running file-local detectors + pre-computing graph contexts...");
+        gi_bar.enable_steady_tick(std::time::Duration::from_millis(100));
 
-    gi_bar.finish_with_message(format!(
-        "{}File-local detectors: {} findings",
-        style("✓ ").green(),
-        style(gi_count).cyan(),
-    ));
+        let hmm_cache_path_clone = repo_path.join(".repotoire");
+        let repo_path_clone = repo_path.to_path_buf();
 
-    // Between phases: finish git enrichment so graph is fully enriched
-    between_phases();
+        // Run GI + GD pre-compute in parallel using thread::scope
+        let (gi_result, gd_precomputed) = std::thread::scope(|s| {
+            // Background thread: GD pre-compute (contexts + HMM + taint)
+            let precompute_handle = s.spawn(|| {
+                crate::detectors::precompute_gd_startup(
+                    graph.as_ref(),
+                    &repo_path_clone,
+                    Some(&hmm_cache_path_clone),
+                )
+            });
 
-    // Phase 2: Graph-dependent detectors (after git enrichment)
+            // Main thread: GI detectors
+            let gi = engine.run_graph_independent(graph.as_ref(), &source_files);
+
+            let pre = precompute_handle.join().expect("GD precompute thread panicked");
+            (gi, pre)
+        });
+
+        let gi_findings = gi_result?;
+        let gi_count = gi_findings.len();
+
+        gi_bar.finish_with_message(format!(
+            "{}File-local detectors: {} findings (+ graph contexts pre-computed)",
+            style("✓ ").green(),
+            style(gi_count).cyan(),
+        ));
+
+        // Inject pre-computed data into engine
+        engine.inject_gd_precomputed(gd_precomputed);
+
+        (gi_findings, gi_count)
+    };
+
+    // When GI was pre-computed (Parse ∥ GI), GD precompute hasn't run yet.
+    // Overlap GD precompute with remaining git enrichment — they are independent:
+    // GD precompute reads Call edges (unchanged by git), git enrichment writes
+    // Commit nodes + ModifiedIn edges (irrelevant to GD precompute).
+    if has_pre_gi {
+        let pre_bar = multi.add(ProgressBar::new_spinner());
+        pre_bar.set_style(spinner_style.clone());
+        pre_bar.set_message("Pre-computing graph contexts...");
+        pre_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+
+        let hmm_cache_path_clone = repo_path.join(".repotoire");
+        let repo_path_clone = repo_path.to_path_buf();
+        // Run GD precompute ∥ git enrichment finish
+        let gd_precomputed = std::thread::scope(|s| {
+            let gd_handle = s.spawn(|| {
+                crate::detectors::precompute_gd_startup(
+                    graph.as_ref(),
+                    &repo_path_clone,
+                    Some(&hmm_cache_path_clone),
+                )
+            });
+            // Wait for git enrichment while GD precompute runs in parallel
+            between_phases();
+            gd_handle.join().expect("GD precompute panicked")
+        });
+
+        engine.inject_gd_precomputed(gd_precomputed);
+
+        pre_bar.finish_with_message(format!(
+            "{}Graph contexts pre-computed",
+            style("✓ ").green(),
+        ));
+    } else {
+        // Finish git enrichment before GD detectors start (non-Parse∥GI path)
+        between_phases();
+    }
+
     let gd_bar = multi.add(ProgressBar::new_spinner());
     gd_bar.set_style(spinner_style.clone());
     gd_bar.set_message("Running graph-based detectors...");
@@ -308,77 +429,6 @@ pub(super) fn run_detectors_speculative(
     let _ = cache.save_cache();
 
     Ok(findings)
-}
-
-/// Run detectors in streaming mode for large repos
-///
-/// Writes findings to disk as they're generated to prevent OOM.
-/// Only loads high-severity findings for scoring.
-pub(super) fn run_detectors_streaming(
-    graph: &Arc<GraphStore>,
-    repo_path: &Path,
-    cache_dir: &Path,
-    project_config: &ProjectConfig,
-    skip_detector: &[String],
-    run_external: bool,
-    multi: &MultiProgress,
-    spinner_style: &ProgressStyle,
-    quiet_mode: bool,
-    no_emoji: bool,
-) -> Result<Vec<Finding>> {
-    use crate::detectors::streaming_engine::{run_streaming_detection, StreamingDetectorEngine};
-
-    if !quiet_mode {
-        let stream_icon2 = if no_emoji { "" } else { "🌊 " };
-        println!(
-            "\n{}Running detectors (streaming mode for large repo)...",
-            style(stream_icon2).bold()
-        );
-    }
-
-    let detector_bar = multi.add(ProgressBar::new_spinner());
-    detector_bar.set_style(spinner_style.clone());
-    detector_bar.set_message("Streaming detection...");
-    detector_bar.enable_steady_tick(std::time::Duration::from_millis(100));
-
-    // Build centralized file provider — streaming mode walks all source files from repo
-    let all_files: Vec<PathBuf> = crate::detectors::walk_source_files(repo_path, None).collect();
-    let source_files = SourceFiles::new(all_files, repo_path.to_path_buf());
-
-    let (stats, findings_path) = run_streaming_detection(
-        graph,
-        &source_files,
-        repo_path,
-        cache_dir,
-        project_config,
-        skip_detector,
-        run_external,
-        Some(&|name, done, total| {
-            detector_bar.set_message(format!("[{}/{}] {}...", done, total, name));
-        }),
-    )?;
-
-    detector_bar.finish_with_message(format!(
-        "{}Streaming detection: {} detectors, {}",
-        style("✓ ").green(),
-        style(stats.detectors_run).cyan(),
-        style(stats.summary()).cyan(),
-    ));
-
-    // For scoring, load high-severity findings only (keeps memory bounded)
-    let engine = StreamingDetectorEngine::new(findings_path.clone());
-    let high_findings = engine.read_high_severity()?;
-
-    if !quiet_mode {
-        println!(
-            "  {} Loaded {} high+ findings for scoring (full results in {})",
-            style("→").dim(),
-            high_findings.len(),
-            findings_path.display()
-        );
-    }
-
-    Ok(high_findings)
 }
 
 /// Apply voting engine to consolidate findings
