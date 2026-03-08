@@ -35,6 +35,9 @@ pub struct GraphStore {
     file_functions_index: DashMap<String, Vec<NodeIndex>>,
     /// File-scoped class index: file_path → [NodeIndex] for O(1) get_classes_in_file().
     file_classes_index: DashMap<String, Vec<NodeIndex>>,
+    /// Reverse index: file_path → all NodeIndexes belonging to that file.
+    /// Used for delta patching (removing a file's entities from the graph).
+    file_all_nodes_index: DashMap<String, Vec<NodeIndex>>,
     /// Cached graph metrics from detectors, reusable by scoring phase.
     /// Key format: "metric_name:entity_qn" (e.g., "degree_centrality:module.Class")
     metrics_cache: DashMap<String, f64>,
@@ -75,6 +78,7 @@ impl GraphStore {
             function_spatial_index: DashMap::new(),
             file_functions_index: DashMap::new(),
             file_classes_index: DashMap::new(),
+            file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             edge_set: Mutex::new(HashSet::new()),
@@ -103,6 +107,7 @@ impl GraphStore {
             function_spatial_index: DashMap::new(),
             file_functions_index: DashMap::new(),
             file_classes_index: DashMap::new(),
+            file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             edge_set: Mutex::new(HashSet::new()),
@@ -121,6 +126,7 @@ impl GraphStore {
             function_spatial_index: DashMap::new(),
             file_functions_index: DashMap::new(),
             file_classes_index: DashMap::new(),
+            file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
             edge_set: Mutex::new(HashSet::new()),
@@ -207,6 +213,7 @@ impl GraphStore {
         self.function_spatial_index.clear();
         self.file_functions_index.clear();
         self.file_classes_index.clear();
+        self.file_all_nodes_index.clear();
         self.metrics_cache.clear();
 
         if let Some(ref db) = self.db {
@@ -225,6 +232,7 @@ impl GraphStore {
     /// Add a node to the graph
     pub fn add_node(&self, node: CodeNode) -> NodeIndex {
         let qn = node.qualified_name.clone();
+        let node_file_path = node.file_path.clone();
         let is_function = node.kind == NodeKind::Function;
         let file_path = if is_function { Some(node.file_path.clone()) } else { None };
         let line_start = node.line_start;
@@ -280,6 +288,9 @@ impl GraphStore {
             }
         }
 
+        // Populate file_all_nodes_index for delta patching
+        self.file_all_nodes_index.entry(node_file_path).or_default().push(idx);
+
         idx
     }
 
@@ -290,6 +301,7 @@ impl GraphStore {
 
         for node in nodes {
             let qn = node.qualified_name.clone();
+            let node_file_path = node.file_path.clone();
             let is_function = node.kind == NodeKind::Function;
             let file_path = if is_function { Some(node.file_path.clone()) } else { None };
             let line_start = node.line_start;
@@ -330,6 +342,9 @@ impl GraphStore {
                             .push(idx);
                     }
                 }
+
+                // Populate file_all_nodes_index for delta patching
+                self.file_all_nodes_index.entry(node_file_path).or_default().push(idx);
 
                 indices.push(idx);
             }
@@ -1130,7 +1145,130 @@ impl GraphStore {
 
         Ok(())
     }
+
+    // ==================== Graph Cache (bincode) ====================
+
+    /// Save the in-memory graph to a bincode cache file for fast reload.
+    pub fn save_graph_cache(&self, cache_path: &std::path::Path) -> Result<()> {
+        let graph = self.read_graph();
+        let node_index: HashMap<String, NodeIndex> = self.node_index.iter()
+            .map(|entry| (entry.key().clone(), *entry.value()))
+            .collect();
+        let file_all_nodes: HashMap<String, Vec<NodeIndex>> = self.file_all_nodes_index.iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect();
+
+        let cache = GraphCache {
+            version: GRAPH_CACHE_VERSION,
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
+            graph: graph.clone(),
+            node_index,
+            file_all_nodes,
+        };
+
+        let bytes = bincode::serialize(&cache)
+            .context("Failed to serialize graph cache")?;
+
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(cache_path, bytes)
+            .context("Failed to write graph cache")?;
+
+        Ok(())
+    }
+
+    /// Load a graph from a bincode cache file, rebuilding all indexes.
+    /// Returns None if cache is missing, corrupt, or version-mismatched.
+    pub fn load_graph_cache(cache_path: &std::path::Path) -> Option<Self> {
+        let bytes = std::fs::read(cache_path).ok()?;
+        let cache: GraphCache = bincode::deserialize(&bytes).ok()?;
+
+        // Version check
+        if cache.version != GRAPH_CACHE_VERSION
+            || cache.binary_version != env!("CARGO_PKG_VERSION")
+        {
+            tracing::info!("Graph cache version mismatch, rebuilding");
+            return None;
+        }
+
+        let store = Self {
+            graph: RwLock::new(cache.graph),
+            node_index: DashMap::new(),
+            function_spatial_index: DashMap::new(),
+            file_functions_index: DashMap::new(),
+            file_classes_index: DashMap::new(),
+            file_all_nodes_index: DashMap::new(),
+            metrics_cache: DashMap::new(),
+            interner: super::interner::StringInterner::new(),
+            edge_set: Mutex::new(HashSet::new()),
+            call_maps_cache: OnceLock::new(),
+            db: None,
+            db_path: None,
+            lazy_mode: false,
+        };
+
+        // Rebuild DashMap indexes from cached data
+        for (key, idx) in cache.node_index {
+            store.node_index.insert(key, idx);
+        }
+        for (file, nodes) in cache.file_all_nodes {
+            store.file_all_nodes_index.insert(file, nodes);
+        }
+
+        // Rebuild file_functions_index, file_classes_index, and spatial_index from graph
+        {
+            let graph = store.read_graph();
+            for idx in graph.node_indices() {
+                if let Some(node) = graph.node_weight(idx) {
+                    match node.kind {
+                        NodeKind::Function => {
+                            store.file_functions_index
+                                .entry(node.file_path.clone())
+                                .or_default()
+                                .push(idx);
+                            store.function_spatial_index
+                                .entry(node.file_path.clone())
+                                .or_default()
+                                .push((node.line_start, node.line_end, idx));
+                        }
+                        NodeKind::Class => {
+                            store.file_classes_index
+                                .entry(node.file_path.clone())
+                                .or_default()
+                                .push(idx);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Rebuild edge_set from graph edges
+        {
+            let graph = store.read_graph();
+            let mut edge_set = store.edge_set.lock().unwrap();
+            for edge_ref in graph.edge_references() {
+                edge_set.insert((edge_ref.source(), edge_ref.target(), edge_ref.weight().kind));
+            }
+        }
+
+        tracing::info!("Loaded graph cache ({} nodes)", store.node_index.len());
+        Some(store)
+    }
 }
+
+/// Serializable graph cache for persistent storage between runs.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct GraphCache {
+    version: u32,
+    binary_version: String,
+    graph: StableGraph<CodeNode, CodeEdge>,
+    node_index: HashMap<String, NodeIndex>,
+    file_all_nodes: HashMap<String, Vec<NodeIndex>>,
+}
+
+const GRAPH_CACHE_VERSION: u32 = 1;
 
 // redb::Database handles cleanup on Drop automatically — no manual flush needed
 

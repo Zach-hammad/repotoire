@@ -354,3 +354,67 @@ fn test_get_classes_in_file_uses_index() {
     let other_classes = store.get_classes_in_file("other.py");
     assert_eq!(other_classes.len(), 1);
 }
+
+// ==================== Graph Cache Tests ====================
+
+#[test]
+fn test_save_and_load_graph_cache() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/main.rs").with_qualified_name("main.foo").with_lines(1, 10));
+    store.add_node(CodeNode::function("bar", "src/main.rs").with_qualified_name("main.bar").with_lines(12, 20));
+    store.add_node(CodeNode::class("MyClass", "src/lib.rs").with_qualified_name("lib.MyClass").with_lines(1, 50));
+    store.add_edges_batch(vec![
+        ("main.foo".to_string(), "main.bar".to_string(), CodeEdge::new(EdgeKind::Calls)),
+    ]);
+
+    let tmp = tempdir().unwrap();
+    let cache_path = tmp.path().join("graph_cache.bin");
+
+    // Save
+    store.save_graph_cache(&cache_path).unwrap();
+    assert!(cache_path.exists());
+
+    // Load
+    let loaded = GraphStore::load_graph_cache(&cache_path).unwrap();
+    assert_eq!(loaded.node_index.len(), 3);
+    assert!(loaded.get_node("main.foo").is_some());
+    assert!(loaded.get_node("main.bar").is_some());
+    assert!(loaded.get_node("lib.MyClass").is_some());
+
+    // Verify file-scoped indexes rebuilt
+    assert_eq!(loaded.get_functions_in_file("src/main.rs").len(), 2);
+    assert_eq!(loaded.get_classes_in_file("src/lib.rs").len(), 1);
+
+    // Verify edges
+    let callers = loaded.get_callers("main.bar");
+    assert_eq!(callers.len(), 1);
+    assert_eq!(callers[0].qualified_name, "main.foo");
+}
+
+#[test]
+fn test_cache_corrupt_returns_none() {
+    let tmp = tempdir().unwrap();
+    let cache_path = tmp.path().join("graph_cache.bin");
+    std::fs::write(&cache_path, b"invalid data").unwrap();
+    assert!(GraphStore::load_graph_cache(&cache_path).is_none());
+}
+
+#[test]
+fn test_cache_missing_returns_none() {
+    let tmp = tempdir().unwrap();
+    let cache_path = tmp.path().join("nonexistent.bin");
+    assert!(GraphStore::load_graph_cache(&cache_path).is_none());
+}
+
+#[test]
+fn test_file_all_nodes_index_populated() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo").with_lines(1, 10));
+    store.add_node(CodeNode::class("Bar", "src/a.rs").with_qualified_name("a.Bar").with_lines(12, 30));
+    store.add_node(CodeNode::function("baz", "src/b.rs").with_qualified_name("b.baz").with_lines(1, 5));
+
+    let a_nodes = store.file_all_nodes_index.get("src/a.rs").unwrap();
+    assert_eq!(a_nodes.len(), 2);
+    let b_nodes = store.file_all_nodes_index.get("src/b.rs").unwrap();
+    assert_eq!(b_nodes.len(), 1);
+}

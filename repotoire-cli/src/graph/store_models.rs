@@ -113,7 +113,7 @@ impl CodeNode {
 }
 
 /// Edge types in the code graph
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum EdgeKind {
     Calls,
     Imports,
