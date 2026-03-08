@@ -38,8 +38,8 @@ impl DetectorContext {
         let functions = graph.get_functions();
         let (_qn_to_idx, callers_by_idx, callees_by_idx) = graph.build_call_maps_raw();
 
-        let mut callers_by_qn: HashMap<String, Vec<String>> = HashMap::new();
-        let mut callees_by_qn: HashMap<String, Vec<String>> = HashMap::new();
+        let mut callers_by_qn: HashMap<String, Vec<String>> = HashMap::with_capacity(callers_by_idx.len());
+        let mut callees_by_qn: HashMap<String, Vec<String>> = HashMap::with_capacity(callees_by_idx.len());
 
         for (&callee_idx, caller_idxs) in &callers_by_idx {
             if let Some(callee_qn) = functions.get(callee_idx).map(|f| f.qualified_name.clone()) {
@@ -87,5 +87,130 @@ impl DetectorContext {
             class_children,
             file_contents,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::store_models::{CodeEdge, CodeNode};
+    use crate::graph::GraphStore;
+
+    #[test]
+    fn test_empty_graph_produces_empty_context() {
+        let graph = GraphStore::in_memory();
+        let ctx = DetectorContext::build(&graph, &[]);
+        assert!(ctx.callers_by_qn.is_empty());
+        assert!(ctx.callees_by_qn.is_empty());
+        assert!(ctx.class_children.is_empty());
+        assert!(ctx.file_contents.is_empty());
+    }
+
+    #[test]
+    fn test_file_contents_loaded() {
+        let graph = GraphStore::in_memory();
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.py");
+        std::fs::write(&file_path, "def hello(): pass").unwrap();
+
+        let ctx = DetectorContext::build(&graph, &[file_path.clone()]);
+        assert_eq!(ctx.file_contents.len(), 1);
+        assert!(ctx.file_contents.contains_key(&file_path));
+        assert_eq!(&*ctx.file_contents[&file_path], "def hello(): pass");
+    }
+
+    #[test]
+    fn test_file_contents_skips_missing_files() {
+        let graph = GraphStore::in_memory();
+        let missing = PathBuf::from("/nonexistent/path/file.py");
+
+        let ctx = DetectorContext::build(&graph, &[missing]);
+        assert!(ctx.file_contents.is_empty());
+    }
+
+    #[test]
+    fn test_callers_callees_populated() {
+        let graph = GraphStore::in_memory();
+
+        graph.add_node(
+            CodeNode::function("caller", "test.py").with_qualified_name("module.caller"),
+        );
+        graph.add_node(
+            CodeNode::function("callee", "test.py").with_qualified_name("module.callee"),
+        );
+        graph.add_edge_by_name("module.caller", "module.callee", CodeEdge::calls());
+
+        let ctx = DetectorContext::build(&graph, &[]);
+
+        // callers_by_qn: callee -> [caller]
+        assert!(ctx.callers_by_qn.contains_key("module.callee"));
+        assert!(ctx.callers_by_qn["module.callee"].contains(&"module.caller".to_string()));
+
+        // callees_by_qn: caller -> [callee]
+        assert!(ctx.callees_by_qn.contains_key("module.caller"));
+        assert!(ctx.callees_by_qn["module.caller"].contains(&"module.callee".to_string()));
+    }
+
+    #[test]
+    fn test_class_children_populated() {
+        let graph = GraphStore::in_memory();
+
+        graph.add_node(
+            CodeNode::class("Parent", "test.py").with_qualified_name("module.Parent"),
+        );
+        graph.add_node(
+            CodeNode::class("Child", "test.py").with_qualified_name("module.Child"),
+        );
+        graph.add_edge_by_name("module.Child", "module.Parent", CodeEdge::inherits());
+
+        let ctx = DetectorContext::build(&graph, &[]);
+        assert!(ctx.class_children.contains_key("module.Parent"));
+        assert!(ctx.class_children["module.Parent"].contains(&"module.Child".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_callers_for_same_callee() {
+        let graph = GraphStore::in_memory();
+
+        graph.add_node(
+            CodeNode::function("a", "test.py").with_qualified_name("mod.a"),
+        );
+        graph.add_node(
+            CodeNode::function("b", "test.py").with_qualified_name("mod.b"),
+        );
+        graph.add_node(
+            CodeNode::function("target", "test.py").with_qualified_name("mod.target"),
+        );
+        graph.add_edge_by_name("mod.a", "mod.target", CodeEdge::calls());
+        graph.add_edge_by_name("mod.b", "mod.target", CodeEdge::calls());
+
+        let ctx = DetectorContext::build(&graph, &[]);
+        let callers = &ctx.callers_by_qn["mod.target"];
+        assert_eq!(callers.len(), 2);
+        assert!(callers.contains(&"mod.a".to_string()));
+        assert!(callers.contains(&"mod.b".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_children_for_same_parent() {
+        let graph = GraphStore::in_memory();
+
+        graph.add_node(
+            CodeNode::class("Base", "test.py").with_qualified_name("mod.Base"),
+        );
+        graph.add_node(
+            CodeNode::class("ChildA", "test.py").with_qualified_name("mod.ChildA"),
+        );
+        graph.add_node(
+            CodeNode::class("ChildB", "test.py").with_qualified_name("mod.ChildB"),
+        );
+        graph.add_edge_by_name("mod.ChildA", "mod.Base", CodeEdge::inherits());
+        graph.add_edge_by_name("mod.ChildB", "mod.Base", CodeEdge::inherits());
+
+        let ctx = DetectorContext::build(&graph, &[]);
+        let children = &ctx.class_children["mod.Base"];
+        assert_eq!(children.len(), 2);
+        assert!(children.contains(&"mod.ChildA".to_string()));
+        assert!(children.contains(&"mod.ChildB".to_string()));
     }
 }

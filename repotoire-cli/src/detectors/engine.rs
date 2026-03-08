@@ -640,6 +640,15 @@ impl DetectorEngine {
             }
         }
 
+        // Build and inject DetectorContext for run() fallback path
+        if !self.gd_precomputed {
+            let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
+            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths));
+            for detector in &self.detectors {
+                detector.set_detector_context(Arc::clone(&det_ctx));
+            }
+        }
+
         // Partition detectors into independent and dependent
         let (independent, dependent): (Vec<_>, Vec<_>) = self
             .detectors
@@ -991,6 +1000,13 @@ impl DetectorEngine {
                 }
             }
 
+            // Build and inject DetectorContext for fallback path
+            let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
+            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths));
+            for detector in &gd_detectors {
+                detector.set_detector_context(Arc::clone(&det_ctx));
+            }
+
             (ctx, hmm)
         };
 
@@ -1156,6 +1172,15 @@ impl DetectorEngine {
                         .unwrap_or_default();
                     detector.set_precomputed_taint(cross, intra);
                 }
+            }
+        }
+
+        // Build and inject DetectorContext for run_detailed() fallback path
+        if !self.gd_precomputed {
+            let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
+            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths));
+            for detector in &self.detectors {
+                detector.set_detector_context(Arc::clone(&det_ctx));
             }
         }
 
