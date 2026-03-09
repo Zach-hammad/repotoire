@@ -65,6 +65,7 @@ mod eval_detector;
 mod pickle_detector;
 mod sql_injection;
 mod surprisal;
+mod hierarchical_surprisal;
 mod unsafe_template;
 
 // Taint analysis module (graph-based data flow tracking)
@@ -181,7 +182,7 @@ pub use middle_man::MiddleManDetector;
 pub use refused_bequest::RefusedBequestDetector;
 
 // Re-export AI detectors
-pub use ai_boilerplate::AIBoilerplateDetector;
+pub use ai_boilerplate::{AIBoilerplateDetector, BoilerplatePattern};
 pub use ai_churn::AIChurnDetector;
 pub use ai_complexity_spike::AIComplexitySpikeDetector;
 pub use ai_duplicate_block::AIDuplicateBlockDetector;
@@ -288,6 +289,7 @@ pub use unhandled_promise::UnhandledPromiseDetector;
 pub use unreachable_code::UnreachableCodeDetector;
 pub use wildcard_imports::WildcardImportsDetector;
 pub use surprisal::SurprisalDetector;
+pub use hierarchical_surprisal::HierarchicalSurprisalDetector;
 pub use xss::XssDetector;
 pub use xxe::XxeDetector;
 
@@ -522,21 +524,20 @@ fn default_detectors_full(
         Arc::new(DepAuditDetector::new(repository_path)),
     ];
 
-    // Predictive coding: surprisal detector (only when n-gram model is available)
+    // Predictive coding: hierarchical surprisal detector (always enabled, no n-gram dependency)
+    detectors.push(Arc::new(HierarchicalSurprisalDetector::new()));
+
+    // Legacy n-gram surprisal detector (still available when model is confident)
     match ngram_model {
         Some(model) if model.is_confident() => {
             tracing::debug!("SurprisalDetector enabled (n-gram model is confident)");
             detectors.push(Arc::new(SurprisalDetector::new(repository_path, model)));
         }
         Some(_) => {
-            tracing::debug!(
-                "SurprisalDetector skipped: n-gram model not confident (insufficient training data)"
-            );
+            tracing::debug!("SurprisalDetector skipped: n-gram model not confident");
         }
         None => {
-            tracing::debug!(
-                "SurprisalDetector skipped: no n-gram model available (run `repotoire calibrate` first)"
-            );
+            tracing::debug!("SurprisalDetector skipped: no n-gram model available");
         }
     }
 
