@@ -78,6 +78,16 @@ pub trait GraphQuery: Send + Sync {
     /// Find import cycles
     fn find_import_cycles(&self) -> Vec<Vec<String>>;
 
+    /// Check if a file participates in any import cycle.
+    /// Default implementation calls `find_import_cycles()` and checks.
+    /// `CachedGraphQuery` overrides with O(1) HashSet lookup.
+    fn is_in_import_cycle(&self, file_path: &str) -> bool {
+        let cycles = self.find_import_cycles();
+        cycles.iter().any(|cycle| {
+            cycle.iter().any(|qn| qn == file_path || file_path.contains(qn.as_str()))
+        })
+    }
+
     /// Get stats (BTreeMap for deterministic key order)
     fn stats(&self) -> BTreeMap<String, i64>;
 

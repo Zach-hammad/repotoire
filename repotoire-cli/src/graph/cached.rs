@@ -32,6 +32,8 @@ pub struct CachedGraphQuery<'a> {
     imports: OnceLock<Vec<(String, String)>>,
     inheritance: OnceLock<Vec<(String, String)>>,
     import_cycles: OnceLock<Vec<Vec<String>>>,
+    /// Pre-computed set of file paths that participate in import cycles
+    cycle_members: OnceLock<std::collections::HashSet<String>>,
     /// qn → index into functions Vec
     qn_to_idx: OnceLock<HashMap<String, usize>>,
     /// callee_idx → Vec of caller indices
@@ -58,6 +60,7 @@ impl<'a> CachedGraphQuery<'a> {
             imports: OnceLock::new(),
             inheritance: OnceLock::new(),
             import_cycles: OnceLock::new(),
+            cycle_members: OnceLock::new(),
             qn_to_idx: OnceLock::new(),
             callers_idx: OnceLock::new(),
             callees_idx: OnceLock::new(),
@@ -65,6 +68,25 @@ impl<'a> CachedGraphQuery<'a> {
             funcs_by_file_idx: OnceLock::new(),
             classes_by_file_idx: OnceLock::new(),
         }
+    }
+
+    /// Check if a file path participates in any import cycle.
+    ///
+    /// Uses a pre-computed HashSet instead of cloning the full cycle list,
+    /// making per-finding lookups O(1) instead of O(cycles × cycle_size).
+    pub fn is_in_import_cycle(&self, file_path: &str) -> bool {
+        let members = self.cycle_members.get_or_init(|| {
+            let cycles = self.find_import_cycles();
+            let mut set = std::collections::HashSet::new();
+            for cycle in &cycles {
+                for qn in cycle {
+                    set.insert(qn.clone());
+                }
+            }
+            set
+        });
+        // Check both exact match and suffix match (cycle QNs may be module names)
+        members.contains(file_path) || members.iter().any(|m| file_path.contains(m.as_str()))
     }
 
     /// Populate the functions cache, returning a reference to the Arc.
@@ -275,6 +297,10 @@ impl GraphQuery for CachedGraphQuery<'_> {
         self.import_cycles
             .get_or_init(|| self.inner.find_import_cycles())
             .clone()
+    }
+
+    fn is_in_import_cycle(&self, file_path: &str) -> bool {
+        CachedGraphQuery::is_in_import_cycle(self, file_path)
     }
 
     fn stats(&self) -> BTreeMap<String, i64> {
