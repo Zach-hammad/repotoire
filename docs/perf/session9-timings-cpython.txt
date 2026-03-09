@@ -1,0 +1,36 @@
+Tree-Sitter Optimization Benchmark (Session 9 / V5)
+====================================================
+
+Branch: main
+Changes: OnceLock Query caching (all 9 parsers), thread_local Parser reuse
+Target: CPython (3,415 files, 71K functions, 13K classes)
+
+Run 1: 4.700s  (parse 2.021s, detect 2.052s, post 0.247s, score 0.136s, output 0.174s)
+Run 2: 4.760s  (parse 2.049s, detect 2.074s, post 0.242s, score 0.138s, output 0.180s)
+Run 3: 4.850s  (parse 2.133s, detect 2.064s, post 0.257s, score 0.135s, output 0.180s)
+Run 4: 4.880s  (parse 2.061s, detect 2.140s, post 0.269s, score 0.145s, output 0.186s)
+Run 5: 4.770s  (parse 2.156s, detect 1.986s, post 0.220s, score 0.141s, output 0.182s)
+
+Median: 4.77s (parse 2.061s, detect 2.064s)
+
+Comparison to V4 baseline (4.93s):
+  Total:  4.93s → 4.77s  (-3.2%, -160ms)
+  Parse:  2.30s → 2.06s  (-10.4%, -240ms)
+  Detect: 1.97s → 2.06s  (noise, within variance)
+
+Changes:
+  - Cached 17 Query::new() calls in OnceLock<Query> statics (7 parsers — Python, Rust, Go, Java, C#, C, C++)
+  - TypeScript already had Query caching via OnceLock
+  - Reuse Parser instances via thread_local! RefCell<Parser> in all 9 parsers
+  - Eliminated per-file Parser allocation + set_language + internal buffer allocation
+
+Overall optimization timeline (CPython median, --workers 8):
+  Baseline: 14.6s
+  V2:        9.6s (-34.2%)
+  V3:        8.0s (-16.7%)
+  V4:        6.06s (-24.3%)
+  V5:        5.70s (-5.6%)
+  V6:        5.10s (-10.5%)
+  V7:        4.93s (-3.4%)
+  V8:        4.77s (-3.2%)
+  Cumulative: -67.3% from baseline
