@@ -1270,6 +1270,7 @@ mod tests {
             imports: vec![],
             calls: vec![],
             address_taken: StdHashSet::new(),
+            raw_values: None,
         }
     }
 
@@ -1425,6 +1426,7 @@ mod tests {
                 imports: vec![ImportInfo::runtime("os")],
                 calls: vec![("app.main.foo:1".to_string(), "bar".to_string())],
                 address_taken: StdHashSet::new(),
+                raw_values: None,
             },
         )];
 

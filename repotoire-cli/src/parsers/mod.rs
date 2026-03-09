@@ -189,6 +189,26 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
         extract_structural_fps(tree, &source, ext, path, &result.functions);
     }
 
+    // Extract symbolic values for the value oracle (constant propagation).
+    // Reuses the existing tree-sitter tree — zero re-parsing overhead.
+    if let (Ok(ref mut result), Some(ref tree)) = (&mut parsed, &tree) {
+        if let Some(config) = crate::values::configs::config_for_extension(ext) {
+            // Derive a qualified prefix from the file path (e.g. "src/config.py" → "src.config").
+            let file_qualified_prefix = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown");
+            let raw = crate::values::extraction::extract_file_values(
+                tree,
+                &source,
+                &config,
+                &result.functions,
+                file_qualified_prefix,
+            );
+            result.raw_values = Some(raw);
+        }
+    }
+
     // Pre-warm masked content cache using the EXISTING tree — avoids a second
     // tree-sitter parse per file.  For CPython (3,415 files) this eliminates
     // 3,415 redundant parses that `masked_content()` would otherwise trigger.
@@ -521,6 +541,11 @@ pub struct ParseResult {
     /// Function names whose addresses are taken (used as callbacks, in tables, etc.)
     /// These should not be flagged as dead code even if they have zero direct callers.
     pub address_taken: std::collections::HashSet<String>,
+
+    /// Extracted symbolic values (assignments, constants, returns) for the value oracle.
+    /// Populated by the value extraction pass during parsing.
+    #[serde(skip)]
+    pub raw_values: Option<crate::values::store::RawParseValues>,
 }
 
 impl ParseResult {
@@ -536,6 +561,21 @@ impl ParseResult {
         self.imports.extend(other.imports);
         self.calls.extend(other.calls);
         self.address_taken.extend(other.address_taken);
+
+        // Merge raw value extraction results.
+        if let Some(other_raw) = other.raw_values {
+            if let Some(ref mut self_raw) = self.raw_values {
+                self_raw.module_constants.extend(other_raw.module_constants);
+                for (k, v) in other_raw.function_assignments {
+                    self_raw.function_assignments.entry(k).or_default().extend(v);
+                }
+                for (k, v) in other_raw.return_expressions {
+                    self_raw.return_expressions.insert(k, v);
+                }
+            } else {
+                self.raw_values = Some(other_raw);
+            }
+        }
     }
 
     /// Check if the result is empty
@@ -594,6 +634,7 @@ mod tests {
             imports: vec![ImportInfo::runtime("os")],
             calls: vec![],
             address_taken: std::collections::HashSet::new(),
+            raw_values: None,
         };
 
         let result2 = ParseResult {
@@ -625,6 +666,7 @@ mod tests {
             imports: vec![ImportInfo::runtime("sys")],
             calls: vec![("test::func1:1".to_string(), "func2".to_string())],
             address_taken: std::collections::HashSet::new(),
+            raw_values: None,
         };
 
         result1.merge(result2);
@@ -712,5 +754,57 @@ int add(int a, int b);
         assert!(exts.contains(&"kt"));
         assert!(exts.contains(&"c"));
         assert!(exts.contains(&"cpp"));
+    }
+
+    #[test]
+    fn test_parse_python_extracts_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.py");
+        std::fs::write(
+            &file,
+            "TIMEOUT = 3600\n\ndef foo():\n    x = \"hello\"\n    return x\n",
+        )
+        .unwrap();
+        let result = parse_file(&file).unwrap();
+        let raw = result
+            .raw_values
+            .as_ref()
+            .expect("raw_values should be populated");
+        assert!(
+            !raw.module_constants.is_empty(),
+            "should extract module constant TIMEOUT"
+        );
+    }
+
+    #[test]
+    fn test_parse_typescript_extracts_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.ts");
+        std::fs::write(
+            &file,
+            "const MAX = 100;\nfunction foo() { return MAX; }\n",
+        )
+        .unwrap();
+        let result = parse_file(&file).unwrap();
+        let raw = result
+            .raw_values
+            .as_ref()
+            .expect("raw_values should be populated for TS");
+        assert!(
+            !raw.module_constants.is_empty(),
+            "should extract TS constant"
+        );
+    }
+
+    #[test]
+    fn test_parse_unsupported_extension_no_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.xyz");
+        std::fs::write(&file, "x = 1").unwrap();
+        let result = parse_file(&file).unwrap();
+        assert!(
+            result.raw_values.is_none(),
+            "unsupported extension should have no values"
+        );
     }
 }
