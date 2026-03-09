@@ -250,6 +250,7 @@ pub(super) fn run_detectors_speculative(
     timings: bool,
     between_phases: impl FnOnce(),
     pre_gi_findings: Option<Vec<Finding>>,
+    value_store: Option<Arc<crate::values::store::ValueStore>>,
 ) -> Result<Vec<Finding>> {
     // Check if we can use cached detector results (same fast path as run_detectors)
     if cache.can_use_cached_detectors(all_files) {
@@ -323,6 +324,7 @@ pub(super) fn run_detectors_speculative(
 
         let hmm_cache_path_clone = repo_path.join(".repotoire");
         let repo_path_clone = repo_path.to_path_buf();
+        let vs_clone = value_store.clone();
 
         // Run GI + GD pre-compute in parallel using thread::scope
         let (gi_result, gd_precomputed) = std::thread::scope(|s| {
@@ -333,6 +335,7 @@ pub(super) fn run_detectors_speculative(
                     &repo_path_clone,
                     Some(&hmm_cache_path_clone),
                     all_files,
+                    vs_clone,
                 )
             });
 
@@ -370,6 +373,7 @@ pub(super) fn run_detectors_speculative(
 
         let hmm_cache_path_clone = repo_path.join(".repotoire");
         let repo_path_clone = repo_path.to_path_buf();
+        let vs_clone = value_store.clone();
         // Run GD precompute ∥ git enrichment finish
         let gd_precomputed = std::thread::scope(|s| {
             let gd_handle = s.spawn(|| {
@@ -378,6 +382,7 @@ pub(super) fn run_detectors_speculative(
                     &repo_path_clone,
                     Some(&hmm_cache_path_clone),
                     all_files,
+                    vs_clone,
                 )
             });
             // Wait for git enrichment while GD precompute runs in parallel
