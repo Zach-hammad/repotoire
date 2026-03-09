@@ -1,0 +1,36 @@
+Parse Phase Elimination Benchmark (Session 8 / V4)
+===================================================
+
+Branch: perf/optimization-v2
+Changes: inline call resolution, multi-map function_lookup, Contains-in-node-batch, pre-sized containers
+Target: CPython (3,415 files, 71K functions, 13K classes)
+
+Run 1: 4.981s  (parse 2.309s, detect 1.958s, post 0.249s, score 0.141s, output 0.188s)
+Run 2: 4.904s  (parse 2.266s, detect 1.967s, post 0.266s, score 0.145s, output 0.180s)
+Run 3: 4.924s  (parse 2.299s, detect 1.973s, post 0.241s, score 0.141s, output 0.186s)
+Run 4: 4.928s  (parse 2.224s, detect 2.038s, post 0.252s, score 0.139s, output 0.188s)
+Run 5: 4.958s  (parse 2.393s, detect 1.898s, post 0.259s, score 0.143s, output 0.183s)
+
+Median: 4.928s (parse 2.299s, detect 1.967s)
+
+Comparison to V3 baseline (5.10s):
+  Total:  5.10s → 4.93s  (-3.4%, -170ms)
+  Parse:  2.45s → 2.30s  (-6.1%, -150ms)
+  Detect: 1.99s → 1.97s  (-1.0%, -20ms)
+
+Changes:
+  - Inline call resolution with pending queues (eliminated par_sort_unstable on 565K entries)
+  - Multi-map function_lookup with LookupEntry::Unique/Ambiguous (correctness fix)
+  - Contains edges created in add_nodes_batch_with_contains (eliminated 168K String allocations)
+  - Pre-sized HashMap/Vec containers
+  - Fewer spurious edges from ambiguous bare name dropping → faster detectors
+
+Overall optimization timeline (CPython median, --workers 8):
+  Baseline: 14.6s
+  V2:        9.6s (-34.2%)
+  V3:        8.0s (-16.7%)
+  V4:        6.06s (-24.3%)
+  V5:        5.70s (-5.6%)
+  V6:        5.10s (-10.5%)
+  V7:        4.93s (-3.4%)
+  Cumulative: -66.2% from baseline
