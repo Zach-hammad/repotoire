@@ -94,6 +94,60 @@ fn parse_float(s: &str) -> Option<f64> {
     s.parse::<f64>().ok()
 }
 
+/// Strip type suffixes from numeric literals.
+///
+/// Handles common suffixes across languages:
+/// - C/C++: `42L`, `42LL`, `42UL`, `42ULL`, `3.14f`, `3.14F`, `3.14L`
+/// - Rust: `42i32`, `42u64`, `3.14f64`, etc.
+/// - Java: `42L`, `3.14f`, `3.14d`
+///
+/// Does NOT strip from hex literals (`0xFF`) since `f`, `F`, `d`, `D` are
+/// valid hex digits.
+fn strip_numeric_suffix(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return s;
+    }
+
+    // Don't strip from hex literals — hex digits overlap with suffixes (f, F, d, D)
+    if s.starts_with("0x") || s.starts_with("0X") {
+        // For hex: only strip trailing L/LL/UL/ULL (not f/F/d/D since those are hex digits)
+        let mut end = bytes.len();
+        while end > 2 && matches!(bytes[end - 1], b'u' | b'U' | b'l' | b'L') {
+            end -= 1;
+        }
+        if end > 2 && end < bytes.len() {
+            return &s[..end];
+        }
+        return s;
+    }
+
+    // Rust-style suffixes: i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64
+    for suffix in &[
+        "i128", "i64", "i32", "i16", "i8", "isize", "u128", "u64", "u32", "u16", "u8", "usize",
+        "f64", "f32",
+    ] {
+        if s.ends_with(suffix) {
+            let end = s.len() - suffix.len();
+            if end > 0 {
+                return &s[..end];
+            }
+        }
+    }
+
+    // C/C++/Java suffixes: strip trailing [uUlLfFdD]+
+    let mut end = bytes.len();
+    while end > 0 && matches!(bytes[end - 1], b'u' | b'U' | b'l' | b'L' | b'f' | b'F' | b'd' | b'D')
+    {
+        end -= 1;
+    }
+    if end > 0 && end < bytes.len() {
+        return &s[..end];
+    }
+
+    s
+}
+
 /// Map operator text from a binary expression to a `BinOp`.
 fn text_to_binop(op: &str) -> BinOp {
     match op.trim() {
@@ -173,22 +227,29 @@ fn extract_binary_op(node: tree_sitter::Node, source: &[u8]) -> BinOp {
     BinOp::Add // fallback
 }
 
-/// Extract the callee function name from a `call` node.
+/// Extract the callee function name from a call expression node.
 ///
-/// Handles simple identifiers (`foo(...)`) and attribute access (`obj.method(...)`).
+/// Handles simple identifiers (`foo(...)`) and attribute/member access
+/// (`obj.method(...)`) across all supported languages.
+///
+/// Different grammars use different field names:
+/// - Python: `function`
+/// - JS/TS/Rust/Go/C/C++: `function`
+/// - Java: `name` + `object` for method invocations
 fn extract_callee_name(node: tree_sitter::Node, source: &[u8]) -> String {
-    // Python call: `function` is a named field
+    // Most languages use "function" as the field name for the callee
     if let Some(func_node) = node.child_by_field_name("function") {
-        let kind = func_node.kind();
-        if kind == "identifier" {
-            return node_text(func_node, source).to_string();
-        }
-        if kind == "attribute" {
-            // obj.method -> "obj.method"
-            return node_text(func_node, source).to_string();
-        }
-        // Fallback: use the full text
         return node_text(func_node, source).to_string();
+    }
+
+    // Java method_invocation: uses "name" for the method and "object" for the receiver
+    if let Some(name_node) = node.child_by_field_name("name") {
+        let name = node_text(name_node, source);
+        if let Some(obj_node) = node.child_by_field_name("object") {
+            let obj = node_text(obj_node, source);
+            return format!("{obj}.{name}");
+        }
+        return name.to_string();
     }
 
     // Fallback: first named child
@@ -227,10 +288,20 @@ pub fn node_to_symbolic(
     }
 
     // --- Boolean literals (check before string since `true`/`false` are simple) ---
-    if LanguageValueConfig::matches(config.bool_true_kinds, kind) {
-        return SymbolicValue::Literal(LiteralValue::Boolean(true));
-    }
-    if LanguageValueConfig::matches(config.bool_false_kinds, kind) {
+    // Some languages (Rust, C#) use the same node kind for both true and false
+    // (e.g. `boolean_literal`). When true and false share a kind, disambiguate
+    // by inspecting the node text.
+    let matches_true = LanguageValueConfig::matches(config.bool_true_kinds, kind);
+    let matches_false = LanguageValueConfig::matches(config.bool_false_kinds, kind);
+    if matches_true || matches_false {
+        if matches_true && matches_false {
+            // Shared kind (e.g. Rust boolean_literal) — check text
+            let text = node_text(node, source);
+            return SymbolicValue::Literal(LiteralValue::Boolean(text == "true"));
+        }
+        if matches_true {
+            return SymbolicValue::Literal(LiteralValue::Boolean(true));
+        }
         return SymbolicValue::Literal(LiteralValue::Boolean(false));
     }
 
@@ -239,22 +310,27 @@ pub fn node_to_symbolic(
         return SymbolicValue::Literal(LiteralValue::Null);
     }
 
-    // --- Integer literals ---
-    if LanguageValueConfig::matches(config.integer_literal_kinds, kind) {
+    // --- Numeric literals ---
+    // Some languages (C, C++, JS/TS) use a single node kind for both integers
+    // and floats (e.g. `number_literal`, `number`). When the kind appears in
+    // both lists, try integer parsing first, then fall back to float.
+    let matches_int = LanguageValueConfig::matches(config.integer_literal_kinds, kind);
+    let matches_float = LanguageValueConfig::matches(config.float_literal_kinds, kind);
+    if matches_int || matches_float {
         let text = node_text(node, source);
-        return match parse_integer(text) {
-            Some(n) => SymbolicValue::Literal(LiteralValue::Integer(n)),
-            None => SymbolicValue::Unknown,
-        };
-    }
-
-    // --- Float literals ---
-    if LanguageValueConfig::matches(config.float_literal_kinds, kind) {
-        let text = node_text(node, source);
-        return match parse_float(text) {
-            Some(f) => SymbolicValue::Literal(LiteralValue::Float(f)),
-            None => SymbolicValue::Unknown,
-        };
+        // Strip type suffixes common in C/C++/Rust/Java (e.g. 42L, 3.14f, 100u64)
+        let cleaned = strip_numeric_suffix(text);
+        if matches_int {
+            if let Some(n) = parse_integer(cleaned) {
+                return SymbolicValue::Literal(LiteralValue::Integer(n));
+            }
+        }
+        if matches_float {
+            if let Some(f) = parse_float(cleaned) {
+                return SymbolicValue::Literal(LiteralValue::Float(f));
+            }
+        }
+        return SymbolicValue::Unknown;
     }
 
     // --- String literals ---
@@ -337,14 +413,19 @@ pub fn node_to_symbolic(
         let callee = extract_callee_name(node, source);
         let mut args = Vec::new();
 
+        // Most grammars use "arguments" as the field name for the argument list
         if let Some(args_node) = node.child_by_field_name("arguments") {
             let mut cursor = args_node.walk();
             for child in args_node.named_children(&mut cursor) {
-                // Skip keyword argument names, only extract values
-                if child.kind() == "keyword_argument" {
+                let ck = child.kind();
+                // Skip keyword/named argument wrappers — extract only the value
+                if ck == "keyword_argument" || ck == "named_argument" {
                     if let Some(val) = child.child_by_field_name("value") {
                         args.push(node_to_symbolic(val, source, config, _func_qn));
                     }
+                } else if ck == "spread_element" || ck == "rest_pattern" {
+                    // Spread/rest: the whole call becomes partially unknown
+                    args.push(SymbolicValue::Unknown);
                 } else {
                     args.push(node_to_symbolic(child, source, config, _func_qn));
                 }
@@ -356,13 +437,37 @@ pub fn node_to_symbolic(
 
     // --- Field/attribute access ---
     if LanguageValueConfig::matches(config.field_access_kinds, kind) {
+        // Different grammars use different field names:
+        //   Python:  object / attribute
+        //   JS/TS:   object / property
+        //   Rust:    value / field
+        //   Go:      operand / field
+        //   Java:    object / field
+        //   C/C++:   argument / field
+        //   C#:      expression / name
         let obj = node
             .child_by_field_name("object")
+            .or_else(|| node.child_by_field_name("value"))
+            .or_else(|| node.child_by_field_name("operand"))
+            .or_else(|| node.child_by_field_name("argument"))
+            .or_else(|| node.child_by_field_name("expression"))
+            .or_else(|| node.named_child(0))
             .map(|n| node_to_symbolic(n, source, config, _func_qn))
             .unwrap_or(SymbolicValue::Unknown);
 
         let attr_name = node
             .child_by_field_name("attribute")
+            .or_else(|| node.child_by_field_name("property"))
+            .or_else(|| node.child_by_field_name("field"))
+            .or_else(|| node.child_by_field_name("name"))
+            .or_else(|| {
+                let count = node.named_child_count();
+                if count >= 2 {
+                    node.named_child(count - 1)
+                } else {
+                    None
+                }
+            })
             .map(|n| node_text(n, source).to_string())
             .unwrap_or_default();
 
@@ -371,15 +476,28 @@ pub fn node_to_symbolic(
 
     // --- Subscript/index access ---
     if LanguageValueConfig::matches(config.subscript_kinds, kind) {
+        // Different grammars use different field names:
+        //   Python:  value / subscript
+        //   JS/TS:   object / index
+        //   Rust:    value / index (index_expression)
+        //   Go:      operand / index
+        //   Java:    array / index (array_access)
+        //   C/C++:   argument / index (subscript_expression)
+        //   C#:      expression / argument_list
         let obj = node
             .child_by_field_name("value")
+            .or_else(|| node.child_by_field_name("object"))
+            .or_else(|| node.child_by_field_name("operand"))
+            .or_else(|| node.child_by_field_name("array"))
+            .or_else(|| node.child_by_field_name("argument"))
+            .or_else(|| node.child_by_field_name("expression"))
+            .or_else(|| node.named_child(0))
             .map(|n| node_to_symbolic(n, source, config, _func_qn))
             .unwrap_or(SymbolicValue::Unknown);
 
-        // Python subscript: the key is in the "subscript" field
-        // but tree-sitter-python uses different field names depending on version
         let key = node
             .child_by_field_name("subscript")
+            .or_else(|| node.child_by_field_name("index"))
             .or_else(|| {
                 // Fallback: look for named children after the value
                 let count = node.named_child_count();
@@ -444,9 +562,17 @@ pub fn node_to_symbolic(
     }
 
     // --- Unary operator: limited support ---
-    if kind == "unary_operator" || kind == "not_operator" {
+    if kind == "unary_operator"
+        || kind == "not_operator"
+        || kind == "unary_expression"
+        || kind == "prefix_unary_expression"
+    {
         // For negation of a literal, produce the negated value
-        if let Some(operand) = node.child_by_field_name("argument").or(node.named_child(0)) {
+        if let Some(operand) = node
+            .child_by_field_name("argument")
+            .or_else(|| node.child_by_field_name("operand"))
+            .or(node.named_child(0))
+        {
             let op_text = node
                 .child(0)
                 .map(|c| node_text(c, source))
@@ -536,10 +662,47 @@ pub fn extract_file_values(
     raw
 }
 
+/// Node kinds that represent function definitions across supported languages.
+const FUNCTION_DEF_KINDS: &[&str] = &[
+    "function_definition",   // Python, C, C++
+    "function_declaration",  // JS/TS, C, C++, Go
+    "function_item",         // Rust
+    "method_definition",     // JS/TS class methods
+    "method_declaration",    // Java, C#
+    "arrow_function",        // JS/TS
+    "generator_function_declaration", // JS/TS
+    "constructor_declaration", // Java, C#
+];
+
+/// Node kinds that represent class/struct/impl definitions across supported languages.
+const CLASS_DEF_KINDS: &[&str] = &[
+    "class_definition",    // Python
+    "class_declaration",   // JS/TS, Java, C#, C++
+    "class_body",          // used in some grammars
+    "struct_item",         // Rust
+    "impl_item",           // Rust
+    "interface_declaration", // Java, C#, TS
+    "struct_specifier",    // C, C++
+    "class_specifier",     // C++
+];
+
+/// Node kinds that wrap inner declarations (decorators, export, etc.).
+const WRAPPER_KINDS: &[&str] = &[
+    "decorated_definition",     // Python
+    "export_statement",         // JS/TS
+    "export_default_declaration", // JS/TS ESM
+];
+
+/// Check if a node kind matches any entry in a static slice.
+fn is_kind_in(kind: &str, kinds: &[&str]) -> bool {
+    kinds.contains(&kind)
+}
+
 /// Process a single top-level AST node from the module root.
 ///
-/// Handles `expression_statement` wrappers (tree-sitter-python wraps module-level
-/// assignments in `expression_statement` nodes) by unwrapping and recursing.
+/// Handles `expression_statement` wrappers (multiple grammars wrap assignments
+/// in these) by unwrapping and recursing. Recognizes function and class
+/// definitions across all supported languages.
 fn process_top_level_node(
     child: tree_sitter::Node,
     source_bytes: &[u8],
@@ -550,7 +713,7 @@ fn process_top_level_node(
 ) {
     let kind = child.kind();
 
-    // Unwrap expression_statement wrappers (Python puts assignments inside these)
+    // Unwrap expression_statement wrappers (Python, JS/TS, Go put assignments inside these)
     if kind == "expression_statement" {
         let mut inner_cursor = child.walk();
         for inner in child.named_children(&mut inner_cursor) {
@@ -582,91 +745,200 @@ fn process_top_level_node(
     }
 
     // Function definitions — walk their body
-    if kind == "function_definition" || kind == "decorated_definition" {
-        let func_node = if kind == "decorated_definition" {
-            find_child_by_kind(child, "function_definition")
-        } else {
-            Some(child)
-        };
-
-        if let Some(func_node) = func_node {
-            let func_line = func_node.start_position().row as u32 + 1; // 1-indexed
-
-            let func_qn = func_lookup
-                .iter()
-                .find(|(start, end, _)| func_line >= *start && func_line <= *end)
-                .map(|(_, _, qn)| *qn);
-
-            if let Some(qn) = func_qn {
-                extract_function_body(func_node, source_bytes, config, qn, raw);
-            }
-        }
+    if is_kind_in(kind, FUNCTION_DEF_KINDS) {
+        process_function_node(child, source_bytes, config, func_lookup, raw);
         return;
     }
 
-    // Class definitions — walk their methods
-    if kind == "class_definition" {
+    // Class/struct/impl definitions — walk their methods
+    if is_kind_in(kind, CLASS_DEF_KINDS) {
         extract_class_body(child, source_bytes, config, func_lookup, raw);
         return;
     }
 
-    // Decorated definition could be either function or class
-    if kind == "decorated_definition" {
-        if let Some(class_node) = find_child_by_kind(child, "class_definition") {
-            extract_class_body(class_node, source_bytes, config, func_lookup, raw);
+    // Wrapper nodes (decorated_definition, export_statement, etc.) — unwrap and recurse
+    if is_kind_in(kind, WRAPPER_KINDS) {
+        // Look for function or class definitions inside the wrapper
+        let mut inner_cursor = child.walk();
+        for inner in child.named_children(&mut inner_cursor) {
+            let ik = inner.kind();
+            if is_kind_in(ik, FUNCTION_DEF_KINDS) {
+                process_function_node(inner, source_bytes, config, func_lookup, raw);
+            } else if is_kind_in(ik, CLASS_DEF_KINDS) {
+                extract_class_body(inner, source_bytes, config, func_lookup, raw);
+            }
         }
     }
 }
 
-/// Find a direct child node of a specific kind.
-#[allow(clippy::manual_find)]
-fn find_child_by_kind<'a>(
-    node: tree_sitter::Node<'a>,
-    kind: &str,
-) -> Option<tree_sitter::Node<'a>> {
-    // Cannot use Iterator::find here because the cursor borrow must outlive the
-    // returned node, and the closure-based approach hits lifetime issues.
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
+/// Process a function definition node — match it to parsed Function metadata
+/// and extract its body.
+fn process_function_node(
+    func_node: tree_sitter::Node,
+    source_bytes: &[u8],
+    config: &LanguageValueConfig,
+    func_lookup: &[(u32, u32, &str)],
+    raw: &mut RawParseValues,
+) {
+    let func_line = func_node.start_position().row as u32 + 1; // 1-indexed
+
+    let func_qn = func_lookup
+        .iter()
+        .find(|(start, end, _)| func_line >= *start && func_line <= *end)
+        .map(|(_, _, qn)| *qn);
+
+    if let Some(qn) = func_qn {
+        extract_function_body(func_node, source_bytes, config, qn, raw);
     }
-    None
 }
 
 /// Extract an assignment node and push it to the appropriate collection.
 ///
 /// For module-level, pushes to `module_constants`.
 /// For function-level, pushes to `func_assignments`.
+///
+/// Handles different assignment structures across grammars:
+/// - Python: `assignment` -> left / right
+/// - JS/TS: `variable_declaration` / `lexical_declaration` -> child `variable_declarator` -> name / value
+/// - Rust: `let_declaration` -> pattern / value
+/// - Go: `short_var_declaration` -> left / right (expression_list)
+/// - Java: `local_variable_declaration` -> child `variable_declarator` -> name / value
+/// - C#: `variable_declaration` -> child `variable_declarator` -> name / value (via initializer)
+/// - C/C++: `declaration` -> child `init_declarator` -> declarator / value
 fn extract_assignment(
     node: tree_sitter::Node,
     source: &[u8],
     config: &LanguageValueConfig,
     prefix: &str,
     module_constants: &mut Vec<(String, SymbolicValue)>,
-    func_assignments: Option<&mut Vec<Assignment>>,
+    mut func_assignments: Option<&mut Vec<Assignment>>,
 ) {
-    let left = node.child_by_field_name("left");
-    let right = node.child_by_field_name("right");
+    let kind = node.kind();
 
-    if let (Some(left_node), Some(right_node)) = (left, right) {
-        let var_name = node_text(left_node, source).to_string();
-        let value = node_to_symbolic(right_node, source, config, prefix);
-        let line = node.start_position().row as u32 + 1;
-        let column = node.start_position().column as u32;
+    // Strategy 1: Direct left/right fields (Python assignment, Go short_var_declaration)
+    if let (Some(left_node), Some(right_node)) =
+        (node.child_by_field_name("left"), node.child_by_field_name("right"))
+    {
+        push_assignment(
+            node_text(left_node, source),
+            node_to_symbolic(right_node, source, config, prefix),
+            node,
+            prefix,
+            module_constants,
+            &mut func_assignments,
+        );
+        return;
+    }
 
-        if let Some(func_assigns) = func_assignments {
-            func_assigns.push(Assignment {
-                variable: var_name,
-                value,
-                line,
-                column,
-            });
-        } else {
-            let qualified_name = format!("{prefix}.{var_name}");
-            module_constants.push((qualified_name, value));
+    // Strategy 2: pattern/value fields (Rust let_declaration)
+    if let (Some(pat_node), Some(val_node)) =
+        (node.child_by_field_name("pattern"), node.child_by_field_name("value"))
+    {
+        push_assignment(
+            node_text(pat_node, source),
+            node_to_symbolic(val_node, source, config, prefix),
+            node,
+            prefix,
+            module_constants,
+            &mut func_assignments,
+        );
+        return;
+    }
+
+    // Strategy 3: Child `variable_declarator` (JS/TS, Java, C#)
+    // JS/TS `lexical_declaration` / `variable_declaration` contains one or more
+    // `variable_declarator` children with name/value fields.
+    if kind == "variable_declaration"
+        || kind == "lexical_declaration"
+        || kind == "local_variable_declaration"
+    {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "variable_declarator" {
+                // JS/TS/Java: name + value
+                if let (Some(name_node), Some(val_node)) =
+                    (child.child_by_field_name("name"), child.child_by_field_name("value"))
+                {
+                    push_assignment(
+                        node_text(name_node, source),
+                        node_to_symbolic(val_node, source, config, prefix),
+                        node,
+                        prefix,
+                        module_constants,
+                        &mut func_assignments,
+                    );
+                }
+            }
         }
+        return;
+    }
+
+    // Strategy 4: Child `init_declarator` (C/C++ declaration)
+    if kind == "declaration" {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "init_declarator" {
+                if let (Some(decl_node), Some(val_node)) =
+                    (child.child_by_field_name("declarator"), child.child_by_field_name("value"))
+                {
+                    push_assignment(
+                        node_text(decl_node, source),
+                        node_to_symbolic(val_node, source, config, prefix),
+                        node,
+                        prefix,
+                        module_constants,
+                        &mut func_assignments,
+                    );
+                }
+            }
+        }
+        return;
+    }
+
+    // Strategy 5: Go var_declaration -> var_spec children
+    if kind == "var_declaration" {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "var_spec" {
+                if let Some(val_node) = child.child_by_field_name("value") {
+                    if let Some(name_node) = child.child_by_field_name("name") {
+                        push_assignment(
+                            node_text(name_node, source),
+                            node_to_symbolic(val_node, source, config, prefix),
+                            node,
+                            prefix,
+                            module_constants,
+                            &mut func_assignments,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Push an assignment to either module constants or function assignments.
+fn push_assignment(
+    var_name: &str,
+    value: SymbolicValue,
+    node: tree_sitter::Node,
+    prefix: &str,
+    module_constants: &mut Vec<(String, SymbolicValue)>,
+    func_assignments: &mut Option<&mut Vec<Assignment>>,
+) {
+    let line = node.start_position().row as u32 + 1;
+    let column = node.start_position().column as u32;
+
+    if let Some(ref mut func_assigns) = func_assignments {
+        func_assigns.push(Assignment {
+            variable: var_name.to_string(),
+            value,
+            line,
+            column,
+        });
+    } else {
+        let qualified_name = format!("{prefix}.{var_name}");
+        module_constants.push((qualified_name, value));
     }
 }
 
@@ -678,8 +950,22 @@ fn extract_function_body(
     func_qn: &str,
     raw: &mut RawParseValues,
 ) {
-    let body = func_node.child_by_field_name("body");
-    let body_node = match body {
+    // Most grammars use "body" for the function body. Some (e.g. JS arrow
+    // functions) might inline the expression directly.
+    let body_node = func_node
+        .child_by_field_name("body")
+        .or_else(|| {
+            // For arrow functions or single-expression bodies, the entire
+            // function node may be the body.
+            if func_node.kind() == "arrow_function" {
+                // Arrow functions might have a direct expression child instead of block
+                func_node.named_child(func_node.named_child_count().saturating_sub(1))
+            } else {
+                None
+            }
+        });
+
+    let body_node = match body_node {
         Some(b) => b,
         None => return,
     };
@@ -758,14 +1044,42 @@ fn walk_function_body(
             continue;
         }
 
-        // Recurse into compound statements
-        if kind == "if_statement"
-            || kind == "for_statement"
-            || kind == "while_statement"
-            || kind == "try_statement"
-            || kind == "with_statement"
-            || kind == "block"
-        {
+        // Recurse into compound statements (all supported languages)
+        if matches!(
+            kind,
+            "if_statement"
+                | "for_statement"
+                | "while_statement"
+                | "try_statement"
+                | "with_statement"
+                | "block"
+                | "statement_block"       // JS/TS
+                | "if_expression"         // Rust
+                | "match_expression"      // Rust
+                | "loop_expression"       // Rust
+                | "for_expression"        // Rust
+                | "while_expression"      // Rust (old grammar name)
+                | "if_let_expression"     // Rust
+                | "else_clause"           // many languages
+                | "elif_clause"           // Python
+                | "else_if_clause"        // some grammars
+                | "switch_statement"      // JS/TS, C, C++, Java, C#
+                | "switch_case"           // JS/TS
+                | "switch_section"        // C#
+                | "case_clause"           // Go
+                | "do_statement"          // C, C++, Java, C#
+                | "for_in_statement"      // JS/TS
+                | "for_of_statement"      // JS/TS
+                | "enhanced_for_statement" // Java
+                | "foreach_statement"     // C#
+                | "try_expression"        // Rust
+                | "catch_clause"          // JS/TS, Java, C#
+                | "finally_clause"        // JS/TS, Java, C#
+                | "except_clause"         // Python
+                | "using_statement"       // C#
+                | "unsafe_block"          // Rust
+                | "match_arm"             // Rust
+        ) {
             walk_function_body(child, source, config, func_qn, assignments, last_return);
         }
     }
@@ -789,23 +1103,14 @@ fn extract_class_body(
     for child in body_node.children(&mut cursor) {
         let kind = child.kind();
 
-        if kind == "function_definition" || kind == "decorated_definition" {
-            let func_node = if kind == "decorated_definition" {
-                find_child_by_kind(child, "function_definition")
-            } else {
-                Some(child)
-            };
-
-            if let Some(func_node) = func_node {
-                let func_line = func_node.start_position().row as u32 + 1;
-
-                let func_qn = func_lookup
-                    .iter()
-                    .find(|(start, end, _)| func_line >= *start && func_line <= *end)
-                    .map(|(_, _, qn)| *qn);
-
-                if let Some(qn) = func_qn {
-                    extract_function_body(func_node, source, config, qn, raw);
+        if is_kind_in(kind, FUNCTION_DEF_KINDS) {
+            process_function_node(child, source, config, func_lookup, raw);
+        } else if is_kind_in(kind, WRAPPER_KINDS) {
+            // Decorated/exported method inside a class
+            let mut inner_cursor = child.walk();
+            for inner in child.named_children(&mut inner_cursor) {
+                if is_kind_in(inner.kind(), FUNCTION_DEF_KINDS) {
+                    process_function_node(inner, source, config, func_lookup, raw);
                 }
             }
         }
@@ -829,13 +1134,7 @@ mod tests {
             .set_language(&tree_sitter_python::LANGUAGE.into())
             .expect("Python grammar");
         let tree = parser.parse(code, None).expect("parse");
-        let root = tree.root_node();
-        let first_child = root.child(0).expect("first child");
-        let expr = if first_child.kind() == "expression_statement" {
-            first_child.child(0).expect("expression")
-        } else {
-            first_child
-        };
+        let expr = find_first_expression(tree.root_node());
         node_to_symbolic(expr, code.as_bytes(), &config, "test.func")
     }
 
@@ -1289,5 +1588,675 @@ def greet(name):
         assert_eq!(text_to_binop(">="), BinOp::GtEq);
         assert_eq!(text_to_binop("and"), BinOp::And);
         assert_eq!(text_to_binop("or"), BinOp::Or);
+    }
+
+    #[test]
+    fn test_strip_numeric_suffix() {
+        assert_eq!(strip_numeric_suffix("42"), "42");
+        assert_eq!(strip_numeric_suffix("42L"), "42");
+        assert_eq!(strip_numeric_suffix("42ULL"), "42");
+        assert_eq!(strip_numeric_suffix("3.14f"), "3.14");
+        assert_eq!(strip_numeric_suffix("3.14F"), "3.14");
+        assert_eq!(strip_numeric_suffix("42i32"), "42");
+        assert_eq!(strip_numeric_suffix("3.14f64"), "3.14");
+        assert_eq!(strip_numeric_suffix("100u64"), "100");
+        assert_eq!(strip_numeric_suffix("1000d"), "1000");
+    }
+
+    /// Generic helper: find the first meaningful expression node in a tree.
+    ///
+    /// Unwraps wrapper nodes like `source_file`, `program`, `translation_unit`,
+    /// `expression_statement`, `ERROR`, etc., and returns the first "real"
+    /// expression suitable for `node_to_symbolic`.
+    fn find_first_expression(node: tree_sitter::Node) -> tree_sitter::Node {
+        let kind = node.kind();
+        // Top-level wrappers and error recovery nodes to unwrap
+        if matches!(
+            kind,
+            "source_file"
+                | "program"
+                | "module"
+                | "translation_unit"
+                | "compilation_unit"
+                | "expression_statement"
+                | "ERROR"
+                | "global_statement"
+        ) {
+            // Try named children first, then all children (some nodes like
+            // Rust's `true` are unnamed children of ERROR nodes)
+            if let Some(child) = node.named_child(0) {
+                return find_first_expression(child);
+            }
+            // Fallback: try unnamed children (e.g. Rust boolean_literal `true`/`false`)
+            if let Some(child) = node.child(0) {
+                return find_first_expression(child);
+            }
+        }
+        node
+    }
+
+    // -----------------------------------------------------------------------
+    // JavaScript / TypeScript tests
+    // -----------------------------------------------------------------------
+
+    /// Parse a JavaScript expression and convert to SymbolicValue.
+    fn parse_js_expr(code: &str) -> SymbolicValue {
+        let config = crate::values::configs::typescript_config();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_javascript::LANGUAGE.into())
+            .expect("JS grammar");
+        let tree = parser.parse(code, None).expect("parse");
+        let expr = find_first_expression(tree.root_node());
+        node_to_symbolic(expr, code.as_bytes(), &config, "test.func")
+    }
+
+    #[test]
+    fn test_js_number_integer() {
+        assert_eq!(
+            parse_js_expr("42"),
+            SymbolicValue::Literal(LiteralValue::Integer(42))
+        );
+    }
+
+    #[test]
+    fn test_js_number_float() {
+        assert_eq!(
+            parse_js_expr("3.14"),
+            SymbolicValue::Literal(LiteralValue::Float(3.14))
+        );
+    }
+
+    #[test]
+    fn test_js_string_double_quote() {
+        assert_eq!(
+            parse_js_expr("\"hello\""),
+            SymbolicValue::Literal(LiteralValue::String("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_js_string_single_quote() {
+        assert_eq!(
+            parse_js_expr("'hello'"),
+            SymbolicValue::Literal(LiteralValue::String("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_js_boolean_true() {
+        assert_eq!(
+            parse_js_expr("true"),
+            SymbolicValue::Literal(LiteralValue::Boolean(true))
+        );
+    }
+
+    #[test]
+    fn test_js_boolean_false() {
+        assert_eq!(
+            parse_js_expr("false"),
+            SymbolicValue::Literal(LiteralValue::Boolean(false))
+        );
+    }
+
+    #[test]
+    fn test_js_null() {
+        assert_eq!(
+            parse_js_expr("null"),
+            SymbolicValue::Literal(LiteralValue::Null)
+        );
+    }
+
+    #[test]
+    fn test_js_binary_add() {
+        let r = parse_js_expr("1 + 2");
+        assert_eq!(
+            r,
+            SymbolicValue::BinaryOp(
+                BinOp::Add,
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(1))),
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(2))),
+            )
+        );
+    }
+
+    #[test]
+    fn test_js_identifier() {
+        assert_eq!(
+            parse_js_expr("myVar"),
+            SymbolicValue::Variable("myVar".into())
+        );
+    }
+
+    #[test]
+    fn test_js_call_expression() {
+        let r = parse_js_expr("foo(1, 2)");
+        assert_eq!(
+            r,
+            SymbolicValue::Call(
+                "foo".into(),
+                vec![
+                    SymbolicValue::Literal(LiteralValue::Integer(1)),
+                    SymbolicValue::Literal(LiteralValue::Integer(2)),
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn test_js_array_literal() {
+        let r = parse_js_expr("[1, 2, 3]");
+        assert_eq!(
+            r,
+            SymbolicValue::Literal(LiteralValue::List(vec![
+                SymbolicValue::Literal(LiteralValue::Integer(1)),
+                SymbolicValue::Literal(LiteralValue::Integer(2)),
+                SymbolicValue::Literal(LiteralValue::Integer(3)),
+            ]))
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Rust tests
+    // -----------------------------------------------------------------------
+
+    /// Parse a Rust expression and convert to SymbolicValue.
+    ///
+    /// Wraps the expression in `fn _() { let _ = <expr>; }` to get a valid
+    /// AST since standalone expressions aren't valid top-level Rust.
+    fn parse_rust_expr(code: &str) -> SymbolicValue {
+        let config = crate::values::configs::rust_config();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .expect("Rust grammar");
+        let wrapped = format!("fn _() {{ let _ = {code}; }}");
+        let tree = parser.parse(&wrapped, None).expect("parse");
+        // Navigate: source_file -> function_item -> body -> block ->
+        //   let_declaration -> value
+        let root = tree.root_node();
+        let func = root.named_child(0).expect("function_item");
+        let body = func.child_by_field_name("body").expect("block body");
+        // First named child of block should be the let_declaration
+        let let_decl = body.named_child(0).expect("let_declaration");
+        let value = let_decl
+            .child_by_field_name("value")
+            .expect("value field of let_declaration");
+        node_to_symbolic(value, wrapped.as_bytes(), &config, "test::func")
+    }
+
+    #[test]
+    fn test_rust_integer_literal() {
+        assert_eq!(
+            parse_rust_expr("42"),
+            SymbolicValue::Literal(LiteralValue::Integer(42))
+        );
+    }
+
+    #[test]
+    fn test_rust_float_literal() {
+        assert_eq!(
+            parse_rust_expr("3.14"),
+            SymbolicValue::Literal(LiteralValue::Float(3.14))
+        );
+    }
+
+    #[test]
+    fn test_rust_string_literal() {
+        assert_eq!(
+            parse_rust_expr("\"hello\""),
+            SymbolicValue::Literal(LiteralValue::String("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_rust_boolean_true() {
+        assert_eq!(
+            parse_rust_expr("true"),
+            SymbolicValue::Literal(LiteralValue::Boolean(true))
+        );
+    }
+
+    #[test]
+    fn test_rust_boolean_false() {
+        assert_eq!(
+            parse_rust_expr("false"),
+            SymbolicValue::Literal(LiteralValue::Boolean(false))
+        );
+    }
+
+    #[test]
+    fn test_rust_binary_add() {
+        let r = parse_rust_expr("1 + 2");
+        assert_eq!(
+            r,
+            SymbolicValue::BinaryOp(
+                BinOp::Add,
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(1))),
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(2))),
+            )
+        );
+    }
+
+    #[test]
+    fn test_rust_identifier() {
+        assert_eq!(
+            parse_rust_expr("my_var"),
+            SymbolicValue::Variable("my_var".into())
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Go tests
+    // -----------------------------------------------------------------------
+
+    /// Parse a Go expression and convert to SymbolicValue.
+    ///
+    /// Go requires a `package` clause, so we wrap the expression in
+    /// `package main; var _ = <expr>` and extract the value from
+    /// the `var_spec -> expression_list` node.
+    fn parse_go_expr(code: &str) -> SymbolicValue {
+        let config = crate::values::configs::go_config();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_go::LANGUAGE.into())
+            .expect("Go grammar");
+        let wrapped = format!("package main\nvar _ = {code}");
+        let tree = parser.parse(&wrapped, None).expect("parse");
+        let root = tree.root_node();
+        // Navigate: source_file -> var_declaration -> var_spec ->
+        //   expression_list -> <the actual expression>
+        fn find_go_value(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if child.kind() == "var_declaration" {
+                    let mut inner = child.walk();
+                    for spec in child.named_children(&mut inner) {
+                        if spec.kind() == "var_spec" {
+                            let count = spec.named_child_count();
+                            if count >= 2 {
+                                let last = spec.named_child(count - 1)?;
+                                // Unwrap expression_list wrapper
+                                if last.kind() == "expression_list" {
+                                    return last.named_child(0);
+                                }
+                                return Some(last);
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        }
+        if let Some(expr) = find_go_value(root) {
+            node_to_symbolic(expr, wrapped.as_bytes(), &config, "test.func")
+        } else {
+            SymbolicValue::Unknown
+        }
+    }
+
+    #[test]
+    fn test_go_int_literal() {
+        assert_eq!(
+            parse_go_expr("42"),
+            SymbolicValue::Literal(LiteralValue::Integer(42))
+        );
+    }
+
+    #[test]
+    fn test_go_float_literal() {
+        assert_eq!(
+            parse_go_expr("3.14"),
+            SymbolicValue::Literal(LiteralValue::Float(3.14))
+        );
+    }
+
+    #[test]
+    fn test_go_string_literal() {
+        assert_eq!(
+            parse_go_expr("\"hello\""),
+            SymbolicValue::Literal(LiteralValue::String("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_go_boolean_true() {
+        assert_eq!(
+            parse_go_expr("true"),
+            SymbolicValue::Literal(LiteralValue::Boolean(true))
+        );
+    }
+
+    #[test]
+    fn test_go_boolean_false() {
+        assert_eq!(
+            parse_go_expr("false"),
+            SymbolicValue::Literal(LiteralValue::Boolean(false))
+        );
+    }
+
+    #[test]
+    fn test_go_identifier() {
+        assert_eq!(
+            parse_go_expr("myVar"),
+            SymbolicValue::Variable("myVar".into())
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Java tests
+    // -----------------------------------------------------------------------
+
+    /// Parse a Java expression and convert to SymbolicValue.
+    ///
+    /// Java tree-sitter expects `program` root; standalone expressions may
+    /// need a semicolon to parse as `expression_statement`.
+    fn parse_java_expr(code: &str) -> SymbolicValue {
+        let config = crate::values::configs::java_config();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_java::LANGUAGE.into())
+            .expect("Java grammar");
+        // Java needs at least an expression statement; add semicolon if needed
+        let src = if code.ends_with(';') {
+            code.to_string()
+        } else {
+            format!("{code};")
+        };
+        let tree = parser.parse(&src, None).expect("parse");
+        let expr = find_first_expression(tree.root_node());
+        node_to_symbolic(expr, src.as_bytes(), &config, "test.func")
+    }
+
+    #[test]
+    fn test_java_decimal_integer() {
+        assert_eq!(
+            parse_java_expr("42"),
+            SymbolicValue::Literal(LiteralValue::Integer(42))
+        );
+    }
+
+    #[test]
+    fn test_java_hex_integer() {
+        assert_eq!(
+            parse_java_expr("0xFF"),
+            SymbolicValue::Literal(LiteralValue::Integer(255))
+        );
+    }
+
+    #[test]
+    fn test_java_string_literal() {
+        assert_eq!(
+            parse_java_expr("\"hello\""),
+            SymbolicValue::Literal(LiteralValue::String("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_java_boolean_true() {
+        assert_eq!(
+            parse_java_expr("true"),
+            SymbolicValue::Literal(LiteralValue::Boolean(true))
+        );
+    }
+
+    #[test]
+    fn test_java_boolean_false() {
+        assert_eq!(
+            parse_java_expr("false"),
+            SymbolicValue::Literal(LiteralValue::Boolean(false))
+        );
+    }
+
+    #[test]
+    fn test_java_null() {
+        assert_eq!(
+            parse_java_expr("null"),
+            SymbolicValue::Literal(LiteralValue::Null)
+        );
+    }
+
+    #[test]
+    fn test_java_identifier() {
+        assert_eq!(
+            parse_java_expr("myVar"),
+            SymbolicValue::Variable("myVar".into())
+        );
+    }
+
+    #[test]
+    fn test_java_binary_add() {
+        let r = parse_java_expr("1 + 2");
+        assert_eq!(
+            r,
+            SymbolicValue::BinaryOp(
+                BinOp::Add,
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(1))),
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(2))),
+            )
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // C# tests
+    // -----------------------------------------------------------------------
+
+    /// Parse a C# expression and convert to SymbolicValue.
+    ///
+    /// Wraps in `class C { void M() { var _ = <expr>; } }` since standalone
+    /// expressions aren't valid at the C# top level.
+    fn parse_csharp_expr(code: &str) -> SymbolicValue {
+        let config = crate::values::configs::csharp_config();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_c_sharp::LANGUAGE.into())
+            .expect("C# grammar");
+        let wrapped = format!("class C {{ void M() {{ var _ = {code}; }} }}");
+        let tree = parser.parse(&wrapped, None).expect("parse");
+        let root = tree.root_node();
+        // DFS to find variable_declarator, then take its last named child
+        // (the initializer value, after identifier and `=`)
+        fn find_csharp_value(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+            if node.kind() == "variable_declarator" {
+                let count = node.named_child_count();
+                if count >= 2 {
+                    return node.named_child(count - 1);
+                }
+            }
+            // Also check for equals_value_clause (some grammar versions)
+            if node.kind() == "equals_value_clause" {
+                return node.named_child(0);
+            }
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if let Some(found) = find_csharp_value(child) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        if let Some(expr) = find_csharp_value(root) {
+            node_to_symbolic(expr, wrapped.as_bytes(), &config, "test.func")
+        } else {
+            SymbolicValue::Unknown
+        }
+    }
+
+    #[test]
+    fn test_csharp_integer_literal() {
+        assert_eq!(
+            parse_csharp_expr("42"),
+            SymbolicValue::Literal(LiteralValue::Integer(42))
+        );
+    }
+
+    #[test]
+    fn test_csharp_string_literal() {
+        assert_eq!(
+            parse_csharp_expr("\"hello\""),
+            SymbolicValue::Literal(LiteralValue::String("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_csharp_boolean_true() {
+        assert_eq!(
+            parse_csharp_expr("true"),
+            SymbolicValue::Literal(LiteralValue::Boolean(true))
+        );
+    }
+
+    #[test]
+    fn test_csharp_boolean_false() {
+        assert_eq!(
+            parse_csharp_expr("false"),
+            SymbolicValue::Literal(LiteralValue::Boolean(false))
+        );
+    }
+
+    #[test]
+    fn test_csharp_null() {
+        assert_eq!(
+            parse_csharp_expr("null"),
+            SymbolicValue::Literal(LiteralValue::Null)
+        );
+    }
+
+    #[test]
+    fn test_csharp_identifier() {
+        assert_eq!(
+            parse_csharp_expr("myVar"),
+            SymbolicValue::Variable("myVar".into())
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // C tests
+    // -----------------------------------------------------------------------
+
+    /// Parse a C expression and convert to SymbolicValue.
+    fn parse_c_expr(code: &str) -> SymbolicValue {
+        let config = crate::values::configs::c_config();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_c::LANGUAGE.into())
+            .expect("C grammar");
+        let tree = parser.parse(code, None).expect("parse");
+        let expr = find_first_expression(tree.root_node());
+        node_to_symbolic(expr, code.as_bytes(), &config, "test_func")
+    }
+
+    #[test]
+    fn test_c_number_integer() {
+        assert_eq!(
+            parse_c_expr("42;"),
+            SymbolicValue::Literal(LiteralValue::Integer(42))
+        );
+    }
+
+    #[test]
+    fn test_c_number_float() {
+        assert_eq!(
+            parse_c_expr("3.14;"),
+            SymbolicValue::Literal(LiteralValue::Float(3.14))
+        );
+    }
+
+    #[test]
+    fn test_c_string_literal() {
+        assert_eq!(
+            parse_c_expr("\"hello\";"),
+            SymbolicValue::Literal(LiteralValue::String("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_c_identifier() {
+        assert_eq!(
+            parse_c_expr("myVar;"),
+            SymbolicValue::Variable("myVar".into())
+        );
+    }
+
+    #[test]
+    fn test_c_binary_add() {
+        let r = parse_c_expr("1 + 2;");
+        assert_eq!(
+            r,
+            SymbolicValue::BinaryOp(
+                BinOp::Add,
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(1))),
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(2))),
+            )
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // C++ tests
+    // -----------------------------------------------------------------------
+
+    /// Parse a C++ expression and convert to SymbolicValue.
+    fn parse_cpp_expr(code: &str) -> SymbolicValue {
+        let config = crate::values::configs::cpp_config();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_cpp::LANGUAGE.into())
+            .expect("C++ grammar");
+        let tree = parser.parse(code, None).expect("parse");
+        let expr = find_first_expression(tree.root_node());
+        node_to_symbolic(expr, code.as_bytes(), &config, "test_func")
+    }
+
+    #[test]
+    fn test_cpp_number_integer() {
+        assert_eq!(
+            parse_cpp_expr("42;"),
+            SymbolicValue::Literal(LiteralValue::Integer(42))
+        );
+    }
+
+    #[test]
+    fn test_cpp_number_float() {
+        assert_eq!(
+            parse_cpp_expr("3.14;"),
+            SymbolicValue::Literal(LiteralValue::Float(3.14))
+        );
+    }
+
+    #[test]
+    fn test_cpp_string_literal() {
+        assert_eq!(
+            parse_cpp_expr("\"hello\";"),
+            SymbolicValue::Literal(LiteralValue::String("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_cpp_identifier() {
+        assert_eq!(
+            parse_cpp_expr("myVar;"),
+            SymbolicValue::Variable("myVar".into())
+        );
+    }
+
+    #[test]
+    fn test_cpp_nullptr() {
+        assert_eq!(
+            parse_cpp_expr("nullptr;"),
+            SymbolicValue::Literal(LiteralValue::Null)
+        );
+    }
+
+    #[test]
+    fn test_cpp_binary_mul() {
+        let r = parse_cpp_expr("3 * 4;");
+        assert_eq!(
+            r,
+            SymbolicValue::BinaryOp(
+                BinOp::Mul,
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(3))),
+                Box::new(SymbolicValue::Literal(LiteralValue::Integer(4))),
+            )
+        );
     }
 }
