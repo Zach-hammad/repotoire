@@ -219,16 +219,17 @@ impl ModuleLookupCompact {
 }
 
 impl FlushingGraphBuilder {
-    fn new(graph: Arc<GraphStore>, repo_path: &Path, edge_flush_threshold: usize) -> Self {
+    fn new(graph: Arc<GraphStore>, repo_path: &Path, edge_flush_threshold: usize, estimated_files: usize) -> Self {
+        let est_functions = estimated_files.saturating_mul(20); // ~20 functions per file average
         Self {
             graph,
             repo_path: repo_path.to_path_buf(),
-            function_lookup: HashMap::new(),
+            function_lookup: HashMap::with_capacity(est_functions),
             module_lookup: ModuleLookupCompact::default(),
             edge_buffer: Vec::with_capacity(edge_flush_threshold.min(10_000)),
             edge_flush_threshold,
-            pending_calls: HashMap::new(),
-            deferred_imports: Vec::new(),
+            pending_calls: HashMap::with_capacity(est_functions / 4),
+            deferred_imports: Vec::with_capacity(estimated_files.saturating_mul(5)),
             stats: BoundedPipelineStats::default(),
         }
     }
@@ -538,7 +539,7 @@ pub fn run_bounded_pipeline(
 
     // Initialize builder with module lookup
     let mut builder =
-        FlushingGraphBuilder::new(Arc::clone(&graph), repo_path, config.edge_flush_threshold);
+        FlushingGraphBuilder::new(Arc::clone(&graph), repo_path, config.edge_flush_threshold, total_files);
     builder.add_file_paths(&files);
 
     let mut parse_stats = LightweightParseStats {
@@ -675,8 +676,9 @@ pub fn run_bounded_pipeline_from_channel(
 
     // Initialize builder WITHOUT pre-populated module lookup —
     // it will be populated incrementally as files are processed.
+    // estimated_files=0 since total is unknown in channel mode (containers grow dynamically).
     let mut builder =
-        FlushingGraphBuilder::new(Arc::clone(&graph), repo_path, config.edge_flush_threshold);
+        FlushingGraphBuilder::new(Arc::clone(&graph), repo_path, config.edge_flush_threshold, 0);
 
     let mut parse_stats = LightweightParseStats::default();
 
