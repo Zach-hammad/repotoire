@@ -355,7 +355,7 @@ impl Detector for XxeDetector {
             intra.clone()
         } else {
             let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
-            crate::detectors::data_flow::run_intra_function_taint(
+            crate::detectors::taint::run_intra_function_taint(
                 // XXE is closer to PathTraversal (file disclosure) than CodeInjection (#16)
                 &taint_analyzer,
                 graph,
@@ -376,7 +376,7 @@ impl Detector for XxeDetector {
             if !seen.insert(loc) {
                 continue;
             }
-            findings.push(crate::detectors::data_flow::taint_path_to_finding(
+            findings.push(crate::detectors::taint::taint_path_to_finding(
                 path,
                 "XxeDetector",
                 "XML External Entity Injection",

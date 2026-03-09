@@ -57,6 +57,7 @@ pub fn precompute_gd_startup(
     repo_path: &std::path::Path,
     hmm_cache_path: Option<&std::path::PathBuf>,
     source_files: &[std::path::PathBuf],
+    value_store: Option<Arc<crate::values::store::ValueStore>>,
 ) -> GdPrecomputed {
     // Four-way parallel: contexts, taint, HMM, and DetectorContext are all independent.
     //   Thread 1: taint (1.5s)           — cross-function + intra-function taint
@@ -78,8 +79,9 @@ pub fn precompute_gd_startup(
         });
 
         // Thread 3: DetectorContext (callers/callees maps, file contents, class hierarchy)
-        let ctx_handle = s.spawn(|| {
-            Arc::new(super::DetectorContext::build(graph, source_files))
+        let vs_clone = value_store.clone();
+        let ctx_handle = s.spawn(move || {
+            Arc::new(super::DetectorContext::build(graph, source_files, vs_clone))
         });
 
         // Main thread: Function contexts (adjacency + betweenness + context map)
@@ -643,7 +645,7 @@ impl DetectorEngine {
         // Build and inject DetectorContext for run() fallback path
         if !self.gd_precomputed {
             let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
-            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths));
+            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths, None));
             for detector in &self.detectors {
                 detector.set_detector_context(Arc::clone(&det_ctx));
             }
@@ -1002,7 +1004,7 @@ impl DetectorEngine {
 
             // Build and inject DetectorContext for fallback path
             let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
-            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths));
+            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths, None));
             for detector in &gd_detectors {
                 detector.set_detector_context(Arc::clone(&det_ctx));
             }
@@ -1178,7 +1180,7 @@ impl DetectorEngine {
         // Build and inject DetectorContext for run_detailed() fallback path
         if !self.gd_precomputed {
             let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
-            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths));
+            let det_ctx = Arc::new(super::DetectorContext::build(graph, &source_file_paths, None));
             for detector in &self.detectors {
                 detector.set_detector_context(Arc::clone(&det_ctx));
             }

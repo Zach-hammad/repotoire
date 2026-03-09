@@ -141,7 +141,7 @@ pub fn run(
 
     // Phase 2: Initialize graph, collect files, and optionally run GI detectors
     let phase_start = Instant::now();
-    let (graph, file_result, parse_result, early_gi_findings) =
+    let (graph, file_result, parse_result, early_gi_findings, value_store) =
         initialize_graph(&mut env, &since, &MultiProgress::new(), &skip_detector, timings)?;
     phase_timings.push(("init+parse", phase_start.elapsed()));
 
@@ -222,6 +222,7 @@ pub fn run(
         &spinner_style,
         timings,
         early_gi_findings,
+        value_store,
     )?;
     phase_timings.push(("detect", phase_start.elapsed()));
 
@@ -303,9 +304,6 @@ pub fn run(
         &env.repo_path,
     )?;
 
-    // Cache results for fast path on next run (report.2 = all_findings, since findings was drained by build_health_report)
-    let _ = cache_results(&env.repotoire_dir, &report.0, &report.2);
-
     // Prune stale entries for deleted/renamed files
     env.incremental_cache
         .prune_stale_entries(&file_result.all_files);
@@ -318,7 +316,24 @@ pub fn run(
     env.incremental_cache
         .cache_graph_findings("__all__", &report.2);
     let _ = env.incremental_cache.save_cache();
-    cache_findings(path, &report.2);
+
+    // Fire-and-forget: cache results + findings on background threads.
+    // These are pure I/O writes that don't affect the printed output.
+    {
+        let repotoire_dir = env.repotoire_dir.clone();
+        let health_report = report.0.clone();
+        let all_findings = report.2.clone();
+        std::thread::spawn(move || {
+            let _ = cache_results(&repotoire_dir, &health_report, &all_findings);
+        });
+    }
+    {
+        let path = path.to_path_buf();
+        let all_findings = report.2.clone();
+        std::thread::spawn(move || {
+            cache_findings(&path, &all_findings);
+        });
+    }
     phase_timings.push(("output", phase_start.elapsed()));
 
     // Print timing breakdown if requested
@@ -436,7 +451,7 @@ fn initialize_graph(
     multi: &MultiProgress,
     skip_detector: &[String],
     timings: bool,
-) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult, Option<Vec<Finding>>)> {
+) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult, Option<Vec<Finding>>, Option<Arc<crate::values::store::ValueStore>>)> {
     let spinner_style = create_spinner_style();
     let bar_style = create_bar_style();
 
@@ -484,6 +499,7 @@ fn initialize_graph(
                 total_classes: 0,
             },
             None,
+            None,
         ));
     }
 
@@ -507,14 +523,14 @@ fn initialize_graph(
         let graph = Arc::new(GraphStore::in_memory());
         let parse_result = parse_files_lite(&file_result.files_to_parse, multi, &bar_style)?;
 
-        return Ok((graph, file_result, parse_result, None));
+        return Ok((graph, file_result, parse_result, None, None));
     }
 
     // Initialize graph database
     let graph = init_graph_db(env, &file_result, multi)?;
 
     // Parse files and build graph
-    let parse_result = parse_and_build(env, &file_result, &graph, multi, &bar_style)?;
+    let (parse_result, value_store) = parse_and_build(env, &file_result, &graph, multi, &bar_style)?;
 
     // Save graph cache for future incremental runs (background thread).
     // Guard: skip if incremental mode with no changed files (cache is already warm).
@@ -522,7 +538,7 @@ fn initialize_graph(
         spawn_graph_cache_save(&graph, &env.repotoire_dir);
     }
 
-    Ok((graph, file_result, parse_result, None))
+    Ok((graph, file_result, parse_result, None, value_store))
 }
 
 /// Overlapped walk+parse+GI: walk, parse, and run GI detectors concurrently.
@@ -545,7 +561,7 @@ fn initialize_graph_overlapped(
     bar_style: &ProgressStyle,
     skip_detector: &[String],
     timings: bool,
-) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult, Option<Vec<Finding>>)> {
+) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult, Option<Vec<Finding>>, Option<Arc<crate::values::store::ValueStore>>)> {
     use crate::parsers::bounded_pipeline::PipelineConfig;
 
     if !env.quiet_mode {
@@ -669,7 +685,7 @@ fn initialize_graph_overlapped(
     // The overlapped path always builds a fresh graph, so always save.
     spawn_graph_cache_save(&graph, &env.repotoire_dir);
 
-    Ok((graph, file_result, parse_result, Some(gi_findings)))
+    Ok((graph, file_result, parse_result, Some(gi_findings), None))
 }
 
 /// Phase 3: Run git enrichment and detectors.
@@ -691,6 +707,7 @@ fn execute_detection_phase(
     spinner_style: &ProgressStyle,
     timings: bool,
     pre_gi_findings: Option<Vec<Finding>>,
+    value_store: Option<Arc<crate::values::store::ValueStore>>,
 ) -> Result<Vec<Finding>> {
     // Speculative execution path:
     // 1. Start git enrichment (background thread)
@@ -728,6 +745,7 @@ fn execute_detection_phase(
         timings,
         || finish_git_enrichment(git_handle),
         pre_gi_findings,
+        value_store,
     )?;
 
     let (_voting_stats, _cached_count) = apply_voting(
@@ -919,7 +937,7 @@ fn parse_and_build(
     graph: &Arc<GraphStore>,
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
-) -> Result<ParsePhaseResult> {
+) -> Result<(ParsePhaseResult, Option<Arc<crate::values::store::ValueStore>>)> {
     let use_streaming = file_result.files_to_parse.len() > 2000;
 
     if use_streaming {
@@ -940,11 +958,11 @@ fn parse_and_build(
             bar_style,
         )?;
 
-        Ok(ParsePhaseResult {
+        Ok((ParsePhaseResult {
             parse_results: vec![],
             total_functions,
             total_classes,
-        })
+        }, None))
     } else {
         // Build a lock-free concurrent cache view for parallel parsing.
         // Pre-validates cached entries so the par_iter loop needs no Mutex.
@@ -979,7 +997,8 @@ fn parse_and_build(
         parse_cache.merge_new_parse_results(new_results);
         let _ = parse_cache.save_cache();
 
-        if result.parse_results.len() > 10000 {
+        // Build graph and construct ValueStore with cross-function propagation.
+        let value_store = if result.parse_results.len() > 10000 {
             build_graph_chunked(
                 graph,
                 &env.repo_path,
@@ -987,7 +1006,7 @@ fn parse_and_build(
                 multi,
                 bar_style,
                 5000,
-            )?;
+            )?
         } else {
             build_graph(
                 graph,
@@ -995,10 +1014,10 @@ fn parse_and_build(
                 &result.parse_results,
                 multi,
                 bar_style,
-            )?;
-        }
+            )?
+        };
 
-        Ok(result)
+        Ok((result, Some(Arc::new(value_store))))
     }
 }
 

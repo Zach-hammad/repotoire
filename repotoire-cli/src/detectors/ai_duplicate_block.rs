@@ -407,14 +407,43 @@ impl Detector for AIDuplicateBlockDetector {
             })
             .collect();
 
-        // Parallel tree-sitter parsing + fingerprinting
+        // Use fingerprints cached during the parse phase when available,
+        // falling back to tree-sitter re-parsing only for cache misses.
         let min_loc = self.min_loc;
         let all_functions: Vec<FunctionData> = file_data
             .par_iter()
             .flat_map_iter(|(path, content, ext)| {
+                let path_str = path.to_string_lossy().to_string();
+
+                // Fast path: use cached fingerprints from parse phase
+                if let Some(cached) = crate::parsers::get_cached_fps(&path_str) {
+                    return cached
+                        .into_iter()
+                        .filter_map(|fp| {
+                            let loc = (fp.line_end - fp.line_start + 1) as usize;
+                            if loc < min_loc || fp.normalized_bigrams.is_empty() {
+                                return None;
+                            }
+                            let generic_ratio = calculate_generic_ratio(&fp.identifiers);
+                            let ast_size = fp.normalized_bigrams.len();
+                            Some(FunctionData {
+                                qualified_name: format!("{}::{}", path_str, fp.name),
+                                name: fp.name,
+                                file_path: path_str.clone(),
+                                line_start: fp.line_start,
+                                line_end: fp.line_end,
+                                loc,
+                                hash_set: fp.normalized_bigrams,
+                                generic_ratio,
+                                ast_size,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                }
+
+                // Slow path: fallback to re-parsing (e.g. tests with MockFileProvider)
                 let lang = crate::parsers::lightweight::Language::from_extension(ext);
                 let functions = crate::detectors::ast_fingerprint::parse_functions_with_fingerprints(content, lang);
-                let path_str = path.to_string_lossy().to_string();
 
                 functions.into_iter().filter_map(move |(func, fp)| {
                     let loc = (func.line_end - func.line_start + 1) as usize;
@@ -434,7 +463,7 @@ impl Detector for AIDuplicateBlockDetector {
                         generic_ratio,
                         ast_size,
                     })
-                })
+                }).collect::<Vec<_>>()
             })
             .collect();
 

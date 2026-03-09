@@ -310,7 +310,7 @@ impl Detector for InsecureDeserializeDetector {
             intra.clone()
         } else {
             let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
-            crate::detectors::data_flow::run_intra_function_taint(
+            crate::detectors::taint::run_intra_function_taint(
                 &taint_analyzer,
                 graph,
                 crate::detectors::taint::TaintCategory::CodeInjection,
@@ -330,7 +330,7 @@ impl Detector for InsecureDeserializeDetector {
             if !seen.insert(loc) {
                 continue;
             }
-            findings.push(crate::detectors::data_flow::taint_path_to_finding(
+            findings.push(crate::detectors::taint::taint_path_to_finding(
                 path,
                 "InsecureDeserializeDetector",
                 "Insecure Deserialization",

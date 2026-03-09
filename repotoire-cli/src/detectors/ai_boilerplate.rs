@@ -201,69 +201,6 @@ fn cluster_by_similarity(
         .collect()
 }
 
-/// Derive boilerplate patterns from structural kinds + body text.
-/// Cheap alternative to re-parsing — just set membership + substring matching.
-fn derive_patterns(kinds: &HashSet<String>, body: &str) -> Vec<BoilerplatePattern> {
-    let lower = body.to_lowercase();
-    let mut patterns = Vec::new();
-
-    if kinds.contains("try_statement") || kinds.contains("except_clause") || kinds.contains("catch_clause") {
-        patterns.push(BoilerplatePattern::TryExcept);
-    }
-    if kinds.contains("raise_statement")
-        || kinds.contains("throw_statement")
-        || lower.contains("error")
-        || lower.contains("exception")
-    {
-        patterns.push(BoilerplatePattern::ErrorHandling);
-    }
-    if kinds.contains("if_statement")
-        && (lower.contains("valid")
-            || lower.contains("check")
-            || lower.contains("assert")
-            || lower.contains("isinstance"))
-    {
-        patterns.push(BoilerplatePattern::Validation);
-    }
-    if lower.contains("get(")
-        || lower.contains("post(")
-        || lower.contains("put(")
-        || lower.contains("delete(")
-        || lower.contains("patch(")
-        || lower.contains("@app.route")
-        || lower.contains("@router.")
-    {
-        patterns.push(BoilerplatePattern::HttpMethod);
-    }
-    if lower.contains("execute")
-        || lower.contains("query")
-        || lower.contains("cursor")
-        || lower.contains("session.")
-        || lower.contains("commit(")
-        || lower.contains("rollback(")
-    {
-        patterns.push(BoilerplatePattern::Database);
-    }
-    if lower.contains("create")
-        || lower.contains("update")
-        || lower.contains("delete")
-        || lower.contains("find_by")
-        || lower.contains("get_by")
-    {
-        patterns.push(BoilerplatePattern::Crud);
-    }
-    if kinds.contains("with_statement") || kinds.contains("with_clause") {
-        patterns.push(BoilerplatePattern::ContextManager);
-    }
-    if kinds.contains("for_statement") || kinds.contains("while_statement") || kinds.contains("for_in_statement") {
-        patterns.push(BoilerplatePattern::Loop);
-    }
-    if kinds.contains("await_expression") || lower.contains("async ") || lower.contains("await ") {
-        patterns.push(BoilerplatePattern::Async);
-    }
-
-    patterns
-}
 
 /// Detects excessive boilerplate code using AST clustering
 pub struct AIBoilerplateDetector {
@@ -664,8 +601,8 @@ impl Detector for AIBoilerplateDetector {
             .flat_map_iter(|(path, content, ext)| {
                 let path_str = path.to_string_lossy().to_string();
 
-                // Fast path: use structural fingerprints cached during the parse phase.
-                // This eliminates all tree-sitter re-parsing (~860ms on CPython).
+                // Fast path: use fingerprints cached during the parse phase.
+                // This eliminates all tree-sitter re-parsing.
                 if let Some(cached) = crate::parsers::get_cached_fps(&path_str) {
                     return cached
                         .into_iter()
@@ -674,11 +611,6 @@ impl Detector for AIBoilerplateDetector {
                             if loc < min_loc || fp.structural_kinds.is_empty() {
                                 return None;
                             }
-                            // Derive patterns from structural_kinds + body text (cheap)
-                            let body_start = content.lines().take(fp.line_start.saturating_sub(1) as usize).map(|l| l.len() + 1).sum::<usize>();
-                            let body_end = content.lines().take(fp.line_end as usize).map(|l| l.len() + 1).sum::<usize>();
-                            let body_slice = &content[body_start..body_end.min(content.len())];
-                            let patterns = derive_patterns(&fp.structural_kinds, body_slice);
                             Some(FunctionAST {
                                 qualified_name: format!("{}::{}", path_str, fp.name),
                                 name: fp.name,
@@ -688,7 +620,7 @@ impl Detector for AIBoilerplateDetector {
                                 loc,
                                 hash_set: fp.structural_kinds,
                                 bitset: 0,
-                                patterns,
+                                patterns: fp.patterns,
                                 decorators: vec![],
                                 parent_class: None,
                                 is_method: false,

@@ -13,6 +13,7 @@ use std::sync::Arc;
 ///
 /// This is built in parallel with taint analysis and HMM (zero wall-clock cost)
 /// and provides zero-copy access to commonly needed graph data.
+#[allow(dead_code)] // Fields are scaffolding for detectors that will consume them
 pub struct DetectorContext {
     /// QN -> Vec<caller QN> -- avoids Vec<CodeNode> cloning in get_callers()
     pub callers_by_qn: HashMap<String, Vec<String>>,
@@ -24,6 +25,8 @@ pub struct DetectorContext {
     pub file_contents: HashMap<PathBuf, Arc<str>>,
     /// Pre-built class contexts for god class detection (built as 5th parallel thread)
     pub class_contexts: Option<Arc<ClassContextMap>>,
+    /// Resolved variable values from graph-based constant propagation
+    pub value_store: Option<Arc<crate::values::store::ValueStore>>,
 }
 
 impl DetectorContext {
@@ -34,6 +37,7 @@ impl DetectorContext {
     pub fn build(
         graph: &dyn crate::graph::GraphQuery,
         source_files: &[PathBuf],
+        value_store: Option<Arc<crate::values::store::ValueStore>>,
     ) -> Self {
         use rayon::prelude::*;
 
@@ -90,6 +94,7 @@ impl DetectorContext {
             class_children,
             file_contents,
             class_contexts: None,
+            value_store,
         }
     }
 }
@@ -103,7 +108,7 @@ mod tests {
     #[test]
     fn test_empty_graph_produces_empty_context() {
         let graph = GraphStore::in_memory();
-        let ctx = DetectorContext::build(&graph, &[]);
+        let ctx = DetectorContext::build(&graph, &[], None);
         assert!(ctx.callers_by_qn.is_empty());
         assert!(ctx.callees_by_qn.is_empty());
         assert!(ctx.class_children.is_empty());
@@ -117,7 +122,7 @@ mod tests {
         let file_path = dir.path().join("test.py");
         std::fs::write(&file_path, "def hello(): pass").unwrap();
 
-        let ctx = DetectorContext::build(&graph, &[file_path.clone()]);
+        let ctx = DetectorContext::build(&graph, &[file_path.clone()], None);
         assert_eq!(ctx.file_contents.len(), 1);
         assert!(ctx.file_contents.contains_key(&file_path));
         assert_eq!(&*ctx.file_contents[&file_path], "def hello(): pass");
@@ -128,7 +133,7 @@ mod tests {
         let graph = GraphStore::in_memory();
         let missing = PathBuf::from("/nonexistent/path/file.py");
 
-        let ctx = DetectorContext::build(&graph, &[missing]);
+        let ctx = DetectorContext::build(&graph, &[missing], None);
         assert!(ctx.file_contents.is_empty());
     }
 
@@ -144,7 +149,7 @@ mod tests {
         );
         graph.add_edge_by_name("module.caller", "module.callee", CodeEdge::calls());
 
-        let ctx = DetectorContext::build(&graph, &[]);
+        let ctx = DetectorContext::build(&graph, &[], None);
 
         // callers_by_qn: callee -> [caller]
         assert!(ctx.callers_by_qn.contains_key("module.callee"));
@@ -167,7 +172,7 @@ mod tests {
         );
         graph.add_edge_by_name("module.Child", "module.Parent", CodeEdge::inherits());
 
-        let ctx = DetectorContext::build(&graph, &[]);
+        let ctx = DetectorContext::build(&graph, &[], None);
         assert!(ctx.class_children.contains_key("module.Parent"));
         assert!(ctx.class_children["module.Parent"].contains(&"module.Child".to_string()));
     }
@@ -188,7 +193,7 @@ mod tests {
         graph.add_edge_by_name("mod.a", "mod.target", CodeEdge::calls());
         graph.add_edge_by_name("mod.b", "mod.target", CodeEdge::calls());
 
-        let ctx = DetectorContext::build(&graph, &[]);
+        let ctx = DetectorContext::build(&graph, &[], None);
         let callers = &ctx.callers_by_qn["mod.target"];
         assert_eq!(callers.len(), 2);
         assert!(callers.contains(&"mod.a".to_string()));
@@ -211,10 +216,25 @@ mod tests {
         graph.add_edge_by_name("mod.ChildA", "mod.Base", CodeEdge::inherits());
         graph.add_edge_by_name("mod.ChildB", "mod.Base", CodeEdge::inherits());
 
-        let ctx = DetectorContext::build(&graph, &[]);
+        let ctx = DetectorContext::build(&graph, &[], None);
         let children = &ctx.class_children["mod.Base"];
         assert_eq!(children.len(), 2);
         assert!(children.contains(&"mod.ChildA".to_string()));
         assert!(children.contains(&"mod.ChildB".to_string()));
+    }
+
+    #[test]
+    fn test_value_store_stored_when_provided() {
+        let graph = GraphStore::in_memory();
+        let store = Arc::new(crate::values::store::ValueStore::new());
+        let ctx = DetectorContext::build(&graph, &[], Some(store));
+        assert!(ctx.value_store.is_some());
+    }
+
+    #[test]
+    fn test_value_store_none_when_not_provided() {
+        let graph = GraphStore::in_memory();
+        let ctx = DetectorContext::build(&graph, &[], None);
+        assert!(ctx.value_store.is_none());
     }
 }

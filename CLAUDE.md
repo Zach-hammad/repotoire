@@ -199,7 +199,9 @@ Codebase → Parsers (tree-sitter) → Entities + Relationships → petgraph Gra
 
 10. **Models** (`repotoire-cli/src/models.rs`): `Finding` (with severity, CWE IDs, confidence, affected files), `Severity` levels (Critical, High, Medium, Low, Info).
 
-### Detector Suite (99 Pure Rust Detectors)
+11. **Predictive Coding** (`repotoire-cli/src/predictive/`): Hierarchical predictive coding engine applying Friston's free energy formalism to code analysis. Five hierarchy levels independently model "what's normal" and compute prediction errors (z-scores): L1 Token (per-language n-gram), L2 Structural (Mahalanobis distance on function feature vectors), L1.5 Dependency Chain (surprisal along call-graph paths), L3 Relational (per-edge-type node2vec embeddings + kNN cosine distance), L4 Architectural (module-level distributional outlier detection). Severity driven by concordance (how many levels agree something is surprising) with precision-weighted aggregation.
+
+### Detector Suite (100 Pure Rust Detectors)
 
 All detectors are built-in Rust with zero external dependencies. Grouped by category:
 

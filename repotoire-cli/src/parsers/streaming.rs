@@ -226,6 +226,7 @@ impl ParsedFileInfo {
                 .collect(),
             calls: self.calls.clone(),
             address_taken: self.address_taken.clone(),
+            raw_values: None,
         }
     }
 }

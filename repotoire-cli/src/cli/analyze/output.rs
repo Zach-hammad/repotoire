@@ -377,7 +377,7 @@ pub fn cache_results(
     });
     fs::write(
         &findings_cache,
-        serde_json::to_string_pretty(&findings_json)?,
+        serde_json::to_string(&findings_json)?,
     )?;
 
     tracing::debug!("Cached analysis results to {}", repotoire_dir.display());

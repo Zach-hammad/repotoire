@@ -347,14 +347,10 @@ impl FeatureExtractorV2 {
             f[8] = functions_in_file.len() as f64;
 
             // 14: scc_membership — is the file part of an import cycle?
-            let cycles = g.find_import_cycles();
-            let in_cycle = cycles.iter().any(|cycle| {
-                cycle.iter().any(|node_qn| {
-                    // Cycle node qualified names might be module or file paths.
-                    node_qn == &file_path || file_path.contains(node_qn.as_str())
-                })
-            });
-            f[14] = if in_cycle { 1.0 } else { 0.0 };
+            // Uses is_in_import_cycle() which CachedGraphQuery overrides with
+            // a pre-computed HashSet for O(1) lookup instead of cloning the full
+            // cycle list per finding.
+            f[14] = if g.is_in_import_cycle(&file_path) { 1.0 } else { 0.0 };
         } else {
             // No graph — only compute normalised span with default.
             let span = finding_end.saturating_sub(finding_line).saturating_add(1) as f64;
