@@ -35,31 +35,40 @@ use tree_sitter::Node;
 // Performance guardrail: skip very large source files in AST parsing (#48).
 const MAX_PARSE_FILE_BYTES: u64 = 2 * 1024 * 1024; // 2MB
 
-/// Cached structural fingerprint for a single function.
+/// Cached fingerprint for a single function, computed during the parse phase.
+/// Contains all data needed by AIBoilerplate and AIDuplicateBlock detectors,
+/// eliminating tree-sitter re-parsing in both.
 #[derive(Debug, Clone)]
 pub struct CachedFunctionFP {
     pub name: String,
     pub line_start: u32,
     pub line_end: u32,
+    /// Structural AST kinds (for boilerplate clustering).
     pub structural_kinds: HashSet<String>,
+    /// Normalized bigram fingerprint (for duplicate detection).
+    pub normalized_bigrams: HashSet<String>,
+    /// All identifier names in the function body.
+    pub identifiers: Vec<String>,
+    /// Detected boilerplate patterns.
+    pub patterns: Vec<crate::detectors::BoilerplatePattern>,
 }
 
-/// Global cache of per-file structural AST fingerprints, populated during the
-/// parse phase so detectors (AIBoilerplate, AIDuplicateBlock) can skip
-/// re-parsing files.  Key: file path → vec of function fingerprints.
-static STRUCTURAL_FP_CACHE: LazyLock<dashmap::DashMap<String, Vec<CachedFunctionFP>>> =
+/// Global cache of per-file function fingerprints, populated during the parse
+/// phase so AI detectors (AIBoilerplate, AIDuplicateBlock) can skip re-parsing.
+/// Key: file path → vec of function fingerprints.
+static FP_CACHE: LazyLock<dashmap::DashMap<String, Vec<CachedFunctionFP>>> =
     LazyLock::new(dashmap::DashMap::new);
 
-/// Read all cached structural fingerprints for a file.
+/// Read all cached function fingerprints for a file.
 pub fn get_cached_fps(file_path: &str) -> Option<Vec<CachedFunctionFP>> {
-    STRUCTURAL_FP_CACHE
+    FP_CACHE
         .get(file_path)
         .map(|entry| entry.value().clone())
 }
 
-/// Clear the structural fingerprint cache (called between analysis runs).
+/// Clear the fingerprint cache (called between analysis runs).
 pub fn clear_structural_fingerprint_cache() {
-    STRUCTURAL_FP_CACHE.clear();
+    FP_CACHE.clear();
 }
 
 /// Find the smallest scope in `scope_map` that contains the given line.
@@ -196,10 +205,10 @@ fn parse_file_inner(path: &Path, extract_values: bool) -> Result<ParseResult> {
         enrich_nesting_depths(result, &source, path);
     }
 
-    // Extract structural fingerprints from the tree for AI detectors.
+    // Extract full function fingerprints from the tree for AI detectors.
     // Reuses the tree from the main parse — zero re-parsing overhead.
     if let (Ok(ref result), Some(ref tree)) = (&parsed, &tree) {
-        extract_structural_fps(tree, &source, ext, path, &result.functions);
+        extract_full_fps(tree, &source, ext, path, &result.functions);
     }
 
     // Extract symbolic values for the value oracle (constant propagation).
@@ -237,29 +246,26 @@ fn parse_file_inner(path: &Path, extract_values: bool) -> Result<ParseResult> {
     parsed
 }
 
-/// Extract structural AST node kinds per function and store in the global cache.
+/// Extract full function fingerprints and store in the global cache.
 /// Called during the parse phase using the SAME tree-sitter tree, eliminating the
 /// need for AI detectors (AIBoilerplate, AIDuplicateBlock) to re-parse files.
-fn extract_structural_fps(
+///
+/// Uses [`collect_all_features`] from ast_fingerprint to compute structural kinds,
+/// normalized bigrams, identifiers, and patterns in a single tree walk.
+fn extract_full_fps(
     tree: &tree_sitter::Tree,
     source: &str,
     ext: &str,
     path: &Path,
     functions: &[crate::models::Function],
 ) {
-    // Only extract for languages the AI detectors support
-    let func_kinds: &[&str] = match ext {
-        "py" | "pyi" => &["function_definition"],
-        "js" | "jsx" | "mjs" | "cjs" => &["function_declaration", "method_definition"],
-        "ts" | "tsx" => &["function_declaration", "method_definition"],
-        "rs" => &["function_item"],
-        "go" => &["function_declaration", "method_declaration"],
-        "java" => &["method_declaration", "constructor_declaration"],
-        "cs" => &["method_declaration", "constructor_declaration"],
-        "c" | "h" => &["function_definition"],
-        "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => &["function_definition"],
-        _ => return,
-    };
+    use crate::detectors::ast_fingerprint;
+
+    let lang = crate::parsers::lightweight::Language::from_extension(ext);
+    let func_kinds = ast_fingerprint::function_node_kinds(lang);
+    if func_kinds.is_empty() {
+        return;
+    }
 
     let path_str = path.to_string_lossy().to_string();
 
@@ -269,48 +275,77 @@ fn extract_structural_fps(
         .map(|f| ((f.name.clone(), f.line_start), f.line_end))
         .collect();
 
-    // Walk the tree and collect structural kinds for each function node
     let func_kind_set: HashSet<&str> = func_kinds.iter().copied().collect();
     let mut fps = Vec::new();
-    collect_fps_recursive(
+    collect_full_fps_recursive(
         tree.root_node(),
-        source.as_bytes(),
+        source,
         &func_kind_set,
         &func_set,
         &mut fps,
     );
 
     if !fps.is_empty() {
-        STRUCTURAL_FP_CACHE.insert(path_str, fps);
+        FP_CACHE.insert(path_str, fps);
     }
 }
 
-/// Recursively walk the tree to find function nodes and extract structural kinds.
-fn collect_fps_recursive(
+/// Recursively walk the tree to find function nodes and extract full fingerprints.
+fn collect_full_fps_recursive(
     node: tree_sitter::Node,
-    source: &[u8],
+    source: &str,
     func_kinds: &HashSet<&str>,
     func_set: &HashMap<(String, u32), u32>,
     out: &mut Vec<CachedFunctionFP>,
 ) {
+    use crate::detectors::ast_fingerprint;
+
     if func_kinds.contains(node.kind()) {
         let line_start = node.start_position().row as u32 + 1; // tree-sitter is 0-based
         let name = node
             .child_by_field_name("name")
-            .map(|n| n.utf8_text(source).unwrap_or_default().to_string())
+            .map(|n| n.utf8_text(source.as_bytes()).unwrap_or_default().to_string())
             .unwrap_or_default();
 
         if let Some(&line_end) = func_set.get(&(name.clone(), line_start)) {
             let body_node = node.child_by_field_name("body").unwrap_or(node);
-            let mut structural_kinds = HashSet::new();
-            collect_structural_kinds_recursive(body_node, &mut structural_kinds);
 
-            if !structural_kinds.is_empty() {
+            // Single-pass: collect all features at once
+            let mut normalized_tokens = Vec::new();
+            let mut structural_kinds = HashSet::new();
+            let mut identifiers = Vec::new();
+            let mut all_kinds = HashSet::new();
+
+            ast_fingerprint::collect_all_features(
+                body_node,
+                source,
+                &mut normalized_tokens,
+                &mut structural_kinds,
+                &mut identifiers,
+                &mut all_kinds,
+            );
+
+            // Build bigrams from normalized tokens
+            let mut normalized_bigrams = HashSet::new();
+            for pair in normalized_tokens.windows(2) {
+                normalized_bigrams.insert(format!("{}:{}", pair[0], pair[1]));
+            }
+
+            // Detect boilerplate patterns from pre-computed kinds + body text
+            let body_text = &source[body_node.start_byte()..body_node.end_byte()];
+            let patterns = ast_fingerprint::detect_patterns_from_data(&all_kinds, body_text);
+
+            // Include functions even if structural_kinds is empty — AIDuplicateBlock
+            // needs normalized_bigrams which can be non-empty on any function.
+            if !structural_kinds.is_empty() || !normalized_bigrams.is_empty() {
                 out.push(CachedFunctionFP {
                     name,
                     line_start,
                     line_end,
                     structural_kinds,
+                    normalized_bigrams,
+                    identifiers,
+                    patterns,
                 });
             }
         }
@@ -319,77 +354,9 @@ fn collect_fps_recursive(
     let count = node.child_count();
     for i in 0..count {
         if let Some(child) = node.child(i) {
-            collect_fps_recursive(child, source, func_kinds, func_set, out);
+            collect_full_fps_recursive(child, source, func_kinds, func_set, out);
         }
     }
-}
-
-/// Collect structural AST node kinds (internal nodes that represent control flow
-/// or structural constructs). Mirrors `is_structural_kind` from ast_fingerprint.rs.
-fn collect_structural_kinds_recursive(node: tree_sitter::Node, out: &mut HashSet<String>) {
-    let kind = node.kind();
-    if node.child_count() > 0 && is_structural_kind(kind) {
-        out.insert(kind.to_string());
-    }
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            collect_structural_kinds_recursive(child, out);
-        }
-    }
-}
-
-/// Check if a tree-sitter node kind represents structural code (control flow, etc.)
-fn is_structural_kind(kind: &str) -> bool {
-    matches!(
-        kind,
-        "if_statement"
-            | "if_expression"
-            | "for_statement"
-            | "for_in_statement"
-            | "for_expression"
-            | "while_statement"
-            | "while_expression"
-            | "try_statement"
-            | "try_expression"
-            | "catch_clause"
-            | "except_clause"
-            | "finally_clause"
-            | "with_statement"
-            | "with_clause"
-            | "match_statement"
-            | "match_expression"
-            | "switch_statement"
-            | "switch_expression"
-            | "return_statement"
-            | "yield_expression"
-            | "await_expression"
-            | "raise_statement"
-            | "throw_statement"
-            | "assert_statement"
-            | "lambda_expression"
-            | "arrow_function"
-            | "function_definition"
-            | "function_declaration"
-            | "method_definition"
-            | "class_definition"
-            | "class_declaration"
-            | "list_comprehension"
-            | "set_comprehension"
-            | "dictionary_comprehension"
-            | "generator_expression"
-            | "conditional_expression"
-            | "ternary_expression"
-            | "binary_expression"
-            | "assignment"
-            | "augmented_assignment"
-            | "call_expression"
-            | "call"
-            | "subscript"
-            | "attribute"
-            | "decorated_definition"
-            | "decorator"
-    )
 }
 
 /// Compute max nesting depth for each function from source code.

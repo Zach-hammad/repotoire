@@ -112,7 +112,7 @@ fn node_text<'a>(node: Node<'a>, source: &'a str) -> &'a str {
 
 /// Return the set of tree-sitter node kinds that represent function/method
 /// definitions in the given language.
-fn function_node_kinds(lang: Language) -> &'static [&'static str] {
+pub fn function_node_kinds(lang: Language) -> &'static [&'static str] {
     match lang {
         Language::Python => &["function_definition"],
         Language::JavaScript => &["function_declaration", "method_definition"],
@@ -216,7 +216,7 @@ fn collect_functions(
 
 /// Node kinds considered "structural" (statement-level and expression-level).
 /// We exclude pure leaf tokens like identifiers, operators, and literals.
-fn is_structural_kind(kind: &str) -> bool {
+pub fn is_structural_kind(kind: &str) -> bool {
     // Exclude leaf token kinds (identifiers, literals, operators, punctuation).
     // We keep compound statement/expression kinds.
     !matches!(
@@ -669,7 +669,7 @@ fn collect_functions_with_fp(
 ///
 /// Combines the work of `collect_normalized_tokens`, `collect_structural_kinds`,
 /// `collect_identifiers`, and `collect_all_kinds` into one tree walk.
-fn collect_all_features(
+pub fn collect_all_features(
     node: Node,
     source: &str,
     normalized_tokens: &mut Vec<String>,
@@ -732,7 +732,7 @@ fn collect_all_features(
 ///
 /// Same logic as [`detect_patterns`] but takes pre-computed data instead of
 /// re-parsing the content.
-fn detect_patterns_from_data(
+pub fn detect_patterns_from_data(
     node_kinds: &HashSet<String>,
     content: &str,
 ) -> Vec<super::ai_boilerplate::BoilerplatePattern> {
