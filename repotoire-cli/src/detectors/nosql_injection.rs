@@ -324,7 +324,7 @@ impl Detector for NosqlInjectionDetector {
             intra.clone()
         } else {
             let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
-            crate::detectors::data_flow::run_intra_function_taint(
+            crate::detectors::taint::run_intra_function_taint(
                 &taint_analyzer,
                 graph,
                 crate::detectors::taint::TaintCategory::SqlInjection,
@@ -344,7 +344,7 @@ impl Detector for NosqlInjectionDetector {
             if !seen.insert(loc) {
                 continue;
             }
-            findings.push(crate::detectors::data_flow::taint_path_to_finding(
+            findings.push(crate::detectors::taint::taint_path_to_finding(
                 path,
                 "NosqlInjectionDetector",
                 "NoSQL Injection",

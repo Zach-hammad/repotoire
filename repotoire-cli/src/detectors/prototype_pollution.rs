@@ -318,7 +318,7 @@ impl Detector for PrototypePollutionDetector {
             intra.clone()
         } else {
             let taint_analyzer = crate::detectors::taint::TaintAnalyzer::new();
-            crate::detectors::data_flow::run_intra_function_taint(
+            crate::detectors::taint::run_intra_function_taint(
                 &taint_analyzer,
                 graph,
                 crate::detectors::taint::TaintCategory::CodeInjection,
@@ -338,7 +338,7 @@ impl Detector for PrototypePollutionDetector {
             if !seen.insert(loc) {
                 continue;
             }
-            findings.push(crate::detectors::data_flow::taint_path_to_finding(
+            findings.push(crate::detectors::taint::taint_path_to_finding(
                 path,
                 "PrototypePollutionDetector",
                 "Prototype Pollution",

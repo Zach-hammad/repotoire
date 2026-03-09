@@ -49,7 +49,7 @@ pub struct FunctionFingerprints {
 }
 
 // ---------------------------------------------------------------------------
-// tree-sitter language resolution (mirrors ssa_flow.rs)
+// tree-sitter language resolution
 // ---------------------------------------------------------------------------
 
 /// Get the tree-sitter language grammar for a [`Language`] enum value.

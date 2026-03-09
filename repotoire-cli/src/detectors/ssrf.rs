@@ -64,7 +64,7 @@ impl Detector for SsrfDetector {
         let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
             intra.clone()
         } else {
-            crate::detectors::data_flow::run_intra_function_taint(
+            crate::detectors::taint::run_intra_function_taint(
                 &self.taint_analyzer,
                 graph,
                 TaintCategory::Ssrf,

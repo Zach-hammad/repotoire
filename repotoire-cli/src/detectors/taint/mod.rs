@@ -52,11 +52,17 @@ pub use types::*;
 pub mod centralized;
 pub use centralized::CentralizedTaintResults;
 
+pub mod heuristic;
+
 #[cfg(test)]
 mod tests;
 
-use crate::graph::{GraphStore, NodeKind};
+use crate::graph::{GraphStore, GraphQuery, NodeKind};
+use crate::models::Finding;
+use crate::parsers::lightweight::Language;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
+use std::sync::Arc;
 
 /// Taint analyzer that uses the code graph for data flow analysis
 pub struct TaintAnalyzer {
@@ -70,8 +76,8 @@ pub struct TaintAnalyzer {
     generic_sanitizers: HashSet<String>,
     /// Maximum depth for BFS traversal
     max_depth: usize,
-    /// Intra-function data flow provider (Approach A: heuristic, future B: SSA)
-    data_flow: Box<dyn super::data_flow::DataFlowProvider>,
+    /// Optional value store for future enhanced taint analysis
+    value_store: Option<Arc<crate::values::store::ValueStore>>,
 }
 
 impl Default for TaintAnalyzer {
@@ -89,7 +95,7 @@ impl TaintAnalyzer {
             sanitizers: HashMap::new(),
             generic_sanitizers: HashSet::new(),
             max_depth: 10,
-            data_flow: Box::new(super::ssa_flow::SsaFlow::new()),
+            value_store: None,
         };
         analyzer.init_default_patterns();
         analyzer
@@ -99,6 +105,13 @@ impl TaintAnalyzer {
     #[allow(dead_code)] // Public API builder method
     pub fn with_max_depth(mut self, depth: usize) -> Self {
         self.max_depth = depth;
+        self
+    }
+
+    /// Attach a value store for future enhanced taint analysis
+    #[allow(dead_code)] // Public API builder method
+    pub fn with_value_store(mut self, store: Arc<crate::values::store::ValueStore>) -> Self {
+        self.value_store = Some(store);
         self
     }
 
@@ -802,8 +815,8 @@ impl TaintAnalyzer {
 
     /// Run intra-function data flow analysis on a function's source code.
     ///
-    /// This delegates to the `DataFlowProvider` (currently `HeuristicFlow`).
-    /// Returns taint paths found within the function body.
+    /// This uses `HeuristicFlow` for line-by-line taint tracking within
+    /// a single function body. Returns taint paths found.
     pub fn analyze_intra_function(
         &self,
         func_source: &str,
@@ -818,7 +831,7 @@ impl TaintAnalyzer {
         let mut sanitizers = self.sanitizers.get(&category).cloned().unwrap_or_default();
         sanitizers.extend(self.generic_sanitizers.iter().cloned());
 
-        let result = self.data_flow.analyze_intra_function(
+        let result = heuristic::HeuristicFlow::new().analyze_intra_function(
             func_source,
             language,
             category,
@@ -1008,6 +1021,119 @@ impl TaintAnalysisResult {
     #[allow(dead_code)] // Public API method, used in tests
     pub fn has_vulnerabilities(&self) -> bool {
         self.vulnerable_count > 0
+    }
+}
+
+// ---- Integration helpers (used by security detectors) ----------------------
+
+/// Run intra-function data flow analysis across all functions in the graph.
+///
+/// For each function, reads its source file, extracts the function body,
+/// and runs the `TaintAnalyzer`'s intra-function analysis. Returns all
+/// taint paths found.
+///
+/// This is the shared integration point -- all security detectors call this.
+pub fn run_intra_function_taint(
+    analyzer: &TaintAnalyzer,
+    graph: &dyn GraphQuery,
+    category: TaintCategory,
+    repository_path: &Path,
+) -> Vec<TaintPath> {
+    let functions = graph.get_functions_shared();
+    let mut all_paths = Vec::new();
+
+    // Cache file contents to avoid re-reading
+    let mut file_cache: HashMap<String, String> = HashMap::new();
+
+    for func in functions.iter() {
+        // Need a source file to analyze
+        if func.file_path.is_empty() {
+            continue;
+        }
+
+        let full_path = repository_path.join(&func.file_path);
+
+        // Read file (cached)
+        let content = match file_cache.get(&func.file_path) {
+            Some(c) => c.clone(),
+            None => match std::fs::read_to_string(&full_path) {
+                Ok(c) => {
+                    file_cache.insert(func.file_path.clone(), c.clone());
+                    c
+                }
+                Err(_) => continue,
+            },
+        };
+
+        // Pre-filter: skip files that don't contain any relevant sink patterns
+        if !category.file_might_be_relevant(&content) {
+            continue;
+        }
+
+        // Extract function body from source
+        let line_start = func.line_start as usize;
+        let line_end = func.get_i64("lineEnd").unwrap_or(0) as usize;
+
+        if line_start == 0 || line_end == 0 || line_end < line_start {
+            continue;
+        }
+
+        let lines: Vec<&str> = content.lines().collect();
+        if line_end > lines.len() {
+            continue;
+        }
+
+        let func_body = lines[line_start.saturating_sub(1)..line_end].join("\n");
+
+        // Detect language from file extension
+        let ext = full_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let language = Language::from_extension(ext);
+
+        // Run intra-function analysis
+        let paths = analyzer.analyze_intra_function(
+            &func_body,
+            &func.name,
+            &func.file_path,
+            line_start,
+            language,
+            category,
+        );
+
+        all_paths.extend(paths);
+    }
+
+    all_paths
+}
+
+/// Convert a TaintPath into a Finding. Shared by security detectors that wire in
+/// intra-function taint analysis.
+pub fn taint_path_to_finding(path: &TaintPath, detector_name: &str, vuln_name: &str) -> Finding {
+    Finding {
+        id: String::new(),
+        detector: detector_name.to_string(),
+        title: format!("{} via data flow", vuln_name),
+        description: format!(
+            "**{} ({})**\n\nAST-based data flow analysis traced taint from `{}` (line {}) \
+             to sink `{}` (line {}) without sanitization.\n\nConfidence: {:.0}%",
+            vuln_name,
+            path.category.cwe_id(),
+            path.source_function,
+            path.source_line,
+            path.sink_function,
+            path.sink_line,
+            path.confidence * 100.0,
+        ),
+        severity: crate::models::Severity::High,
+        affected_files: vec![std::path::PathBuf::from(&path.sink_file)],
+        line_start: Some(path.sink_line),
+        line_end: None,
+        suggested_fix: Some(format!(
+            "Sanitize or validate the input from `{}` before passing it to `{}`.",
+            path.source_function, path.sink_function,
+        )),
+        cwe_id: Some(path.category.cwe_id().to_string()),
+        confidence: Some(path.confidence),
+        ..Default::default()
     }
 }
 
