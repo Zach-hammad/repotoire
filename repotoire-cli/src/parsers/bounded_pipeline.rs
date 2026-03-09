@@ -290,15 +290,17 @@ impl FlushingGraphBuilder {
             let loc = func.loc();
             let address_taken = info.address_taken.contains(&func.name);
 
-            entity_nodes.push(
-                CodeNode::new(NodeKind::Function, &func.name, &relative)
+            let mut node = CodeNode::new(NodeKind::Function, &func.name, &relative)
                     .with_qualified_name(&func.qualified_name)
                     .with_lines(func.line_start, func.line_end)
                     .with_property("is_async", func.is_async)
                     .with_property("complexity", func.complexity as i64)
                     .with_property("loc", loc as i64)
-                    .with_property("address_taken", address_taken),
-            );
+                    .with_property("address_taken", address_taken);
+            if let Some(nesting) = func.max_nesting {
+                node = node.with_property("nesting_depth", i64::from(nesting));
+            }
+            entity_nodes.push(node);
 
             // Decorated functions still need a Calls edge (file → func via decorator)
             if func.has_annotations {

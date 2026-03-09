@@ -55,6 +55,9 @@ pub struct LightweightFunctionInfo {
     /// Whether this function has decorators/annotations (1 byte flag)
     #[serde(default)]
     pub has_annotations: bool,
+    /// Maximum nesting depth within this function
+    #[serde(default)]
+    pub max_nesting: Option<u16>,
 }
 
 impl LightweightFunctionInfo {
@@ -294,6 +297,7 @@ impl LightweightFileInfo {
                 is_async: f.is_async,
                 complexity: f.complexity.unwrap_or(1).min(65535) as u16,
                 has_annotations: !f.annotations.is_empty(),
+                max_nesting: f.max_nesting.map(|n| n.min(65535) as u16),
             })
             .collect();
 
@@ -407,6 +411,7 @@ mod tests {
             is_async: false,
             complexity: 5,
             has_annotations: false,
+            max_nesting: None,
         };
         assert_eq!(func.loc(), 11);
     }

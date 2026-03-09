@@ -18,6 +18,7 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 use tracing::{debug, info};
 
 /// Thresholds for god class detection
@@ -84,6 +85,8 @@ pub struct GodClassDetector {
     use_pattern_exclusions: bool,
     /// Whether to use graph-based class context analysis
     use_graph_context: bool,
+    /// Pre-built detector context (injected via set_detector_context)
+    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl GodClassDetector {
@@ -105,6 +108,7 @@ impl GodClassDetector {
             excluded_patterns,
             use_pattern_exclusions: true,
             use_graph_context: true, // Enable by default
+            detector_context: OnceLock::new(),
         }
     }
 
@@ -149,6 +153,7 @@ impl GodClassDetector {
             excluded_patterns,
             use_pattern_exclusions,
             use_graph_context,
+            detector_context: OnceLock::new(),
         }
     }
 
@@ -160,6 +165,24 @@ impl GodClassDetector {
         self.excluded_patterns
             .iter()
             .any(|p| p.is_match(class_name))
+    }
+
+    /// Fallback: build class contexts from scratch when not pre-computed
+    fn build_class_contexts_fallback(&self, graph: &dyn crate::graph::GraphQuery) -> Option<ClassContextMap> {
+        let builder = ClassContextBuilder::new(graph);
+        let contexts = builder.build();
+        debug!("ClassContext built {} entries (fallback)", contexts.len());
+        if contexts.is_empty() {
+            debug!("ClassContext empty, falling back to pattern matching");
+            None
+        } else {
+            for (qn, ctx) in &contexts {
+                if ctx.role == ClassRole::FrameworkCore {
+                    debug!("Framework class detected: {} ({:?})", qn, ctx.role_reason);
+                }
+            }
+            Some(contexts)
+        }
     }
 
     /// Determine if metrics indicate a god class, given adjusted thresholds
@@ -457,25 +480,31 @@ impl Detector for GodClassDetector {
         Some(&self.config)
     }
 
+    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
+        let _ = self.detector_context.set(ctx);
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        // Build class context for graph-based analysis
-        let class_contexts: Option<ClassContextMap> = if self.use_graph_context {
-            let builder = ClassContextBuilder::new(graph);
-            let contexts = builder.build();
-            debug!("ClassContext built {} entries", contexts.len());
-            if contexts.is_empty() {
-                debug!("ClassContext empty, falling back to pattern matching");
-                None
-            } else {
-                // Debug: show framework classes found
-                for (qn, ctx) in &contexts {
-                    if ctx.role == ClassRole::FrameworkCore {
-                        debug!("Framework class detected: {} ({:?})", qn, ctx.role_reason);
+        // Use pre-built class contexts from DetectorContext if available, else build from scratch
+        let fallback_contexts: Option<ClassContextMap>;
+        let class_contexts: Option<&ClassContextMap> = if self.use_graph_context {
+            if let Some(det_ctx) = self.detector_context.get() {
+                if let Some(ref prebuilt) = det_ctx.class_contexts {
+                    debug!("ClassContext using pre-built {} entries", prebuilt.len());
+                    if prebuilt.is_empty() {
+                        None
+                    } else {
+                        Some(prebuilt.as_ref())
                     }
+                } else {
+                    fallback_contexts = self.build_class_contexts_fallback(graph);
+                    fallback_contexts.as_ref()
                 }
-                Some(contexts)
+            } else {
+                fallback_contexts = self.build_class_contexts_fallback(graph);
+                fallback_contexts.as_ref()
             }
         } else {
             None
@@ -495,7 +524,6 @@ impl Detector for GodClassDetector {
 
             // Get class context if available
             let ctx = class_contexts
-                .as_ref()
                 .and_then(|c| c.get(&class.qualified_name));
 
             // Check if we should skip this class entirely based on graph analysis

@@ -4,6 +4,7 @@
 //! that override `set_detector_context()`. Avoids redundant graph queries
 //! and Vec<CodeNode> cloning across 99 detectors.
 
+use crate::detectors::class_context::ClassContextMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,6 +22,8 @@ pub struct DetectorContext {
     pub class_children: HashMap<String, Vec<String>>,
     /// Pre-loaded raw file content
     pub file_contents: HashMap<PathBuf, Arc<str>>,
+    /// Pre-built class contexts for god class detection (built as 5th parallel thread)
+    pub class_contexts: Option<Arc<ClassContextMap>>,
 }
 
 impl DetectorContext {
@@ -86,6 +89,7 @@ impl DetectorContext {
             callees_by_qn,
             class_children,
             file_contents,
+            class_contexts: None,
         }
     }
 }
