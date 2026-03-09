@@ -29,6 +29,7 @@ pub mod graph;
 pub mod mcp;
 pub mod models;
 pub mod parsers;
+pub mod predictive;
 pub mod reporters;
 pub mod scoring;
 pub mod values;
