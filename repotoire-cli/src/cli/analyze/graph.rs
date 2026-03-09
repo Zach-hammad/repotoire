@@ -214,14 +214,17 @@ fn estimate_graph_capacity(parse_results: &[(PathBuf, ParseResult)]) -> (usize, 
     (estimated_nodes, estimated_edges)
 }
 
-/// Build the code graph from parse results
+/// Build the code graph from parse results.
+///
+/// Returns a [`ValueStore`] containing all resolved symbolic values extracted
+/// during parsing, with cross-function propagation already applied.
 pub(super) fn build_graph(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
     parse_results: &[(PathBuf, ParseResult)],
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
-) -> Result<()> {
+) -> Result<crate::values::store::ValueStore> {
     let total_functions: usize = parse_results.iter().map(|(_, r)| r.functions.len()).sum();
     let total_classes: usize = parse_results.iter().map(|(_, r)| r.classes.len()).sum();
 
@@ -388,10 +391,16 @@ pub(super) fn build_graph(
         .with_context(|| "Failed to save graph database")?;
     save_graph_stats(graph, repo_path)?;
 
-    Ok(())
+    // Build ValueStore from parse results
+    let value_store = build_value_store(graph, parse_results);
+
+    Ok(value_store)
 }
 
-/// Build the code graph in chunks to limit peak memory for huge repos
+/// Build the code graph in chunks to limit peak memory for huge repos.
+///
+/// Returns a [`ValueStore`] containing all resolved symbolic values extracted
+/// during parsing, with cross-function propagation already applied.
 pub(super) fn build_graph_chunked(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
@@ -399,7 +408,7 @@ pub(super) fn build_graph_chunked(
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
     chunk_size: usize,
-) -> Result<()> {
+) -> Result<crate::values::store::ValueStore> {
     // Pre-allocate graph capacity upfront even though we insert in chunks.
     // The graph itself still accumulates all nodes/edges, so reserving the
     // full estimated capacity avoids reallocations across chunk boundaries.
@@ -527,7 +536,10 @@ pub(super) fn build_graph_chunked(
         .with_context(|| "Failed to save graph database")?;
     save_graph_stats(graph, repo_path)?;
 
-    Ok(())
+    // Build ValueStore from parse results
+    let value_store = build_value_store(graph, parse_results);
+
+    Ok(value_store)
 }
 
 /// Build global function name -> qualified name map (parallel)
@@ -956,6 +968,70 @@ pub(super) fn save_graph_stats(graph: &GraphStore, repo_path: &Path) -> Result<(
     let stats_path = crate::cache::graph_stats_path(repo_path);
     std::fs::write(&stats_path, serde_json::to_string_pretty(&graph_stats)?)?;
     Ok(())
+}
+
+/// Build a [`ValueStore`] from parse results and the completed graph.
+///
+/// This function:
+/// 1. Ingests all `RawParseValues` from parse results into a `ValueStore`
+/// 2. Inserts synthetic `Variable` nodes for module-level constants into the graph
+/// 3. Computes topological ordering of functions from the call graph
+/// 4. Runs cross-function value propagation using the topo order
+fn build_value_store(
+    graph: &Arc<GraphStore>,
+    parse_results: &[(PathBuf, ParseResult)],
+) -> crate::values::store::ValueStore {
+    use crate::values::store::ValueStore;
+    use std::collections::{HashMap as StdHashMap, HashSet as StdHashSet};
+
+    // 1. Ingest all raw parse values into the store
+    let mut value_store = ValueStore::new();
+    for (_file_path, result) in parse_results {
+        if let Some(raw) = result.raw_values.clone() {
+            value_store.ingest(raw);
+        }
+    }
+
+    // 2. Insert Variable nodes for module-level constants into the graph
+    let var_nodes: Vec<CodeNode> = value_store
+        .constants
+        .keys()
+        .map(|qn| {
+            CodeNode::new(NodeKind::Variable, qn, "")
+                .with_qualified_name(qn)
+        })
+        .collect();
+    if !var_nodes.is_empty() {
+        graph.add_nodes_batch(var_nodes);
+    }
+
+    // 3. Compute topological order of call graph for cross-function propagation.
+    //    We use the function QNs in arbitrary order since the internal petgraph
+    //    is not directly exposed. The propagation module's cycle detection and
+    //    depth limiting handle cycles safely, so arbitrary order is correct
+    //    (just potentially less efficient than true topo order).
+    let topo_order: Vec<String> = graph
+        .get_functions()
+        .iter()
+        .map(|n| n.qualified_name.clone())
+        .collect();
+
+    // 4. Build call map for propagation (caller -> set of callees)
+    let call_map: StdHashMap<String, StdHashSet<String>> = {
+        let calls = graph.get_calls();
+        let mut map = StdHashMap::new();
+        for (caller, callee) in calls {
+            map.entry(caller)
+                .or_insert_with(StdHashSet::new)
+                .insert(callee);
+        }
+        map
+    };
+
+    // 5. Run cross-function value propagation
+    crate::values::propagation::resolve_cross_function(&mut value_store, &topo_order, &call_map);
+
+    value_store
 }
 
 /// Graph builder that processes files in streaming fashion

@@ -979,7 +979,9 @@ fn parse_and_build(
         parse_cache.merge_new_parse_results(new_results);
         let _ = parse_cache.save_cache();
 
-        if result.parse_results.len() > 10000 {
+        // Build graph and construct ValueStore with cross-function propagation.
+        // TODO(Task 8): thread _value_store to detectors via DetectorContext.
+        let _value_store = if result.parse_results.len() > 10000 {
             build_graph_chunked(
                 graph,
                 &env.repo_path,
@@ -987,7 +989,7 @@ fn parse_and_build(
                 multi,
                 bar_style,
                 5000,
-            )?;
+            )?
         } else {
             build_graph(
                 graph,
@@ -995,8 +997,8 @@ fn parse_and_build(
                 &result.parse_results,
                 multi,
                 bar_style,
-            )?;
-        }
+            )?
+        };
 
         Ok(result)
     }
