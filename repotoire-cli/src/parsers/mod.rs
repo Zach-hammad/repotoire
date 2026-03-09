@@ -111,6 +111,19 @@ fn is_probably_cpp_header(source: &str) -> bool {
 
 /// Parse a file and extract all code entities and relationships
 pub fn parse_file(path: &Path) -> Result<ParseResult> {
+    parse_file_inner(path, false)
+}
+
+/// Parse a file AND extract symbolic values for constant propagation.
+///
+/// Only call this from the non-streaming pipeline where results feed into
+/// `build_graph()` → `ValueStore`. Streaming mode should use `parse_file()`
+/// to avoid wasting cycles on extraction whose results are discarded.
+pub fn parse_file_with_values(path: &Path) -> Result<ParseResult> {
+    parse_file_inner(path, true)
+}
+
+fn parse_file_inner(path: &Path, extract_values: bool) -> Result<ParseResult> {
     // Guardrail for pathological files that can blow up parse time/memory.
     if let Ok(meta) = std::fs::metadata(path) {
         if meta.len() > MAX_PARSE_FILE_BYTES {
@@ -190,22 +203,23 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
     }
 
     // Extract symbolic values for the value oracle (constant propagation).
-    // Reuses the existing tree-sitter tree — zero re-parsing overhead.
-    if let (Ok(ref mut result), Some(ref tree)) = (&mut parsed, &tree) {
-        if let Some(config) = crate::values::configs::config_for_extension(ext) {
-            // Derive a qualified prefix from the file path (e.g. "src/config.py" → "src.config").
-            let file_qualified_prefix = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown");
-            let raw = crate::values::extraction::extract_file_values(
-                tree,
-                &source,
-                &config,
-                &result.functions,
-                file_qualified_prefix,
-            );
-            result.raw_values = Some(raw);
+    // Only in non-streaming mode — streaming discards raw_values anyway.
+    if extract_values {
+        if let (Ok(ref mut result), Some(ref tree)) = (&mut parsed, &tree) {
+            if let Some(config) = crate::values::configs::config_for_extension(ext) {
+                let file_qualified_prefix = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                let raw = crate::values::extraction::extract_file_values(
+                    tree,
+                    &source,
+                    &config,
+                    &result.functions,
+                    file_qualified_prefix,
+                );
+                result.raw_values = Some(raw);
+            }
         }
     }
 
@@ -765,7 +779,7 @@ int add(int a, int b);
             "TIMEOUT = 3600\n\ndef foo():\n    x = \"hello\"\n    return x\n",
         )
         .unwrap();
-        let result = parse_file(&file).unwrap();
+        let result = parse_file_with_values(&file).unwrap();
         let raw = result
             .raw_values
             .as_ref()
@@ -785,7 +799,7 @@ int add(int a, int b);
             "const MAX = 100;\nfunction foo() { return MAX; }\n",
         )
         .unwrap();
-        let result = parse_file(&file).unwrap();
+        let result = parse_file_with_values(&file).unwrap();
         let raw = result
             .raw_values
             .as_ref()
@@ -805,6 +819,18 @@ int add(int a, int b);
         assert!(
             result.raw_values.is_none(),
             "unsupported extension should have no values"
+        );
+    }
+
+    #[test]
+    fn test_parse_file_skips_value_extraction() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.py");
+        std::fs::write(&file, "TIMEOUT = 3600\n").unwrap();
+        let result = parse_file(&file).unwrap();
+        assert!(
+            result.raw_values.is_none(),
+            "parse_file() should skip value extraction for streaming perf"
         );
     }
 }

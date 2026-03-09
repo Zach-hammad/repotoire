@@ -6,7 +6,7 @@
 //! - Chunked parsing for huge repos
 
 use crate::detectors::ConcurrentCacheView;
-use crate::parsers::{parse_file, ParseResult};
+use crate::parsers::{parse_file, parse_file_with_values, ParseResult};
 use anyhow::Result;
 use console::style;
 use dashmap::DashMap;
@@ -63,8 +63,8 @@ pub(super) fn parse_files(
                 return Some((file_path.clone(), pr));
             }
 
-            // Parse the file
-            let result = match parse_file(file_path) {
+            // Parse the file with value extraction (non-streaming path)
+            let result = match parse_file_with_values(file_path) {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::warn!("Failed to parse {}: {}", file_path.display(), e);
@@ -195,8 +195,8 @@ pub(super) fn parse_files_chunked(
                     return Some((file_path.clone(), pr));
                 }
 
-                // Parse the file
-                let result = parse_file(file_path).map_err(|e| {
+                // Parse the file with value extraction (non-streaming path)
+                let result = parse_file_with_values(file_path).map_err(|e| {
                     tracing::warn!("Failed to parse {}: {}", file_path.display(), e);
                 }).ok()?;
 

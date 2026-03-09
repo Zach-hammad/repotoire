@@ -35,8 +35,8 @@ def handler():
     .unwrap();
 
     // Parse both files
-    let config_result = repotoire::parsers::parse_file(&dir.path().join("config.py")).unwrap();
-    let api_result = repotoire::parsers::parse_file(&dir.path().join("api.py")).unwrap();
+    let config_result = repotoire::parsers::parse_file_with_values(&dir.path().join("config.py")).unwrap();
+    let api_result = repotoire::parsers::parse_file_with_values(&dir.path().join("api.py")).unwrap();
 
     // Verify raw values were extracted
     let config_raw = config_result
@@ -72,7 +72,7 @@ fn test_value_propagation_typescript() {
     )
     .unwrap();
 
-    let result = repotoire::parsers::parse_file(&dir.path().join("config.ts")).unwrap();
+    let result = repotoire::parsers::parse_file_with_values(&dir.path().join("config.ts")).unwrap();
     let raw = result
         .raw_values
         .as_ref()
@@ -95,7 +95,7 @@ fn test_value_store_integration() {
     )
     .unwrap();
 
-    let result = repotoire::parsers::parse_file(&dir.path().join("config.py")).unwrap();
+    let result = repotoire::parsers::parse_file_with_values(&dir.path().join("config.py")).unwrap();
     let raw = result.raw_values.expect("Should have raw_values");
 
     // Ingest into ValueStore
