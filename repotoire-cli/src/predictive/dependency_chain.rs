@@ -9,7 +9,7 @@
 //! Reference: Yang et al., "Dependency-Aware Code Naturalness" (OOPSLA 2024, DAN)
 
 use crate::calibrate::NgramModel;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Extract dependency chains up to `max_depth` from call edges.
 ///
@@ -19,40 +19,45 @@ use std::collections::HashMap;
 ///
 /// Cycles are broken by refusing to revisit a node already on the current
 /// path — this guarantees termination without needing a separate visited set.
-pub fn extract_dependency_chains(
-    calls: &[(String, String)],
-    max_depth: usize,
-) -> Vec<Vec<String>> {
+pub fn extract_dependency_chains(calls: &[(String, String)], max_depth: usize) -> Vec<Vec<String>> {
     // Build adjacency list from call edges.
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for (caller, callee) in calls {
-        adj.entry(caller.as_str()).or_default().push(callee.as_str());
+        adj.entry(caller.as_str())
+            .or_default()
+            .push(callee.as_str());
     }
 
     let mut chains = Vec::new();
 
     // Start a DFS from every call-edge source.
     for (start, _) in calls {
-        let mut stack: Vec<Vec<String>> = vec![vec![start.clone()]];
+        let mut initial_visited = HashSet::new();
+        initial_visited.insert(start.clone());
+        let mut stack: Vec<(Vec<String>, HashSet<String>)> =
+            vec![(vec![start.clone()], initial_visited)];
 
-        while let Some(chain) = stack.pop() {
+        while let Some((chain, visited)) = stack.pop() {
             // If we've reached the maximum depth, emit the chain as-is.
             if chain.len() >= max_depth {
                 chains.push(chain);
                 continue;
             }
 
-            let last = chain.last().unwrap();
+            let last = chain.last().expect("chain is non-empty by construction");
             let neighbors = adj.get(last.as_str());
             let mut extended = false;
 
             if let Some(nbrs) = neighbors {
                 for nbr in nbrs {
-                    // Cycle avoidance: skip if this node is already on the path.
-                    if !chain.contains(&nbr.to_string()) {
+                    // Cycle avoidance: O(1) HashSet lookup instead of O(n) Vec scan.
+                    let nbr_string = nbr.to_string();
+                    if !visited.contains(&nbr_string) {
                         let mut new_chain = chain.clone();
-                        new_chain.push(nbr.to_string());
-                        stack.push(new_chain);
+                        new_chain.push(nbr_string.clone());
+                        let mut new_visited = visited.clone();
+                        new_visited.insert(nbr_string);
+                        stack.push((new_chain, new_visited));
                         extended = true;
                     }
                 }
@@ -154,7 +159,10 @@ mod tests {
                 "<EOL>".to_string(),
             ]);
         }
-        assert!(model.is_confident(), "Model should be confident after training");
+        assert!(
+            model.is_confident(),
+            "Model should be confident after training"
+        );
         model
     }
 

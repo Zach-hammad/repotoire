@@ -97,6 +97,12 @@ impl ArchitecturalScorer {
     }
 }
 
+impl Default for ArchitecturalScorer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

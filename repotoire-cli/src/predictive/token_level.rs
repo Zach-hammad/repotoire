@@ -31,7 +31,7 @@ impl TokenLevelScorer {
     /// related variants (ts/tsx, js/jsx, cc/cpp/cxx/hpp) share a single model.
     pub fn train_file(&mut self, content: &str, extension: &str) {
         let lang = normalize_extension(extension);
-        let model = self.models.entry(lang).or_insert_with(NgramModel::new);
+        let model = self.models.entry(lang).or_default();
         let tokens = NgramModel::tokenize_file(content);
         model.train_on_tokens(&tokens);
     }
@@ -55,7 +55,7 @@ impl TokenLevelScorer {
     /// Check if the model has enough training data for a given language.
     pub fn is_confident(&self, extension: &str) -> bool {
         let lang = normalize_extension(extension);
-        self.models.get(&lang).map_or(false, |m| m.is_confident())
+        self.models.get(&lang).is_some_and(|m| m.is_confident())
     }
 }
 
@@ -107,7 +107,11 @@ mod tests {
         scorer.train_file(&rust_training_source(), "rs");
         scorer.train_file(&python_training_source(), "py");
 
-        assert_eq!(scorer.models.len(), 2, "Expected 2 separate models (rs + py)");
+        assert_eq!(
+            scorer.models.len(),
+            2,
+            "Expected 2 separate models (rs + py)"
+        );
         assert!(scorer.models.contains_key("rs"), "Missing Rust model");
         assert!(scorer.models.contains_key("py"), "Missing Python model");
 
@@ -129,7 +133,10 @@ mod tests {
         let mut scorer = TokenLevelScorer::new();
         // Train with very little data (well below 5 000 tokens).
         scorer.train_file("let x = 1;\nlet y = 2;\n", "rs");
-        assert!(!scorer.is_confident("rs"), "Model should not be confident with so few tokens");
+        assert!(
+            !scorer.is_confident("rs"),
+            "Model should not be confident with so few tokens"
+        );
 
         let lines = vec!["let x = 42;"];
         let score = scorer.score_function(&lines, "rs");
@@ -155,7 +162,10 @@ mod tests {
     #[test]
     fn test_is_confident_after_sufficient_training() {
         let mut scorer = TokenLevelScorer::new();
-        assert!(!scorer.is_confident("rs"), "Should not be confident before training");
+        assert!(
+            !scorer.is_confident("rs"),
+            "Should not be confident before training"
+        );
 
         scorer.train_file(&rust_training_source(), "rs");
         assert!(

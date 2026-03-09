@@ -99,8 +99,9 @@ pub fn node2vec_random_walks(
         return vec![];
     }
 
-    assert!(p > 0.0, "p must be positive");
-    assert!(q > 0.0, "q must be positive");
+    if p <= 0.0 || q <= 0.0 {
+        return vec![];
+    }
 
     // Build adjacency list
     let mut neighbors: Vec<Vec<u32>> = vec![vec![]; num_nodes];
@@ -185,7 +186,7 @@ fn generate_biased_walk(
 
     // Subsequent steps: biased by p and q
     for _ in 2..walk_length {
-        let current = *walk.last().unwrap();
+        let current = *walk.last().expect("walk has at least one element");
         let previous = walk[walk.len() - 2];
 
         let current_neighbors = &neighbors[current as usize];
@@ -290,8 +291,8 @@ impl NoiseDistribution {
         }
 
         while !small.is_empty() && !large.is_empty() {
-            let l = small.pop().unwrap();
-            let g = large.pop().unwrap();
+            let l = small.pop().expect("small guaranteed non-empty by while condition");
+            let g = large.pop().expect("large guaranteed non-empty by while condition");
 
             prob[l] = probs[l] as f32;
             alias[l] = g;
@@ -370,7 +371,7 @@ pub fn train_skipgram(walks: &[Vec<u32>], config: &Word2VecConfig) -> Word2VecRe
     // Step 2: Create noise distribution for negative sampling
     let counts: Vec<usize> = {
         let mut counts = vec![0usize; vocab_size];
-        for (_, entry) in &vocab {
+        for entry in vocab.values() {
             counts[entry.index] = entry.count;
         }
         counts
@@ -394,11 +395,7 @@ pub fn train_skipgram(walks: &[Vec<u32>], config: &Word2VecConfig) -> Word2VecRe
     // Step 4: Count total samples for learning rate schedule
     let total_samples: u64 = walks
         .iter()
-        .map(|walk| {
-            walk.iter()
-                .filter(|node| vocab.contains_key(node))
-                .count() as u64
-        })
+        .map(|walk| walk.iter().filter(|node| vocab.contains_key(node)).count() as u64)
         .sum();
 
     let total_training_samples = total_samples * config.epochs as u64;
@@ -457,8 +454,7 @@ pub fn train_skipgram(walks: &[Vec<u32>], config: &Word2VecConfig) -> Word2VecRe
                     let context_idx = walk_indices[ctx_pos];
 
                     // Compute learning rate with linear decay
-                    let progress =
-                        samples_processed as f32 / total_training_samples.max(1) as f32;
+                    let progress = samples_processed as f32 / total_training_samples.max(1) as f32;
                     let lr = config.learning_rate
                         - (config.learning_rate - config.min_learning_rate) * progress;
                     let lr = lr.max(config.min_learning_rate);
@@ -628,11 +624,7 @@ mod tests {
         // Each walk should be at most walk_length
         for walk in &walks {
             assert!(!walk.is_empty(), "Walk should not be empty");
-            assert!(
-                walk.len() <= 5,
-                "Walk length {} exceeds max 5",
-                walk.len()
-            );
+            assert!(walk.len() <= 5, "Walk length {} exceeds max 5", walk.len());
         }
     }
 
@@ -643,7 +635,11 @@ mod tests {
         let walks1 = node2vec_random_walks(&edges, 3, 10, 3, 1.0, 1.0, Some(12345));
         let walks2 = node2vec_random_walks(&edges, 3, 10, 3, 1.0, 1.0, Some(12345));
 
-        assert_eq!(walks1.len(), walks2.len(), "Same seed should produce same number of walks");
+        assert_eq!(
+            walks1.len(),
+            walks2.len(),
+            "Same seed should produce same number of walks"
+        );
         for (w1, w2) in walks1.iter().zip(walks2.iter()) {
             assert_eq!(w1, w2, "Same seed should produce identical walks");
         }
@@ -669,7 +665,11 @@ mod tests {
         let walks = node2vec_random_walks(&edges, 2, 1, 2, 1.0, 1.0, Some(42));
 
         for walk in &walks {
-            assert_eq!(walk.len(), 1, "Walk with length 1 should have exactly 1 node");
+            assert_eq!(
+                walk.len(),
+                1,
+                "Walk with length 1 should have exactly 1 node"
+            );
         }
     }
 
@@ -690,11 +690,9 @@ mod tests {
         ];
 
         // High p = less backtracking (explore outward)
-        let walks_high_p =
-            node2vec_random_walks(&edges, 5, 20, 10, 4.0, 1.0, Some(42));
+        let walks_high_p = node2vec_random_walks(&edges, 5, 20, 10, 4.0, 1.0, Some(42));
         // Low p = more backtracking
-        let walks_low_p =
-            node2vec_random_walks(&edges, 5, 20, 10, 0.25, 1.0, Some(42));
+        let walks_low_p = node2vec_random_walks(&edges, 5, 20, 10, 0.25, 1.0, Some(42));
 
         // Both should produce valid walks
         assert!(!walks_high_p.is_empty());
@@ -721,14 +719,8 @@ mod tests {
 
         let result = train_skipgram(&walks, &config);
 
-        assert!(
-            result.vocab_size > 0,
-            "Should have non-empty vocabulary"
-        );
-        assert!(
-            !result.embeddings.is_empty(),
-            "Should produce embeddings"
-        );
+        assert!(result.vocab_size > 0, "Should have non-empty vocabulary");
+        assert!(!result.embeddings.is_empty(), "Should produce embeddings");
         assert!(
             result.samples_processed > 0,
             "Should process training samples"

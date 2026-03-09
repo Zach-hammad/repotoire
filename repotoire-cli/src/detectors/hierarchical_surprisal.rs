@@ -23,6 +23,12 @@ impl HierarchicalSurprisalDetector {
     }
 }
 
+impl Default for HierarchicalSurprisalDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Detector for HierarchicalSurprisalDetector {
     fn name(&self) -> &'static str {
         "hierarchical-surprisal"

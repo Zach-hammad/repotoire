@@ -135,12 +135,18 @@ impl PredictiveCodingEngine {
         let chains = dependency_chain::extract_dependency_chains(&calls, 4);
         let mut chain_scorer = dependency_chain::DependencyChainScorer::new();
 
+        // Build a lookup map to avoid O(n^2) scanning inside the chain loop
+        let fn_by_name: HashMap<&str, &crate::graph::CodeNode> = functions
+            .iter()
+            .map(|f| (f.qualified_name.as_str(), f))
+            .collect();
+
         // Score chains using L1 model — find a confident language model
         for chain in &chains {
             // Get representative first-line snippets for chain members
             let chain_lines: Vec<String> = chain
                 .iter()
-                .filter_map(|qn| functions.iter().find(|f| f.qualified_name == *qn))
+                .filter_map(|qn| fn_by_name.get(qn.as_str()).copied())
                 .filter_map(|f| {
                     let path = repo_path.join(&f.file_path);
                     files.content(&path).and_then(|c| {
