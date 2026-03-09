@@ -140,15 +140,12 @@ impl RegexInLoopDetector {
             // Fast path: use pre-built callees map
             if let Some(callee_qn_list) = ctx.callees_by_qn.get(func_qn) {
                 for callee_qn in callee_qn_list {
-                    if regex_funcs.contains(callee_qn) {
-                        let callee_name = graph.get_node(callee_qn)
-                            .map(|n| n.name.clone())
-                            .unwrap_or_else(|| callee_qn.clone());
-                        return Some(callee_name);
-                    }
                     let callee_name = graph.get_node(callee_qn)
                         .map(|n| n.name.clone())
                         .unwrap_or_else(|| callee_qn.clone());
+                    if regex_funcs.contains(callee_qn) {
+                        return Some(callee_name);
+                    }
                     if let Some(chain) = self.calls_regex_transitively(
                         graph,
                         callee_qn,
