@@ -120,6 +120,12 @@ struct CachedFile {
     hash: String,
     findings: Vec<CachedFinding>,
     timestamp: u64,
+    /// Qualified names of cross-file values this file depends on (e.g., "config.TIMEOUT")
+    #[serde(default)]
+    value_dependencies: Vec<String>,
+    /// Hash of each dependency's resolved value at cache time
+    #[serde(default)]
+    value_hashes: HashMap<String, u64>,
 }
 
 /// Cached score result
@@ -399,6 +405,8 @@ impl IncrementalCache {
                 hash: file_hash,
                 findings: cached_findings,
                 timestamp,
+                value_dependencies: Vec::new(),
+                value_hashes: HashMap::new(),
             },
         );
         self.dirty = true;
@@ -622,6 +630,41 @@ impl IncrementalCache {
             graph_detectors: self.cache.graph.detectors.len(),
             graph_findings,
             cache_version: self.cache.version,
+        }
+    }
+
+    /// Record which cross-file values a file depends on, along with their current hashes.
+    pub fn set_value_dependencies(
+        &mut self,
+        file: &Path,
+        deps: Vec<String>,
+        hashes: HashMap<String, u64>,
+    ) {
+        let key = self.path_key(file);
+        if let Some(cached) = self.cache.files.get_mut(&key) {
+            cached.value_dependencies = deps;
+            cached.value_hashes = hashes;
+        }
+    }
+
+    /// Check if a cached file's value dependencies are still valid.
+    /// Returns true if all dependencies have the same hash as when cached.
+    pub fn value_deps_valid(&self, file: &Path, current_hashes: &HashMap<String, u64>) -> bool {
+        let key = self.path_key(file);
+        if let Some(cached) = self.cache.files.get(&key) {
+            if cached.value_dependencies.is_empty() {
+                return true; // No dependencies, always valid
+            }
+            for dep in &cached.value_dependencies {
+                let cached_hash = cached.value_hashes.get(dep);
+                let current_hash = current_hashes.get(dep);
+                if cached_hash != current_hash {
+                    return false; // Dependency value changed
+                }
+            }
+            true
+        } else {
+            true // No cache entry, nothing to invalidate
         }
     }
 
@@ -936,5 +979,92 @@ mod tests {
                 .expect("metadata key should exist"),
             "15"
         );
+    }
+
+    #[test]
+    fn test_cache_value_dependencies_valid() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let mut cache = IncrementalCache::new(&cache_dir);
+
+        let file = dir.path().join("handler.py");
+        fs::write(&file, "import config").unwrap();
+
+        // Cache the file first
+        cache.cache_findings(&file, &[]);
+
+        // Set dependencies
+        let deps = vec!["config.TIMEOUT".to_string()];
+        let mut hashes = HashMap::new();
+        hashes.insert("config.TIMEOUT".to_string(), 12345u64);
+        cache.set_value_dependencies(&file, deps, hashes);
+
+        // Check with same hash — should be valid
+        let mut current = HashMap::new();
+        current.insert("config.TIMEOUT".to_string(), 12345u64);
+        assert!(cache.value_deps_valid(&file, &current));
+    }
+
+    #[test]
+    fn test_cache_invalidates_on_value_dependency_change() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let mut cache = IncrementalCache::new(&cache_dir);
+
+        let file = dir.path().join("handler.py");
+        fs::write(&file, "import config").unwrap();
+
+        cache.cache_findings(&file, &[]);
+
+        let deps = vec!["config.TIMEOUT".to_string()];
+        let mut hashes = HashMap::new();
+        hashes.insert("config.TIMEOUT".to_string(), 12345u64);
+        cache.set_value_dependencies(&file, deps, hashes);
+
+        // Check with different hash — should be invalid
+        let mut current = HashMap::new();
+        current.insert("config.TIMEOUT".to_string(), 99999u64);
+        assert!(!cache.value_deps_valid(&file, &current));
+    }
+
+    #[test]
+    fn test_cache_no_dependencies_always_valid() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let mut cache = IncrementalCache::new(&cache_dir);
+
+        let file = dir.path().join("simple.py");
+        fs::write(&file, "x = 1").unwrap();
+
+        cache.cache_findings(&file, &[]);
+
+        // No dependencies set — should always be valid
+        let current = HashMap::new();
+        assert!(cache.value_deps_valid(&file, &current));
+    }
+
+    #[test]
+    fn test_cache_missing_dependency_in_current_invalidates() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let mut cache = IncrementalCache::new(&cache_dir);
+
+        let file = dir.path().join("handler.py");
+        fs::write(&file, "import config").unwrap();
+
+        cache.cache_findings(&file, &[]);
+
+        let deps = vec!["config.TIMEOUT".to_string()];
+        let mut hashes = HashMap::new();
+        hashes.insert("config.TIMEOUT".to_string(), 12345u64);
+        cache.set_value_dependencies(&file, deps, hashes);
+
+        // Dependency no longer in current hashes (e.g., constant was removed)
+        let current = HashMap::new();
+        assert!(!cache.value_deps_valid(&file, &current));
     }
 }
