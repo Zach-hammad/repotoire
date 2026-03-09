@@ -52,7 +52,7 @@ pub use types::*;
 pub mod centralized;
 pub use centralized::CentralizedTaintResults;
 
-pub mod heuristic;
+mod heuristic;
 
 #[cfg(test)]
 mod tests;
