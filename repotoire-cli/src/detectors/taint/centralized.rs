@@ -20,9 +20,10 @@ use crate::detectors::file_cache::FileContentCache;
 use crate::detectors::taint::{TaintAnalyzer, TaintCategory, TaintPath};
 use crate::graph::GraphQuery;
 use crate::parsers::lightweight::Language;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, info};
 
 /// All taint categories to analyze.
@@ -80,24 +81,27 @@ pub fn run_centralized_taint(
     let analyzer = TaintAnalyzer::new();
     let start = std::time::Instant::now();
 
-    // Phase 1: Cross-function BFS taint for all categories
-    // Fetch function list ONCE and share across all 7 categories
-    let functions = graph.get_functions();
-    let mut cross_function: HashMap<TaintCategory, Vec<TaintPath>> = HashMap::new();
-    for &category in ALL_CATEGORIES {
-        let paths = analyzer.trace_taint_with_functions(graph, category, Some(&functions));
-        if !paths.is_empty() {
-            debug!(
-                "Cross-function taint for {:?}: {} paths",
-                category,
-                paths.len()
-            );
-        }
-        cross_function.insert(category, paths);
-    }
+    // Fetch function list ONCE and share across both phases (Arc: zero-cost clone)
+    let functions = graph.get_functions_shared();
 
-    // Phase 2: Intra-function taint — single pass over all functions
-    let intra_function = run_intra_all_categories(&analyzer, graph, repository_path, file_cache);
+    // Run cross-function BFS and intra-function taint in parallel.
+    // Both are read-only over the graph; rayon work-stealing handles nested par_iters.
+    let (cross_function, intra_function) = std::thread::scope(|s| {
+        let cross_handle = s.spawn(|| -> HashMap<TaintCategory, Vec<TaintPath>> {
+            ALL_CATEGORIES
+                .par_iter()
+                .map(|&category| {
+                    let paths = analyzer.trace_taint_with_functions(graph, category, Some(&functions));
+                    (category, paths)
+                })
+                .collect()
+        });
+
+        let intra = run_intra_all_categories(&analyzer, graph, repository_path, file_cache);
+
+        let cross = cross_handle.join().expect("cross-function taint panicked");
+        (cross, intra)
+    });
 
     let elapsed = start.elapsed();
     let total_cross: usize = cross_function.values().map(|v| v.len()).sum();
@@ -116,68 +120,50 @@ pub fn run_centralized_taint(
     }
 }
 
-/// Run intra-function taint analysis for ALL categories in a single pass over
-/// functions. Each file is read once (via FileContentCache), and each function
-/// body is extracted once. For each function, we check all categories' pre-filter
-/// and run the heuristic analysis for relevant categories.
+/// Run intra-function taint analysis for ALL categories in a single pass.
+/// Groups functions by file so that file content is read once and lines are
+/// collected once per file instead of once per function (~21x reduction).
 fn run_intra_all_categories(
     analyzer: &TaintAnalyzer,
     graph: &dyn GraphQuery,
     repository_path: &Path,
     file_cache: Option<&Arc<FileContentCache>>,
 ) -> HashMap<TaintCategory, Vec<TaintPath>> {
-    let functions = graph.get_functions();
-    let mut results: HashMap<TaintCategory, Vec<TaintPath>> = HashMap::new();
+    let functions = graph.get_functions_shared();
 
-    // Initialize empty vecs for all categories
-    for &cat in ALL_CATEGORIES {
-        results.insert(cat, Vec::new());
-    }
+    // Shared file cache for parallel reads
+    let shared_cache = file_cache
+        .cloned()
+        .unwrap_or_else(|| Arc::new(FileContentCache::new()));
 
-    // Local file cache for when no shared cache is provided
-    let local_cache = FileContentCache::new();
-
-    // Local HashMap for fallback when no FileContentCache provided
-    let mut fallback_cache: HashMap<String, Arc<String>> = HashMap::new();
-
-    for func in &functions {
-        // Need a source file to analyze
-        if func.file_path.is_empty() {
-            continue;
+    // Group functions by file path — collect lines once per file, not per function
+    let mut by_file: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (idx, func) in functions.iter().enumerate() {
+        if !func.file_path.is_empty() {
+            by_file.entry(&func.file_path).or_default().push(idx);
         }
+    }
+    let file_groups: Vec<(&str, Vec<usize>)> = by_file.into_iter().collect();
 
-        let full_path = repository_path.join(&func.file_path);
+    // Thread-safe results accumulator
+    let results: Mutex<HashMap<TaintCategory, Vec<TaintPath>>> = {
+        let mut m = HashMap::new();
+        for &cat in ALL_CATEGORIES {
+            m.insert(cat, Vec::new());
+        }
+        Mutex::new(m)
+    };
 
-        // Read file content (cached — one read shared across all categories)
-        let content: Arc<String> = if let Some(cache) = file_cache {
-            match cache.get_or_read(&full_path) {
-                Some(c) => c,
-                None => continue,
-            }
-        } else {
-            // Fallback: use local FileContentCache
-            match local_cache.get_or_read(&full_path) {
-                Some(c) => c,
-                None => {
-                    // Extra fallback for edge cases
-                    if let Some(cached) = fallback_cache.get(&func.file_path) {
-                        Arc::clone(cached)
-                    } else {
-                        match std::fs::read_to_string(&full_path) {
-                            Ok(c) => {
-                                let arc = Arc::new(c);
-                                fallback_cache
-                                    .insert(func.file_path.clone(), Arc::clone(&arc));
-                                arc
-                            }
-                            Err(_) => continue,
-                        }
-                    }
-                }
-            }
+    file_groups.par_iter().for_each(|(file_path, func_indices)| {
+        let full_path = repository_path.join(file_path);
+
+        // Read file content ONCE per file
+        let content: Arc<String> = match shared_cache.get_or_read(&full_path) {
+            Some(c) => c,
+            None => return,
         };
 
-        // Determine which categories are relevant for this file content
+        // Pre-filter categories for this file ONCE
         let relevant_categories: Vec<TaintCategory> = ALL_CATEGORIES
             .iter()
             .copied()
@@ -185,49 +171,74 @@ fn run_intra_all_categories(
             .collect();
 
         if relevant_categories.is_empty() {
-            continue;
+            return;
         }
 
-        // Extract function body (done ONCE, shared across all categories)
-        let line_start = func.line_start as usize;
-        let line_end = func.get_i64("lineEnd").unwrap_or(0) as usize;
-
-        if line_start == 0 || line_end == 0 || line_end < line_start {
-            continue;
-        }
-
+        // Collect lines ONCE per file (was done per-function before)
         let lines: Vec<&str> = content.lines().collect();
-        if line_end > lines.len() {
-            continue;
-        }
 
-        let func_body = lines[line_start.saturating_sub(1)..line_end].join("\n");
-
-        // Detect language from file extension
+        // Language detection ONCE per file
         let ext = full_path
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
         let language = Language::from_extension(ext);
 
-        // Run analysis for each relevant category
-        for category in &relevant_categories {
-            let paths = analyzer.analyze_intra_function(
-                &func_body,
-                &func.name,
-                &func.file_path,
-                line_start,
-                language,
-                *category,
-            );
+        // Process all functions in this file
+        let mut file_results: Vec<(TaintCategory, Vec<TaintPath>)> = Vec::new();
+        for &func_idx in func_indices {
+            let func = &functions[func_idx];
+            let line_start = func.line_start as usize;
+            let line_end = func.get_i64("lineEnd").unwrap_or(0) as usize;
 
-            if let Some(cat_results) = results.get_mut(category) {
-                cat_results.extend(paths);
+            if line_start == 0 || line_end == 0 || line_end < line_start {
+                continue;
+            }
+            if line_end > lines.len() {
+                continue;
+            }
+
+            let func_body = lines[line_start.saturating_sub(1)..line_end].join("\n");
+
+            for &category in &relevant_categories {
+                let paths = analyzer.analyze_intra_function(
+                    &func_body,
+                    &func.name,
+                    &func.file_path,
+                    line_start,
+                    language,
+                    category,
+                );
+                if !paths.is_empty() {
+                    file_results.push((category, paths));
+                }
             }
         }
-    }
 
-    results
+        // Merge into shared results (one lock per file, not per function)
+        if !file_results.is_empty() {
+            let mut results = results.lock().unwrap();
+            for (category, paths) in file_results {
+                if let Some(cat_results) = results.get_mut(&category) {
+                    cat_results.extend(paths);
+                }
+            }
+        }
+    });
+
+    // Sort paths within each category for deterministic order
+    let mut final_results = results.into_inner().unwrap();
+    for paths in final_results.values_mut() {
+        paths.sort_by(|a, b| {
+            a.source_file
+                .cmp(&b.source_file)
+                .then_with(|| a.source_line.cmp(&b.source_line))
+                .then_with(|| a.source_function.cmp(&b.source_function))
+                .then_with(|| a.sink_file.cmp(&b.sink_file))
+                .then_with(|| a.sink_function.cmp(&b.sink_function))
+        });
+    }
+    final_results
 }
 
 #[cfg(test)]

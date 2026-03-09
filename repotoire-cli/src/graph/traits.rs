@@ -1,7 +1,8 @@
 //! Graph store traits for detector compatibility
 
 use super::CodeNode;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 /// Common interface for graph stores
 #[allow(dead_code)] // Trait defines public API surface; not all methods called in binary
@@ -14,6 +15,24 @@ pub trait GraphQuery: Send + Sync {
 
     /// Get all files
     fn get_files(&self) -> Vec<CodeNode>;
+
+    /// Get all functions as shared Arc — Arc::clone is ~10ns vs Vec::clone ~50ms.
+    ///
+    /// CachedGraphQuery overrides this to return a cached Arc (zero-cost after first call).
+    /// Default implementation wraps get_functions() in Arc for backward compatibility.
+    fn get_functions_shared(&self) -> Arc<[CodeNode]> {
+        Arc::from(self.get_functions())
+    }
+
+    /// Get all classes as shared Arc — see get_functions_shared.
+    fn get_classes_shared(&self) -> Arc<[CodeNode]> {
+        Arc::from(self.get_classes())
+    }
+
+    /// Get all files as shared Arc — see get_functions_shared.
+    fn get_files_shared(&self) -> Arc<[CodeNode]> {
+        Arc::from(self.get_files())
+    }
 
     /// Get functions in a specific file
     fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode>;
@@ -39,6 +58,11 @@ pub trait GraphQuery: Send + Sync {
     /// Get all call edges
     fn get_calls(&self) -> Vec<(String, String)>;
 
+    /// Get all call edges as shared Arc — avoids cloning 296K+ (String, String) pairs.
+    fn get_calls_shared(&self) -> Arc<[(String, String)]> {
+        Arc::from(self.get_calls())
+    }
+
     /// Get all import edges
     fn get_imports(&self) -> Vec<(String, String)>;
 
@@ -54,8 +78,17 @@ pub trait GraphQuery: Send + Sync {
     /// Find import cycles
     fn find_import_cycles(&self) -> Vec<Vec<String>>;
 
-    /// Get stats
-    fn stats(&self) -> HashMap<String, i64>;
+    /// Get stats (BTreeMap for deterministic key order)
+    fn stats(&self) -> BTreeMap<String, i64>;
+
+    /// Find the function containing a specific line in a file.
+    /// Default implementation uses get_functions_in_file (O(all_nodes) scan).
+    /// GraphStore overrides this with a spatial index for O(1) lookup.
+    fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
+        self.get_functions_in_file(file_path)
+            .into_iter()
+            .find(|f| f.line_start <= line && f.line_end >= line)
+    }
 
     /// Get complex functions (complexity > threshold)
     fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
@@ -71,5 +104,114 @@ pub trait GraphQuery: Send + Sync {
             .into_iter()
             .filter(|f| f.get_i64("paramCount").unwrap_or(0) >= min_params)
             .collect()
+    }
+
+    /// Count unique files of callers — avoids cloning full CodeNodes.
+    ///
+    /// CachedGraphQuery overrides with a zero-copy implementation that resolves
+    /// caller indices directly from the cached functions Arc.
+    fn caller_file_spread(&self, qn: &str) -> usize {
+        let callers = self.get_callers(qn);
+        let files: std::collections::HashSet<&str> =
+            callers.iter().map(|c| c.file_path.as_str()).collect();
+        files.len()
+    }
+
+    /// Count callers of `qn` that are OUTSIDE a given class boundary.
+    ///
+    /// A caller is "external" if it's in a different file OR its line range
+    /// doesn't overlap with the class range [class_start, class_end].
+    /// CachedGraphQuery overrides with a zero-copy implementation.
+    fn count_external_callers_of(
+        &self,
+        qn: &str,
+        class_file: &str,
+        class_start: u32,
+        class_end: u32,
+    ) -> usize {
+        let callers = self.get_callers(qn);
+        callers
+            .iter()
+            .filter(|c| {
+                c.file_path != class_file
+                    || c.line_start < class_start
+                    || c.line_end > class_end
+            })
+            .count()
+    }
+
+    /// Count unique modules (parent directories) of callers — avoids cloning full CodeNodes.
+    fn caller_module_spread(&self, qn: &str) -> usize {
+        let callers = self.get_callers(qn);
+        let modules: std::collections::HashSet<&str> = callers
+            .iter()
+            .map(|c| {
+                std::path::Path::new(&c.file_path)
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("root")
+            })
+            .collect();
+        modules.len()
+    }
+
+    /// Build call maps as (qn_to_idx, callers_idx, callees_idx).
+    ///
+    /// Returns index-based maps where indices correspond to positions in `get_functions()`.
+    /// GraphStore overrides this to iterate petgraph edges directly, avoiding
+    /// the 12.5M+ (String, String) allocation from `get_calls()`.
+    fn build_call_maps_raw(
+        &self,
+    ) -> (
+        HashMap<String, usize>,
+        HashMap<usize, Vec<usize>>,
+        HashMap<usize, Vec<usize>>,
+    ) {
+        let functions = self.get_functions();
+        let calls = self.get_calls();
+        let qn_to_idx: HashMap<String, usize> = functions
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (f.qualified_name.clone(), i))
+            .collect();
+        let mut callers: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut callees: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (caller, callee) in &calls {
+            if let (Some(&from), Some(&to)) = (
+                qn_to_idx.get(caller.as_str()),
+                qn_to_idx.get(callee.as_str()),
+            ) {
+                callers.entry(to).or_default().push(from);
+                callees.entry(from).or_default().push(to);
+            }
+        }
+        (qn_to_idx, callers, callees)
+    }
+
+    /// Build call adjacency lists: (forward_adj, reverse_adj, qn_to_idx).
+    ///
+    /// Indices correspond to positions in `get_functions()`.
+    /// CachedGraphQuery overrides this to reuse pre-built index maps,
+    /// avoiding cloning millions of String pairs from `get_calls()`.
+    fn get_call_adjacency(&self) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, HashMap<String, usize>) {
+        let functions = self.get_functions();
+        let calls = self.get_calls();
+        let qn_to_idx: HashMap<String, usize> = functions
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (f.qualified_name.clone(), i))
+            .collect();
+        let n = functions.len();
+        let mut adj = vec![vec![]; n];
+        let mut rev_adj = vec![vec![]; n];
+        for (caller, callee) in &calls {
+            if let (Some(&from), Some(&to)) =
+                (qn_to_idx.get(caller.as_str()), qn_to_idx.get(callee.as_str()))
+            {
+                adj[from].push(to);
+                rev_adj[to].push(from);
+            }
+        }
+        (adj, rev_adj, qn_to_idx)
     }
 }

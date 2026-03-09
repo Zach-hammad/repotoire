@@ -52,7 +52,8 @@ impl SurprisalDetector {
         let lines: Vec<&str> = content.lines().collect();
 
         // Get functions from the graph for this file
-        let functions: Vec<_> = graph.get_functions().into_iter()
+        let all_funcs = graph.get_functions_shared();
+        let functions: Vec<_> = all_funcs.iter()
             .filter(|f| f.file_path == *rel_str || rel_str.ends_with(&f.file_path) || f.file_path.ends_with(&*rel_str))
             .collect();
 
@@ -195,7 +196,8 @@ impl Detector for SurprisalDetector {
                 let rel_path = path.strip_prefix(&self.repository_path).unwrap_or(path);
                 let rel_str = rel_path.to_string_lossy();
 
-                let functions: Vec<_> = graph.get_functions().into_iter()
+                let all_funcs = graph.get_functions_shared();
+                let functions: Vec<_> = all_funcs.iter()
                     .filter(|f| f.file_path == *rel_str || rel_str.ends_with(&f.file_path) || f.file_path.ends_with(&*rel_str))
                     .collect();
 

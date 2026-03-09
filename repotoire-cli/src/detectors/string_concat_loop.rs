@@ -44,23 +44,27 @@ impl StringConcatLoopDetector {
         }
     }
 
-    /// Find functions that do string concatenation
+    /// Find functions that do string concatenation.
+    /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).
     fn find_concat_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut concat_funcs = HashSet::new();
+        let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
-        for func in graph.get_functions() {
-            if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
-            {
-                let lines: Vec<&str> = content.lines().collect();
-                let start = func.line_start.saturating_sub(1) as usize;
-                let end = (func.line_end as usize).min(lines.len());
+        for func in graph.get_functions_shared().iter() {
+            let lines = file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+                crate::cache::global_cache()
+                    .content(std::path::Path::new(&func.file_path))
+                    .map(|c| c.lines().map(String::from).collect())
+                    .unwrap_or_default()
+            });
 
-                for line in lines.get(start..end).unwrap_or(&[]) {
-                    if STRING_CONCAT.is_match(line) {
-                        concat_funcs.insert(func.qualified_name.clone());
-                        break;
-                    }
+            let start = func.line_start.saturating_sub(1) as usize;
+            let end = (func.line_end as usize).min(lines.len());
+
+            for line in lines.get(start..end).unwrap_or(&[]) {
+                if STRING_CONCAT.is_match(line) {
+                    concat_funcs.insert(func.qualified_name.clone());
+                    break;
                 }
             }
         }
@@ -292,7 +296,9 @@ impl Detector for StringConcatLoopDetector {
         // Skip Rust files — push_str mutates in place (not O(n²)),
         // and Path::join is not string concatenation
         if !concat_funcs.is_empty() {
-            for func in graph.get_functions() {
+            let mut graph_file_lines: HashMap<String, Vec<String>> = HashMap::new();
+
+            for func in graph.get_functions_shared().iter() {
                 if findings.len() >= self.max_findings {
                     break;
                 }
@@ -301,20 +307,21 @@ impl Detector for StringConcatLoopDetector {
                     continue;
                 }
 
-                let has_loop = if let Some(content) =
-                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
-                {
-                    let lines: Vec<&str> = content.lines().collect();
-                    let start = func.line_start.saturating_sub(1) as usize;
-                    let end = (func.line_end as usize).min(lines.len());
+                // Check if function contains a loop (per-file line caching)
+                let lines = graph_file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+                    crate::cache::global_cache()
+                        .content(std::path::Path::new(&func.file_path))
+                        .map(|c| c.lines().map(String::from).collect())
+                        .unwrap_or_default()
+                });
 
-                    lines
-                        .get(start..end)
-                        .map(|slice| slice.iter().any(|line| LOOP_PATTERN.is_match(line)))
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
+                let start = func.line_start.saturating_sub(1) as usize;
+                let end = (func.line_end as usize).min(lines.len());
+
+                let has_loop = lines
+                    .get(start..end)
+                    .map(|slice| slice.iter().any(|line| LOOP_PATTERN.is_match(line)))
+                    .unwrap_or(false);
 
                 if !has_loop {
                     continue;

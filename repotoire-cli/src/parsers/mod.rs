@@ -27,12 +27,40 @@ pub mod bounded_pipeline;
 pub use lightweight_parser::parse_file_lightweight;
 
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::LazyLock;
 use tree_sitter::Node;
 
 // Performance guardrail: skip very large source files in AST parsing (#48).
 const MAX_PARSE_FILE_BYTES: u64 = 2 * 1024 * 1024; // 2MB
+
+/// Cached structural fingerprint for a single function.
+#[derive(Debug, Clone)]
+pub struct CachedFunctionFP {
+    pub name: String,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub structural_kinds: HashSet<String>,
+}
+
+/// Global cache of per-file structural AST fingerprints, populated during the
+/// parse phase so detectors (AIBoilerplate, AIDuplicateBlock) can skip
+/// re-parsing files.  Key: file path → vec of function fingerprints.
+static STRUCTURAL_FP_CACHE: LazyLock<dashmap::DashMap<String, Vec<CachedFunctionFP>>> =
+    LazyLock::new(dashmap::DashMap::new);
+
+/// Read all cached structural fingerprints for a file.
+pub fn get_cached_fps(file_path: &str) -> Option<Vec<CachedFunctionFP>> {
+    STRUCTURAL_FP_CACHE
+        .get(file_path)
+        .map(|entry| entry.value().clone())
+}
+
+/// Clear the structural fingerprint cache (called between analysis runs).
+pub fn clear_structural_fingerprint_cache() {
+    STRUCTURAL_FP_CACHE.clear();
+}
 
 /// Find the smallest scope in `scope_map` that contains the given line.
 /// Shared across language parsers to avoid structural duplication.
@@ -60,15 +88,9 @@ pub(crate) fn is_inside_ancestor(node: &Node, ancestor_kind: &str) -> bool {
     false
 }
 
-fn is_probably_cpp_header(path: &Path) -> bool {
-    let content = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(_) => return false,
-    };
-
+fn is_probably_cpp_header(source: &str) -> bool {
     // Sample only first chunk for speed on large headers.
-    let sample = &content[..content.len().min(16 * 1024)];
-    let text = String::from_utf8_lossy(sample);
+    let text = &source[..source.len().min(16 * 1024)];
 
     let cpp_markers = [
         "class ",
@@ -104,61 +126,241 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
 
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    let mut parsed = match ext {
+    // Read file once via global cache — all subsequent cache.content() calls
+    // for this path will be instant DashMap hits.
+    let source = match crate::cache::global_cache().content(path) {
+        Some(s) => s,
+        None => return Ok(ParseResult::default()),
+    };
+
+    let (mut parsed, tree) = match ext {
         // Python
-        "py" | "pyi" => python::parse(path),
+        "py" | "pyi" => python::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?,
 
         // TypeScript/JavaScript
-        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => typescript::parse(path),
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => {
+            typescript::parse_source_with_tree(&source, path, ext).map(|(r, t)| (Ok(r), Some(t)))?
+        }
 
         // Rust
-        "rs" => rust::parse(path),
+        "rs" => rust::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?,
 
         // Go
-        "go" => go::parse(path),
+        "go" => go::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?,
 
         // Java
-        "java" => java::parse(path),
+        "java" => java::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?,
 
         // C#
-        "cs" => csharp::parse(path),
+        "cs" => csharp::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?,
 
         // Kotlin
-        "kt" | "kts" => Ok(ParseResult::default()), // kotlin disabled
+        "kt" | "kts" => (Ok(ParseResult::default()), None), // kotlin disabled
 
         // C
-        "c" => c::parse(path),
+        "c" => c::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?,
 
         // Header files: heuristic dispatch to C or C++ (#31)
         "h" => {
-            if is_probably_cpp_header(path) {
-                cpp::parse(path)
+            if is_probably_cpp_header(&source) {
+                cpp::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?
             } else {
-                c::parse(path)
+                c::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?
             }
         }
 
         // C++
-        "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => cpp::parse(path),
+        "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => {
+            cpp::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?
+        }
 
         // Unknown extension
-        _ => Ok(ParseResult::default()),
+        _ => (Ok(ParseResult::default()), None),
     };
 
     // Enrich with nesting depth for all languages
     if let Ok(ref mut result) = parsed {
-        enrich_nesting_depths(result, path);
+        enrich_nesting_depths(result, &source, path);
+    }
+
+    // Extract structural fingerprints from the tree for AI detectors.
+    // Reuses the tree from the main parse — zero re-parsing overhead.
+    if let (Ok(ref result), Some(ref tree)) = (&parsed, &tree) {
+        extract_structural_fps(tree, &source, ext, path, &result.functions);
+    }
+
+    // Pre-warm masked content cache using the EXISTING tree — avoids a second
+    // tree-sitter parse per file.  For CPython (3,415 files) this eliminates
+    // 3,415 redundant parses that `masked_content()` would otherwise trigger.
+    if let Some(ref tree) = tree {
+        let masked = crate::cache::masking::mask_non_code_with_tree(&source, ext, tree);
+        crate::cache::global_cache().store_masked(path, masked);
+    } else {
+        // No tree (unsupported language) — fall back to lazy parse-on-demand
+        let _ = crate::cache::global_cache().masked_content(path);
     }
 
     parsed
 }
 
+/// Extract structural AST node kinds per function and store in the global cache.
+/// Called during the parse phase using the SAME tree-sitter tree, eliminating the
+/// need for AI detectors (AIBoilerplate, AIDuplicateBlock) to re-parse files.
+fn extract_structural_fps(
+    tree: &tree_sitter::Tree,
+    source: &str,
+    ext: &str,
+    path: &Path,
+    functions: &[crate::models::Function],
+) {
+    // Only extract for languages the AI detectors support
+    let func_kinds: &[&str] = match ext {
+        "py" | "pyi" => &["function_definition"],
+        "js" | "jsx" | "mjs" | "cjs" => &["function_declaration", "method_definition"],
+        "ts" | "tsx" => &["function_declaration", "method_definition"],
+        "rs" => &["function_item"],
+        "go" => &["function_declaration", "method_declaration"],
+        "java" => &["method_declaration", "constructor_declaration"],
+        "cs" => &["method_declaration", "constructor_declaration"],
+        "c" | "h" => &["function_definition"],
+        "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => &["function_definition"],
+        _ => return,
+    };
+
+    let path_str = path.to_string_lossy().to_string();
+
+    // Build a lookup from (name, line_start) → line_end for functions in ParseResult
+    let func_set: HashMap<(String, u32), u32> = functions
+        .iter()
+        .map(|f| ((f.name.clone(), f.line_start), f.line_end))
+        .collect();
+
+    // Walk the tree and collect structural kinds for each function node
+    let func_kind_set: HashSet<&str> = func_kinds.iter().copied().collect();
+    let mut fps = Vec::new();
+    collect_fps_recursive(
+        tree.root_node(),
+        source.as_bytes(),
+        &func_kind_set,
+        &func_set,
+        &mut fps,
+    );
+
+    if !fps.is_empty() {
+        STRUCTURAL_FP_CACHE.insert(path_str, fps);
+    }
+}
+
+/// Recursively walk the tree to find function nodes and extract structural kinds.
+fn collect_fps_recursive(
+    node: tree_sitter::Node,
+    source: &[u8],
+    func_kinds: &HashSet<&str>,
+    func_set: &HashMap<(String, u32), u32>,
+    out: &mut Vec<CachedFunctionFP>,
+) {
+    if func_kinds.contains(node.kind()) {
+        let line_start = node.start_position().row as u32 + 1; // tree-sitter is 0-based
+        let name = node
+            .child_by_field_name("name")
+            .map(|n| n.utf8_text(source).unwrap_or_default().to_string())
+            .unwrap_or_default();
+
+        if let Some(&line_end) = func_set.get(&(name.clone(), line_start)) {
+            let body_node = node.child_by_field_name("body").unwrap_or(node);
+            let mut structural_kinds = HashSet::new();
+            collect_structural_kinds_recursive(body_node, &mut structural_kinds);
+
+            if !structural_kinds.is_empty() {
+                out.push(CachedFunctionFP {
+                    name,
+                    line_start,
+                    line_end,
+                    structural_kinds,
+                });
+            }
+        }
+    }
+
+    let count = node.child_count();
+    for i in 0..count {
+        if let Some(child) = node.child(i) {
+            collect_fps_recursive(child, source, func_kinds, func_set, out);
+        }
+    }
+}
+
+/// Collect structural AST node kinds (internal nodes that represent control flow
+/// or structural constructs). Mirrors `is_structural_kind` from ast_fingerprint.rs.
+fn collect_structural_kinds_recursive(node: tree_sitter::Node, out: &mut HashSet<String>) {
+    let kind = node.kind();
+    if node.child_count() > 0 && is_structural_kind(kind) {
+        out.insert(kind.to_string());
+    }
+    let count = node.child_count();
+    for i in 0..count {
+        if let Some(child) = node.child(i) {
+            collect_structural_kinds_recursive(child, out);
+        }
+    }
+}
+
+/// Check if a tree-sitter node kind represents structural code (control flow, etc.)
+fn is_structural_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "if_statement"
+            | "if_expression"
+            | "for_statement"
+            | "for_in_statement"
+            | "for_expression"
+            | "while_statement"
+            | "while_expression"
+            | "try_statement"
+            | "try_expression"
+            | "catch_clause"
+            | "except_clause"
+            | "finally_clause"
+            | "with_statement"
+            | "with_clause"
+            | "match_statement"
+            | "match_expression"
+            | "switch_statement"
+            | "switch_expression"
+            | "return_statement"
+            | "yield_expression"
+            | "await_expression"
+            | "raise_statement"
+            | "throw_statement"
+            | "assert_statement"
+            | "lambda_expression"
+            | "arrow_function"
+            | "function_definition"
+            | "function_declaration"
+            | "method_definition"
+            | "class_definition"
+            | "class_declaration"
+            | "list_comprehension"
+            | "set_comprehension"
+            | "dictionary_comprehension"
+            | "generator_expression"
+            | "conditional_expression"
+            | "ternary_expression"
+            | "binary_expression"
+            | "assignment"
+            | "augmented_assignment"
+            | "call_expression"
+            | "call"
+            | "subscript"
+            | "attribute"
+            | "decorated_definition"
+            | "decorator"
+    )
+}
+
 /// Compute max nesting depth for each function from source code.
 /// Uses brace counting for C-family languages, indent counting for Python.
-fn enrich_nesting_depths(result: &mut ParseResult, path: &Path) {
-    let Ok(source) = std::fs::read_to_string(path) else {
-        return;
-    };
+fn enrich_nesting_depths(result: &mut ParseResult, source: &str, path: &Path) {
     let lines: Vec<&str> = source.lines().collect();
     let is_python = path.extension().is_some_and(|e| e == "py" || e == "pyi");
 

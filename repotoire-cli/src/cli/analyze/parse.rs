@@ -48,7 +48,7 @@ pub(super) fn parse_files(
     let cache_hits = AtomicUsize::new(0);
     let total_files = files.len();
 
-    let parse_results: Vec<(PathBuf, ParseResult)> = files
+    let mut parse_results: Vec<(PathBuf, ParseResult)> = files
         .par_iter()
         .filter_map(|file_path| {
             let count = counter.fetch_add(1, Ordering::Relaxed);
@@ -77,6 +77,9 @@ pub(super) fn parse_files(
             Some((file_path.clone(), result))
         })
         .collect();
+
+    // Sort by file path for deterministic graph construction order
+    parse_results.sort_by(|a, b| a.0.cmp(&b.0));
 
     let hits = cache_hits.load(Ordering::Relaxed);
 
@@ -177,7 +180,7 @@ pub(super) fn parse_files_chunked(
         let counter = AtomicUsize::new(0);
         let chunk_start = chunk_idx * chunk_size;
 
-        let chunk_results: Vec<(PathBuf, ParseResult)> = chunk
+        let mut chunk_results: Vec<(PathBuf, ParseResult)> = chunk
             .par_iter()
             .filter_map(|file_path| {
                 let count = counter.fetch_add(1, Ordering::Relaxed);
@@ -202,6 +205,9 @@ pub(super) fn parse_files_chunked(
                 Some((file_path.clone(), result))
             })
             .collect();
+
+        // Sort by file path for deterministic graph construction order
+        chunk_results.sort_by(|a, b| a.0.cmp(&b.0));
 
         // Accumulate results
         for (path, result) in chunk_results {

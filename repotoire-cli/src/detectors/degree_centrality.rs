@@ -418,7 +418,7 @@ impl Detector for DegreeCentralityDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             // Skip by name or hub file
             if self.should_skip_by_name(&func.name) || self.is_hub_file(&func.file_path) {
                 continue;
@@ -469,14 +469,14 @@ impl Detector for DegreeCentralityDetector {
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        let funcs = graph.get_functions();
+        let funcs = graph.get_functions_shared();
 
         debug!(
             "DegreeCentralityDetector: analyzing {} functions with context",
             funcs.len()
         );
 
-        for func in funcs {
+        for func in funcs.iter() {
             // Skip common utility/trait method names
             if self.should_skip_by_name(&func.name) {
                 continue;

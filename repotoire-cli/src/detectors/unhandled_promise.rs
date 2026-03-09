@@ -64,21 +64,6 @@ impl UnhandledPromiseDetector {
             || combined.contains("credential")
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<(String, usize)> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| {
-                let callers = graph.get_callers(&f.qualified_name).len();
-                (f.name, callers)
-            })
-    }
 }
 
 impl Detector for UnhandledPromiseDetector {
@@ -239,7 +224,10 @@ impl Detector for UnhandledPromiseDetector {
                         // Analyze context
                         let is_critical = Self::is_critical_context(line, &context);
                         let containing_func =
-                            Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
+                                let callers = graph.get_callers(&f.qualified_name).len();
+                                (f.name, callers)
+                            });
 
                         // Calculate severity
                         let severity = if is_critical {

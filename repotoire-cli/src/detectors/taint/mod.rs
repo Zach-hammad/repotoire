@@ -601,7 +601,7 @@ impl TaintAnalyzer {
         let functions = match functions {
             Some(f) => f,
             None => {
-                owned_functions = graph.get_functions();
+                owned_functions = graph.get_functions_shared();
                 &owned_functions
             }
         };
@@ -633,7 +633,6 @@ impl TaintAnalyzer {
         if source_funcs.is_empty() {
             return Vec::new();
         }
-
         let mut paths = Vec::new();
 
         // BFS from each source to find paths to sinks

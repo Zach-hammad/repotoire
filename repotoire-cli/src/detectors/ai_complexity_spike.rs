@@ -364,10 +364,12 @@ impl Detector for AIComplexitySpikeDetector {
         Some(&self.config)
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        use std::collections::HashSet;
+
         let mut findings = Vec::new();
 
         // Calculate baseline complexity
-        let functions = graph.get_functions();
+        let functions = graph.get_functions_shared();
         let complexities: Vec<i64> = functions.iter().filter_map(|f| f.complexity()).collect();
 
         if complexities.is_empty() {
@@ -385,67 +387,70 @@ impl Detector for AIComplexitySpikeDetector {
         // Find outliers (>2 standard deviations above mean)
         let threshold = avg + 2.0 * std_dev;
 
-        for func in functions {
-            // Skip detector files (they have inherently complex parsing logic)
-            if func.file_path.contains("/detectors/") {
-                continue;
-            }
-
-            // Skip parser files (parsing code is naturally complex)
-            if func.file_path.contains("/parsers/") {
-                continue;
-            }
-
-            // Skip runtime/interpreter/core code paths (legitimately complex by design)
-            if func.file_path.contains("/runtime/")
-                || func.file_path.contains("/vm/")
-                || func.file_path.contains("/interpreter/")
-                || func.file_path.contains("/bytecode/")
-                || func.file_path.contains("/jets/")
-                || func.file_path.contains("/opcodes/")
-                || func.file_path.contains("/noun/")
-                || func.file_path.contains("/ext/")
-                || func.file_path.contains("/vendor/") 
-                // Framework-specific paths (React, Vue, Angular internals)
-                || func.file_path.contains("/reconciler/")
-                || func.file_path.contains("/scheduler/")
-                || func.file_path.contains("/react-dom/")
-                || func.file_path.contains("/react-server/")
-                || func.file_path.contains("/shared/")
-                || func.file_path.contains("packages/react")
-                || func.file_path.contains("/forks/")
-                || func.file_path.contains("/fiber/")
-                // Non-production paths
-                || crate::detectors::content_classifier::is_non_production_path(&func.file_path)
-            {
-                continue;
-            }
-
-            // Skip bundled/generated code: path check (semantic) + content check (additional)
-            if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
-                continue;
-            }
-
-            // Compiler/AST code gets higher threshold by path
-            let is_compiler_path =
-                crate::detectors::content_classifier::is_compiler_code_path(&func.file_path);
-
-            let mut is_ast_code = is_compiler_path;
-            if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
-            {
-                if crate::detectors::content_classifier::is_bundled_code(&content)
-                    || crate::detectors::content_classifier::is_minified_code(&content)
-                    || crate::detectors::content_classifier::is_fixture_code(
-                        &func.file_path,
-                        &content,
-                    )
+        // Pre-build per-FILE skip set and compiler set — avoids redundant
+        // content classifier scans (71K functions → ~3.4K unique files).
+        let mut skip_files: HashSet<String> = HashSet::new();
+        let mut compiler_files: HashSet<String> = HashSet::new();
+        {
+            let mut seen_files: HashSet<String> = HashSet::new();
+            for func in functions.iter() {
+                if !seen_files.insert(func.file_path.clone()) {
+                    continue; // already classified this file
+                }
+                let fp = &func.file_path;
+                if fp.contains("/detectors/")
+                    || fp.contains("/parsers/")
+                    || fp.contains("/runtime/")
+                    || fp.contains("/vm/")
+                    || fp.contains("/interpreter/")
+                    || fp.contains("/bytecode/")
+                    || fp.contains("/jets/")
+                    || fp.contains("/opcodes/")
+                    || fp.contains("/noun/")
+                    || fp.contains("/ext/")
+                    || fp.contains("/vendor/")
+                    || fp.contains("/reconciler/")
+                    || fp.contains("/scheduler/")
+                    || fp.contains("/react-dom/")
+                    || fp.contains("/react-server/")
+                    || fp.contains("/shared/")
+                    || fp.contains("packages/react")
+                    || fp.contains("/forks/")
+                    || fp.contains("/fiber/")
+                    || crate::detectors::content_classifier::is_non_production_path(fp)
+                    || crate::detectors::content_classifier::is_likely_bundled_path(fp)
                 {
+                    skip_files.insert(func.file_path.clone());
                     continue;
                 }
+                if crate::detectors::content_classifier::is_compiler_code_path(fp) {
+                    compiler_files.insert(func.file_path.clone());
+                }
+                // Content-based classification (once per file, not per function)
+                if let Some(content) =
+                    crate::cache::global_cache().content(std::path::Path::new(fp))
+                {
+                    if crate::detectors::content_classifier::is_bundled_code(&content)
+                        || crate::detectors::content_classifier::is_minified_code(&content)
+                        || crate::detectors::content_classifier::is_fixture_code(fp, &content)
+                    {
+                        skip_files.insert(func.file_path.clone());
+                    }
+                }
+            }
+        }
 
-                // Also check content for AST manipulation patterns
-                if !is_ast_code {
+        for func in functions.iter() {
+            if skip_files.contains(&func.file_path) {
+                continue;
+            }
+
+            // Per-function AST manipulation check (needs func name — can't pre-compute per file)
+            let mut is_ast_code = compiler_files.contains(&func.file_path);
+            if !is_ast_code {
+                if let Some(content) =
+                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                {
                     is_ast_code = crate::detectors::content_classifier::is_ast_manipulation_code(
                         &func.name, &content,
                     );

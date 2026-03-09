@@ -32,6 +32,7 @@ fn extract_decorators(node: &Node, source: &[u8]) -> Vec<String> {
 }
 
 /// Parse a Python file and extract all code entities
+#[allow(dead_code)]
 pub fn parse(path: &Path) -> Result<ParseResult> {
     let source = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
@@ -41,6 +42,12 @@ pub fn parse(path: &Path) -> Result<ParseResult> {
 
 /// Parse Python source code directly (useful for testing)
 pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
+    parse_source_with_tree(source, path).map(|(r, _)| r)
+}
+
+/// Parse Python source code and return both the ParseResult and the tree-sitter Tree.
+/// Used by the pipeline to extract structural fingerprints without re-parsing.
+pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
     let mut parser = Parser::new();
     let language = tree_sitter_python::LANGUAGE;
     parser
@@ -66,7 +73,7 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
     // Annotate exported functions and classes
     annotate_exports(&root, source_bytes, &mut result);
 
-    Ok(result)
+    Ok((result, tree))
 }
 
 /// Determine which functions/classes are exported and annotate them.

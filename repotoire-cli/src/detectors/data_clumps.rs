@@ -136,11 +136,11 @@ impl DataClumpsDetector {
     /// 2. For each pair sharing ≥1 param, compute intersection
     /// 3. Group by intersection, filter by min_occurrences
     fn find_clumps(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<DataClump> {
-        let functions = graph.get_functions();
+        let functions = graph.get_functions_shared();
 
         // Step 1: Extract params for qualifying functions
         let mut func_data: Vec<(FuncInfo, HashSet<String>)> = Vec::new();
-        for func in &functions {
+        for func in functions.iter() {
             let params = self.extract_params(func);
             if params.len() < self.thresholds.min_params {
                 continue;

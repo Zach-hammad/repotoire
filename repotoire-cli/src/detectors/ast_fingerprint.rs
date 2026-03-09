@@ -77,10 +77,28 @@ fn make_parser(lang: Language) -> Option<(Parser, tree_sitter::Language)> {
     Some((parser, ts_lang))
 }
 
-/// Helper: parse `content` with tree-sitter and return the root node.
+/// Thread-local cache of tree-sitter parsers keyed by Language discriminant.
+/// Avoids re-creating Parser objects per file in rayon parallel iterators.
+thread_local! {
+    static TS_PARSER_CACHE: std::cell::RefCell<std::collections::HashMap<u8, Parser>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Helper: parse `content` with tree-sitter, reusing a thread-local parser.
 fn parse_root(content: &str, lang: Language) -> Option<tree_sitter::Tree> {
-    let (mut parser, _) = make_parser(lang)?;
-    parser.parse(content, None)
+    let lang_key = lang as u8;
+    TS_PARSER_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(parser) = cache.get_mut(&lang_key) {
+            return parser.parse(content, None);
+        }
+        let ts_lang = get_ts_language(lang)?;
+        let mut parser = Parser::new();
+        parser.set_language(&ts_lang).ok()?;
+        let tree = parser.parse(content, None);
+        cache.insert(lang_key, parser);
+        tree
+    })
 }
 
 /// Extract text from a tree-sitter node.
@@ -1118,11 +1136,13 @@ pub fn lsh_candidate_pairs(sets: &[&HashSet<String>]) -> HashSet<(usize, usize)>
         return HashSet::new();
     }
 
+    use rayon::prelude::*;
+
     let coeffs = MinHashCoeffs::new();
 
-    // Compute all signatures: O(n · k · avg|set|)
+    // Compute all signatures in parallel: O(n · k · avg|set|)
     let signatures: Vec<[u64; MINHASH_NUM_HASHES]> = sets
-        .iter()
+        .par_iter()
         .map(|set| minhash_signature(set, &coeffs))
         .collect();
 

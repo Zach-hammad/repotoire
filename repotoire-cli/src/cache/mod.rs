@@ -139,6 +139,14 @@ impl FileCache {
         Some(arc)
     }
 
+    /// Store pre-computed masked content directly (avoids re-parsing).
+    ///
+    /// Called from `parse_file()` when we already have a tree-sitter tree
+    /// and can compute the masking without a second parse.
+    pub fn store_masked(&self, path: &Path, masked: String) {
+        self.masked.insert(path.to_path_buf(), Arc::new(masked));
+    }
+
     /// Get list of cached file paths
     pub fn cached_paths(&self) -> Vec<PathBuf> {
         self.contents.iter().map(|r| r.key().clone()).collect()

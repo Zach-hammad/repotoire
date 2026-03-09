@@ -247,7 +247,7 @@ impl Detector for InfiniteLoopDetector {
         let mut findings = vec![];
 
         // Lazily build name→function lookup (only if needed for exit-function analysis)
-        let all_functions = graph.get_functions();
+        let all_functions = graph.get_functions_shared();
         let mut func_by_name: Option<std::collections::HashMap<String, &crate::graph::CodeNode>> = None;
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "c", "cpp"]) {

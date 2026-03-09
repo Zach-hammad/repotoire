@@ -211,31 +211,32 @@ impl MessageChainDetector {
         let mut reported_in_chain: HashSet<String> = HashSet::new();
 
         // Pre-build qualified_name → file_path map for O(1) lookups (avoid repeated get_functions())
-        let all_functions = graph.get_functions();
+        let all_functions = graph.get_functions_shared();
         let qn_to_file: HashMap<String, String> = all_functions
             .iter()
             .map(|f| (f.qualified_name.clone(), f.file_path.clone()))
             .collect();
 
-        for func in all_functions {
+        for func in all_functions.iter() {
             // Skip if already reported as part of another chain
             if reported_in_chain.contains(&func.qualified_name) {
                 continue;
             }
 
-            let callees = graph.get_callees(&func.qualified_name);
-            let callers = graph.get_callers(&func.qualified_name);
-
-            // Chain HEAD: has callers > 1 OR callers == 0, but single callee with low complexity
-            // This means it's the entry point of a chain, not a middle link
-            let is_chain_head = callers.len() != 1 && callees.len() == 1;
-            if !is_chain_head {
-                continue;
-            }
-
+            // Cheapest filters first — complexity is already on the CodeNode
             let complexity = func.complexity().unwrap_or(1);
             if complexity > 3 {
                 continue; // Not a pass-through
+            }
+
+            // Use fan_in/fan_out counts (integer lookup, zero allocation) instead of
+            // get_callers/get_callees which clone Vec<CodeNode> per call.
+            let fan_out = graph.call_fan_out(&func.qualified_name);
+            let fan_in = graph.call_fan_in(&func.qualified_name);
+
+            // Chain HEAD: has callers != 1 (entry point), but single callee (pass-through)
+            if fan_in == 1 || fan_out != 1 {
+                continue;
             }
 
             // Trace the chain forward
@@ -345,6 +346,12 @@ impl MessageChainDetector {
         depth: i32,
     ) -> (i32, Vec<String>) {
         if depth > 10 {
+            return (depth, vec![qn.to_string()]);
+        }
+
+        // Check fan-out count first (integer, zero allocation) before
+        // cloning the actual callee CodeNode.
+        if graph.call_fan_out(qn) != 1 {
             return (depth, vec![qn.to_string()]);
         }
 

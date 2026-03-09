@@ -7,7 +7,7 @@ use crate::config::ProjectConfig;
 use crate::detectors::api_surface::is_api_surface;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use tracing::{debug, info};
 
 /// Mark compound smells (multiple different issues co-located) for prioritization
@@ -15,7 +15,8 @@ use tracing::{debug, info};
 /// NOTE: This adds metadata only - does NOT change severity (to preserve accurate scoring)
 pub fn escalate_compound_smells(findings: &mut [Finding]) {
     // Group findings by location (file + overlapping line ranges)
-    let mut location_groups: HashMap<String, Vec<usize>> = HashMap::new();
+    // BTreeMap for deterministic iteration order
+    let mut location_groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
 
     for (idx, finding) in findings.iter().enumerate() {
         if finding.affected_files.is_empty() {
@@ -338,7 +339,6 @@ impl<'a> GraphScorer<'a> {
             *penalty += effective * api_discount;
             *count += 1;
         }
-
         // Build pillar breakdowns
         let structure = self.build_pillar(
             "Structure",
@@ -450,8 +450,6 @@ impl<'a> GraphScorer<'a> {
     fn compute_graph_metrics(&self) -> GraphMetrics {
         let functions = self.graph.get_functions();
         let files = self.graph.get_files();
-        let calls = self.graph.get_calls();
-        let _imports = self.graph.get_imports();
 
         // Count modules (unique directories)
         let modules: HashSet<String> = files
@@ -462,46 +460,28 @@ impl<'a> GraphScorer<'a> {
             })
             .collect();
 
-        // Calculate coupling (cross-module calls / total calls)
-        let mut cross_module_calls = 0;
-        let func_to_module: HashMap<&str, String> = functions
-            .iter()
-            .map(|f| {
-                let module = std::path::Path::new(&f.file_path)
-                    .parent()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                (f.qualified_name.as_str(), module)
-            })
-            .collect();
-
-        for (caller, callee) in &calls {
-            let caller_mod = func_to_module.get(caller.as_str());
-            let callee_mod = func_to_module.get(callee.as_str());
-            if caller_mod != callee_mod && caller_mod.is_some() && callee_mod.is_some() {
-                cross_module_calls += 1;
-            }
-        }
+        // Compute coupling directly on the graph — avoids materializing 3M+ (String, String) pairs
+        let (total_calls, cross_module_calls) = self.graph.compute_coupling_stats();
 
         debug!(
             "Call graph: {} total calls, {} cross-module, {} modules",
-            calls.len(),
+            total_calls,
             cross_module_calls,
             modules.len()
         );
 
-        let avg_coupling = if calls.is_empty() {
+        let avg_coupling = if total_calls == 0 {
             0.0
         } else {
-            cross_module_calls as f64 / calls.len() as f64
+            cross_module_calls as f64 / total_calls as f64
         };
 
         // Calculate cohesion (intra-module calls / total calls)
-        let intra_module_calls = calls.len() - cross_module_calls;
-        let avg_cohesion = if calls.is_empty() {
+        let intra_module_calls = total_calls - cross_module_calls;
+        let avg_cohesion = if total_calls == 0 {
             1.0 // No calls = perfectly cohesive (trivially)
         } else {
-            intra_module_calls as f64 / calls.len() as f64
+            intra_module_calls as f64 / total_calls as f64
         };
 
         debug!(
@@ -510,10 +490,11 @@ impl<'a> GraphScorer<'a> {
             avg_cohesion * 100.0
         );
 
-        // Count cycles
+        // Count import cycles (architectural dependency cycles).
+        // Call cycles (mutual recursion) are normal and not penalized.
+        // Skipping find_call_cycles() avoids expensive Tarjan SCC on the full call graph.
         let import_cycles = self.graph.find_import_cycles();
-        let call_cycles = self.graph.find_call_cycles();
-        let cycle_count = import_cycles.len() + call_cycles.len();
+        let cycle_count = import_cycles.len();
 
         // Simple function ratio (complexity <= 10)
         let simple_count = functions

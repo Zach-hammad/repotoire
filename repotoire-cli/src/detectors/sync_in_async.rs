@@ -77,21 +77,27 @@ impl SyncInAsyncDetector {
         }
     }
 
-    /// Find all functions that contain blocking calls
+    /// Find all functions that contain blocking calls.
+    /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).
     fn find_blocking_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut blocking_funcs = HashSet::new();
+        let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
-        for func in graph.get_functions() {
-            if let Ok(content) = std::fs::read_to_string(&func.file_path) {
-                let lines: Vec<&str> = content.lines().collect();
-                let start = func.line_start.saturating_sub(1) as usize;
-                let end = (func.line_end as usize).min(lines.len());
+        for func in graph.get_functions_shared().iter() {
+            let lines = file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+                crate::cache::global_cache()
+                    .masked_content(std::path::Path::new(&func.file_path))
+                    .map(|c| c.lines().map(String::from).collect())
+                    .unwrap_or_default()
+            });
 
-                for line in lines.get(start..end).unwrap_or(&[]) {
-                    if BLOCKING.is_match(line) {
-                        blocking_funcs.insert(func.qualified_name.clone());
-                        break;
-                    }
+            let start = func.line_start.saturating_sub(1) as usize;
+            let end = (func.line_end as usize).min(lines.len());
+
+            for line in lines.get(start..end).unwrap_or(&[]) {
+                if BLOCKING.is_match(line) {
+                    blocking_funcs.insert(func.qualified_name.clone());
+                    break;
                 }
             }
         }
@@ -125,9 +131,7 @@ impl SyncInAsyncDetector {
         line: u32,
     ) -> Option<String> {
         graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
+            .find_function_at(file_path, line)
             .map(|f| f.name)
     }
 }
@@ -143,8 +147,9 @@ impl Detector for SyncInAsyncDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
-        // First pass: identify all functions with blocking calls
-        let blocking_funcs = self.find_blocking_functions(graph);
+        // Lazy-compute blocking functions — only if we actually find async + blocking.
+        // Codebases without async code (e.g., CPython) skip this entirely: 5.1s → 0s.
+        let mut blocking_funcs: Option<HashSet<String>> = None;
 
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx"]) {
             if findings.len() >= self.max_findings {
@@ -214,14 +219,11 @@ impl Detector for SyncInAsyncDetector {
                             notes.push(format!("📦 In async function: `{}`", current_async_name));
                         }
 
-                        // Check for transitive blocking
-                        if let Some(func) = graph.get_functions().into_iter().find(|f| {
-                            f.file_path == path_str
-                                && f.line_start <= (i + 1) as u32
-                                && f.line_end >= (i + 1) as u32
-                        }) {
+                        // Check for transitive blocking (lazy-init blocking funcs on first use)
+                        if let Some(func) = graph.find_function_at(&path_str, (i + 1) as u32) {
+                            let bf = blocking_funcs.get_or_insert_with(|| self.find_blocking_functions(graph));
                             let transitive =
-                                self.check_transitive_blocking(graph, &func, &blocking_funcs);
+                                self.check_transitive_blocking(graph, &func, bf);
                             if !transitive.is_empty() {
                                 notes.push(format!(
                                     "⚠️ Also calls blocking functions: {}",

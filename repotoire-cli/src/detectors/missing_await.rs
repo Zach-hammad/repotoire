@@ -38,7 +38,7 @@ impl MissingAwaitDetector {
     /// Identify async functions from the graph — only trust the is_async property
     fn find_async_functions(graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut async_funcs = HashSet::new();
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             if let Some(is_async) = func.properties.get("is_async") {
                 if is_async.as_bool().unwrap_or(false) {
                     async_funcs.insert(func.name.clone());
@@ -119,6 +119,13 @@ impl Detector for MissingAwaitDetector {
         let mut findings = vec![];
         let known_async_funcs = Self::find_async_functions(graph);
 
+        // Pre-build file→functions map once (avoid calling get_functions() per file)
+        let all_functions = graph.get_functions_shared();
+        let mut funcs_by_file: std::collections::HashMap<&str, Vec<&crate::graph::CodeNode>> = std::collections::HashMap::new();
+        for func in all_functions.iter() {
+            funcs_by_file.entry(func.file_path.as_str()).or_default().push(func);
+        }
+
         for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx", "py"]) {
             if findings.len() >= self.max_findings {
                 break;
@@ -139,12 +146,11 @@ impl Detector for MissingAwaitDetector {
             // Find async function boundaries using brace counting
             // We need to know: (a) are we inside an async function? (b) which one?
             let mut async_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
-                                                                            // Pre-fetch functions for this file to avoid O(n²) graph lookups
-            let file_funcs: Vec<_> = graph
-                .get_functions()
-                .into_iter()
-                .filter(|f| f.file_path == path_str || path_str.ends_with(&f.file_path))
-                .collect();
+            // Use pre-built file→functions map instead of calling get_functions() per file
+            let file_funcs: Vec<&&crate::graph::CodeNode> = funcs_by_file
+                .get(path_str.as_str())
+                .map(|v| v.iter().collect())
+                .unwrap_or_default();
 
             for (i, line) in lines.iter().enumerate() {
                 let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };

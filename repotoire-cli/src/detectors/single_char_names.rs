@@ -87,7 +87,7 @@ impl SingleCharNamesDetector {
     ) -> HashMap<String, Vec<(u32, u32, String)>> {
         let mut map: HashMap<String, Vec<(u32, u32, String)>> = HashMap::new();
 
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             if func.line_start > 0 && func.line_end > 0 {
                 let path = func.file_path.clone();
                 map.entry(path).or_default().push((

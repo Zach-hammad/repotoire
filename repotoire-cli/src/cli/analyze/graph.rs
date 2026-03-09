@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -348,9 +348,13 @@ pub(super) fn build_graph(
                 graph_bar.set_position(count as u64);
             }
 
-            (file_nodes, func_nodes, class_nodes, edges)
+            (relative_str, file_nodes, func_nodes, class_nodes, edges)
         })
         .collect();
+
+    // Sort by file path for deterministic node insertion order (NodeIndex stability)
+    let mut file_results = file_results;
+    file_results.sort_by(|a, b| a.0.cmp(&b.0));
 
     // Merge results from all threads
     graph_bar.set_message("Merging graph data...");
@@ -359,7 +363,7 @@ pub(super) fn build_graph(
     let mut all_class_nodes = Vec::with_capacity(total_classes);
     let mut all_edges = Vec::new();
 
-    for (file_nodes, func_nodes, class_nodes, edges) in file_results {
+    for (_file_path, file_nodes, func_nodes, class_nodes, edges) in file_results {
         all_file_nodes.extend(file_nodes);
         all_func_nodes.extend(func_nodes);
         all_class_nodes.extend(class_nodes);
@@ -496,12 +500,16 @@ pub(super) fn build_graph_chunked(
                     graph_bar.set_position(count as u64);
                 }
 
-                (file_nodes, func_nodes, class_nodes, edges)
+                (relative_str, file_nodes, func_nodes, class_nodes, edges)
             })
             .collect();
 
+        // Sort by file path for deterministic node insertion order (NodeIndex stability)
+        let mut chunk_results = chunk_results;
+        chunk_results.sort_by(|a, b| a.0.cmp(&b.0));
+
         // Insert this chunk's data immediately (don't accumulate all chunks)
-        for (file_nodes, func_nodes, class_nodes, edges) in chunk_results {
+        for (_file_path, file_nodes, func_nodes, class_nodes, edges) in chunk_results {
             graph.add_nodes_batch(file_nodes);
             graph.add_nodes_batch(func_nodes);
             graph.add_nodes_batch(class_nodes);
@@ -550,9 +558,9 @@ pub(super) fn build_global_function_map(
 /// Pre-computed lookup structures for efficient edge resolution
 pub(super) struct ModuleLookup {
     /// file_stem (e.g. "utils") -> Vec<(file_path_str, file_index)>
-    by_stem: HashMap<String, Vec<(String, usize)>>,
+    by_stem: BTreeMap<String, Vec<(String, usize)>>,
     /// Various module path patterns -> Vec<(file_path_str, file_index)>
-    by_pattern: HashMap<String, Vec<(String, usize)>>,
+    by_pattern: BTreeMap<String, Vec<(String, usize)>>,
 }
 
 impl ModuleLookup {
@@ -575,8 +583,8 @@ impl ModuleLookup {
             .collect();
 
         // Build lookup maps
-        let mut by_stem: HashMap<String, Vec<(String, usize)>> = HashMap::new();
-        let mut by_pattern: HashMap<String, Vec<(String, usize)>> = HashMap::new();
+        let mut by_stem: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
+        let mut by_pattern: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
 
         for (idx, relative_str, file_stem, patterns) in entries {
             by_stem
@@ -590,6 +598,14 @@ impl ModuleLookup {
                     .or_default()
                     .push((relative_str.clone(), idx));
             }
+        }
+
+        // Sort candidate vecs for deterministic resolution order
+        for candidates in by_stem.values_mut() {
+            candidates.sort_by(|a, b| a.0.cmp(&b.0));
+        }
+        for candidates in by_pattern.values_mut() {
+            candidates.sort_by(|a, b| a.0.cmp(&b.0));
         }
 
         ModuleLookup {

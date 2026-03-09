@@ -107,13 +107,17 @@ impl Detector for BooleanTrapDetector {
             }
         }
 
-        // Lazily build name→CodeNode map (only if there are trap calls)
-        let func_by_name: Option<std::collections::HashMap<String, crate::graph::store_models::CodeNode>> =
-            if trap_calls.is_empty() {
-                None
-            } else {
-                Some(graph.get_functions().into_iter().map(|f| (f.name.clone(), f)).collect())
-            };
+        // Lazily build name→CodeNode ref map (only if there are trap calls)
+        // Uses get_functions_shared() to borrow from cached Arc — avoids cloning 71K CodeNodes.
+        let all_funcs = if trap_calls.is_empty() {
+            None
+        } else {
+            Some(graph.get_functions_shared())
+        };
+        let func_by_name: Option<std::collections::HashMap<&str, &crate::graph::store_models::CodeNode>> =
+            all_funcs.as_ref().map(|funcs| {
+                funcs.iter().map(|f| (f.name.as_str(), f)).collect()
+            });
 
         // Second pass: create findings with graph context
         for (path, line_num, func_name, bool_count) in trap_calls {
@@ -124,7 +128,7 @@ impl Detector for BooleanTrapDetector {
             let call_count = func_call_counts.get(&func_name).copied().unwrap_or(1);
 
             // Find the function definition in graph — O(1) lookup
-            let func_def = func_by_name.as_ref().and_then(|m| m.get(&func_name));
+            let func_def = func_by_name.as_ref().and_then(|m| m.get(func_name.as_str()).copied());
 
             // Build context
             let mut notes = Vec::new();
@@ -144,11 +148,12 @@ impl Detector for BooleanTrapDetector {
                 if let Some(params) = def.get_str("params") {
                     notes.push(format!("📝 Function params: {}", params));
                 }
-                let callers = graph.get_callers(&def.qualified_name);
-                if callers.len() > 5 {
+                // Use O(1) fan-in count to avoid cloning caller CodeNodes
+                let fan_in = graph.call_fan_in(&def.qualified_name);
+                if fan_in > 5 {
                     notes.push(format!(
                         "🔥 Widely used ({} callers) - high impact fix",
-                        callers.len()
+                        fan_in
                     ));
                 }
             }

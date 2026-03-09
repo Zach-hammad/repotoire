@@ -307,55 +307,89 @@ impl Detector for CoreUtilityDetector {
         Some(&self.config)
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        use std::collections::HashSet;
+
+        // Pre-build skip set per FILE (not per function) — avoids redundant content
+        // classifier scans.  On CPython (3.4K files, 71K functions) this turns
+        // 71K × 4 content scans into 3.4K × 4.
+        // Get shared Arc once — reused for both classification and detection loops
+        let all_functions = graph.get_functions_shared();
+
+        let mut skip_files: HashSet<String> = HashSet::new();
+        {
+            let mut seen_files: HashSet<String> = HashSet::new();
+            for func in all_functions.iter() {
+                if !seen_files.insert(func.file_path.clone()) {
+                    continue; // already classified this file
+                }
+                if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
+                    skip_files.insert(func.file_path.clone());
+                    continue;
+                }
+                if let Some(content) =
+                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                {
+                    if crate::detectors::content_classifier::is_bundled_code(&content)
+                        || crate::detectors::content_classifier::is_minified_code(&content)
+                        || crate::detectors::content_classifier::is_fixture_code(
+                            &func.file_path,
+                            &content,
+                        )
+                    {
+                        skip_files.insert(func.file_path.clone());
+                    }
+                }
+            }
+        }
+
         let mut findings = Vec::new();
 
-        for func in graph.get_functions() {
-            // Skip bundled/generated code: path check (semantic) + content check (additional)
-            if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
+        for func in all_functions.iter() {
+            if skip_files.contains(&func.file_path) {
                 continue;
             }
+
+            // fan_in check first (cheap O(1) lookup) — skip 99%+ of functions early
+            let fan_in = graph.call_fan_in(&func.qualified_name);
+            if fan_in < 10 {
+                continue;
+            }
+
+            let fan_out = graph.call_fan_out(&func.qualified_name);
+            if fan_out > 2 {
+                continue;
+            }
+
+            // Per-function AST manipulation check (needs func name — can't pre-compute)
             if let Some(content) =
                 crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
             {
-                if crate::detectors::content_classifier::is_bundled_code(&content)
-                    || crate::detectors::content_classifier::is_minified_code(&content)
-                    || crate::detectors::content_classifier::is_fixture_code(
-                        &func.file_path,
-                        &content,
-                    )
-                    || crate::detectors::content_classifier::is_ast_manipulation_code(
-                        &func.name, &content,
-                    )
-                {
+                if crate::detectors::content_classifier::is_ast_manipulation_code(
+                    &func.name, &content,
+                ) {
                     continue;
                 }
             }
 
-            let fan_in = graph.call_fan_in(&func.qualified_name);
-            let fan_out = graph.call_fan_out(&func.qualified_name);
-
-            // Core utility: high fan-in, low fan-out (many depend on it, it depends on few)
-            if fan_in >= 10 && fan_out <= 2 {
-                findings.push(Finding {
-                    id: String::new(),
-                    detector: "CoreUtilityDetector".to_string(),
-                    severity: Severity::Info,
-                    title: format!("Core Utility: {}", func.name),
-                    description: format!(
-                        "Function '{}' is used by {} callers. This is a core utility - ensure it's well-tested.",
-                        func.name, fan_in
-                    ),
-                    affected_files: vec![func.file_path.clone().into()],
-                    line_start: Some(func.line_start),
-                    line_end: Some(func.line_end),
-                    suggested_fix: Some("Ensure comprehensive test coverage for this core function".to_string()),
-                    estimated_effort: Some("Small (1 hour)".to_string()),
-                    category: Some("architecture".to_string()),
-                    cwe_id: None,
-                    why_it_matters: Some("Core utilities need extra attention as bugs affect many callers".to_string()),
-                    ..Default::default()
-                });
-            }
+            findings.push(Finding {
+                id: String::new(),
+                detector: "CoreUtilityDetector".to_string(),
+                severity: Severity::Info,
+                title: format!("Core Utility: {}", func.name),
+                description: format!(
+                    "Function '{}' is used by {} callers. This is a core utility - ensure it's well-tested.",
+                    func.name, fan_in
+                ),
+                affected_files: vec![func.file_path.clone().into()],
+                line_start: Some(func.line_start),
+                line_end: Some(func.line_end),
+                suggested_fix: Some("Ensure comprehensive test coverage for this core function".to_string()),
+                estimated_effort: Some("Small (1 hour)".to_string()),
+                category: Some("architecture".to_string()),
+                cwe_id: None,
+                why_it_matters: Some("Core utilities need extra attention as bugs affect many callers".to_string()),
+                ..Default::default()
+            });
         }
 
         Ok(findings)

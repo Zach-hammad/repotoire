@@ -9,6 +9,7 @@ use std::path::Path;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
 /// Parse a C++ file and extract all code entities
+#[allow(dead_code)]
 pub fn parse(path: &Path) -> Result<ParseResult> {
     let source = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
@@ -18,6 +19,11 @@ pub fn parse(path: &Path) -> Result<ParseResult> {
 
 /// Parse C++ source code directly (useful for testing)
 pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
+    parse_source_with_tree(source, path).map(|(r, _)| r)
+}
+
+/// Parse C++ source code and return both the ParseResult and the tree-sitter Tree.
+pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
     let mut parser = Parser::new();
     let language = tree_sitter_cpp::LANGUAGE;
     parser
@@ -39,7 +45,7 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
     extract_includes(&root, source_bytes, &mut result)?;
     extract_calls(&root, source_bytes, path, &mut result)?;
 
-    Ok(result)
+    Ok((result, tree))
 }
 
 /// Check if a function definition has a specific storage class specifier (e.g., "extern", "static")

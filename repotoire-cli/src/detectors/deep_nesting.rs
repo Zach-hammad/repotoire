@@ -65,10 +65,7 @@ impl DeepNestingDetector {
         file_path: &str,
         line: u32,
     ) -> Option<crate::graph::CodeNode> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
+        graph.find_function_at(file_path, line)
     }
 
     /// Check if function is an entry point (handlers need more nesting)

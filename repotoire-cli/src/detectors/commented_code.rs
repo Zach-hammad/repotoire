@@ -132,7 +132,7 @@ impl Detector for CommentedCodeDetector {
 
         // Pre-build function name set once — O(N) instead of O(N) per commented block
         let all_func_names: HashSet<String> =
-            graph.get_functions().into_iter().map(|f| f.name).collect();
+            graph.get_functions_shared().iter().map(|f| f.name.clone()).collect();
 
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]) {
             if findings.len() >= self.max_findings {

@@ -132,7 +132,7 @@ impl Detector for InconsistentReturnsDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             if findings.len() >= self.max_findings {
                 break;
             }

@@ -447,15 +447,12 @@ impl Detector for AIChurnDetector {
             }
         };
 
-        // Single-pass: collect file churn counts + per-file commit/hunk data in one revwalk.
-        // Replaces the previous two-phase approach (get_all_file_churn + get_batch_file_commits_with_hunks)
-        // which walked 500 commits twice. Also extracts per-hunk insertion/deletion counts for
-        // function-level accuracy (previously used file-wide stats).
-        info!("AIChurnDetector: Single-pass churn + hunk extraction (up to 500 commits)");
-        let (churn_counts, file_commit_cache) = match git_history.get_churn_and_hunks(500, 100) {
+        // ── Phase 1: file_cb ONLY revwalk (zero content decompression) ──
+        info!("AIChurnDetector: Phase 1 — file churn counts (file_cb only, 500 commits)");
+        let churn_counts = match git_history.get_file_churn_counts(500) {
             Ok(data) => data,
             Err(e) => {
-                warn!("AIChurnDetector: Failed to get churn data: {}. Falling back.", e);
+                warn!("AIChurnDetector: Failed to get churn counts: {}. Falling back.", e);
                 return self.detect_without_git_history(graph);
             }
         };
@@ -477,146 +474,164 @@ impl Detector for AIChurnDetector {
             return Ok(vec![]);
         }
 
-        // For each function in high-churn files, compute function-level churn from hunk overlap
-        let repo_path_str = repo_path.to_string_lossy();
-        let functions = graph.get_functions();
+        // ── Phase 2: multi-pathspec + hunk_cb for high-churn files only ──
+        // Only decompresses content for the ~100 high-churn files (vs ~3,400 before).
+        // Early cutoff stops when commits are older than the analysis window.
         let analysis_cutoff = Utc::now() - Duration::days(self.analysis_window_days);
+        info!(
+            "AIChurnDetector: Phase 2 — hunk extraction for {} high-churn files (pathspec-filtered)",
+            high_churn_files.len()
+        );
+        let file_commit_cache = match git_history.get_hunks_for_paths(
+            &high_churn_files,
+            500,
+            100,
+            Some(analysis_cutoff),
+        ) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!("AIChurnDetector: Failed to get hunk data: {}. Falling back.", e);
+                return self.detect_without_git_history(graph);
+            }
+        };
 
-        info!("AIChurnDetector: Filtering {} functions by hunk overlap (in-memory)", functions.len());
+        // ── Phase 3: file-scoped function queries (avoids 71k function iteration) ──
+        // Instead of graph.get_functions() (ALL functions), query only functions in
+        // the ~100 high-churn files via get_functions_in_file() (O(1) DashMap index).
+        let repo_path_str = repo_path.to_string_lossy();
         let mut findings = Vec::new();
+        let mut total_functions = 0usize;
 
-        for func in &functions {
+        for relative_path in &high_churn_files {
             if findings.len() >= 50 {
                 debug!("AIChurnDetector: Reached 50-finding cap, stopping");
                 break;
             }
 
-            if is_test_path(&func.file_path) || func.loc() < self.min_function_lines as u32 {
-                continue;
-            }
-
-            let relative_path = func
-                .file_path
-                .strip_prefix(repo_path_str.as_ref())
-                .unwrap_or(&func.file_path)
-                .trim_start_matches('/');
-
-            // Skip files that aren't high-churn
-            if !high_churn_files.contains(relative_path) {
-                continue;
-            }
-
-            let cached = match file_commit_cache.get(relative_path) {
+            let cached = match file_commit_cache.get(relative_path.as_str()) {
                 Some(c) => c,
                 None => continue,
             };
 
-            let line_start = func.line_start;
-            let line_end = func.line_end;
-            if line_start == 0 || line_end == 0 {
-                continue;
-            }
+            // Reconstruct absolute path for graph query
+            let abs_path = format!("{}/{}", repo_path_str.trim_end_matches('/'), relative_path);
+            let funcs_in_file = graph.get_functions_in_file(&abs_path);
+            total_functions += funcs_in_file.len();
 
-            // Filter commits by hunk overlap and compute function-level line counts.
-            // Only count insertions/deletions from hunks that actually overlap the function range,
-            // giving more accurate churn metrics than the previous file-wide stats.
-            let mut func_commits: Vec<(&crate::git::history::CommitInfo, usize, usize)> = Vec::new();
-            for (info, hunks) in cached {
-                let mut func_ins = 0usize;
-                let mut func_del = 0usize;
-                let mut overlaps = false;
+            for func in &funcs_in_file {
+                if findings.len() >= 50 {
+                    break;
+                }
 
-                for hunk in hunks {
-                    if hunk.new_start <= line_end && hunk.new_end >= line_start {
-                        overlaps = true;
-                        func_ins += hunk.insertions;
-                        func_del += hunk.deletions;
+                if is_test_path(&func.file_path) || func.loc() < self.min_function_lines as u32 {
+                    continue;
+                }
+
+                let line_start = func.line_start;
+                let line_end = func.line_end;
+                if line_start == 0 || line_end == 0 {
+                    continue;
+                }
+
+                // Filter commits by hunk overlap and compute function-level line counts.
+                let mut func_commits: Vec<(&crate::git::history::CommitInfo, usize, usize)> = Vec::new();
+                for (info, hunks) in cached {
+                    let mut func_ins = 0usize;
+                    let mut func_del = 0usize;
+                    let mut overlaps = false;
+
+                    for hunk in hunks {
+                        if hunk.new_start <= line_end && hunk.new_end >= line_start {
+                            overlaps = true;
+                            func_ins += hunk.insertions;
+                            func_del += hunk.deletions;
+                        }
+                    }
+
+                    if overlaps {
+                        func_commits.push((info, func_ins, func_del));
                     }
                 }
 
-                if overlaps {
-                    func_commits.push((info, func_ins, func_del));
-                }
-            }
-
-            // Cap and need at least 2 commits (creation + modification)
-            func_commits.truncate(50);
-            if func_commits.len() < 2 {
-                continue;
-            }
-
-            // Commits are sorted newest-first. The last one is the creation commit.
-            let (creation_commit, _, _) = func_commits.last().expect("has >= 2 elements");
-            let created_at = chrono::DateTime::parse_from_rfc3339(&creation_commit.timestamp)
-                .ok()
-                .map(|dt| dt.with_timezone(&Utc));
-
-            // Filter to commits within the analysis window
-            if let Some(created) = created_at {
-                if created < analysis_cutoff {
+                // Cap and need at least 2 commits (creation + modification)
+                func_commits.truncate(50);
+                if func_commits.len() < 2 {
                     continue;
                 }
-            }
 
-            // Build modifications from all commits except the creation commit,
-            // using function-level insertion/deletion counts
-            let mut modifications = Vec::new();
-            for &(commit, func_ins, func_del) in func_commits.iter().take(func_commits.len() - 1) {
-                let ts = chrono::DateTime::parse_from_rfc3339(&commit.timestamp)
+                // Commits are sorted newest-first. The last one is the creation commit.
+                let (creation_commit, _, _) = func_commits.last().expect("has >= 2 elements");
+                let created_at = chrono::DateTime::parse_from_rfc3339(&creation_commit.timestamp)
                     .ok()
                     .map(|dt| dt.with_timezone(&Utc));
 
-                if let Some(timestamp) = ts {
-                    modifications.push(Modification {
-                        timestamp,
-                        commit_sha: commit.hash.clone(),
-                        lines_added: func_ins,
-                        lines_deleted: func_del,
-                    });
+                // Filter to commits within the analysis window
+                if let Some(created) = created_at {
+                    if created < analysis_cutoff {
+                        continue;
+                    }
                 }
-            }
 
-            if modifications.is_empty() {
-                continue;
-            }
+                // Build modifications from all commits except the creation commit,
+                // using function-level insertion/deletion counts
+                let mut modifications = Vec::new();
+                for &(commit, func_ins, func_del) in func_commits.iter().take(func_commits.len() - 1) {
+                    let ts = chrono::DateTime::parse_from_rfc3339(&commit.timestamp)
+                        .ok()
+                        .map(|dt| dt.with_timezone(&Utc));
 
-            // Sort modifications oldest-first for consistent analysis
-            modifications.sort_by_key(|m| m.timestamp);
+                    if let Some(timestamp) = ts {
+                        modifications.push(Modification {
+                            timestamp,
+                            commit_sha: commit.hash.clone(),
+                            lines_added: func_ins,
+                            lines_deleted: func_del,
+                        });
+                    }
+                }
 
-            let first_mod = modifications.first().map(|m| m.timestamp);
-            let first_mod_sha = modifications
-                .first()
-                .map(|m| m.commit_sha.clone())
-                .unwrap_or_default();
+                if modifications.is_empty() {
+                    continue;
+                }
 
-            let record = FunctionChurnRecord {
-                qualified_name: func.qualified_name.clone(),
-                file_path: func.file_path.clone(),
-                function_name: func.name.clone(),
-                created_at,
-                creation_commit: creation_commit.hash.clone(),
-                lines_original: func.loc() as usize,
-                first_modification_at: first_mod,
-                first_modification_commit: first_mod_sha,
-                modifications,
-            };
+                // Sort modifications oldest-first for consistent analysis
+                modifications.sort_by_key(|m| m.timestamp);
 
-            // Score and produce finding
-            if let Some(finding) = self.create_finding(&record) {
-                debug!(
-                    "AIChurnDetector: Finding for {} (score={:.2}, severity={:?})",
-                    record.qualified_name,
-                    record.ai_churn_score(),
-                    finding.severity
-                );
-                findings.push(finding);
+                let first_mod = modifications.first().map(|m| m.timestamp);
+                let first_mod_sha = modifications
+                    .first()
+                    .map(|m| m.commit_sha.clone())
+                    .unwrap_or_default();
+
+                let record = FunctionChurnRecord {
+                    qualified_name: func.qualified_name.clone(),
+                    file_path: func.file_path.clone(),
+                    function_name: func.name.clone(),
+                    created_at,
+                    creation_commit: creation_commit.hash.clone(),
+                    lines_original: func.loc() as usize,
+                    first_modification_at: first_mod,
+                    first_modification_commit: first_mod_sha,
+                    modifications,
+                };
+
+                // Score and produce finding
+                if let Some(finding) = self.create_finding(&record) {
+                    debug!(
+                        "AIChurnDetector: Finding for {} (score={:.2}, severity={:?})",
+                        record.qualified_name,
+                        record.ai_churn_score(),
+                        finding.severity
+                    );
+                    findings.push(finding);
+                }
             }
         }
 
         info!(
             "AIChurnDetector: Produced {} findings from {} functions in {} high-churn files",
             findings.len(),
-            functions.len(),
+            total_functions,
             high_churn_files.len()
         );
 

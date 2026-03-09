@@ -263,7 +263,7 @@ impl Detector for InfluentialCodeDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             // Skip by name pattern
             if self.should_skip_by_name(&func.name) {
                 continue;
@@ -308,14 +308,14 @@ impl Detector for InfluentialCodeDetector {
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        let funcs = graph.get_functions();
+        let funcs = graph.get_functions_shared();
 
         debug!(
             "InfluentialCodeDetector: analyzing {} functions with context",
             funcs.len()
         );
 
-        for func in funcs {
+        for func in funcs.iter() {
             let ctx = contexts.get(&func.qualified_name);
 
             // Skip test functions

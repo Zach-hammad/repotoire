@@ -88,6 +88,24 @@ impl Detector for PathTraversalDetector {
                 break;
             }
 
+            // Cheap pre-filter: skip files without any file-operation keywords
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("open") && !raw.contains("unlink") && !raw.contains("rmdir")
+                && !raw.contains("mkdir") && !raw.contains("copyFile") && !raw.contains("rename")
+                && !raw.contains("readFile") && !raw.contains("writeFile")
+                && !raw.contains("shutil") && !raw.contains("os.remove")
+                && !raw.contains("path.join") && !raw.contains("path.resolve")
+                && !raw.contains("os.path") && !raw.contains("filepath")
+                && !raw.contains("pathlib") && !raw.contains("sendFile")
+                && !raw.contains("send_file") && !raw.contains("serve_file")
+                && !raw.contains("createReadStream") && !raw.contains("createWriteStream")
+            {
+                continue;
+            }
+
             let rel_path = path
                 .strip_prefix(&self.repository_path)
                 .unwrap_or(path)
@@ -102,7 +120,8 @@ impl Detector for PathTraversalDetector {
                 || file_str.contains("/spec/")
                 || file_str.contains("_spec.");
 
-            if let Some(content) = files.content(path) {
+            {
+                let content = raw;
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };

@@ -120,12 +120,13 @@ fn bitset_jaccard(a: u128, b: u128) -> f64 {
     if union == 0.0 { 1.0 } else { intersection / union }
 }
 
-/// Cluster functions by AST similarity using bitset brute-force + single-linkage clustering.
+/// Cluster functions by AST similarity using popcount-sorted sliding window +
+/// single-linkage clustering.
 ///
-/// With structural_kinds encoded as u128 bitsets (~50 distinct kinds), brute-force
-/// all-pairs Jaccard via POPCNT is O(n²) but each comparison is ~2ns, making
-/// 13k functions (84.5M pairs) finish in ~200ms. This is faster and simpler than
-/// MinHash/LSH, and produces exact results (no false negatives).
+/// Sorting by popcount and scanning only within the valid ratio window turns
+/// the inner loop from O(n) to O(w) where w = functions within popcount range.
+/// For threshold 0.70, a function with popcount p only compares against functions
+/// with popcount ≤ p/threshold. Exact results (no false negatives).
 fn cluster_by_similarity(
     functions: &[FunctionAST],
     threshold: f64,
@@ -155,22 +156,32 @@ fn cluster_by_similarity(
         }
     }
 
-    // Brute-force all pairs with bitset Jaccard
-    let bitsets: Vec<u128> = functions.iter().map(|f| f.bitset).collect();
-    for i in 0..n {
-        let a = bitsets[i];
-        if a == 0 { continue; }
-        for j in (i + 1)..n {
-            let b = bitsets[j];
-            if b == 0 { continue; }
-            // Size-ratio pre-check: if popcount ratio < threshold, Jaccard < threshold
-            let pop_a = a.count_ones();
-            let pop_b = b.count_ones();
-            if (pop_a.min(pop_b) as f64) / (pop_a.max(pop_b) as f64) < threshold {
-                continue;
+    // Build (original_index, bitset, popcount) sorted by popcount ascending
+    let mut sorted: Vec<(usize, u128, u32)> = functions
+        .iter()
+        .enumerate()
+        .filter_map(|(i, f)| {
+            let b = f.bitset;
+            if b == 0 { return None; }
+            Some((i, b, b.count_ones()))
+        })
+        .collect();
+    sorted.sort_unstable_by_key(|&(_, _, pop)| pop);
+
+    let inv_threshold = 1.0 / threshold; // max_pop/min_pop ratio
+
+    // Sliding window: for each i, scan forward while popcount ratio is valid
+    let len = sorted.len();
+    for i in 0..len {
+        let (idx_a, a, pop_a) = sorted[i];
+        let max_pop = (pop_a as f64 * inv_threshold) as u32;
+        for j in (i + 1)..len {
+            let (idx_b, b, pop_b) = sorted[j];
+            if pop_b > max_pop {
+                break; // sorted ascending — all subsequent exceed ratio
             }
             if bitset_jaccard(a, b) >= threshold {
-                union(&mut parent, i, j);
+                union(&mut parent, idx_a, idx_b);
             }
         }
     }
@@ -188,6 +199,70 @@ fn cluster_by_similarity(
         .filter(|indices| indices.len() >= min_cluster_size && indices.len() <= MAX_CLUSTER_SIZE)
         .map(|indices| indices.into_iter().map(|i| functions[i].clone()).collect())
         .collect()
+}
+
+/// Derive boilerplate patterns from structural kinds + body text.
+/// Cheap alternative to re-parsing — just set membership + substring matching.
+fn derive_patterns(kinds: &HashSet<String>, body: &str) -> Vec<BoilerplatePattern> {
+    let lower = body.to_lowercase();
+    let mut patterns = Vec::new();
+
+    if kinds.contains("try_statement") || kinds.contains("except_clause") || kinds.contains("catch_clause") {
+        patterns.push(BoilerplatePattern::TryExcept);
+    }
+    if kinds.contains("raise_statement")
+        || kinds.contains("throw_statement")
+        || lower.contains("error")
+        || lower.contains("exception")
+    {
+        patterns.push(BoilerplatePattern::ErrorHandling);
+    }
+    if kinds.contains("if_statement")
+        && (lower.contains("valid")
+            || lower.contains("check")
+            || lower.contains("assert")
+            || lower.contains("isinstance"))
+    {
+        patterns.push(BoilerplatePattern::Validation);
+    }
+    if lower.contains("get(")
+        || lower.contains("post(")
+        || lower.contains("put(")
+        || lower.contains("delete(")
+        || lower.contains("patch(")
+        || lower.contains("@app.route")
+        || lower.contains("@router.")
+    {
+        patterns.push(BoilerplatePattern::HttpMethod);
+    }
+    if lower.contains("execute")
+        || lower.contains("query")
+        || lower.contains("cursor")
+        || lower.contains("session.")
+        || lower.contains("commit(")
+        || lower.contains("rollback(")
+    {
+        patterns.push(BoilerplatePattern::Database);
+    }
+    if lower.contains("create")
+        || lower.contains("update")
+        || lower.contains("delete")
+        || lower.contains("find_by")
+        || lower.contains("get_by")
+    {
+        patterns.push(BoilerplatePattern::Crud);
+    }
+    if kinds.contains("with_statement") || kinds.contains("with_clause") {
+        patterns.push(BoilerplatePattern::ContextManager);
+    }
+    if kinds.contains("for_statement") || kinds.contains("while_statement") || kinds.contains("for_in_statement") {
+        patterns.push(BoilerplatePattern::Loop);
+    }
+    if kinds.contains("await_expression") || lower.contains("async ") || lower.contains("await ") {
+        patterns.push(BoilerplatePattern::Async);
+    }
+
+    patterns
 }
 
 /// Detects excessive boilerplate code using AST clustering
@@ -567,52 +642,87 @@ impl Detector for AIBoilerplateDetector {
         Some(&self.config)
     }
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        let mut all_functions: Vec<FunctionAST> = Vec::new();
+        use rayon::prelude::*;
 
         let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"];
-        for path in files.files_with_extensions(source_exts) {
-            if crate::detectors::base::is_test_path(&path.to_string_lossy()) {
-                continue;
-            }
 
-            let content = match files.content(path) {
-                Some(c) => c,
-                None => continue,
-            };
+        // Collect file paths + content upfront
+        let file_data: Vec<_> = files
+            .files_with_extensions(source_exts)
+            .into_iter()
+            .filter(|path| !crate::detectors::base::is_test_path(&path.to_string_lossy()))
+            .filter_map(|path| {
+                let content = files.content(path)?;
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                Some((path.to_path_buf(), content, ext))
+            })
+            .collect();
 
-            let lang = crate::parsers::lightweight::Language::from_extension(
-                path.extension().and_then(|e| e.to_str()).unwrap_or("")
-            );
+        let min_loc = self.min_loc;
+        let mut all_functions: Vec<FunctionAST> = file_data
+            .par_iter()
+            .flat_map_iter(|(path, content, ext)| {
+                let path_str = path.to_string_lossy().to_string();
 
-            let functions = crate::detectors::ast_fingerprint::parse_functions_for_boilerplate(&content, lang);
-
-            let path_str = path.to_string_lossy();
-            for (func, fp) in functions {
-                let loc = (func.line_end - func.line_start + 1) as usize;
-                if loc < self.min_loc {
-                    continue;
+                // Fast path: use structural fingerprints cached during the parse phase.
+                // This eliminates all tree-sitter re-parsing (~860ms on CPython).
+                if let Some(cached) = crate::parsers::get_cached_fps(&path_str) {
+                    return cached
+                        .into_iter()
+                        .filter_map(|fp| {
+                            let loc = (fp.line_end - fp.line_start + 1) as usize;
+                            if loc < min_loc || fp.structural_kinds.is_empty() {
+                                return None;
+                            }
+                            // Derive patterns from structural_kinds + body text (cheap)
+                            let body_start = content.lines().take(fp.line_start.saturating_sub(1) as usize).map(|l| l.len() + 1).sum::<usize>();
+                            let body_end = content.lines().take(fp.line_end as usize).map(|l| l.len() + 1).sum::<usize>();
+                            let body_slice = &content[body_start..body_end.min(content.len())];
+                            let patterns = derive_patterns(&fp.structural_kinds, body_slice);
+                            Some(FunctionAST {
+                                qualified_name: format!("{}::{}", path_str, fp.name),
+                                name: fp.name,
+                                file_path: path_str.clone(),
+                                line_start: fp.line_start,
+                                line_end: fp.line_end,
+                                loc,
+                                hash_set: fp.structural_kinds,
+                                bitset: 0,
+                                patterns,
+                                decorators: vec![],
+                                parent_class: None,
+                                is_method: false,
+                            })
+                        })
+                        .collect::<Vec<_>>();
                 }
 
-                if fp.structural_kinds.is_empty() {
-                    continue;
-                }
+                // Slow path: fallback to re-parsing (e.g. tests with MockFileProvider)
+                let lang = crate::parsers::lightweight::Language::from_extension(ext);
+                let functions = crate::detectors::ast_fingerprint::parse_functions_for_boilerplate(content, lang);
 
-                all_functions.push(FunctionAST {
-                    qualified_name: format!("{}::{}", path_str, func.name),
-                    name: func.name,
-                    file_path: path_str.to_string(),
-                    line_start: func.line_start,
-                    line_end: func.line_end,
-                    loc,
-                    hash_set: fp.structural_kinds,
-                    bitset: 0, // filled below after vocabulary is built
-                    patterns: fp.patterns,
-                    decorators: vec![],
-                    parent_class: None,
-                    is_method: false,
-                });
-            }
-        }
+                functions.into_iter().filter_map(move |(func, fp)| {
+                    let loc = (func.line_end - func.line_start + 1) as usize;
+                    if loc < min_loc || fp.structural_kinds.is_empty() {
+                        return None;
+                    }
+                    Some(FunctionAST {
+                        qualified_name: format!("{}::{}", path_str, func.name),
+                        name: func.name,
+                        file_path: path_str.clone(),
+                        line_start: func.line_start,
+                        line_end: func.line_end,
+                        loc,
+                        hash_set: fp.structural_kinds,
+                        bitset: 0,
+                        patterns: fp.patterns,
+                        decorators: vec![],
+                        parent_class: None,
+                        is_method: false,
+                    })
+                }).collect::<Vec<_>>()
+            })
+            .collect();
 
         // Build vocabulary map: assign each structural kind a bit position (up to 128)
         let mut vocab: HashMap<String, u8> = HashMap::new();

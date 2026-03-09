@@ -151,7 +151,7 @@ impl<'a> FunctionContextBuilder<'a> {
     pub fn build(&self) -> FunctionContextMap {
         let start = std::time::Instant::now();
 
-        let functions = self.graph.get_functions();
+        let functions = self.graph.get_functions_shared();
         let func_count = functions.len();
 
         if func_count == 0 {
@@ -160,8 +160,13 @@ impl<'a> FunctionContextBuilder<'a> {
 
         info!("Building function context for {} functions", func_count);
 
-        // Build adjacency for betweenness calculation
-        let (adj, qn_to_idx, _idx_to_qn) = self.build_adjacency(&functions);
+        // Build adjacency and reverse adjacency for call edges
+        // CachedGraphQuery overrides this to reuse pre-built index maps,
+        // avoiding cloning millions of (String, String) call edge pairs.
+        let (adj, rev_adj, qn_to_idx) = self.graph.get_call_adjacency();
+
+        // Pre-extract file paths for module lookups (indexed by adjacency index)
+        let file_paths: Vec<&str> = functions.iter().map(|f| f.file_path.as_str()).collect();
 
         // Calculate betweenness centrality (parallelized)
         let betweenness = self.calculate_betweenness(&adj);
@@ -177,26 +182,25 @@ impl<'a> FunctionContextBuilder<'a> {
         // Build call depth map
         let call_depths = self.calculate_call_depths(&adj, &qn_to_idx);
 
-        // Build context for each function
+        // Build context for each function using pre-built adjacency lists (zero graph queries)
         let contexts: Vec<FunctionContext> = functions
             .par_iter()
-            .map(|func| {
+            .enumerate()
+            .map(|(idx, func)| {
                 let qn = &func.qualified_name;
 
-                // Get graph metrics
-                let callers = self.graph.get_callers(qn);
-                let callees = self.graph.get_callees(qn);
-                let in_degree = callers.len();
-                let out_degree = callees.len();
+                // Derive metrics from adjacency lists — no per-function graph queries
+                let in_degree = rev_adj[idx].len();
+                let out_degree = adj[idx].len();
 
-                // Calculate module spread
-                let caller_modules: HashSet<_> = callers
+                // Calculate module spread from adjacency lists
+                let caller_modules: HashSet<_> = rev_adj[idx]
                     .iter()
-                    .map(|c| self.extract_module(&c.file_path))
+                    .map(|&caller_idx| self.extract_module(file_paths[caller_idx]))
                     .collect();
-                let callee_modules: HashSet<_> = callees
+                let callee_modules: HashSet<_> = adj[idx]
                     .iter()
-                    .map(|c| self.extract_module(&c.file_path))
+                    .map(|&callee_idx| self.extract_module(file_paths[callee_idx]))
                     .collect();
 
                 let caller_module_count = caller_modules.len();
@@ -273,32 +277,6 @@ impl<'a> FunctionContextBuilder<'a> {
         result
     }
 
-    /// Build adjacency list from call edges
-    fn build_adjacency(
-        &self,
-        functions: &[crate::graph::CodeNode],
-    ) -> (Vec<Vec<usize>>, HashMap<String, usize>, Vec<String>) {
-        let qn_to_idx: HashMap<String, usize> = functions
-            .iter()
-            .enumerate()
-            .map(|(i, f)| (f.qualified_name.clone(), i))
-            .collect();
-
-        let idx_to_qn: Vec<String> = functions.iter().map(|f| f.qualified_name.clone()).collect();
-
-        let calls = self.graph.get_calls();
-
-        let mut adj: Vec<Vec<usize>> = vec![vec![]; functions.len()];
-
-        for (caller, callee) in calls {
-            if let (Some(&from), Some(&to)) = (qn_to_idx.get(&caller), qn_to_idx.get(&callee)) {
-                adj[from].push(to);
-            }
-        }
-
-        (adj, qn_to_idx, idx_to_qn)
-    }
-
     /// Calculate betweenness centrality using Brandes algorithm (parallelized)
     ///
     /// For graphs with more than SAMPLE_SIZE nodes, uses sampled approximation:
@@ -310,7 +288,7 @@ impl<'a> FunctionContextBuilder<'a> {
             return vec![];
         }
 
-        const SAMPLE_SIZE: usize = 500;
+        const SAMPLE_SIZE: usize = 200;
         let k = n.min(SAMPLE_SIZE);
 
         // Select source nodes: all if small graph, random sample if large

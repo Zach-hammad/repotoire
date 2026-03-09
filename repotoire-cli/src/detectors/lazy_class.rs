@@ -37,68 +37,68 @@ impl Default for LazyClassThresholds {
     }
 }
 
-/// Patterns to exclude from lazy class detection
+/// Patterns to exclude from lazy class detection (pre-lowercased for fast matching)
 const EXCLUDE_PATTERNS: &[&str] = &[
     // Design patterns (intentionally small)
-    "Adapter",
-    "Wrapper",
-    "Proxy",
-    "Decorator",
-    "Facade",
-    "Bridge",
+    "adapter",
+    "wrapper",
+    "proxy",
+    "decorator",
+    "facade",
+    "bridge",
     // Data classes (supposed to be simple)
-    "Config",
-    "Settings",
-    "Options",
-    "DTO",
-    "Entity",
-    "Model",
-    "Schema",
-    "Request",
-    "Response",
-    "Params",
-    "Args",
-    "Event",
-    "Message",
+    "config",
+    "settings",
+    "options",
+    "dto",
+    "entity",
+    "model",
+    "schema",
+    "request",
+    "response",
+    "params",
+    "args",
+    "event",
+    "message",
     // Exceptions
-    "Exception",
-    "Error",
+    "exception",
+    "error",
     // Base/abstract (extended elsewhere)
-    "Base",
-    "Abstract",
-    "Interface",
-    "Mixin",
-    "Protocol",
-    "Trait",
+    "base",
+    "abstract",
+    "interface",
+    "mixin",
+    "protocol",
+    "trait",
     // Test infrastructure
-    "Test",
-    "Mock",
-    "Stub",
-    "Fake",
-    "Fixture",
+    "test",
+    "mock",
+    "stub",
+    "fake",
+    "fixture",
     // Framework conventions
-    "Serializer",
-    "Validator",
-    "Handler",
-    "Listener",
-    "Observer",
-    "Factory",
-    "Builder",
-    "Provider",
-    "Service",
+    "serializer",
+    "validator",
+    "handler",
+    "listener",
+    "observer",
+    "factory",
+    "builder",
+    "provider",
+    "service",
     // ORM patterns (intentionally small - Strategy pattern)
-    "Lookup",
-    "Transform",
-    "Descriptor",
-    "Attribute",
-    "Field",
-    "Constraint",
-    "Index",
-    "Expression",
-    "Widget",
-    "Migration",
-    "Command",
-    "Middleware",
+    "lookup",
+    "transform",
+    "descriptor",
+    "attribute",
+    "field",
+    "constraint",
+    "index",
+    "expression",
+    "widget",
+    "migration",
+    "command",
+    "middleware",
 ];
 
 /// Detects classes that do minimal work and aren't used much
@@ -126,50 +126,38 @@ impl LazyClassDetector {
         Self { config, thresholds }
     }
 
-    /// Check if class name matches an exclusion pattern
+    /// Check if class name matches an exclusion pattern.
+    /// Patterns are pre-lowercased; we only lowercase the class name once.
     fn should_exclude(&self, class_name: &str) -> bool {
         let lower = class_name.to_lowercase();
-        EXCLUDE_PATTERNS
-            .iter()
-            .any(|p| lower.contains(&p.to_lowercase()))
+        EXCLUDE_PATTERNS.iter().any(|p| lower.contains(p))
     }
 
-    /// Count unique external callers of a class's methods
+    /// Count unique external callers of a class's methods.
+    ///
+    /// Uses zero-copy `count_external_callers_of()` on each method — avoids
+    /// cloning CodeNodes from `get_callers()`.  Pre-check with `call_fan_in()`
+    /// skips methods with 0 callers entirely (~60% of methods in CPython).
     fn count_external_callers(
         &self,
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
+        methods: &[&crate::graph::store_models::CodeNode],
     ) -> usize {
-        // Find methods belonging to this class using file-scoped index (O(1) lookup)
-        let file_funcs = graph.get_functions_in_file(&class.file_path);
-        let class_methods: Vec<_> = file_funcs
-            .iter()
-            .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
-            .collect();
-
-        if class_methods.is_empty() {
-            return 0;
-        }
-
-        // Collect all unique external callers
-        let mut external_callers: HashSet<String> = HashSet::new();
-        let mut get_callers_calls = 0usize;
-
-        for method in &class_methods {
-            get_callers_calls += 1;
-            for caller in graph.get_callers(&method.qualified_name) {
-                // External = not in same file or not in class line range
-                let is_external = caller.file_path != class.file_path
-                    || caller.line_start < class.line_start
-                    || caller.line_end > class.line_end;
-
-                if is_external {
-                    external_callers.insert(caller.qualified_name.clone());
-                }
+        let mut total = 0usize;
+        for method in methods {
+            // Quick check: skip methods with 0 callers (avoids index lookup)
+            if graph.call_fan_in(&method.qualified_name) == 0 {
+                continue;
             }
+            total += graph.count_external_callers_of(
+                &method.qualified_name,
+                &class.file_path,
+                class.line_start,
+                class.line_end,
+            );
         }
-
-        external_callers.len()
+        total
     }
 
     /// Calculate usage ratio (callers per method)
@@ -178,13 +166,14 @@ impl LazyClassDetector {
         &self,
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
+        methods: &[&crate::graph::store_models::CodeNode],
         method_count: usize,
     ) -> f64 {
         if method_count == 0 {
             return 0.0;
         }
 
-        let callers = self.count_external_callers(graph, class);
+        let callers = self.count_external_callers(graph, class, methods);
         callers as f64 / method_count as f64
     }
 }
@@ -214,42 +203,43 @@ impl Detector for LazyClassDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        let classes = graph.get_classes();
+        let classes = graph.get_classes_shared();
 
-        for class in classes {
-            // Skip bundled/generated code: path check (semantic) + content check (additional)
-            if crate::detectors::content_classifier::is_likely_bundled_path(&class.file_path) {
+        // Pre-filter: collect candidate classes that pass cheap checks.
+        // Order: cheapest checks first (numeric/string), expensive checks last (content cache).
+        // Per-file cache for content classifier results (avoids re-checking the same file).
+        let mut file_excluded: rustc_hash::FxHashMap<&str, bool> = rustc_hash::FxHashMap::default();
+        let mut candidates: Vec<&crate::graph::store_models::CodeNode> = Vec::new();
+        for class in classes.iter() {
+            // --- Cheapest checks first: numeric fields ---
+            let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
+            let loc = class.loc() as usize;
+
+            if method_count > self.thresholds.max_methods || loc > self.thresholds.max_loc {
                 continue;
             }
-            if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&class.file_path))
-            {
-                if crate::detectors::content_classifier::is_bundled_code(&content)
-                    || crate::detectors::content_classifier::is_minified_code(&content)
-                    || crate::detectors::content_classifier::is_fixture_code(
-                        &class.file_path,
-                        &content,
-                    )
-                {
-                    continue;
-                }
+            if loc < 5 {
+                continue;
             }
 
-            // Skip interfaces and type aliases
+            // --- String checks (no allocation, no I/O) ---
             if class.qualified_name.contains("::interface::")
                 || class.qualified_name.contains("::type::")
             {
                 continue;
             }
 
-            // Skip test fixture/model classes
+            if self.should_exclude(&class.name) {
+                continue;
+            }
+
+            // Skip test fixture/model classes (path-based, cheap)
             {
                 let lower_path = class.file_path.to_lowercase();
                 if lower_path.contains("/test/") || lower_path.contains("/tests/")
                     || lower_path.contains("/__tests__/") || lower_path.contains("/spec/")
                     || lower_path.contains("/fixtures/")
                     || lower_path.contains("test_") || lower_path.contains("_test.")
-                    // Handle relative paths (no leading slash)
                     || lower_path.starts_with("tests/")
                     || lower_path.starts_with("test/")
                     || lower_path.starts_with("__tests__/")
@@ -258,83 +248,114 @@ impl Detector for LazyClassDetector {
                 }
             }
 
-            // Skip excluded patterns
-            if self.should_exclude(&class.name) {
+            // --- Expensive: per-file bundled/minified/fixture check (cached) ---
+            let excluded = *file_excluded
+                .entry(class.file_path.as_str())
+                .or_insert_with(|| {
+                    if crate::detectors::content_classifier::is_likely_bundled_path(&class.file_path) {
+                        return true;
+                    }
+                    if let Some(content) =
+                        crate::cache::global_cache().content(std::path::Path::new(&class.file_path))
+                    {
+                        if crate::detectors::content_classifier::is_bundled_code(&content)
+                            || crate::detectors::content_classifier::is_minified_code(&content)
+                            || crate::detectors::content_classifier::is_fixture_code(
+                                &class.file_path,
+                                &content,
+                            )
+                        {
+                            return true;
+                        }
+                    }
+                    false
+                });
+            if excluded {
                 continue;
             }
 
-            let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
-            let loc = class.loc() as usize;
+            candidates.push(class);
+        }
 
-            // Must have few methods and be small
-            if method_count > self.thresholds.max_methods || loc > self.thresholds.max_loc {
-                continue;
+        // Group candidates by file to call get_functions_in_file() once per file
+        // instead of per class (13K → ~3.4K calls for CPython).
+        let mut by_file: std::collections::HashMap<&str, Vec<&crate::graph::store_models::CodeNode>> =
+            std::collections::HashMap::new();
+        for class in &candidates {
+            by_file.entry(class.file_path.as_str()).or_default().push(class);
+        }
+
+        for (file_path, file_classes) in &by_file {
+            let file_funcs = graph.get_functions_in_file(file_path);
+
+            for class in file_classes {
+                // Find methods belonging to this class from the shared file functions
+                let methods: Vec<_> = file_funcs
+                    .iter()
+                    .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
+                    .collect();
+
+                // Zero-copy external caller count (no CodeNode cloning)
+                let external_callers = self.count_external_callers(graph, class, &methods);
+
+                if external_callers >= self.thresholds.min_callers_to_skip {
+                    debug!(
+                        "Skipping {} - has {} external callers (threshold: {})",
+                        class.name, external_callers, self.thresholds.min_callers_to_skip
+                    );
+                    continue;
+                }
+
+                let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
+                let loc = class.loc() as usize;
+
+                let severity = if external_callers == 0 {
+                    Severity::Medium
+                } else {
+                    Severity::Low
+                };
+
+                let usage_note = if external_callers == 0 {
+                    "No external code calls this class's methods.".to_string()
+                } else {
+                    format!(
+                        "Only {} external caller(s) use this class.",
+                        external_callers
+                    )
+                };
+
+                findings.push(Finding {
+                    id: String::new(),
+                    detector: "LazyClassDetector".to_string(),
+                    severity,
+                    title: format!("Lazy Class: {}", class.name),
+                    description: format!(
+                        "Class '{}' has only {} method(s) and {} LOC. {}\n\n\
+                         Consider inlining this class's functionality or expanding it.",
+                        class.name, method_count, loc, usage_note
+                    ),
+                    affected_files: vec![class.file_path.clone().into()],
+                    line_start: Some(class.line_start),
+                    line_end: Some(class.line_end),
+                    suggested_fix: Some(
+                        "Options:\n\
+                         1. Inline functionality into callers\n\
+                         2. Merge with a related class\n\
+                         3. Convert to standalone functions\n\
+                         4. If intentional, add documentation explaining the design choice"
+                            .to_string(),
+                    ),
+                    estimated_effort: Some("Small (30 min)".to_string()),
+                    category: Some("design".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some(
+                        "Lazy classes add cognitive overhead without providing value. \
+                         They increase indirection and make code harder to navigate."
+                            .to_string(),
+                    ),
+                    ..Default::default()
+                });
             }
-
-            // Skip tiny classes (likely incomplete or placeholders)
-            if loc < 5 {
-                continue;
-            }
-
-            // KEY GRAPH CHECK: Is this class actually used?
-            let external_callers = self.count_external_callers(graph, &class);
-
-            // If the class has many callers, it's not lazy - it's well-used!
-            if external_callers >= self.thresholds.min_callers_to_skip {
-                debug!(
-                    "Skipping {} - has {} external callers (threshold: {})",
-                    class.name, external_callers, self.thresholds.min_callers_to_skip
-                );
-                continue;
-            }
-
-            // Calculate severity based on usage
-            let severity = if external_callers == 0 {
-                Severity::Medium // Completely unused
-            } else {
-                Severity::Low // Used but not much
-            };
-
-            let usage_note = if external_callers == 0 {
-                "No external code calls this class's methods.".to_string()
-            } else {
-                format!(
-                    "Only {} external caller(s) use this class.",
-                    external_callers
-                )
-            };
-
-            findings.push(Finding {
-                id: String::new(),
-                detector: "LazyClassDetector".to_string(),
-                severity,
-                title: format!("Lazy Class: {}", class.name),
-                description: format!(
-                    "Class '{}' has only {} method(s) and {} LOC. {}\n\n\
-                     Consider inlining this class's functionality or expanding it.",
-                    class.name, method_count, loc, usage_note
-                ),
-                affected_files: vec![class.file_path.clone().into()],
-                line_start: Some(class.line_start),
-                line_end: Some(class.line_end),
-                suggested_fix: Some(
-                    "Options:\n\
-                     1. Inline functionality into callers\n\
-                     2. Merge with a related class\n\
-                     3. Convert to standalone functions\n\
-                     4. If intentional, add documentation explaining the design choice"
-                        .to_string(),
-                ),
-                estimated_effort: Some("Small (30 min)".to_string()),
-                category: Some("design".to_string()),
-                cwe_id: None,
-                why_it_matters: Some(
-                    "Lazy classes add cognitive overhead without providing value. \
-                     They increase indirection and make code harder to navigate."
-                        .to_string(),
-                ),
-                ..Default::default()
-            });
         }
 
         info!("LazyClassDetector found {} findings", findings.len());

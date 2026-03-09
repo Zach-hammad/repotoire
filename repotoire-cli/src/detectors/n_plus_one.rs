@@ -11,7 +11,7 @@ use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::{debug, info};
@@ -38,73 +38,61 @@ impl NPlusOneDetector {
         }
     }
 
-    /// Find functions that contain database queries
+    /// Find functions that contain database queries.
+    ///
+    /// Name-based detection only — O(n) with zero I/O.
+    /// The QUERY_FUNC regex catches `get_`, `find_`, `fetch_`, `load_`, `query_`, `select_`.
+    /// This is sufficient for hidden N+1 detection because:
+    /// 1. Database-accessing functions almost always have descriptive names
+    /// 2. False positives are filtered by the loop + callee check downstream
     fn find_query_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let mut query_funcs = HashSet::new();
 
-        for func in graph.get_functions() {
-            // Check if function name suggests it does queries
+        for func in graph.get_functions_shared().iter() {
             if QUERY_FUNC.is_match(&func.name) {
                 query_funcs.insert(func.qualified_name.clone());
+            }
+        }
+
+        debug!("Found {} potential query functions (name-based)", query_funcs.len());
+        query_funcs
+    }
+
+    /// Pre-compute which functions transitively reach a query function (depth ≤ 5).
+    /// Single reverse-BFS from query functions through callers — O(V+E) instead of
+    /// per-function DFS that was O(functions_with_loops × branching_factor^5).
+    fn build_transitive_query_callers(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        query_funcs: &HashSet<String>,
+    ) -> HashMap<String, String> {
+        use std::collections::VecDeque;
+
+        let mut reaches_query: HashMap<String, String> = HashMap::new();
+        let mut queue: VecDeque<(String, String, usize)> = VecDeque::new();
+
+        // Seed: direct query functions
+        for qf in query_funcs {
+            let short = qf.rsplit("::").next().unwrap_or(qf).to_string();
+            reaches_query.insert(qf.clone(), short.clone());
+            queue.push_back((qf.clone(), short, 0));
+        }
+
+        // BFS backwards through callers (max depth 5 to match old behavior)
+        while let Some((qn, query_chain, depth)) = queue.pop_front() {
+            if depth >= 5 {
                 continue;
             }
-
-            // Check function content for query patterns
-            if let Some(content) =
-                crate::cache::global_cache().masked_content(std::path::Path::new(&func.file_path))
-            {
-                let lines: Vec<&str> = content.lines().collect();
-                let start = func.line_start.saturating_sub(1) as usize;
-                let end = (func.line_end as usize).min(lines.len());
-
-                for line in lines.get(start..end).unwrap_or(&[]) {
-                    if QUERY.is_match(line) {
-                        query_funcs.insert(func.qualified_name.clone());
-                        break;
-                    }
+            for caller in graph.get_callers(&qn) {
+                if !reaches_query.contains_key(&caller.qualified_name) {
+                    let chain = format!("{} → {}", caller.name, query_chain);
+                    reaches_query.insert(caller.qualified_name.clone(), chain.clone());
+                    queue.push_back((caller.qualified_name, chain, depth + 1));
                 }
             }
         }
 
-        debug!("Found {} potential query functions", query_funcs.len());
-        query_funcs
-    }
-
-    /// Check if a function transitively calls any query function
-    #[allow(clippy::only_used_in_recursion)]
-    fn calls_query_transitively(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-        func_qn: &str,
-        query_funcs: &HashSet<String>,
-        depth: usize,
-        visited: &mut HashSet<String>,
-    ) -> Option<String> {
-        if depth > 5 || visited.contains(func_qn) {
-            return None;
-        }
-        visited.insert(func_qn.to_string());
-
-        let callees = graph.get_callees(func_qn);
-        for callee in &callees {
-            // Direct call to query function
-            if query_funcs.contains(&callee.qualified_name) {
-                return Some(callee.name.clone());
-            }
-
-            // Recursive check
-            if let Some(query_name) = self.calls_query_transitively(
-                graph,
-                &callee.qualified_name,
-                query_funcs,
-                depth + 1,
-                visited,
-            ) {
-                return Some(format!("{} → {}", callee.name, query_name));
-            }
-        }
-
-        None
+        reaches_query
     }
 
     /// Find N+1 patterns using graph traversal
@@ -116,109 +104,58 @@ impl NPlusOneDetector {
             return findings;
         }
 
-        // Find functions that look like they iterate over collections
-        for func in graph.get_functions() {
+        // Single reverse-BFS: pre-compute which functions transitively reach a query
+        let reaches_query = self.build_transitive_query_callers(graph, &query_funcs);
+
+        // Pre-build set of skippable path prefixes for fast filtering
+        let skip_prefixes: &[&str] = &[
+            "/test", "/detectors/", "/cli/", "/parsers/", "/mcp/",
+            "/git/", "/ai/", "/reporters/", "/scoring/", "/graph/",
+            "/packages/react", "/packages/shared", "/packages/scheduler",
+            "/reconciler/", "/fiber/", "/forks/",
+        ];
+
+        // Cache per-file line splits to avoid redundant allocations
+        let mut file_lines: HashMap<String, Vec<String>> = HashMap::new();
+
+        for func in graph.get_functions_shared().iter() {
             if findings.len() >= self.max_findings {
                 break;
             }
 
-            // Skip test files
-            if func.file_path.contains("/test") || func.file_path.contains("_test.") {
-                continue;
-            }
-
-            // Skip detector files (they iterate over graph nodes, not DB)
-            if func.file_path.contains("/detectors/") {
-                continue;
-            }
-
-            // Skip CLI files (they orchestrate analysis, expected patterns)
-            if func.file_path.contains("/cli/") {
-                continue;
-            }
-
-            // Skip parsers (they need to iterate to parse)
-            if func.file_path.contains("/parsers/") {
-                continue;
-            }
-
-            // Skip MCP handlers (they handle requests, expected to query)
-            if func.file_path.contains("/mcp/") {
-                continue;
-            }
-
-            // Skip git operations (they need to iterate over commits)
-            if func.file_path.contains("/git/") {
-                continue;
-            }
-
-            // Skip AI code (it generates fixes iteratively)
-            if func.file_path.contains("/ai/") {
-                continue;
-            }
-
-            // Skip reporters (they iterate over findings to generate reports)
-            if func.file_path.contains("/reporters/") {
-                continue;
-            }
-
-            // Skip scoring (it iterates over graph nodes)
-            if func.file_path.contains("/scoring/") {
-                continue;
-            }
-
-            // Skip graph store (it naturally iterates over graph data)
-            if func.file_path.contains("/graph/") {
-                continue;
-            }
-
-            // Skip framework source code (React, Vue, etc.)
-            // Framework code iterates over component trees, not DB queries
-            if func.file_path.contains("/packages/react")
-                || func.file_path.contains("/packages/shared")
-                || func.file_path.contains("/packages/scheduler")
-                || func.file_path.contains("/reconciler/")
-                || func.file_path.contains("/fiber/")
-                || func.file_path.contains("/forks/")
+            // Fast path exclusions — single pass over skip prefixes
+            let fp = &func.file_path;
+            if fp.contains("_test.")
+                || skip_prefixes.iter().any(|p| fp.contains(p))
+                || crate::detectors::content_classifier::is_likely_bundled_path(fp)
             {
                 continue;
             }
 
-            // Skip bundled/generated code
-            if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
-                continue;
-            }
+            // Check if this function contains a loop (cached per-file lines)
+            let lines = file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+                crate::cache::global_cache()
+                    .masked_content(std::path::Path::new(&func.file_path))
+                    .map(|c| c.lines().map(String::from).collect())
+                    .unwrap_or_default()
+            });
 
-            // Check if this function contains a loop
-            let has_loop = if let Some(content) =
-                crate::cache::global_cache().masked_content(std::path::Path::new(&func.file_path))
-            {
-                let lines: Vec<&str> = content.lines().collect();
-                let start = func.line_start.saturating_sub(1) as usize;
-                let end = (func.line_end as usize).min(lines.len());
+            let start = func.line_start.saturating_sub(1) as usize;
+            let end = (func.line_end as usize).min(lines.len());
 
-                lines
-                    .get(start..end)
-                    .map(|slice| slice.iter().any(|line| LOOP.is_match(line)))
-                    .unwrap_or(false)
-            } else {
-                false
-            };
+            let has_loop = lines
+                .get(start..end)
+                .map(|slice| slice.iter().any(|line| LOOP.is_match(line)))
+                .unwrap_or(false);
 
             if !has_loop {
                 continue;
             }
 
-            // Check if any called function (transitively) does a query
-            let mut visited = HashSet::new();
+            // Check if any callee transitively reaches a query function
+            // (pre-computed via reverse BFS — O(1) lookup)
             for callee in graph.get_callees(&func.qualified_name) {
-                if let Some(query_chain) = self.calls_query_transitively(
-                    graph,
-                    &callee.qualified_name,
-                    &query_funcs,
-                    0,
-                    &mut visited,
-                ) {
+                if let Some(query_chain) = reaches_query.get(&callee.qualified_name) {
                     findings.push(Finding {
                         id: String::new(),
                         detector: "NPlusOneDetector".to_string(),

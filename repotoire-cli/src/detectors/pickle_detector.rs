@@ -13,7 +13,6 @@
 //! CWE-502: Deserialization of Untrusted Data
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -190,22 +189,16 @@ impl PickleDeserializationDetector {
         None
     }
 
-    /// Scan source files for dangerous patterns
-    fn scan_source_files(&self) -> Vec<Finding> {
-        use crate::detectors::walk_source_files;
-
+    /// Scan via the FileProvider (uses already-cached files, no filesystem re-walk).
+    fn scan_via_file_provider(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut seen_locations: HashSet<(String, u32)> = HashSet::new();
+        let repo_root = files.repo_path();
 
-        if !self.repository_path.exists() {
-            return findings;
-        }
-
-        // Walk through Python files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["py"])) {
+        for path in files.files_with_extensions(&["py"]) {
             let rel_path = path
-                .strip_prefix(&self.repository_path)
-                .unwrap_or(&path)
+                .strip_prefix(repo_root)
+                .unwrap_or(path)
                 .to_string_lossy()
                 .to_string();
 
@@ -213,21 +206,15 @@ impl PickleDeserializationDetector {
                 continue;
             }
 
-            // Skip trusted serialization contexts — cache and session backends
-            // only deserialize data they created themselves (no user input)
             if Self::is_trusted_serialization_context(&rel_path) {
                 continue;
             }
 
-            let content = match crate::cache::global_cache().masked_content(&path) {
-                Some(c) => c.to_string(),
-                None => match std::fs::read_to_string(&path) {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                },
+            let content = match files.masked_content(path) {
+                Some(c) => c,
+                None => continue,
             };
 
-            // Skip very large files
             if content.len() > 500_000 {
                 continue;
             }
@@ -236,7 +223,6 @@ impl PickleDeserializationDetector {
             for (line_no, line) in lines.iter().enumerate() {
                 let line_num = (line_no + 1) as u32;
 
-                // Check for suppression comments
                 let prev_line = if line_no > 0 {
                     Some(lines[line_no - 1])
                 } else {
@@ -509,10 +495,10 @@ impl Detector for PickleDeserializationDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting pickle deserialization detection");
 
-        let findings = self.scan_source_files();
+        let findings = self.scan_via_file_provider(files);
 
         info!(
             "PickleDeserializationDetector found {} potential vulnerabilities",

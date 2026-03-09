@@ -262,120 +262,130 @@ impl UnreachableCodeDetector {
         false
     }
 
-    /// Check if function is exported (has export keyword or is in module.exports)
-    fn is_exported_function(file_path: &str, func_name: &str, line_start: u32) -> bool {
-        let path = std::path::Path::new(file_path);
+    /// Check if function is exported (has export keyword or is in module.exports).
+    /// Takes pre-fetched file content to avoid repeated cache lookups.
+    fn is_exported_function_with_content(
+        file_path: &str,
+        func_name: &str,
+        line_start: u32,
+        content: &str,
+    ) -> bool {
         let func_pattern = func_name.split("::").last().unwrap_or(func_name);
 
-        if let Some(content) = crate::cache::global_cache().content(path) {
-            let lines: Vec<&str> = content.lines().collect();
-
-            // Check the function declaration line and a few lines before
-            let start = (line_start as usize).saturating_sub(3);
-            let end = (line_start as usize + 2).min(lines.len());
-
-            for i in start..end {
-                if i < lines.len() {
-                    let line = lines[i];
-
-                    // JS/TS export patterns - must be on the actual function line
-                    if line.contains("export ")
-                        && (line.contains("function")
-                            || line.contains("const")
-                            || line.contains("=>"))
-                    {
-                        return true;
-                    }
-                    if line.contains("export default") {
-                        return true;
-                    }
+        // For Python, we can do a quick __all__ check without collecting lines
+        if file_path.ends_with(".py") {
+            for line in content.lines() {
+                if line.contains("__all__") && line.contains(func_pattern) {
+                    return true;
                 }
             }
+            // Python has no export/module.exports, so return early
+            return false;
+        }
 
-            // Check for export statements anywhere in file (re-exports)
-            for line in &lines {
-                // module.exports = { funcName } or module.exports.funcName
-                if line.contains("module.exports") && line.contains(func_pattern) {
+        // Go: Capitalized = exported
+        if file_path.ends_with(".go") {
+            if let Some(c) = func_pattern.chars().next() {
+                if c.is_uppercase() {
                     return true;
                 }
-                // exports.funcName =
-                if line.contains(&format!("exports.{}", func_pattern)) {
-                    return true;
-                }
-                // export { funcName } or export { funcName as alias }
-                if (line.contains("export {") || line.contains("export{"))
-                    && line.contains(func_pattern)
+            }
+            return false;
+        }
+
+        let lines: Vec<&str> = content.lines().collect();
+
+        // Check the function declaration line and a few lines before
+        let start = (line_start as usize).saturating_sub(3);
+        let end = (line_start as usize + 2).min(lines.len());
+
+        for i in start..end {
+            if i < lines.len() {
+                let line = lines[i];
+
+                // JS/TS export patterns - must be on the actual function line
+                if line.contains("export ")
+                    && (line.contains("function")
+                        || line.contains("const")
+                        || line.contains("=>"))
                 {
                     return true;
                 }
-                // export default funcName
-                if line.contains("export default") && line.contains(func_pattern) {
+                if line.contains("export default") {
                     return true;
                 }
             }
+        }
 
-            // Rust: Check for pub fn at the declaration
-            if file_path.ends_with(".rs") {
-                let start_idx = (line_start as usize).saturating_sub(1);
-                if start_idx < lines.len() {
-                    let line = lines[start_idx];
-                    if line.contains("pub fn") || line.contains("pub async fn") {
-                        return true;
-                    }
-                }
+        // Check for export statements anywhere in file (re-exports)
+        for line in lines.iter() {
+            // module.exports = { funcName } or module.exports.funcName
+            if line.contains("module.exports") && line.contains(func_pattern) {
+                return true;
             }
-
-            // Go: Capitalized = exported (checked in is_entry_point already)
-            if file_path.ends_with(".go") {
-                if let Some(c) = func_pattern.chars().next() {
-                    if c.is_uppercase() {
-                        return true;
-                    }
-                }
+            // exports.funcName =
+            if line.contains("exports.") && line.contains(func_pattern) {
+                return true;
             }
+            // export { funcName } or export { funcName as alias }
+            if (line.contains("export {") || line.contains("export{"))
+                && line.contains(func_pattern)
+            {
+                return true;
+            }
+            // export default funcName
+            if line.contains("export default") && line.contains(func_pattern) {
+                return true;
+            }
+        }
 
-            // Python: Check for __all__ declaration containing the function name
-            if file_path.ends_with(".py") {
-                for line in &lines {
-                    // __all__ = ['func1', 'func2'] or __all__ = ["func1", "func2"]
-                    if line.contains("__all__") && line.contains(func_pattern) {
-                        return true;
-                    }
+        // Rust: Check for pub fn at the declaration
+        if file_path.ends_with(".rs") {
+            let start_idx = (line_start as usize).saturating_sub(1);
+            if start_idx < lines.len() {
+                let line = lines[start_idx];
+                if line.contains("pub fn") || line.contains("pub async fn") {
+                    return true;
                 }
             }
         }
+
         false
     }
 
     /// Find functions with zero callers using the call graph
     fn find_dead_functions(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let functions = graph.get_functions();
+        let functions = graph.get_functions_shared();
 
-        // Pre-build caller/callee maps from get_calls() — one pass replaces all
-        // per-function get_callers()/get_callees() calls with O(1) HashMap lookups
-        let calls = graph.get_calls();
-        let mut callee_to_callers: HashMap<String, Vec<String>> = HashMap::new();
-        let mut caller_to_callees: HashMap<String, Vec<String>> = HashMap::new();
-        let mut called_functions: HashSet<String> = HashSet::with_capacity(calls.len());
-        for (caller, callee) in &calls {
-            called_functions.insert(callee.clone());
+        // Pre-build caller/callee maps from get_calls_shared() — borrows &str from
+        // the Arc to avoid cloning ~600K Strings (296K calls × 2).
+        let calls = graph.get_calls_shared();
+        let mut callee_to_callers: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut caller_to_callees: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut called_functions: HashSet<&str> = HashSet::with_capacity(calls.len());
+        for (caller, callee) in calls.iter() {
+            called_functions.insert(callee.as_str());
             callee_to_callers
-                .entry(callee.clone())
+                .entry(callee.as_str())
                 .or_default()
-                .push(caller.clone());
+                .push(caller.as_str());
             caller_to_callees
-                .entry(caller.clone())
+                .entry(caller.as_str())
                 .or_default()
-                .push(callee.clone());
+                .push(callee.as_str());
         }
 
         // First pass: find directly dead functions
         let mut directly_dead: HashSet<String> = HashSet::new();
+        // Per-file exclusion cache: avoids re-checking bundled/minified/fixture per file
+        let mut file_excluded: rustc_hash::FxHashMap<&str, bool> = rustc_hash::FxHashMap::default();
+        // Per-file content cache: avoids repeated DashMap lookups for exported/self.method checks
+        let mut file_content: rustc_hash::FxHashMap<&str, Option<std::sync::Arc<String>>> = rustc_hash::FxHashMap::default();
 
-        for func in &functions {
+        for func in functions.iter() {
             // Skip if it's called somewhere
-            if called_functions.contains(&func.qualified_name) {
+            if called_functions.contains(func.qualified_name.as_str()) {
                 continue;
             }
 
@@ -390,57 +400,52 @@ impl UnreachableCodeDetector {
                 continue;
             }
 
-            // Skip test files for this check
-            if func.file_path.contains("/test")
-                || func.file_path.contains("_test.")
-                || func.file_path.contains("/tests/")
-                || func.file_path.contains("conftest")
-                || func.file_path.contains("type_check")
-            {
+            // Per-file exclusion: test, scripts, non-production, framework, bundled (cached)
+            let excluded = *file_excluded
+                .entry(func.file_path.as_str())
+                .or_insert_with(|| {
+                    let fp = &func.file_path;
+                    // Test files
+                    if fp.contains("/test") || fp.contains("_test.")
+                        || fp.contains("/tests/") || fp.contains("conftest")
+                        || fp.contains("type_check")
+                    {
+                        return true;
+                    }
+                    // Scripts/build tools
+                    if fp.contains("/scripts/") || fp.contains("/tools/") || fp.contains("/build/") {
+                        return true;
+                    }
+                    // Non-production paths
+                    if crate::detectors::content_classifier::is_non_production_path(fp) {
+                        return true;
+                    }
+                    // Framework internal paths
+                    if fp.contains("packages/react") || fp.contains("/react-dom/")
+                        || fp.contains("/react-server/") || fp.contains("/reconciler/")
+                        || fp.contains("/scheduler/") || fp.contains("/shared/")
+                        || fp.contains("/forks/")
+                    {
+                        return true;
+                    }
+                    // Bundled/generated/fixture code
+                    if crate::detectors::content_classifier::is_likely_bundled_path(fp) {
+                        return true;
+                    }
+                    if let Some(content) =
+                        crate::cache::global_cache().content(std::path::Path::new(fp))
+                    {
+                        if crate::detectors::content_classifier::is_bundled_code(&content)
+                            || crate::detectors::content_classifier::is_minified_code(&content)
+                            || crate::detectors::content_classifier::is_fixture_code(fp, &content)
+                        {
+                            return true;
+                        }
+                    }
+                    false
+                });
+            if excluded {
                 continue;
-            }
-
-            // Skip scripts/build tools (developer utilities, not production code)
-            if func.file_path.contains("/scripts/")
-                || func.file_path.contains("/tools/")
-                || func.file_path.contains("/build/")
-            {
-                continue;
-            }
-
-            // Skip non-production paths entirely
-            if crate::detectors::content_classifier::is_non_production_path(&func.file_path) {
-                continue;
-            }
-
-            // Skip framework internal paths (exports used externally)
-            if func.file_path.contains("packages/react")
-                || func.file_path.contains("/react-dom/")
-                || func.file_path.contains("/react-server/")
-                || func.file_path.contains("/reconciler/")
-                || func.file_path.contains("/scheduler/")
-                || func.file_path.contains("/shared/")
-                || func.file_path.contains("/forks/")
-            {
-                continue;
-            }
-
-            // Skip bundled/generated code: path check (semantic) + content check (additional)
-            if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
-                continue;
-            }
-            if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
-            {
-                if crate::detectors::content_classifier::is_bundled_code(&content)
-                    || crate::detectors::content_classifier::is_minified_code(&content)
-                    || crate::detectors::content_classifier::is_fixture_code(
-                        &func.file_path,
-                        &content,
-                    )
-                {
-                    continue;
-                }
             }
 
             // Skip CLI-related functions (often entry points)
@@ -472,21 +477,23 @@ impl UnreachableCodeDetector {
                 continue;
             }
 
-            // Double-check with pre-built caller map (O(1) lookup instead of graph query)
-            if callee_to_callers.contains_key(&func.qualified_name) {
-                continue;
-            }
-
             // Expensive checks AFTER cheap graph-based filters:
-            // Skip exported functions (requires file I/O for line scanning)
-            if Self::is_exported_function(&func.file_path, &func.qualified_name, func.line_start) {
-                continue;
-            }
+            // Get/cache file content once per file (avoids repeated DashMap lookups)
+            let content = file_content
+                .entry(func.file_path.as_str())
+                .or_insert_with(|| {
+                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                });
 
-            // Check if method is called via self.method() in same file (Rust parser limitation)
-            if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
-            {
+            if let Some(ref content) = content {
+                // Skip exported functions
+                if Self::is_exported_function_with_content(
+                    &func.file_path, &func.qualified_name, func.line_start, content,
+                ) {
+                    continue;
+                }
+
+                // Check if method is called via self.method() in same file
                 let self_call = format!("self.{}(", func.name);
                 if content.contains(&self_call) {
                     continue;
@@ -502,17 +509,18 @@ impl UnreachableCodeDetector {
             self.find_transitively_dead(&functions, &callee_to_callers, &directly_dead);
 
         // Create findings for directly dead functions
-        for func in &functions {
+        for func in functions.iter() {
             if !directly_dead.contains(&func.qualified_name) {
                 continue;
             }
 
             // Check how many functions this dead function calls (impact) — O(1) lookup
-            let callees = caller_to_callees.get(&func.qualified_name);
-            let dead_callees: Vec<&String> = callees
+            let dead_callees: Vec<&str> = caller_to_callees
+                .get(func.qualified_name.as_str())
                 .map(|cs| {
                     cs.iter()
-                        .filter(|c| transitively_dead.contains(c.as_str()))
+                        .copied()
+                        .filter(|c| transitively_dead.contains(*c))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -570,7 +578,7 @@ impl UnreachableCodeDetector {
         }
 
         // Create separate findings for transitively dead (lower severity - removing root will fix)
-        for func in &functions {
+        for func in functions.iter() {
             if !transitively_dead.contains(&func.qualified_name) {
                 continue;
             }
@@ -579,14 +587,15 @@ impl UnreachableCodeDetector {
             }
 
             // Find which dead function(s) call this one — O(1) lookup
-            let dead_callers: Vec<&String> = callee_to_callers
-                .get(&func.qualified_name)
+            let dead_callers: Vec<&str> = callee_to_callers
+                .get(func.qualified_name.as_str())
                 .map(|callers| {
                     callers
                         .iter()
+                        .copied()
                         .filter(|c| {
-                            directly_dead.contains(c.as_str())
-                                || transitively_dead.contains(c.as_str())
+                            directly_dead.contains(*c)
+                                || transitively_dead.contains(*c)
                         })
                         .collect()
                 })
@@ -632,7 +641,7 @@ impl UnreachableCodeDetector {
     fn find_transitively_dead(
         &self,
         functions: &[crate::graph::store_models::CodeNode],
-        callee_to_callers: &HashMap<String, Vec<String>>,
+        callee_to_callers: &HashMap<&str, Vec<&str>>,
         directly_dead: &HashSet<String>,
     ) -> HashSet<String> {
         let mut transitively_dead: HashSet<String> = HashSet::new();
@@ -658,15 +667,15 @@ impl UnreachableCodeDetector {
                 }
 
                 // Get all callers from pre-built map (O(1) lookup)
-                let callers = match callee_to_callers.get(&func.qualified_name) {
+                let callers = match callee_to_callers.get(func.qualified_name.as_str()) {
                     Some(c) => c,
                     None => continue, // No callers — would have been caught as directly dead
                 };
 
                 // Check if ALL callers are dead
                 let all_callers_dead = callers.iter().all(|c| {
-                    directly_dead.contains(c.as_str())
-                        || transitively_dead.contains(c.as_str())
+                    directly_dead.contains(*c)
+                        || transitively_dead.contains(*c)
                 });
 
                 if all_callers_dead {

@@ -208,7 +208,7 @@ impl DeadStoreDetector {
     fn find_unused_params(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             // Skip test files
             if func.file_path.contains("/test") || func.file_path.contains("_test.") {
                 continue;
@@ -277,7 +277,7 @@ impl DeadStoreDetector {
         // For now, identify functions that receive values but don't propagate them
         let findings = Vec::new();
 
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             let callees = graph.get_callees(&func.qualified_name);
             let callers = graph.get_callers(&func.qualified_name);
 

@@ -355,7 +355,7 @@ impl Detector for AIMissingTestsDetector {
             .collect();
 
         // Find complex public functions without tests
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             // Skip test functions, fixtures, and test files
             if Self::is_test_function(&func.name, &func.file_path) {
                 continue;
@@ -453,8 +453,8 @@ impl Detector for AIMissingTestsDetector {
     ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        // Single call to get_functions() — cached by CachedGraphQuery
-        let all_functions = graph.get_functions();
+        // Single call to get_functions_shared() — cached by CachedGraphQuery (Arc clone ~10ns)
+        let all_functions = graph.get_functions_shared();
 
         // Build test function name sets for O(1) lookup:
         // - exact_tests: "test_funcname" for direct match
@@ -463,7 +463,7 @@ impl Detector for AIMissingTestsDetector {
         let mut exact_tests: HashSet<String> = HashSet::new();
         let mut test_names: Vec<String> = Vec::new();
 
-        for f in &all_functions {
+        for f in all_functions.iter() {
             let is_test = if let Some(ctx) = contexts.get(&f.qualified_name) {
                 ctx.is_test || ctx.role == FunctionRole::Test
             } else {
@@ -507,7 +507,7 @@ impl Detector for AIMissingTestsDetector {
         }
 
         // Find complex public functions without tests
-        for func in &all_functions {
+        for func in all_functions.iter() {
             // Skip test functions
             if let Some(ctx) = contexts.get(&func.qualified_name) {
                 if ctx.is_test || ctx.role == FunctionRole::Test {

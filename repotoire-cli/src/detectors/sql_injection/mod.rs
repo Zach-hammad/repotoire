@@ -190,23 +190,22 @@ impl SQLInjectionDetector {
     /// Check if the SQL string contains parameterized query placeholders
     /// If interpolation is alongside proper placeholders, it's likely for SQL structure
     fn has_parameterized_placeholders(&self, line: &str) -> bool {
-        let patterns = [
-            r"@\w+",                                   // @paramName (SQL Server, better-sqlite3)
-            r"\$\d+",                                  // $1, $2 (PostgreSQL)
-            r":\w+",                                   // :param (Oracle, SQLite named params)
-            r"(?:^|[^a-zA-Z0-9])\?(?:[^a-zA-Z0-9]|$)", // ? (MySQL, SQLite positional - standalone)
-        ];
+        static PARAM_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+            vec![
+                Regex::new(r"@\w+").expect("valid regex"),                                   // @paramName
+                Regex::new(r"\$\d+").expect("valid regex"),                                  // $1, $2
+                Regex::new(r":\w+").expect("valid regex"),                                   // :param
+                Regex::new(r"(?:^|[^a-zA-Z0-9])\?(?:[^a-zA-Z0-9]|$)").expect("valid regex"), // ?
+            ]
+        });
 
-        for pattern in &patterns {
-            if let Ok(re) = Regex::new(pattern) {
-                if re.is_match(line) {
-                    return true;
-                }
+        for re in PARAM_PATTERNS.iter() {
+            if re.is_match(line) {
+                return true;
             }
         }
 
         // Special case: check for standalone ? not in middle of words
-        // Simpler approach: check if line contains " ?" or "?" at boundaries
         if line.contains(" ?") || line.ends_with("?") || line.contains("?,") || line.contains("= ?")
         {
             return true;
@@ -254,7 +253,8 @@ impl SQLInjectionDetector {
     /// e.g., ${where}, ${orderBy}, ${columns} are likely SQL clause builders
     fn is_sql_structure_variable(&self, line: &str) -> bool {
         // Extract variable names from ${...} interpolations
-        let re = Regex::new(r"\$\{(\w+)").expect("valid regex");
+        static INTERP_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\{(\w+)").expect("valid regex"));
+        let re = &*INTERP_RE;
 
         for cap in re.captures_iter(line) {
             if let Some(var_name) = cap.get(1) {

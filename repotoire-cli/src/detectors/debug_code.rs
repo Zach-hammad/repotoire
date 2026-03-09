@@ -63,18 +63,6 @@ impl DebugCodeDetector {
         dev_patterns.iter().any(|p| path.contains(p))
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<String> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| f.name)
-    }
 }
 
 impl Detector for DebugCodeDetector {
@@ -174,7 +162,7 @@ impl Detector for DebugCodeDetector {
                     if DEBUG_PATTERN.is_match(line) {
                         let line_num = (i + 1) as u32;
                         let containing_func =
-                            Self::find_containing_function(graph, &path_str, line_num);
+                            graph.find_function_at(&path_str, line_num).map(|f| f.name);
 
                         // Skip if in a logging utility function
                         if let Some(ref func) = containing_func {

@@ -78,22 +78,6 @@ impl JwtWeakDetector {
         JwtVulnerability::Other
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<(String, usize)> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| {
-                let callers = graph.get_callers(&f.qualified_name).len();
-                (f.name, callers)
-            })
-    }
-
     /// Check if function is in auth flow
     fn is_auth_flow(func_name: &str, file_path: &str) -> bool {
         let name_lower = func_name.to_lowercase();
@@ -286,15 +270,19 @@ impl Detector for JwtWeakDetector {
                     }
 
                     let containing_func =
-                        Self::find_containing_function(graph, &path_str, (i + 1) as u32);
-                    let is_auth = containing_func
+                        graph.find_function_at(&path_str, (i + 1) as u32);
+                    let containing_info = containing_func.as_ref().map(|f| {
+                        let callers = graph.get_callers(&f.qualified_name).len();
+                        (f.name.clone(), callers)
+                    });
+                    let is_auth = containing_info
                         .as_ref()
                         .map(|(name, _)| Self::is_auth_flow(name, &path_str))
                         .unwrap_or(false);
 
                     // Build notes
                     let mut notes = Vec::new();
-                    if let Some((func_name, callers)) = &containing_func {
+                    if let Some((func_name, callers)) = &containing_info {
                         notes.push(format!(
                             "📦 In function: `{}` ({} callers)",
                             func_name, callers

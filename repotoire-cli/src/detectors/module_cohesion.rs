@@ -501,7 +501,8 @@ impl Detector for ModuleCohesionDetector {
         let mut file_internal: HashMap<String, usize> = HashMap::new();
         let mut file_external: HashMap<String, usize> = HashMap::new();
 
-        for (caller, callee) in graph.get_calls() {
+        let calls = graph.get_calls_shared();
+        for (caller, callee) in calls.iter() {
             if let (Some(caller_node), Some(callee_node)) =
                 (graph.get_node(&caller), graph.get_node(&callee))
             {
@@ -518,7 +519,7 @@ impl Detector for ModuleCohesionDetector {
         }
 
         // Flag files with low cohesion (more external than internal calls)
-        for file in graph.get_files() {
+        for file in graph.get_files_shared().iter() {
             let internal = *file_internal.get(&file.file_path).unwrap_or(&0);
             let external = *file_external.get(&file.file_path).unwrap_or(&0);
 

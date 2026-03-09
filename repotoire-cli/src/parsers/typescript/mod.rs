@@ -154,6 +154,7 @@ fn get_import_query(ext: &str, language: &Language) -> &'static Query {
 }
 
 /// Parse a TypeScript/JavaScript file and extract all code entities
+#[allow(dead_code)]
 pub fn parse(path: &Path) -> Result<ParseResult> {
     let source = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
@@ -164,6 +165,12 @@ pub fn parse(path: &Path) -> Result<ParseResult> {
 
 /// Parse TypeScript/JavaScript source code directly
 pub fn parse_source(source: &str, path: &Path, ext: &str) -> Result<ParseResult> {
+    parse_source_with_tree(source, path, ext).map(|(r, _)| r)
+}
+
+/// Parse TypeScript/JavaScript source code and return both the ParseResult and the tree-sitter Tree.
+/// Used by the pipeline to extract structural fingerprints without re-parsing.
+pub fn parse_source_with_tree(source: &str, path: &Path, ext: &str) -> Result<(ParseResult, tree_sitter::Tree)> {
     let mut parser = Parser::new();
 
     // Choose language based on extension
@@ -192,7 +199,7 @@ pub fn parse_source(source: &str, path: &Path, ext: &str) -> Result<ParseResult>
     extract_imports(&root, source_bytes, &mut result, &language, ext)?;
     extract_calls(&root, source_bytes, path, &mut result)?;
 
-    Ok(result)
+    Ok((result, tree))
 }
 
 /// Extract function definitions from the AST

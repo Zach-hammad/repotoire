@@ -9,26 +9,26 @@ use crate::graph::GraphQuery;
 /// Check if the function at the given file:line is part of the public API surface.
 /// API surface = exported function with 3+ callers.
 pub fn is_api_surface(graph: &dyn GraphQuery, file_path: &str, line: u32) -> bool {
-    for func in graph.get_functions() {
-        if func.file_path == file_path && func.line_start <= line && func.line_end >= line {
-            // Check if exported (via annotation)
-            let is_exported = func
-                .properties
-                .get("annotations")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().any(|a| a.as_str() == Some("exported")))
-                .unwrap_or(false);
+    // Use spatial index for O(1) lookup instead of scanning all functions
+    let Some(func) = graph.find_function_at(file_path, line) else {
+        return false;
+    };
 
-            if !is_exported {
-                return false;
-            }
+    // Check if exported (via annotation)
+    let is_exported = func
+        .properties
+        .get("annotations")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(|a| a.as_str() == Some("exported")))
+        .unwrap_or(false);
 
-            // Check fan-in (callers)
-            let fan_in = graph.call_fan_in(&func.qualified_name);
-            return fan_in >= 3;
-        }
+    if !is_exported {
+        return false;
     }
-    false
+
+    // Check fan-in (callers)
+    let fan_in = graph.call_fan_in(&func.qualified_name);
+    fan_in >= 3
 }
 
 #[cfg(test)]

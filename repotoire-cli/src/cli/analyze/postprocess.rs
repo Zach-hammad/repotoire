@@ -225,6 +225,10 @@ fn downgrade_non_production_security(findings: &mut [Finding]) {
 /// back to the heuristic classifier. Findings are sorted in descending order
 /// so the most actionable findings appear first.
 fn rank_findings(findings: &mut Vec<Finding>, graph: &dyn crate::graph::GraphQuery) {
+    use crate::graph::CachedGraphQuery;
+    let cached = CachedGraphQuery::new(graph);
+    let graph: &dyn crate::graph::GraphQuery = &cached;
+
     // Try user model, then seed model
     let model_path = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -288,6 +292,12 @@ fn filter_false_positives(
     graph: &dyn crate::graph::GraphQuery,
 ) {
     use crate::classifier::{CategoryThresholds, DetectorCategory};
+    use crate::graph::CachedGraphQuery;
+
+    // Wrap in CachedGraphQuery so expensive ops (find_import_cycles, call maps)
+    // are computed once and reused across all findings.
+    let cached = CachedGraphQuery::new(graph);
+    let graph: &dyn crate::graph::GraphQuery = &cached;
 
     let thresholds = CategoryThresholds::default();
 
@@ -337,25 +347,35 @@ fn filter_false_positives(
 
     if let Some(classifier) = gbdt_classifier {
         use crate::classifier::FeatureExtractorV2;
+        use rayon::prelude::*;
 
         let extractor = FeatureExtractorV2::new();
-
         let before_count = findings.len();
+
+        // Parallel: compute keep/discard mask for all findings at once
+        let keep_mask: Vec<bool> = findings
+            .par_iter()
+            .map(|f| {
+                let features = extractor.extract(f, Some(graph), None, None);
+                let prediction = classifier.predict(&features);
+                let category = DetectorCategory::from_detector(&f.detector);
+                let config = thresholds.get_category(category);
+                prediction.tp_probability >= config.filter_threshold as f64
+            })
+            .collect();
+
+        // Sequential: apply mask and count filtered categories
         let mut filtered_by_category: std::collections::HashMap<DetectorCategory, usize> =
             std::collections::HashMap::new();
-
+        let mut idx = 0;
         findings.retain(|f| {
-            let features = extractor.extract(f, Some(graph), None, None);
-            let prediction = classifier.predict(&features);
-            let category = DetectorCategory::from_detector(&f.detector);
-            let config = thresholds.get_category(category);
-
-            if prediction.tp_probability >= config.filter_threshold as f64 {
-                true
-            } else {
+            let keep = keep_mask[idx];
+            if !keep {
+                let category = DetectorCategory::from_detector(&f.detector);
                 *filtered_by_category.entry(category).or_insert(0) += 1;
-                false
             }
+            idx += 1;
+            keep
         });
 
         let total_filtered = before_count - findings.len();

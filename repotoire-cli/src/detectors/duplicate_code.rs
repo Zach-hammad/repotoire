@@ -61,13 +61,7 @@ impl DuplicateCodeDetector {
             .map(|(path, line)| {
                 let path_str = path.to_string_lossy();
                 graph
-                    .get_functions()
-                    .into_iter()
-                    .find(|f| {
-                        f.file_path == path_str
-                            && f.line_start <= *line as u32
-                            && f.line_end >= *line as u32
-                    })
+                    .find_function_at(&path_str, *line as u32)
                     .map(|f| f.qualified_name)
             })
             .collect()
@@ -155,34 +149,41 @@ impl Detector for DuplicateCodeDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
-        let mut blocks: HashMap<String, Vec<(PathBuf, usize)>> = HashMap::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]) {
-            // Skip test files for duplicate detection
-            if Self::is_test_file(path) {
-                continue;
-            }
+        use rayon::prelude::*;
 
-            if let Some(content) = files.content(path) {
-                let lines: Vec<&str> = content.lines().collect();
+        let source_files = files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]);
+        let min_lines = self.min_lines;
 
-                // Sliding window of min_lines
-                for i in 0..lines.len().saturating_sub(self.min_lines) {
-                    let block: String = lines[i..i + self.min_lines]
-                        .iter()
-                        .map(|l| Self::normalize_line(l))
-                        .filter(|l| !l.is_empty())
-                        .collect::<Vec<_>>()
-                        .join("\n");
-
-                    if block.len() > 50 {
-                        // Ignore trivial blocks
-                        blocks
-                            .entry(block)
-                            .or_default()
-                            .push((path.to_path_buf(), i + 1));
+        // Parallel per-file hashing
+        let per_file: Vec<Vec<(String, PathBuf, usize)>> = source_files
+            .par_iter()
+            .filter(|path| !Self::is_test_file(path))
+            .filter_map(|path| {
+                files.content(path).map(|content| {
+                    let lines: Vec<&str> = content.lines().collect();
+                    let mut file_blocks = Vec::new();
+                    for i in 0..lines.len().saturating_sub(min_lines) {
+                        let block: String = lines[i..i + min_lines]
+                            .iter()
+                            .map(|l| Self::normalize_line(l))
+                            .filter(|l| !l.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if block.len() > 50 {
+                            file_blocks.push((block, path.to_path_buf(), i + 1));
+                        }
                     }
-                }
+                    file_blocks
+                })
+            })
+            .collect();
+
+        // Merge into single HashMap
+        let mut blocks: HashMap<String, Vec<(PathBuf, usize)>> = HashMap::new();
+        for file_blocks in per_file {
+            for (block, path, line) in file_blocks {
+                blocks.entry(block).or_default().push((path, line));
             }
         }
 

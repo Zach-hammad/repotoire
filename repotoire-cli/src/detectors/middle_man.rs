@@ -199,7 +199,7 @@ impl Detector for MiddleManDetector {
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        for class in graph.get_classes() {
+        for class in graph.get_classes_shared().iter() {
             // Skip interfaces
             if class.qualified_name.contains("::interface::")
                 || class.qualified_name.contains("::type::")

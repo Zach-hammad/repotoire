@@ -38,9 +38,7 @@ impl ImplicitCoercionDetector {
         line: u32,
     ) -> Option<(String, usize, bool)> {
         graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
+            .find_function_at(file_path, line)
             .map(|f| {
                 let callers = graph.get_callers(&f.qualified_name);
                 let caller_count = callers.len();
@@ -62,11 +60,7 @@ impl ImplicitCoercionDetector {
 
     /// Check if function is dead code (no callers, not an entry point)
     fn is_dead_code(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> bool {
-        if let Some(func) = graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-        {
+        if let Some(func) = graph.find_function_at(file_path, line) {
             let callers = graph.get_callers(&func.qualified_name);
             let name_lower = func.name.to_lowercase();
             let is_entry = name_lower == "main"

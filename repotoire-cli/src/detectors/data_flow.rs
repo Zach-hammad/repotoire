@@ -505,13 +505,13 @@ pub fn run_intra_function_taint(
     category: TaintCategory,
     repository_path: &Path,
 ) -> Vec<TaintPath> {
-    let functions = graph.get_functions();
+    let functions = graph.get_functions_shared();
     let mut all_paths = Vec::new();
 
     // Cache file contents to avoid re-reading
     let mut file_cache: HashMap<String, String> = HashMap::new();
 
-    for func in &functions {
+    for func in functions.iter() {
         // Need a source file to analyze
         if func.file_path.is_empty() {
             continue;

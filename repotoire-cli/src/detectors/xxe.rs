@@ -183,30 +183,6 @@ impl XxeDetector {
         USER_INPUT.is_match(&context)
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<(String, bool)> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| {
-                let callers = graph.get_callers(&f.qualified_name);
-                let has_external_callers = callers.iter().any(|c| {
-                    let name = c.name.to_lowercase();
-                    name.contains("route")
-                        || name.contains("handler")
-                        || name.contains("api")
-                        || name.contains("upload")
-                        || name.contains("import")
-                        || name.contains("parse")
-                });
-                (f.name, has_external_callers)
-            })
-    }
 }
 
 impl Detector for XxeDetector {
@@ -308,7 +284,19 @@ impl Detector for XxeDetector {
 
                     // Get function context
                     let func_context =
-                        Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+                        graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
+                            let callers = graph.get_callers(&f.qualified_name);
+                            let has_external_callers = callers.iter().any(|c| {
+                                let name = c.name.to_lowercase();
+                                name.contains("route")
+                                    || name.contains("handler")
+                                    || name.contains("api")
+                                    || name.contains("upload")
+                                    || name.contains("import")
+                                    || name.contains("parse")
+                            });
+                            (f.name, has_external_callers)
+                        });
 
                     // Calculate severity
                     let severity = if has_user_input {

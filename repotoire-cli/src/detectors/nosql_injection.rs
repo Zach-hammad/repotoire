@@ -109,22 +109,6 @@ impl NosqlInjectionDetector {
             || context.contains("express-mongo-sanitize")
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<(String, usize)> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| {
-                let callers = graph.get_callers(&f.qualified_name).len();
-                (f.name, callers)
-            })
-    }
-
     /// Check if function is a route handler (directly receives user input)
     fn is_route_handler(func_name: &str, file_path: &str) -> bool {
         let name_lower = func_name.to_lowercase();
@@ -228,7 +212,10 @@ impl Detector for NosqlInjectionDetector {
 
                     // Get function context
                     let containing_func =
-                        Self::find_containing_function(graph, &path_str, (i + 1) as u32);
+                        graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
+                            let callers = graph.get_callers(&f.qualified_name).len();
+                            (f.name, callers)
+                        });
                     let is_handler = containing_func
                         .as_ref()
                         .map(|(name, _)| Self::is_route_handler(name, &path_str))

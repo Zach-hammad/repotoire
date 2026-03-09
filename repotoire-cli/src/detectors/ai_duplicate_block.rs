@@ -202,6 +202,8 @@ impl AIDuplicateBlockDetector {
         &self,
         functions: &[FunctionData],
     ) -> Vec<(FunctionData, FunctionData, f64)> {
+        use rayon::prelude::*;
+
         if functions.len() < 2 {
             return Vec::new();
         }
@@ -218,32 +220,38 @@ impl AIDuplicateBlockDetector {
             functions.len() as f64 * (functions.len() - 1) as f64 / 2.0,
         );
 
-        let mut duplicates: Vec<(FunctionData, FunctionData, f64)> = Vec::new();
+        // Parallel Jaccard verification on LSH candidates
+        let threshold = self.similarity_threshold;
+        let candidate_vec: Vec<_> = candidates.into_iter().collect();
+        let mut duplicates: Vec<(FunctionData, FunctionData, f64)> = candidate_vec
+            .par_iter()
+            .filter_map(|&(i, j)| {
+                let func1 = &functions[i];
+                let func2 = &functions[j];
 
-        for (i, j) in &candidates {
-            let func1 = &functions[*i];
-            let func2 = &functions[*j];
-
-            // Skip same-file comparisons
-            if func1.file_path == func2.file_path {
-                continue;
-            }
-
-            // Size-ratio pre-filter (Jaccard upper bound)
-            if func1.ast_size > 0 && func2.ast_size > 0 {
-                let size_ratio = func1.ast_size.min(func2.ast_size) as f64
-                    / func1.ast_size.max(func2.ast_size) as f64;
-                if size_ratio < self.similarity_threshold {
-                    continue;
+                // Skip same-file comparisons
+                if func1.file_path == func2.file_path {
+                    return None;
                 }
-            }
 
-            // Exact Jaccard verification
-            let similarity = jaccard_similarity(&func1.hash_set, &func2.hash_set);
-            if similarity >= self.similarity_threshold {
-                duplicates.push((func1.clone(), func2.clone(), similarity));
-            }
-        }
+                // Size-ratio pre-filter (Jaccard upper bound)
+                if func1.ast_size > 0 && func2.ast_size > 0 {
+                    let size_ratio = func1.ast_size.min(func2.ast_size) as f64
+                        / func1.ast_size.max(func2.ast_size) as f64;
+                    if size_ratio < threshold {
+                        return None;
+                    }
+                }
+
+                // Exact Jaccard verification
+                let similarity = jaccard_similarity(&func1.hash_set, &func2.hash_set);
+                if similarity >= threshold {
+                    Some((func1.clone(), func2.clone(), similarity))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         // Sort by similarity (highest first)
         duplicates.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
@@ -373,71 +381,62 @@ impl Detector for AIDuplicateBlockDetector {
         Some(&self.config)
     }
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        let mut all_functions: Vec<FunctionData> = Vec::new();
+        use rayon::prelude::*;
 
         let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"];
-        for path in files.files_with_extensions(source_exts) {
-            if crate::detectors::base::is_test_path(&path.to_string_lossy()) {
-                continue;
-            }
 
-            let content = match files.content(path) {
-                Some(c) => c,
-                None => continue,
-            };
+        // Collect file paths + content upfront (FileProvider requires &self borrows)
+        let file_data: Vec<_> = files
+            .files_with_extensions(source_exts)
+            .into_iter()
+            .filter(|path| !crate::detectors::base::is_test_path(&path.to_string_lossy()))
+            .filter_map(|path| {
+                let content = files.content(path)?;
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let has_functions = match ext {
+                    "py" => content.contains("\ndef ") || content.starts_with("def "),
+                    "js" | "jsx" => content.contains("function ") || content.contains("=> ") || content.contains("=>{"),
+                    "ts" | "tsx" => content.contains("function ") || content.contains("=> ") || content.contains("=>{"),
+                    "go" => content.contains("\nfunc ") || content.starts_with("func "),
+                    "rs" => content.contains("\nfn ") || content.starts_with("fn ") || content.contains(" fn "),
+                    "java" => content.contains("void ") || content.contains("public ") || content.contains("private "),
+                    _ => true,
+                };
+                if !has_functions { return None; }
+                Some((path.to_path_buf(), content, ext.to_string()))
+            })
+            .collect();
 
-            // Cheap pre-filter: skip files without function definitions
-            // to avoid expensive tree-sitter parsing
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let has_functions = match ext {
-                "py" => content.contains("\ndef ") || content.starts_with("def "),
-                "js" | "jsx" => content.contains("function ") || content.contains("=> ") || content.contains("=>{"),
-                "ts" | "tsx" => content.contains("function ") || content.contains("=> ") || content.contains("=>{"),
-                "go" => content.contains("\nfunc ") || content.starts_with("func "),
-                "rs" => content.contains("\nfn ") || content.starts_with("fn ") || content.contains(" fn "),
-                "java" => content.contains("void ") || content.contains("public ") || content.contains("private "),
-                _ => true, // Don't skip unknown extensions
-            };
-            if !has_functions {
-                continue;
-            }
+        // Parallel tree-sitter parsing + fingerprinting
+        let min_loc = self.min_loc;
+        let all_functions: Vec<FunctionData> = file_data
+            .par_iter()
+            .flat_map_iter(|(path, content, ext)| {
+                let lang = crate::parsers::lightweight::Language::from_extension(ext);
+                let functions = crate::detectors::ast_fingerprint::parse_functions_with_fingerprints(content, lang);
+                let path_str = path.to_string_lossy().to_string();
 
-            let lang = crate::parsers::lightweight::Language::from_extension(ext);
-
-            // Zero-reparse: extract functions AND fingerprints in a single file parse
-            let functions = crate::detectors::ast_fingerprint::parse_functions_with_fingerprints(&content, lang);
-
-            for (func, fp) in functions {
-                let loc = (func.line_end - func.line_start + 1) as usize;
-                if loc < self.min_loc {
-                    continue;
-                }
-
-                if fp.normalized_bigrams.is_empty() {
-                    continue;
-                }
-
-                let generic_ratio = calculate_generic_ratio(&fp.identifiers);
-                let ast_size = fp.normalized_bigrams.len();
-
-                all_functions.push(FunctionData {
-                    qualified_name: format!("{}::{}", path.to_string_lossy(), func.name),
-                    name: func.name,
-                    file_path: path.to_string_lossy().to_string(),
-                    line_start: func.line_start,
-                    line_end: func.line_end,
-                    loc,
-                    hash_set: fp.normalized_bigrams,
-                    generic_ratio,
-                    ast_size,
-                });
-            }
-        }
-
-        info!(
-            "AIDuplicateBlockDetector: analyzing {} functions",
-            all_functions.len()
-        );
+                functions.into_iter().filter_map(move |(func, fp)| {
+                    let loc = (func.line_end - func.line_start + 1) as usize;
+                    if loc < min_loc || fp.normalized_bigrams.is_empty() {
+                        return None;
+                    }
+                    let generic_ratio = calculate_generic_ratio(&fp.identifiers);
+                    let ast_size = fp.normalized_bigrams.len();
+                    Some(FunctionData {
+                        qualified_name: format!("{}::{}", path_str, func.name),
+                        name: func.name,
+                        file_path: path_str.clone(),
+                        line_start: func.line_start,
+                        line_end: func.line_end,
+                        loc,
+                        hash_set: fp.normalized_bigrams,
+                        generic_ratio,
+                        ast_size,
+                    })
+                })
+            })
+            .collect();
 
         let duplicates = self.find_duplicates(&all_functions);
 

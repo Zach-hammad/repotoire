@@ -1,6 +1,6 @@
 use super::store::GraphStore;
 use super::store_models::CodeNode;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
     fn get_functions(&self) -> Vec<CodeNode> {
@@ -67,8 +67,12 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
         (**self).find_import_cycles()
     }
 
-    fn stats(&self) -> HashMap<String, i64> {
+    fn stats(&self) -> BTreeMap<String, i64> {
         (**self).stats()
+    }
+
+    fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
+        (**self).find_function_at(file_path, line)
     }
 
     fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
@@ -77,6 +81,16 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
 
     fn get_long_param_functions(&self, min_params: i64) -> Vec<CodeNode> {
         (**self).get_long_param_functions(min_params)
+    }
+
+    fn build_call_maps_raw(
+        &self,
+    ) -> (
+        HashMap<String, usize>,
+        HashMap<usize, Vec<usize>>,
+        HashMap<usize, Vec<usize>>,
+    ) {
+        (**self).build_call_maps_raw()
     }
 }
 
@@ -145,8 +159,12 @@ impl super::traits::GraphQuery for GraphStore {
         self.find_import_cycles()
     }
 
-    fn stats(&self) -> HashMap<String, i64> {
+    fn stats(&self) -> BTreeMap<String, i64> {
         self.stats()
+    }
+
+    fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
+        self.find_function_at(file_path, line)
     }
 
     fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
@@ -155,5 +173,15 @@ impl super::traits::GraphQuery for GraphStore {
 
     fn get_long_param_functions(&self, min_params: i64) -> Vec<CodeNode> {
         self.get_long_param_functions(min_params)
+    }
+
+    fn build_call_maps_raw(
+        &self,
+    ) -> (
+        HashMap<String, usize>,
+        HashMap<usize, Vec<usize>>,
+        HashMap<usize, Vec<usize>>,
+    ) {
+        self.build_call_maps_raw()
     }
 }

@@ -35,29 +35,9 @@ impl TodoScanner {
         }
     }
 
-    /// Find containing function
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<(String, usize)> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| {
-                let callers = graph.get_callers(&f.qualified_name).len();
-                (f.name, callers)
-            })
-    }
-
     /// Check if function is dead code (no callers and not an entry point)
     fn is_in_dead_code(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> bool {
-        if let Some(func) = graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-        {
+        if let Some(func) = graph.find_function_at(file_path, line) {
             let callers = graph.get_callers(&func.qualified_name);
             let is_entry = func.name.starts_with("main")
                 || func.name.starts_with("test_")
@@ -157,7 +137,10 @@ impl Detector for TodoScanner {
 
                         // Graph-enhanced analysis
                         let containing_func =
-                            Self::find_containing_function(graph, &path_str, line_u32);
+                            graph.find_function_at(&path_str, line_u32).map(|f| {
+                                let callers = graph.get_callers(&f.qualified_name).len();
+                                (f.name, callers)
+                            });
                         let is_dead = Self::is_in_dead_code(graph, &path_str, line_u32);
                         let (category, category_note) = Self::categorize_todo(msg);
 

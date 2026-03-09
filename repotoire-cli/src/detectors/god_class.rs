@@ -481,7 +481,7 @@ impl Detector for GodClassDetector {
             None
         };
 
-        for class in graph.get_classes() {
+        for class in graph.get_classes_shared().iter() {
             // Skip TypeScript/Go interfaces - they have properties, not methods
             if class.qualified_name.contains("::interface::")
                 || class.qualified_name.contains("::type::")
@@ -576,8 +576,7 @@ impl Detector for GodClassDetector {
         }
 
         info!(
-            "GodClassDetector: analyzed {} classes, found {} issues",
-            graph.get_classes().len(),
+            "GodClassDetector: found {} issues",
             findings.len()
         );
 

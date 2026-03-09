@@ -379,7 +379,7 @@ impl Detector for LongParameterListDetector {
         // Builder pattern methods (acceptable)
         let builder_patterns = ["with_", "set_", "add_", "build"];
 
-        for func in graph.get_functions() {
+        for func in graph.get_functions_shared().iter() {
             let param_count = func.param_count().unwrap_or(0) as usize;
 
             // Use configured thresholds

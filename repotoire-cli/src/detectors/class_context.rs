@@ -226,7 +226,7 @@ impl<'a> ClassContextBuilder<'a> {
     pub fn build(&self) -> ClassContextMap {
         let start = std::time::Instant::now();
 
-        let classes = self.graph.get_classes();
+        let classes = self.graph.get_classes_shared();
         let class_count = classes.len();
 
         if class_count == 0 {
@@ -235,12 +235,12 @@ impl<'a> ClassContextBuilder<'a> {
 
         info!("Building class context for {} classes", class_count);
 
-        let calls = self.graph.get_calls();
+        let calls = self.graph.get_calls_shared();
 
         // Build call lookup: function qn -> set of called qns
         let call_map: HashMap<&str, HashSet<&str>> = {
             let mut map: HashMap<&str, HashSet<&str>> = HashMap::new();
-            for (caller, callee) in &calls {
+            for (caller, callee) in calls.iter() {
                 map.entry(caller.as_str())
                     .or_default()
                     .insert(callee.as_str());
@@ -249,18 +249,35 @@ impl<'a> ClassContextBuilder<'a> {
         };
 
         // Build class method map: class qn -> vec of method nodes
-        // Uses file-scoped index (O(1) per file) instead of O(F × C) nested loop
+        // Group classes by file first to avoid calling get_functions_in_file() 13K+ times.
+        // With ~4 classes/file, this reduces from 13K to ~3.4K file lookups.
         let class_methods: HashMap<&str, Vec<crate::graph::store_models::CodeNode>> = {
             let mut map: HashMap<&str, Vec<crate::graph::store_models::CodeNode>> = HashMap::new();
 
-            for class in &classes {
-                let file_funcs = self.graph.get_functions_in_file(&class.file_path);
-                let methods: Vec<_> = file_funcs
-                    .into_iter()
-                    .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
-                    .collect();
-                if !methods.is_empty() {
-                    map.insert(class.qualified_name.as_str(), methods);
+            // Group classes by file path
+            let mut classes_by_file: HashMap<&str, Vec<&crate::graph::store_models::CodeNode>> =
+                HashMap::new();
+            for class in classes.iter() {
+                classes_by_file
+                    .entry(class.file_path.as_str())
+                    .or_default()
+                    .push(class);
+            }
+
+            // For each unique file, fetch functions once and assign to all classes in that file
+            for (file_path, file_classes) in &classes_by_file {
+                let file_funcs = self.graph.get_functions_in_file(file_path);
+                for class in file_classes {
+                    let methods: Vec<_> = file_funcs
+                        .iter()
+                        .filter(|f| {
+                            f.line_start >= class.line_start && f.line_end <= class.line_end
+                        })
+                        .cloned()
+                        .collect();
+                    if !methods.is_empty() {
+                        map.insert(class.qualified_name.as_str(), methods);
+                    }
                 }
             }
             map
@@ -282,7 +299,7 @@ impl<'a> ClassContextBuilder<'a> {
             let mut class_pair_seen: HashSet<(&str, &str)> = HashSet::new();
             let mut usages: HashMap<&str, usize> = HashMap::new();
 
-            for (caller, callee) in &calls {
+            for (caller, callee) in calls.iter() {
                 let caller_class = method_to_class.get(caller.as_str());
                 let callee_class = method_to_class.get(callee.as_str());
                 if let (Some(&from_class), Some(&to_class)) = (caller_class, callee_class) {
@@ -296,7 +313,7 @@ impl<'a> ClassContextBuilder<'a> {
 
         let mut contexts = ClassContextMap::new();
 
-        for class in &classes {
+        for class in classes.iter() {
             let qn = &class.qualified_name;
 
             let methods = class_methods.get(qn.as_str()).cloned().unwrap_or_default();

@@ -291,8 +291,8 @@ mod tests {
             vec![]
         }
 
-        fn stats(&self) -> HashMap<String, i64> {
-            HashMap::new()
+        fn stats(&self) -> std::collections::BTreeMap<String, i64> {
+            std::collections::BTreeMap::new()
         }
     }
 

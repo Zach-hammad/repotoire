@@ -134,19 +134,6 @@ impl ExpressSecurityDetector {
         }
     }
 
-    /// Find containing function
-    #[allow(dead_code)] // Helper for graph-based detection
-    fn find_containing_function(
-        graph: &dyn crate::graph::GraphQuery,
-        file_path: &str,
-        line: u32,
-    ) -> Option<(String, usize)> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| (f.name, graph.get_callers(&f.qualified_name).len()))
-    }
 }
 
 impl Detector for ExpressSecurityDetector {

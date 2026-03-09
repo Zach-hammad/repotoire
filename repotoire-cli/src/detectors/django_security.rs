@@ -37,32 +37,28 @@ impl DjangoSecurityDetector {
         }
     }
 
-    /// Find containing function/view
+    /// Find containing function/view using graph trait method
     fn find_containing_function(
         graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
         line: u32,
     ) -> Option<(String, usize, bool)> {
-        graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
-            .map(|f| {
-                let callers = graph.get_callers(&f.qualified_name);
-                let name_lower = f.name.to_lowercase();
+        graph.find_function_at(file_path, line).map(|f| {
+            let callers = graph.get_callers(&f.qualified_name);
+            let name_lower = f.name.to_lowercase();
 
-                // Check if this is a view function
-                let is_view = name_lower.contains("view")
-                    || name_lower.starts_with("get")
-                    || name_lower.starts_with("post")
-                    || name_lower.starts_with("put")
-                    || name_lower.starts_with("delete")
-                    || name_lower.starts_with("patch")
-                    || name_lower.contains("api")
-                    || name_lower.contains("handler");
+            // Check if this is a view function
+            let is_view = name_lower.contains("view")
+                || name_lower.starts_with("get")
+                || name_lower.starts_with("post")
+                || name_lower.starts_with("put")
+                || name_lower.starts_with("delete")
+                || name_lower.starts_with("patch")
+                || name_lower.contains("api")
+                || name_lower.contains("handler");
 
-                (f.name, callers.len(), is_view)
-            })
+            (f.name, callers.len(), is_view)
+        })
     }
 
     /// Check if function has authentication decorators

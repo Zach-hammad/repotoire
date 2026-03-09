@@ -290,9 +290,9 @@ impl VotingEngine {
         (consensus_findings, stats)
     }
 
-    /// Group findings by the entity they target
-    fn group_by_entity(&self, findings: &[Finding]) -> HashMap<String, Vec<Finding>> {
-        let mut groups: HashMap<String, Vec<Finding>> = HashMap::new();
+    /// Group findings by the entity they target (BTreeMap for deterministic iteration)
+    fn group_by_entity(&self, findings: &[Finding]) -> std::collections::BTreeMap<String, Vec<Finding>> {
+        let mut groups: std::collections::BTreeMap<String, Vec<Finding>> = std::collections::BTreeMap::new();
 
         for finding in findings {
             let key = self.get_entity_key(finding);
@@ -383,7 +383,8 @@ impl VotingEngine {
     fn calculate_consensus(&self, findings: &[Finding]) -> ConsensusResult {
         let detectors: Vec<&str> = findings.iter().map(|f| f.detector.as_str()).collect();
         let unique_detectors: HashSet<&str> = detectors.iter().copied().collect();
-        let unique_vec: Vec<String> = unique_detectors.iter().map(|s| s.to_string()).collect();
+        let mut unique_vec: Vec<String> = unique_detectors.iter().map(|s| s.to_string()).collect();
+        unique_vec.sort(); // Deterministic detector ordering
 
         // Calculate confidence
         let confidence = self.calculate_confidence(findings);

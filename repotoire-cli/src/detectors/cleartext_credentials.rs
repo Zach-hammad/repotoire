@@ -84,9 +84,7 @@ impl CleartextCredentialsDetector {
         line: u32,
     ) -> Option<(String, usize, bool)> {
         graph
-            .get_functions()
-            .into_iter()
-            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
+            .find_function_at(file_path, line)
             .map(|f| {
                 let callers = graph.get_callers(&f.qualified_name);
                 let name_lower = f.name.to_lowercase();

@@ -13,6 +13,7 @@ use console::style;
 use ignore::{WalkBuilder, WalkState};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Maximum file size to accept for analysis (2MB, matching parser guardrail).
 const MAX_ANALYSIS_FILE_BYTES: u64 = 2 * 1024 * 1024;
@@ -187,10 +188,14 @@ pub(super) fn collect_files_for_analysis(
 /// cache validation, detector file provider, and scoring).
 ///
 /// The sender is dropped when the walk completes, signaling the channel's end.
+/// Walk files, sending to channel for parsing and optionally publishing the
+/// collected file list early via `early_files` so other threads can start
+/// work before the parse pipeline finishes.
 pub(crate) fn walk_files_to_channel(
     repo_path: &Path,
     exclude: &ExcludeConfig,
     sender: crossbeam_channel::Sender<PathBuf>,
+    early_files: Option<Arc<std::sync::OnceLock<Vec<PathBuf>>>>,
 ) -> Result<Vec<PathBuf>> {
     let repo_canonical = repo_path.canonicalize().with_context(|| {
         format!(
@@ -257,6 +262,12 @@ pub(crate) fn walk_files_to_channel(
     // Parallel walk returns files in arbitrary order; sort for deterministic results
     let mut files = files.into_inner().expect("walk mutex poisoned");
     files.sort();
+
+    // Publish file list early so other threads can start work
+    if let Some(early) = early_files {
+        let _ = early.set(files.clone());
+    }
+
     Ok(files)
 }
 
