@@ -221,4 +221,19 @@ mod tests {
         assert!(children.contains(&"mod.ChildA".to_string()));
         assert!(children.contains(&"mod.ChildB".to_string()));
     }
+
+    #[test]
+    fn test_value_store_stored_when_provided() {
+        let graph = GraphStore::in_memory();
+        let store = Arc::new(crate::values::store::ValueStore::new());
+        let ctx = DetectorContext::build(&graph, &[], Some(store));
+        assert!(ctx.value_store.is_some());
+    }
+
+    #[test]
+    fn test_value_store_none_when_not_provided() {
+        let graph = GraphStore::in_memory();
+        let ctx = DetectorContext::build(&graph, &[], None);
+        assert!(ctx.value_store.is_none());
+    }
 }

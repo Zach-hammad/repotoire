@@ -46,7 +46,6 @@ pub struct GdPrecomputed {
     pub hmm_contexts: Arc<HashMap<String, FunctionContext>>,
     pub taint_results: crate::detectors::taint::centralized::CentralizedTaintResults,
     pub detector_context: Arc<super::DetectorContext>,
-    pub value_store: Option<Arc<crate::values::store::ValueStore>>,
 }
 
 /// Build all GD pre-compute data (contexts + HMM + taint) as a standalone computation.
@@ -99,7 +98,6 @@ pub fn precompute_gd_startup(
         hmm_contexts: Arc::new(hmm_contexts),
         taint_results,
         detector_context,
-        value_store,
     }
 }
 
