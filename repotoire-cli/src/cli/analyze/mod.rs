@@ -304,9 +304,6 @@ pub fn run(
         &env.repo_path,
     )?;
 
-    // Cache results for fast path on next run (report.2 = all_findings, since findings was drained by build_health_report)
-    let _ = cache_results(&env.repotoire_dir, &report.0, &report.2);
-
     // Prune stale entries for deleted/renamed files
     env.incremental_cache
         .prune_stale_entries(&file_result.all_files);
@@ -319,7 +316,24 @@ pub fn run(
     env.incremental_cache
         .cache_graph_findings("__all__", &report.2);
     let _ = env.incremental_cache.save_cache();
-    cache_findings(path, &report.2);
+
+    // Fire-and-forget: cache results + findings on background threads.
+    // These are pure I/O writes that don't affect the printed output.
+    {
+        let repotoire_dir = env.repotoire_dir.clone();
+        let health_report = report.0.clone();
+        let all_findings = report.2.clone();
+        std::thread::spawn(move || {
+            let _ = cache_results(&repotoire_dir, &health_report, &all_findings);
+        });
+    }
+    {
+        let path = path.to_path_buf();
+        let all_findings = report.2.clone();
+        std::thread::spawn(move || {
+            cache_findings(&path, &all_findings);
+        });
+    }
     phase_timings.push(("output", phase_start.elapsed()));
 
     // Print timing breakdown if requested
