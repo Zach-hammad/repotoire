@@ -37,33 +37,33 @@ use crate::parsers::lightweight::{LightweightFileInfo, LightweightParseStats};
 use crate::parsers::parse_file_lightweight;
 use anyhow::Result;
 use crossbeam_channel::bounded;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 
-/// Unresolved cross-file edge buffered during Phase 1 for deferred resolution.
-///
-/// Derives `Ord` so `Vec::sort()` produces a total, deterministic order:
-/// variants ordered by discriminant (Call < Import), then by field declaration order.
+/// Unresolved cross-file import edge buffered during Phase 1 for deferred resolution.
+/// Call edges are resolved inline (not deferred) — see inline resolution in process().
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum DeferredEdgeKind {
-    /// Cross-file function call: caller_qn is the caller qualified name,
-    /// callee_name is the callee's bare name (e.g., "helper_from_b").
-    Call {
-        caller_qn: String,
-        callee_name: String,
-        /// Whether the callee has a module qualifier (e.g., "module.func").
-        has_module_qualifier: bool,
-    },
-    /// Cross-file import: file_path is the importing file's relative path,
-    /// import_path is the import path string.
+enum DeferredImport {
     Import {
         file_path: String,
         import_path: String,
         is_type_only: bool,
     },
+}
+
+/// Tracks whether a bare function name maps to exactly one qualified name.
+/// Used for deterministic cross-file call resolution: unique names resolve,
+/// ambiguous names (2+ functions with the same bare name) are dropped.
+#[derive(Debug, Clone)]
+enum LookupEntry {
+    /// Exactly one function with this bare name — safe to resolve.
+    Unique(String),
+    /// Two or more functions share this bare name — cannot resolve without
+    /// language-specific import analysis, so we drop the edge.
+    Ambiguous,
 }
 
 /// Configuration for the bounded pipeline
@@ -159,15 +159,19 @@ struct FlushingGraphBuilder {
     repo_path: PathBuf,
 
     // Lookup indexes (grow with repo but much smaller than full file info)
-    function_lookup: BTreeMap<String, String>,
+    function_lookup: HashMap<String, LookupEntry>,
     module_lookup: ModuleLookupCompact,
 
     // Buffered edges (flushed periodically)
     edge_buffer: Vec<(String, String, CodeEdge)>,
     edge_flush_threshold: usize,
 
-    // Deferred cross-file edges for Phase 2 resolution
-    deferred_edges: Vec<DeferredEdgeKind>,
+    // Pending cross-file call edges: callee_bare_name → [caller_qn]
+    // Entries are drained as callees are registered, or resolved in finalize().
+    pending_calls: HashMap<String, Vec<String>>,
+
+    // Deferred cross-file import edges for Phase 2 resolution
+    deferred_imports: Vec<DeferredImport>,
 
     // Stats
     stats: BoundedPipelineStats,
@@ -219,11 +223,12 @@ impl FlushingGraphBuilder {
         Self {
             graph,
             repo_path: repo_path.to_path_buf(),
-            function_lookup: BTreeMap::new(),
+            function_lookup: HashMap::new(),
             module_lookup: ModuleLookupCompact::default(),
             edge_buffer: Vec::with_capacity(edge_flush_threshold.min(10_000)),
             edge_flush_threshold,
-            deferred_edges: Vec::new(),
+            pending_calls: HashMap::new(),
+            deferred_imports: Vec::new(),
             stats: BoundedPipelineStats::default(),
         }
     }
@@ -248,45 +253,53 @@ impl FlushingGraphBuilder {
     fn process(&mut self, info: LightweightFileInfo) -> Result<()> {
         let relative = info.relative_path(&self.repo_path);
 
-        // Add functions to lookup
+        // Add functions to lookup with ambiguity tracking
         for func in &info.functions {
-            self.function_lookup
-                .insert(func.name.clone(), func.qualified_name.clone());
+            match self.function_lookup.entry(func.name.clone()) {
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(LookupEntry::Unique(func.qualified_name.clone()));
+                    // Drain any pending callers that were waiting for this function
+                    if let Some(callers) = self.pending_calls.remove(&func.name) {
+                        for caller_qn in callers {
+                            self.edge_buffer.push((
+                                caller_qn,
+                                func.qualified_name.clone(),
+                                CodeEdge::calls(),
+                            ));
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    *e.get_mut() = LookupEntry::Ambiguous;
+                }
+            }
         }
 
-        // Add file node
+        // File node — insert first so its index exists for Contains edges
         let file_node = CodeNode::new(NodeKind::File, &relative, &relative)
             .with_qualified_name(&relative)
             .with_language(info.language.as_str())
             .with_property("loc", info.loc as i64);
-        self.graph.add_node(file_node);
-        self.stats.nodes_added += 1;
-        self.stats.files_processed += 1;
+        self.graph.add_nodes_batch(vec![file_node]);
 
-        // Add function nodes + edges
+        // Function + class nodes — Contains edges created inside the graph store
+        let mut entity_nodes = Vec::with_capacity(info.functions.len() + info.classes.len());
+
         for func in &info.functions {
             let loc = func.loc();
             let address_taken = info.address_taken.contains(&func.name);
 
-            let func_node = CodeNode::new(NodeKind::Function, &func.name, &relative)
-                .with_qualified_name(&func.qualified_name)
-                .with_lines(func.line_start, func.line_end)
-                .with_property("is_async", func.is_async)
-                .with_property("complexity", func.complexity as i64)
-                .with_property("loc", loc as i64)
-                .with_property("address_taken", address_taken);
-            self.graph.add_node(func_node);
-            self.stats.nodes_added += 1;
-            self.stats.functions_added += 1;
+            entity_nodes.push(
+                CodeNode::new(NodeKind::Function, &func.name, &relative)
+                    .with_qualified_name(&func.qualified_name)
+                    .with_lines(func.line_start, func.line_end)
+                    .with_property("is_async", func.is_async)
+                    .with_property("complexity", func.complexity as i64)
+                    .with_property("loc", loc as i64)
+                    .with_property("address_taken", address_taken),
+            );
 
-            // Buffer contains edge
-            self.edge_buffer.push((
-                relative.clone(),
-                func.qualified_name.clone(),
-                CodeEdge::contains(),
-            ));
-
-            // Module calls decorated functions at load time
+            // Decorated functions still need a Calls edge (file → func via decorator)
             if func.has_annotations {
                 self.edge_buffer.push((
                     relative.clone(),
@@ -296,63 +309,96 @@ impl FlushingGraphBuilder {
             }
         }
 
-        // Add class nodes + edges
         for class in &info.classes {
-            let class_node = CodeNode::new(NodeKind::Class, &class.name, &relative)
-                .with_qualified_name(&class.qualified_name)
-                .with_lines(class.line_start, class.line_end)
-                .with_property("methodCount", class.method_count as i64);
-            self.graph.add_node(class_node);
-            self.stats.nodes_added += 1;
-            self.stats.classes_added += 1;
-
-            self.edge_buffer.push((
-                relative.clone(),
-                class.qualified_name.clone(),
-                CodeEdge::contains(),
-            ));
+            entity_nodes.push(
+                CodeNode::new(NodeKind::Class, &class.name, &relative)
+                    .with_qualified_name(&class.qualified_name)
+                    .with_lines(class.line_start, class.line_end)
+                    .with_property("methodCount", class.method_count as i64),
+            );
         }
 
-        // Resolve call edges — same-file immediately, cross-file deferred
-        for call in &info.calls {
-            let callee_name = call
-                .callee
-                .rsplit(&[':', '.'][..])
-                .next()
-                .unwrap_or(&call.callee);
+        // Batch insert with Contains edges created inside the graph store
+        if !entity_nodes.is_empty() {
+            self.graph.add_nodes_batch_with_contains(entity_nodes, &relative);
+        }
 
-            // Check same file first (always resolvable)
-            let same_file_match = info
+        let func_count = info.functions.len();
+        let class_count = info.classes.len();
+        self.stats.nodes_added += 1 + func_count + class_count;
+        self.stats.functions_added += func_count;
+        self.stats.classes_added += class_count;
+        self.stats.files_processed += 1;
+
+        // Resolve call edges — same-file immediately, cross-file via inline resolution.
+        if !info.calls.is_empty() {
+            let local_funcs: HashMap<&str, &str> = info
                 .functions
                 .iter()
-                .find(|f| f.name == callee_name)
-                .map(|f| f.qualified_name.clone());
+                .map(|f| (f.name.as_str(), f.qualified_name.as_str()))
+                .collect();
 
-            if let Some(qn) = same_file_match {
-                self.edge_buffer
-                    .push((call.caller.clone(), qn, CodeEdge::calls()));
-            } else {
-                // Cross-file call — defer to Phase 2
+            for call in &info.calls {
+                let callee_name = call
+                    .callee
+                    .rsplit(&[':', '.'][..])
+                    .next()
+                    .unwrap_or(&call.callee);
+
+                // 1. Same-file fast path
+                if let Some(&qn) = local_funcs.get(callee_name) {
+                    self.edge_buffer
+                        .push((call.caller.clone(), qn.to_string(), CodeEdge::calls()));
+                    continue;
+                }
+
+                // 2. Cross-file inline resolution
                 let has_module = call.callee.contains(':') || call.callee.contains('.');
-                self.deferred_edges.push(DeferredEdgeKind::Call {
-                    caller_qn: call.caller.clone(),
-                    callee_name: callee_name.to_string(),
-                    has_module_qualifier: has_module,
-                });
+                if !has_module
+                    && crate::cli::analyze::graph::AMBIGUOUS_METHOD_NAMES
+                        .contains(&callee_name)
+                {
+                    continue;
+                }
+
+                match self.function_lookup.get(callee_name) {
+                    Some(LookupEntry::Unique(callee_qn)) => {
+                        self.edge_buffer.push((
+                            call.caller.clone(),
+                            callee_qn.clone(),
+                            CodeEdge::calls(),
+                        ));
+                    }
+                    Some(LookupEntry::Ambiguous) => {
+                        // Drop — can't know which is correct
+                    }
+                    None => {
+                        self.pending_calls
+                            .entry(callee_name.to_string())
+                            .or_default()
+                            .push(call.caller.clone());
+                    }
+                }
             }
         }
 
         // Defer all import edges to Phase 2 (need complete module lookup)
         for import in &info.imports {
-            self.deferred_edges.push(DeferredEdgeKind::Import {
+            self.deferred_imports.push(DeferredImport::Import {
                 file_path: relative.clone(),
                 import_path: import.path.clone(),
                 is_type_only: import.is_type_only,
             });
         }
 
-        // Track peak buffer size (both resolved edge_buffer and deferred cross-file edges)
-        let combined = self.edge_buffer.len() + self.deferred_edges.len();
+        // Track peak buffer size (resolved edges + deferred imports + pending calls)
+        let combined = self.edge_buffer.len()
+            + self.deferred_imports.len()
+            + self
+                .pending_calls
+                .values()
+                .map(|v| v.len())
+                .sum::<usize>();
         if combined > self.stats.peak_edges_buffered {
             self.stats.peak_edges_buffered = combined;
         }
@@ -383,67 +429,73 @@ impl FlushingGraphBuilder {
         Ok(())
     }
 
-    /// Finalize — Phase 2: resolve deferred cross-file edges, flush, and save
+    /// Finalize — drain pending calls, resolve deferred imports, flush, and save
     fn finalize(mut self) -> Result<BoundedPipelineStats> {
-        // Sort module lookup candidates so find_match() returns deterministic results.
-        self.module_lookup.sort_candidates();
-
-        // Phase 2: sort deferred edges for deterministic resolution order.
-        // DeferredEdgeKind derives Ord — variants ordered by discriminant (Call < Import),
-        // then by all fields in declaration order, guaranteeing a total order.
-        self.deferred_edges.sort();
-
-        let deferred_count = self.deferred_edges.len();
-        let mut resolved_count = 0usize;
-
-        for deferred in std::mem::take(&mut self.deferred_edges) {
-            match deferred {
-                DeferredEdgeKind::Call {
-                    caller_qn,
-                    callee_name,
-                    has_module_qualifier,
-                } => {
-                    if !has_module_qualifier
-                        && crate::cli::analyze::graph::AMBIGUOUS_METHOD_NAMES
-                            .contains(&callee_name.as_str())
-                    {
-                        continue;
-                    }
-                    if let Some(callee_qn) = self.function_lookup.get(&callee_name) {
+        // Drain remaining pending calls: resolve unique, drop ambiguous/unknown
+        let mut pending_resolved = 0usize;
+        let mut pending_dropped = 0usize;
+        for (callee_name, callers) in std::mem::take(&mut self.pending_calls) {
+            match self.function_lookup.get(&callee_name) {
+                Some(LookupEntry::Unique(callee_qn)) => {
+                    for caller_qn in callers {
                         self.edge_buffer.push((
                             caller_qn,
                             callee_qn.clone(),
                             CodeEdge::calls(),
                         ));
-                        resolved_count += 1;
+                        pending_resolved += 1;
                     }
                 }
-                DeferredEdgeKind::Import {
-                    file_path,
-                    import_path,
-                    is_type_only,
-                } => {
-                    if let Some(target) = self.module_lookup.find_match(&import_path) {
-                        if *target != file_path {
-                            let edge = CodeEdge::imports()
-                                .with_property("is_type_only", is_type_only);
-                            self.edge_buffer
-                                .push((file_path, target.clone(), edge));
-                            resolved_count += 1;
-                        }
-                    }
+                Some(LookupEntry::Ambiguous) | None => {
+                    pending_dropped += callers.len();
+                }
+            }
+        }
+
+        // Sort module lookup candidates for deterministic import resolution
+        self.module_lookup.sort_candidates();
+
+        // Resolve deferred imports
+        let import_count = self.deferred_imports.len();
+        let mut import_resolved = 0usize;
+        for deferred in std::mem::take(&mut self.deferred_imports) {
+            let DeferredImport::Import {
+                file_path,
+                import_path,
+                is_type_only,
+            } = deferred;
+
+            if let Some(target) = self.module_lookup.find_match(&import_path) {
+                if *target != file_path {
+                    let edge =
+                        CodeEdge::imports().with_property("is_type_only", is_type_only);
+                    self.edge_buffer
+                        .push((file_path, target.clone(), edge));
+                    import_resolved += 1;
                 }
             }
         }
 
         tracing::info!(
-            "Phase 2: resolved {}/{} deferred cross-file edges",
-            resolved_count,
-            deferred_count
+            "Finalize: {} pending calls resolved, {} dropped; {}/{} imports resolved",
+            pending_resolved,
+            pending_dropped,
+            import_resolved,
+            import_count,
         );
 
         self.flush_edges()?;
-        self.graph.save()?;
+
+        // Defer graph.save() to background — redb persistence is NOT needed for
+        // in-memory analysis (detect, score, postprocess all use petgraph directly).
+        // This saves ~780ms from the critical path on large repos.
+        let graph_for_save = Arc::clone(&self.graph);
+        std::thread::spawn(move || {
+            if let Err(e) = graph_for_save.save() {
+                tracing::warn!("Background graph save failed: {}", e);
+            }
+        });
+
         Ok(self.stats)
     }
 }
@@ -687,7 +739,6 @@ pub fn run_bounded_pipeline_from_channel(
         }
         // info is dropped here — memory freed immediately
     }
-
     // Wait for workers
     for w in workers {
         let _ = w.join();
@@ -925,5 +976,78 @@ mod tests {
                 i
             );
         }
+    }
+
+    /// Verify that ambiguous bare names (same function name in two files)
+    /// do NOT produce spurious cross-file call edges.
+    ///
+    /// Uses 1 worker to ensure deterministic processing order: utils_a, utils_b
+    /// (both define `process`), then main (calls `process`). After both utils
+    /// files are processed, `process` is marked Ambiguous and the call from
+    /// main should be dropped.
+    #[test]
+    fn test_ambiguous_bare_name_drops_cross_file_edge() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path();
+
+        create_test_file(path, "utils_a.py", "def process():\n    pass\n");
+        create_test_file(path, "utils_b.py", "def process():\n    pass\n");
+        create_test_file(path, "main.py", "def main():\n    process()\n");
+
+        let graph = Arc::new(GraphStore::in_memory());
+        let mut config = PipelineConfig::for_repo_size(3);
+        config.num_workers = 1; // deterministic order: utils_a, utils_b, main
+        let files = vec![
+            path.join("utils_a.py"),
+            path.join("utils_b.py"),
+            path.join("main.py"),
+        ];
+
+        let (_stats, _parse_stats) =
+            run_bounded_pipeline(files, path, graph.clone(), config, None)
+                .expect("pipeline should succeed");
+
+        let call_edges = graph.get_edges_by_kind(crate::graph::EdgeKind::Calls);
+        let spurious = call_edges
+            .iter()
+            .filter(|(src, _dst)| src.contains("main"))
+            .filter(|(_src, dst)| dst.contains("process"))
+            .count();
+        assert_eq!(
+            spurious, 0,
+            "ambiguous bare name should not create cross-file call edge"
+        );
+    }
+
+    /// Verify forward references resolve via pending queue.
+    ///
+    /// Uses 1 worker to ensure caller.py is processed before helper.py,
+    /// so the call to `helper()` goes into the pending queue and is
+    /// resolved when helper.py registers the function.
+    #[test]
+    fn test_pending_queue_resolves_forward_references() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path();
+
+        create_test_file(path, "caller.py", "def main():\n    helper()\n");
+        create_test_file(path, "helper.py", "def helper():\n    pass\n");
+
+        let graph = Arc::new(GraphStore::in_memory());
+        let mut config = PipelineConfig::for_repo_size(2);
+        config.num_workers = 1; // deterministic order: caller before helper
+        let files = vec![path.join("caller.py"), path.join("helper.py")];
+
+        let (_stats, _) =
+            run_bounded_pipeline(files, path, graph.clone(), config, None)
+                .expect("pipeline should succeed");
+
+        let call_edges = graph.get_edges_by_kind(crate::graph::EdgeKind::Calls);
+        let has_edge = call_edges
+            .iter()
+            .any(|(src, dst)| src.contains("main") && dst.contains("helper"));
+        assert!(
+            has_edge,
+            "forward reference should be resolved via pending queue"
+        );
     }
 }

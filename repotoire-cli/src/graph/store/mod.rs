@@ -353,6 +353,85 @@ impl GraphStore {
         indices
     }
 
+    /// Add nodes and create Contains edges (file → function/class) in one operation.
+    /// This avoids buffering 84K+ (String, String, CodeEdge) tuples for Contains edges
+    /// that are always intra-file and always resolved.
+    pub fn add_nodes_batch_with_contains(
+        &self,
+        nodes: Vec<CodeNode>,
+        file_qn: &str,
+    ) -> Vec<NodeIndex> {
+        let mut graph = self.write_graph();
+        let mut indices = Vec::with_capacity(nodes.len());
+
+        // Resolve file node index (should already exist from a prior add_nodes_batch call)
+        let file_idx = self.node_index.get(file_qn).map(|r| *r);
+
+        for node in nodes {
+            let qn = node.qualified_name.clone();
+            let node_file_path = node.file_path.clone();
+            let is_function = node.kind == NodeKind::Function;
+            let file_path = if is_function { Some(node.file_path.clone()) } else { None };
+            let line_start = node.line_start;
+            let line_end = node.line_end;
+            let is_class = node.kind == NodeKind::Class;
+            let class_file_path = if is_class { Some(node.file_path.clone()) } else { None };
+            let needs_contains = is_function || is_class;
+
+            if let Some(idx_ref) = self.node_index.get(&qn) {
+                let idx = *idx_ref;
+                drop(idx_ref); // Drop DashMap ref while holding graph write lock
+                if let Some(existing) = graph.node_weight_mut(idx) {
+                    *existing = node;
+                }
+                indices.push(idx);
+            } else {
+                let idx = graph.add_node(node);
+                self.node_index.insert(qn, idx);
+
+                // Populate spatial index and file-scoped function index
+                if is_function {
+                    if let Some(fp) = file_path {
+                        self.function_spatial_index
+                            .entry(fp.clone())
+                            .or_default()
+                            .push((line_start, line_end, idx));
+                        self.file_functions_index
+                            .entry(fp)
+                            .or_default()
+                            .push(idx);
+                    }
+                }
+                // Populate file-scoped class index
+                if is_class {
+                    if let Some(fp) = class_file_path {
+                        self.file_classes_index
+                            .entry(fp)
+                            .or_default()
+                            .push(idx);
+                    }
+                }
+
+                // Populate file_all_nodes_index for delta patching
+                self.file_all_nodes_index.entry(node_file_path).or_default().push(idx);
+
+                // Add Contains edge: file → function/class (in same write lock)
+                if needs_contains {
+                    if let Some(f_idx) = file_idx {
+                        let mut set = self.edge_set.lock().expect("edge_set lock");
+                        if set.insert((f_idx, idx, EdgeKind::Contains)) {
+                            graph.add_edge(f_idx, idx, CodeEdge::contains());
+                        }
+                    }
+                }
+
+                indices.push(idx);
+            }
+        }
+
+        indices
+    }
+
     /// Get node index by qualified name
     pub fn get_node_index(&self, qn: &str) -> Option<NodeIndex> {
         self.node_index.get(qn).map(|r| *r)
