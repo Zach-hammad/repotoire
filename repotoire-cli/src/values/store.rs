@@ -42,11 +42,11 @@ pub struct RawParseValues {
 /// Provides O(1) lookups by qualified name and line-scoped variable resolution.
 pub struct ValueStore {
     /// Module/class-level constants keyed by qualified name.
-    constants: HashMap<String, SymbolicValue>,
+    pub(crate) constants: HashMap<String, SymbolicValue>,
     /// Per-function assignment lists keyed by function qualified name.
-    function_values: HashMap<String, Vec<Assignment>>,
+    pub(crate) function_values: HashMap<String, Vec<Assignment>>,
     /// Resolved return values keyed by function qualified name.
-    return_values: HashMap<String, SymbolicValue>,
+    pub(crate) return_values: HashMap<String, SymbolicValue>,
 }
 
 /// Sentinel empty slice returned by `assignments_in` when a function has no

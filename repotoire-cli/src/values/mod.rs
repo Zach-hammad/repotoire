@@ -5,5 +5,6 @@
 
 pub mod configs;
 pub mod extraction;
+pub mod propagation;
 pub mod store;
 pub mod types;
