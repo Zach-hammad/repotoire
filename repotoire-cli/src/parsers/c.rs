@@ -5,9 +5,56 @@
 use crate::models::{Class, Function};
 use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
+
+thread_local! {
+    static C_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_c::LANGUAGE.into()).expect("C language");
+        p
+    });
+}
+
+const C_FUNC_QUERY_STR: &str = r#"
+    (function_definition
+        type: (_) @return_type
+        declarator: (function_declarator
+            declarator: (_) @func_name
+            parameters: (parameter_list) @params
+        )
+    ) @func
+"#;
+
+const C_STRUCT_QUERY_STR: &str = r#"
+    (struct_specifier
+        name: (type_identifier) @struct_name
+    ) @struct_def
+
+    (type_definition
+        type: (struct_specifier
+            name: (type_identifier)? @struct_name
+        )
+        declarator: (type_identifier) @typedef_name
+    ) @typedef_struct
+
+    (enum_specifier
+        name: (type_identifier) @enum_name
+    ) @enum_def
+"#;
+
+const C_INCLUDE_QUERY_STR: &str = r#"
+    (preproc_include
+        path: (_) @include_path
+    )
+"#;
+
+static C_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
+static C_STRUCT_QUERY: OnceLock<Query> = OnceLock::new();
+static C_INCLUDE_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Parse a C file and extract all code entities
 #[allow(dead_code)]
@@ -25,15 +72,9 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 
 /// Parse C source code and return both the ParseResult and the tree-sitter Tree.
 pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let mut parser = Parser::new();
-    let language = tree_sitter_c::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .context("Failed to set C language")?;
-
-    let tree = parser
-        .parse(source, None)
-        .context("Failed to parse C source")?;
+    let tree = C_PARSER.with(|cell| {
+        cell.borrow_mut().parse(source, None)
+    }).context("Failed to parse C source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -70,22 +111,13 @@ fn extract_functions(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    let query_str = r#"
-        (function_definition
-            type: (_) @return_type
-            declarator: (function_declarator
-                declarator: (_) @func_name
-                parameters: (parameter_list) @params
-            )
-        ) @func
-    "#;
-
-    let language = tree_sitter_c::LANGUAGE;
-    let query =
-        Query::new(&language.into(), query_str).context("Failed to create function query")?;
+    let query = C_FUNC_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_c::LANGUAGE.into(), C_FUNC_QUERY_STR)
+            .expect("valid C function query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut func_node = None;
@@ -199,28 +231,13 @@ fn extract_structs(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    let query_str = r#"
-        (struct_specifier
-            name: (type_identifier) @struct_name
-        ) @struct_def
-
-        (type_definition
-            type: (struct_specifier
-                name: (type_identifier)? @struct_name
-            )
-            declarator: (type_identifier) @typedef_name
-        ) @typedef_struct
-
-        (enum_specifier
-            name: (type_identifier) @enum_name
-        ) @enum_def
-    "#;
-
-    let language = tree_sitter_c::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create struct query")?;
+    let query = C_STRUCT_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_c::LANGUAGE.into(), C_STRUCT_QUERY_STR)
+            .expect("valid C struct query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut node = None;
@@ -288,18 +305,13 @@ fn extract_structs(
 
 /// Extract #include statements from the AST
 fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Result<()> {
-    let query_str = r#"
-        (preproc_include
-            path: (_) @include_path
-        )
-    "#;
-
-    let language = tree_sitter_c::LANGUAGE;
-    let query =
-        Query::new(&language.into(), query_str).context("Failed to create include query")?;
+    let query = C_INCLUDE_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_c::LANGUAGE.into(), C_INCLUDE_QUERY_STR)
+            .expect("valid C include query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         for capture in m.captures.iter() {

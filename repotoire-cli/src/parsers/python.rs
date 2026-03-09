@@ -5,9 +5,42 @@
 use crate::models::{Class, Function};
 use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::OnceLock;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
+
+thread_local! {
+    static PY_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_python::LANGUAGE.into()).expect("Python language");
+        p
+    });
+}
+
+/// Query string for module-level function definitions (sync and decorated)
+const PY_FUNC_QUERY_STR: &str = r#"
+    (module
+        (function_definition
+            name: (identifier) @func_name
+            parameters: (parameters) @params
+            return_type: (type)? @return_type
+        ) @func
+    )
+    (module
+        (decorated_definition
+            (function_definition
+                name: (identifier) @func_name
+                parameters: (parameters) @params
+                return_type: (type)? @return_type
+            ) @func
+        )
+    )
+"#;
+
+/// Cached function query for Python
+static PY_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Extract decorator names from a `decorated_definition` node.
 fn extract_decorators(node: &Node, source: &[u8]) -> Vec<String> {
@@ -48,15 +81,9 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 /// Parse Python source code and return both the ParseResult and the tree-sitter Tree.
 /// Used by the pipeline to extract structural fingerprints without re-parsing.
 pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let mut parser = Parser::new();
-    let language = tree_sitter_python::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .context("Failed to set Python language")?;
-
-    let tree = parser
-        .parse(source, None)
-        .context("Failed to parse Python source")?;
+    let tree = PY_PARSER.with(|cell| {
+        cell.borrow_mut().parse(source, None)
+    }).context("Failed to parse Python source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -170,31 +197,13 @@ fn extract_functions(
     result: &mut ParseResult,
 ) -> Result<()> {
     // Query for function definitions at module level (handles both sync and async)
-    let query_str = r#"
-        (module
-            (function_definition
-                name: (identifier) @func_name
-                parameters: (parameters) @params
-                return_type: (type)? @return_type
-            ) @func
-        )
-        (module
-            (decorated_definition
-                (function_definition
-                    name: (identifier) @func_name
-                    parameters: (parameters) @params
-                    return_type: (type)? @return_type
-                ) @func
-            )
-        )
-    "#;
-
-    let language = tree_sitter_python::LANGUAGE;
-    let query =
-        Query::new(&language.into(), query_str).context("Failed to create function query")?;
+    let query = PY_FUNC_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_python::LANGUAGE.into(), PY_FUNC_QUERY_STR)
+            .expect("valid Python function query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut func_node = None;

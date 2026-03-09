@@ -5,8 +5,80 @@
 use crate::models::{Class, Function};
 use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
+use std::cell::RefCell;
 use std::path::Path;
+use std::sync::OnceLock;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
+
+thread_local! {
+    static CPP_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_cpp::LANGUAGE.into()).expect("C++ language");
+        p
+    });
+}
+
+const CPP_FUNC_QUERY_STR: &str = r#"
+    (function_definition
+        type: (_) @return_type
+        declarator: (function_declarator
+            declarator: (_) @func_name
+            parameters: (parameter_list) @params
+        )
+    ) @func
+"#;
+
+const CPP_CLASS_QUERY_STR: &str = r#"
+    (class_specifier
+        name: (type_identifier) @class_name
+        body: (field_declaration_list) @body
+    ) @class
+"#;
+
+const CPP_METHOD_QUERY_STR: &str = r#"
+    (function_definition
+        type: (_) @return_type
+        declarator: (function_declarator
+            declarator: (_) @method_name
+            parameters: (parameter_list) @params
+        )
+    ) @method
+"#;
+
+const CPP_STRUCT_QUERY_STR: &str = r#"
+    (struct_specifier
+        name: (type_identifier) @struct_name
+        body: (field_declaration_list)? @body
+    ) @struct
+"#;
+
+const CPP_INCLUDE_QUERY_STR: &str = r#"
+    (preproc_include
+        path: [
+            (string_literal) @path
+            (system_lib_string) @system_path
+        ]
+    )
+"#;
+
+const CPP_CALL_QUERY_STR: &str = r#"
+    (call_expression
+        function: [
+            (identifier) @func_name
+            (field_expression
+                field: (field_identifier) @method_name
+            )
+            (qualified_identifier) @qualified_name
+        ]
+    ) @call
+"#;
+
+static CPP_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
+static CPP_CLASS_QUERY: OnceLock<Query> = OnceLock::new();
+static CPP_METHOD_QUERY: OnceLock<Query> = OnceLock::new();
+static CPP_STRUCT_QUERY: OnceLock<Query> = OnceLock::new();
+static CPP_INCLUDE_QUERY: OnceLock<Query> = OnceLock::new();
+static CPP_CALL_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Parse a C++ file and extract all code entities
 #[allow(dead_code)]
@@ -24,15 +96,9 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 
 /// Parse C++ source code and return both the ParseResult and the tree-sitter Tree.
 pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let mut parser = Parser::new();
-    let language = tree_sitter_cpp::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .context("Failed to set C++ language")?;
-
-    let tree = parser
-        .parse(source, None)
-        .context("Failed to parse C++ source")?;
+    let tree = CPP_PARSER.with(|cell| {
+        cell.borrow_mut().parse(source, None)
+    }).context("Failed to parse C++ source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -81,22 +147,13 @@ fn extract_functions(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    let query_str = r#"
-        (function_definition
-            type: (_) @return_type
-            declarator: (function_declarator
-                declarator: (_) @func_name
-                parameters: (parameter_list) @params
-            )
-        ) @func
-    "#;
-
-    let language = tree_sitter_cpp::LANGUAGE;
-    let query =
-        Query::new(&language.into(), query_str).context("Failed to create function query")?;
+    let query = CPP_FUNC_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_cpp::LANGUAGE.into(), CPP_FUNC_QUERY_STR)
+            .expect("valid C++ function query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut func_node = None;
@@ -173,18 +230,13 @@ fn extract_classes(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    let query_str = r#"
-        (class_specifier
-            name: (type_identifier) @class_name
-            body: (field_declaration_list) @body
-        ) @class
-    "#;
-
-    let language = tree_sitter_cpp::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create class query")?;
+    let query = CPP_CLASS_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_cpp::LANGUAGE.into(), CPP_CLASS_QUERY_STR)
+            .expect("valid C++ class query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut class_node = None;
@@ -292,21 +344,13 @@ fn extract_class_methods(
     // Build access map by walking siblings sequentially
     let access_map = build_access_map(body, source, default_access);
 
-    let query_str = r#"
-        (function_definition
-            type: (_) @return_type
-            declarator: (function_declarator
-                declarator: (_) @method_name
-                parameters: (parameter_list) @params
-            )
-        ) @method
-    "#;
-
-    let language = tree_sitter_cpp::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create method query")?;
+    let query = CPP_METHOD_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_cpp::LANGUAGE.into(), CPP_METHOD_QUERY_STR)
+            .expect("valid C++ method query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *body, source);
+    let mut matches = cursor.matches(query, *body, source);
 
     while let Some(m) = matches.next() {
         let mut method_node = None;
@@ -381,18 +425,13 @@ fn extract_structs(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    let query_str = r#"
-        (struct_specifier
-            name: (type_identifier) @struct_name
-            body: (field_declaration_list)? @body
-        ) @struct
-    "#;
-
-    let language = tree_sitter_cpp::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create struct query")?;
+    let query = CPP_STRUCT_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_cpp::LANGUAGE.into(), CPP_STRUCT_QUERY_STR)
+            .expect("valid C++ struct query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut struct_node = None;
@@ -450,21 +489,13 @@ fn extract_structs(
 
 /// Extract #include statements
 fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Result<()> {
-    let query_str = r#"
-        (preproc_include
-            path: [
-                (string_literal) @path
-                (system_lib_string) @system_path
-            ]
-        )
-    "#;
-
-    let language = tree_sitter_cpp::LANGUAGE;
-    let query =
-        Query::new(&language.into(), query_str).context("Failed to create include query")?;
+    let query = CPP_INCLUDE_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_cpp::LANGUAGE.into(), CPP_INCLUDE_QUERY_STR)
+            .expect("valid C++ include query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         for capture in m.captures.iter() {
@@ -484,23 +515,13 @@ fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Res
 
 /// Extract function calls
 fn extract_calls(root: &Node, source: &[u8], path: &Path, result: &mut ParseResult) -> Result<()> {
-    let query_str = r#"
-        (call_expression
-            function: [
-                (identifier) @func_name
-                (field_expression
-                    field: (field_identifier) @method_name
-                )
-                (qualified_identifier) @qualified_name
-            ]
-        ) @call
-    "#;
-
-    let language = tree_sitter_cpp::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create call query")?;
+    let query = CPP_CALL_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_cpp::LANGUAGE.into(), CPP_CALL_QUERY_STR)
+            .expect("valid C++ call query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut call_node = None;

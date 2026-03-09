@@ -5,9 +5,42 @@
 use crate::models::{Class, Function};
 use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
+
+thread_local! {
+    static RS_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_rust::LANGUAGE.into()).expect("Rust language");
+        p
+    });
+}
+
+const FUNC_QUERY_STR: &str = r#"
+    (function_item
+        name: (identifier) @func_name
+        parameters: (parameters) @params
+        return_type: (_)? @return_type
+    ) @func
+
+    (function_signature_item
+        name: (identifier) @func_name
+        parameters: (parameters) @params
+        return_type: (_)? @return_type
+    ) @func
+"#;
+
+const IMPORT_QUERY_STR: &str = r#"
+    (use_declaration
+        argument: (_) @import_path
+    )
+"#;
+
+static RS_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
+static RS_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Parse a Rust file and extract all code entities
 #[allow(dead_code)]
@@ -26,15 +59,9 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 /// Parse Rust source code and return both the ParseResult and the tree-sitter Tree.
 /// Used by the pipeline to extract structural fingerprints without re-parsing.
 pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let mut parser = Parser::new();
-    let language = tree_sitter_rust::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .context("Failed to set Rust language")?;
-
-    let tree = parser
-        .parse(source, None)
-        .context("Failed to parse Rust source")?;
+    let tree = RS_PARSER.with(|cell| {
+        cell.borrow_mut().parse(source, None)
+    }).context("Failed to parse Rust source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -56,26 +83,13 @@ fn extract_functions(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    let query_str = r#"
-        (function_item
-            name: (identifier) @func_name
-            parameters: (parameters) @params
-            return_type: (_)? @return_type
-        ) @func
-
-        (function_signature_item
-            name: (identifier) @func_name
-            parameters: (parameters) @params
-            return_type: (_)? @return_type
-        ) @func
-    "#;
-
-    let language = tree_sitter_rust::LANGUAGE;
-    let query =
-        Query::new(&language.into(), query_str).context("Failed to create function query")?;
+    let query = RS_FUNC_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_rust::LANGUAGE.into(), FUNC_QUERY_STR)
+            .expect("valid function query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut func_node = None;
@@ -459,17 +473,13 @@ fn parse_impl_method(
 
 /// Extract use statements from the AST
 fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Result<()> {
-    let query_str = r#"
-        (use_declaration
-            argument: (_) @import_path
-        )
-    "#;
-
-    let language = tree_sitter_rust::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create import query")?;
+    let query = RS_IMPORT_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_rust::LANGUAGE.into(), IMPORT_QUERY_STR)
+            .expect("valid import query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         for capture in m.captures.iter() {

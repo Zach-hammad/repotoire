@@ -5,9 +5,30 @@
 use crate::models::{Class, Function};
 use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
+
+thread_local! {
+    static CS_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_c_sharp::LANGUAGE.into()).expect("C# language");
+        p
+    });
+}
+
+const CS_IMPORT_QUERY_STR: &str = r#"
+    (using_directive
+        (identifier) @import_name
+    )
+    (using_directive
+        (qualified_name) @import_name
+    )
+"#;
+
+static CS_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Parse a C# file and extract all code entities
 #[allow(dead_code)]
@@ -25,15 +46,9 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 
 /// Parse C# source code and return both the ParseResult and the tree-sitter Tree.
 pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let mut parser = Parser::new();
-    let language = tree_sitter_c_sharp::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .context("Failed to set C# language")?;
-
-    let tree = parser
-        .parse(source, None)
-        .context("Failed to parse C# source")?;
+    let tree = CS_PARSER.with(|cell| {
+        cell.borrow_mut().parse(source, None)
+    }).context("Failed to parse C# source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -586,20 +601,13 @@ fn extract_parameters(params_node: Option<Node>, source: &[u8]) -> Vec<String> {
 
 /// Extract using directives from the AST
 fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Result<()> {
-    let query_str = r#"
-        (using_directive
-            (identifier) @import_name
-        )
-        (using_directive
-            (qualified_name) @import_name
-        )
-    "#;
-
-    let language = tree_sitter_c_sharp::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create import query")?;
+    let query = CS_IMPORT_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_c_sharp::LANGUAGE.into(), CS_IMPORT_QUERY_STR)
+            .expect("valid C# import query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         for capture in m.captures.iter() {

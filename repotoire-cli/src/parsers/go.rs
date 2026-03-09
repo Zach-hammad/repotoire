@@ -5,9 +5,74 @@
 use crate::models::{Class, Function};
 use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
+
+thread_local! {
+    static GO_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_go::LANGUAGE.into()).expect("Go language");
+        p
+    });
+}
+
+// --- Cached query strings and statics ---
+
+const GO_FUNC_QUERY_STR: &str = r#"
+    (function_declaration
+        name: (identifier) @func_name
+        parameters: (parameter_list) @params
+        result: (_)? @return_type
+    ) @func
+"#;
+
+const GO_METHOD_QUERY_STR: &str = r#"
+    (method_declaration
+        receiver: (parameter_list) @receiver
+        name: (field_identifier) @method_name
+        parameters: (parameter_list) @params
+        result: (_)? @return_type
+    ) @method
+"#;
+
+const GO_TYPE_QUERY_STR: &str = r#"
+    (type_declaration
+        (type_spec
+            name: (type_identifier) @type_name
+            type: (struct_type) @struct_body
+        )
+    ) @struct_decl
+
+    (type_declaration
+        (type_spec
+            name: (type_identifier) @iface_name
+            type: (interface_type) @iface_body
+        )
+    ) @iface_decl
+"#;
+
+const GO_IMPORT_QUERY_STR: &str = r#"
+    (import_declaration
+        (import_spec
+            path: (interpreted_string_literal) @import_path
+        )
+    )
+    (import_declaration
+        (import_spec_list
+            (import_spec
+                path: (interpreted_string_literal) @import_path
+            )
+        )
+    )
+"#;
+
+static GO_FUNC_QUERY: OnceLock<Query> = OnceLock::new();
+static GO_METHOD_QUERY: OnceLock<Query> = OnceLock::new();
+static GO_TYPE_QUERY: OnceLock<Query> = OnceLock::new();
+static GO_IMPORT_QUERY: OnceLock<Query> = OnceLock::new();
 
 /// Parse a Go file and extract all code entities
 #[allow(dead_code)]
@@ -25,15 +90,9 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 
 /// Parse Go source code and return both the ParseResult and the tree-sitter Tree.
 pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let mut parser = Parser::new();
-    let language = tree_sitter_go::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .context("Failed to set Go language")?;
-
-    let tree = parser
-        .parse(source, None)
-        .context("Failed to parse Go source")?;
+    let tree = GO_PARSER.with(|cell| {
+        cell.borrow_mut().parse(source, None)
+    }).context("Failed to parse Go source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -55,21 +114,14 @@ fn extract_functions(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    // Query for function declarations
-    let func_query_str = r#"
-        (function_declaration
-            name: (identifier) @func_name
-            parameters: (parameter_list) @params
-            result: (_)? @return_type
-        ) @func
-    "#;
-
-    let language = tree_sitter_go::LANGUAGE;
-    let query =
-        Query::new(&language.into(), func_query_str).context("Failed to create function query")?;
+    // Query for function declarations (cached)
+    let query = GO_FUNC_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_go::LANGUAGE.into(), GO_FUNC_QUERY_STR)
+            .expect("valid Go function query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut func_node = None;
@@ -145,21 +197,14 @@ fn extract_methods(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    let method_query_str = r#"
-        (method_declaration
-            receiver: (parameter_list) @receiver
-            name: (field_identifier) @method_name
-            parameters: (parameter_list) @params
-            result: (_)? @return_type
-        ) @method
-    "#;
-
-    let language = tree_sitter_go::LANGUAGE;
-    let query =
-        Query::new(&language.into(), method_query_str).context("Failed to create method query")?;
+    // Method query (cached)
+    let query = GO_METHOD_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_go::LANGUAGE.into(), GO_METHOD_QUERY_STR)
+            .expect("valid Go method query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut method_node = None;
@@ -290,27 +335,14 @@ fn extract_structs_and_interfaces(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    let query_str = r#"
-        (type_declaration
-            (type_spec
-                name: (type_identifier) @type_name
-                type: (struct_type) @struct_body
-            )
-        ) @struct_decl
-
-        (type_declaration
-            (type_spec
-                name: (type_identifier) @iface_name
-                type: (interface_type) @iface_body
-            )
-        ) @iface_decl
-    "#;
-
-    let language = tree_sitter_go::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create type query")?;
+    // Type query (cached)
+    let query = GO_TYPE_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_go::LANGUAGE.into(), GO_TYPE_QUERY_STR)
+            .expect("valid Go type query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         let mut decl_node = None;
@@ -409,26 +441,14 @@ fn extract_interface_methods(body_node: Option<Node>, source: &[u8]) -> Vec<Stri
 
 /// Extract import statements from the AST
 fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Result<()> {
-    let query_str = r#"
-        (import_declaration
-            (import_spec
-                path: (interpreted_string_literal) @import_path
-            )
-        )
-        (import_declaration
-            (import_spec_list
-                (import_spec
-                    path: (interpreted_string_literal) @import_path
-                )
-            )
-        )
-    "#;
-
-    let language = tree_sitter_go::LANGUAGE;
-    let query = Query::new(&language.into(), query_str).context("Failed to create import query")?;
+    // Import query (cached)
+    let query = GO_IMPORT_QUERY.get_or_init(|| {
+        Query::new(&tree_sitter_go::LANGUAGE.into(), GO_IMPORT_QUERY_STR)
+            .expect("valid Go import query")
+    });
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let mut matches = cursor.matches(query, *root, source);
 
     while let Some(m) = matches.next() {
         for capture in m.captures.iter() {

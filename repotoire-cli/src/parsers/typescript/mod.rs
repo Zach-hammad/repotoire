@@ -5,10 +5,29 @@
 use crate::models::{Class, Function};
 use crate::parsers::ParseResult;
 use anyhow::{Context, Result};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator};
+
+thread_local! {
+    static TS_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()).expect("TypeScript language");
+        p
+    });
+    static TSX_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_typescript::LANGUAGE_TSX.into()).expect("TSX language");
+        p
+    });
+    static JS_PARSER: RefCell<Parser> = RefCell::new({
+        let mut p = Parser::new();
+        p.set_language(&tree_sitter_javascript::LANGUAGE.into()).expect("JavaScript language");
+        p
+    });
+}
 
 /// Function query string (shared across languages)
 const FUNC_QUERY_STR: &str = r#"
@@ -171,9 +190,7 @@ pub fn parse_source(source: &str, path: &Path, ext: &str) -> Result<ParseResult>
 /// Parse TypeScript/JavaScript source code and return both the ParseResult and the tree-sitter Tree.
 /// Used by the pipeline to extract structural fingerprints without re-parsing.
 pub fn parse_source_with_tree(source: &str, path: &Path, ext: &str) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let mut parser = Parser::new();
-
-    // Choose language based on extension
+    // Choose language and parser based on extension
     let language: Language = match ext {
         "ts" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         "tsx" => tree_sitter_typescript::LANGUAGE_TSX.into(),
@@ -181,13 +198,11 @@ pub fn parse_source_with_tree(source: &str, path: &Path, ext: &str) -> Result<(P
         _ => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
     };
 
-    parser
-        .set_language(&language)
-        .context("Failed to set TypeScript/JavaScript language")?;
-
-    let tree = parser
-        .parse(source, None)
-        .context("Failed to parse source")?;
+    let tree = match ext {
+        "tsx" => TSX_PARSER.with(|cell| cell.borrow_mut().parse(source, None)),
+        "js" | "jsx" | "mjs" | "cjs" => JS_PARSER.with(|cell| cell.borrow_mut().parse(source, None)),
+        _ => TS_PARSER.with(|cell| cell.borrow_mut().parse(source, None)),
+    }.context("Failed to parse source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
