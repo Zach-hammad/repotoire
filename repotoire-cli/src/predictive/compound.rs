@@ -30,7 +30,11 @@ pub fn compute_precision_weights(all_scores: &HashMap<Level, Vec<f64>>) -> HashM
         let n = scores.len() as f64;
         let mean = scores.iter().sum::<f64>() / n;
         let variance = scores.iter().map(|s| (s - mean).powi(2)).sum::<f64>() / n;
-        let precision = if variance > 1e-10 { 1.0 / variance } else { 1.0 };
+        let precision = if variance > 1e-10 {
+            1.0 / variance
+        } else {
+            1.0
+        };
         precisions.insert(*level, precision);
         total_precision += precision;
     }
@@ -44,10 +48,7 @@ pub fn compute_precision_weights(all_scores: &HashMap<Level, Vec<f64>>) -> HashM
 }
 
 /// Score a single entity given its per-level z-scores.
-pub fn score_entity(
-    level_scores: Vec<LevelScore>,
-    weights: &HashMap<Level, f64>,
-) -> CompoundScore {
+pub fn score_entity(level_scores: Vec<LevelScore>, weights: &HashMap<Level, f64>) -> CompoundScore {
     let concordance = level_scores.iter().filter(|s| s.is_surprising).count();
 
     let compound_surprise: f64 = level_scores

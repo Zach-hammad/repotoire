@@ -72,11 +72,7 @@ impl StructuralScorer {
 
         let inv_cov = invert_matrix(&cov);
 
-        Self {
-            mean,
-            inv_cov,
-            dim,
-        }
+        Self { mean, inv_cov, dim }
     }
 
     /// Compute Mahalanobis distance of a point from the distribution.
@@ -287,7 +283,7 @@ mod tests {
 
         // Point along the correlation (high but consistent)
         let along = vec![15.0, 30.0]; // follows pattern
-        // Point breaking the correlation
+                                      // Point breaking the correlation
         let breaking = vec![5.0, 30.0]; // params low but complexity high
 
         let dist_along = scorer.mahalanobis_distance(&along);
@@ -310,9 +306,6 @@ mod tests {
 
         // The mean is [3.0, 4.0, 5.0]
         let dist = scorer.mahalanobis_distance(&[3.0, 4.0, 5.0]);
-        assert!(
-            dist < 1e-6,
-            "Distance at the mean should be ~0, got {dist}"
-        );
+        assert!(dist < 1e-6, "Distance at the mean should be ~0, got {dist}");
     }
 }

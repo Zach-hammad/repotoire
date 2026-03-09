@@ -57,8 +57,7 @@ impl RelationalScorer {
             // Vary seed per edge type so each pass produces different walks
             let walk_seed = seed.map(|s| s.wrapping_add(i as u64));
 
-            let walks =
-                node2vec_random_walks(edges, num_nodes, 10, 20, 1.0, 1.0, walk_seed);
+            let walks = node2vec_random_walks(edges, num_nodes, 10, 20, 1.0, 1.0, walk_seed);
 
             let config = Word2VecConfig {
                 embedding_dim,
@@ -94,8 +93,7 @@ impl RelationalScorer {
     ///
     /// Returns 0.0 if either node has no embedding.
     pub fn node_distance(&self, node_a: u32, node_b: u32) -> f64 {
-        let (Some(a), Some(b)) =
-            (self.embeddings.get(&node_a), self.embeddings.get(&node_b))
+        let (Some(a), Some(b)) = (self.embeddings.get(&node_a), self.embeddings.get(&node_b))
         else {
             return 0.0;
         };
@@ -160,10 +158,8 @@ mod tests {
         let calls_edges = vec![(0, 1), (1, 2), (2, 0), (0, 2)];
         let imports_edges = vec![(3, 4), (4, 3), (3, 0), (0, 3)];
 
-        let edge_sets: Vec<(&str, Vec<(u32, u32)>)> = vec![
-            ("calls", calls_edges),
-            ("imports", imports_edges),
-        ];
+        let edge_sets: Vec<(&str, Vec<(u32, u32)>)> =
+            vec![("calls", calls_edges), ("imports", imports_edges)];
 
         let scorer = RelationalScorer::from_edge_sets(&edge_sets, 5, 16, Some(42));
 
@@ -193,18 +189,15 @@ mod tests {
     #[test]
     fn test_empty_graph_returns_zero() {
         // No nodes
-        let scorer =
-            RelationalScorer::from_edge_sets(&[], 0, 16, Some(42));
+        let scorer = RelationalScorer::from_edge_sets(&[], 0, 16, Some(42));
         assert!(scorer.embeddings.is_empty());
         assert_eq!(scorer.total_dim, 0);
         assert_eq!(scorer.node_distance(0, 1), 0.0);
         assert_eq!(scorer.knn_distance(0, 5), 0.0);
 
         // Nodes but empty edge sets
-        let edge_sets: Vec<(&str, Vec<(u32, u32)>)> =
-            vec![("calls", vec![]), ("imports", vec![])];
-        let scorer =
-            RelationalScorer::from_edge_sets(&edge_sets, 5, 16, Some(42));
+        let edge_sets: Vec<(&str, Vec<(u32, u32)>)> = vec![("calls", vec![]), ("imports", vec![])];
+        let scorer = RelationalScorer::from_edge_sets(&edge_sets, 5, 16, Some(42));
         // All edge sets are empty, so no walks are produced, no embeddings
         assert!(scorer.embeddings.is_empty());
         // total_dim is still set based on edge_sets count
