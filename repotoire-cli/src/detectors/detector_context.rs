@@ -13,6 +13,7 @@ use std::sync::Arc;
 ///
 /// This is built in parallel with taint analysis and HMM (zero wall-clock cost)
 /// and provides zero-copy access to commonly needed graph data.
+#[allow(dead_code)] // Fields are scaffolding for detectors that will consume them
 pub struct DetectorContext {
     /// QN -> Vec<caller QN> -- avoids Vec<CodeNode> cloning in get_callers()
     pub callers_by_qn: HashMap<String, Vec<String>>,

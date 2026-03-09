@@ -634,6 +634,7 @@ impl IncrementalCache {
     }
 
     /// Record which cross-file values a file depends on, along with their current hashes.
+    #[allow(dead_code)] // API for future incremental invalidation based on value changes
     pub fn set_value_dependencies(
         &mut self,
         file: &Path,
@@ -649,6 +650,7 @@ impl IncrementalCache {
 
     /// Check if a cached file's value dependencies are still valid.
     /// Returns true if all dependencies have the same hash as when cached.
+    #[allow(dead_code)] // API for future incremental invalidation based on value changes
     pub fn value_deps_valid(&self, file: &Path, current_hashes: &HashMap<String, u64>) -> bool {
         let key = self.path_key(file);
         if let Some(cached) = self.cache.files.get(&key) {

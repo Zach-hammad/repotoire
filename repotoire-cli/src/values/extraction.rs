@@ -758,7 +758,6 @@ fn process_top_level_node(
 
     // Wrapper nodes (decorated_definition, export_statement, etc.) — unwrap and recurse
     if is_kind_in(kind, WRAPPER_KINDS) {
-        // Look for function or class definitions inside the wrapper
         let mut inner_cursor = child.walk();
         for inner in child.named_children(&mut inner_cursor) {
             let ik = inner.kind();
@@ -766,6 +765,16 @@ fn process_top_level_node(
                 process_function_node(inner, source_bytes, config, func_lookup, raw);
             } else if is_kind_in(ik, CLASS_DEF_KINDS) {
                 extract_class_body(inner, source_bytes, config, func_lookup, raw);
+            } else if LanguageValueConfig::matches(config.assignment_kinds, ik) {
+                // Handle exported assignments (e.g. `export const X = 1;` in JS/TS)
+                extract_assignment(
+                    inner,
+                    source_bytes,
+                    config,
+                    file_qualified_prefix,
+                    &mut raw.module_constants,
+                    None,
+                );
             }
         }
     }

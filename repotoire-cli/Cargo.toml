@@ -133,6 +133,10 @@ inherits = "release"
 debug = 2
 strip = false
 
+[lib]
+name = "repotoire"
+path = "src/lib.rs"
+
 [[bin]]
 name = "repotoire"
 path = "src/main.rs"

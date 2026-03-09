@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 /// Result of intra-function data flow analysis.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields used by tests and future callers for detailed flow inspection
 pub struct IntraFlowResult {
     /// Variables that are tainted at each point (var name -> source it came from).
     pub tainted_vars: HashMap<String, TaintSource>,
@@ -23,6 +24,7 @@ pub struct IntraFlowResult {
 
 /// Where a tainted variable got its taint from.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields used by tests and callers that inspect taint provenance
 pub struct TaintSource {
     /// The source pattern that matched (e.g. "request.args").
     pub pattern: String,
