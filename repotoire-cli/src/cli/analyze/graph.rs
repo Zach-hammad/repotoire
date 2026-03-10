@@ -6,6 +6,9 @@
 //! - Import edge resolution
 //! - Streaming graph building for huge repos
 
+use crate::graph::store_models::{
+    ExtraProps, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC,
+};
 use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
 use crate::models::{Class, Function};
 use crate::parsers::bounded_pipeline::{run_bounded_pipeline, run_bounded_pipeline_from_channel, PipelineConfig};
@@ -23,12 +26,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 /// Count lines in a file
+#[allow(dead_code)] // Used by streaming parser variants
 fn count_lines(path: &Path) -> Result<usize> {
     let content = std::fs::read_to_string(path)?;
     Ok(content.lines().count())
 }
 
 /// Detect the language from file extension
+#[allow(dead_code)] // Used by streaming parser variants
 fn detect_language(path: &Path) -> String {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     match ext {
@@ -48,6 +53,27 @@ fn detect_language(path: &Path) -> String {
         _ => "Unknown",
     }
     .to_string()
+}
+
+/// Detect language from a relative path string (avoids needing a &Path)
+fn detect_language_from_path_str(relative_str: &str) -> &'static str {
+    let ext = relative_str.rsplit('.').next().unwrap_or("");
+    match ext {
+        "py" | "pyi" => "Python",
+        "ts" | "tsx" => "TypeScript",
+        "js" | "jsx" | "mjs" => "JavaScript",
+        "rs" => "Rust",
+        "go" => "Go",
+        "java" => "Java",
+        "c" | "h" => "C",
+        "cpp" | "hpp" | "cc" => "C++",
+        "cs" => "C#",
+        "kt" | "kts" => "Kotlin",
+        "rb" => "Ruby",
+        "php" => "PHP",
+        "swift" => "Swift",
+        _ => "Unknown",
+    }
 }
 
 /// Generate module import pattern keys for a given relative file path.
@@ -89,61 +115,79 @@ fn generate_module_patterns(relative_str: &str) -> Vec<String> {
 }
 
 /// Build a CodeNode for a single function, attaching optional doc_comment and annotations.
+///
+/// String properties (params, doc_comment) are written to the ExtraProps side table
+/// via `graph.update_node_properties()` after the node is inserted into the graph.
 fn build_func_node(
+    graph: &GraphStore,
     func: &Function,
     relative_str: &str,
-    loc: u32,
     complexity: u32,
     address_taken: bool,
 ) -> CodeNode {
-    let mut node = CodeNode::new(NodeKind::Function, &func.name, relative_str)
-        .with_qualified_name(&func.qualified_name)
-        .with_lines(func.line_start, func.line_end)
-        .with_property("is_async", func.is_async)
-        .with_property("complexity", complexity as i64)
-        .with_property("loc", loc as i64)
-        .with_property("address_taken", address_taken)
-        .with_property("paramCount", func.parameters.len() as i64)
-        .with_property("params", func.parameters.join(","));
-    if let Some(ref doc) = func.doc_comment {
-        node = node.with_property("doc_comment", doc.as_str());
+    let i = &graph.interner;
+    let file_key = i.intern(relative_str);
+    let lang_key = i.intern(detect_language_from_path_str(relative_str));
+
+    let mut flags: u8 = 0;
+    if func.is_async {
+        flags |= FLAG_IS_ASYNC;
+    }
+    if address_taken {
+        flags |= FLAG_ADDRESS_TAKEN;
     }
     if !func.annotations.is_empty() {
-        node = node.with_property(
-            "annotations",
-            serde_json::Value::Array(
-                func.annotations
-                    .iter()
-                    .map(|a| serde_json::Value::String(a.clone()))
-                    .collect(),
-            ),
-        );
+        flags |= FLAG_HAS_DECORATORS;
     }
-    node
+
+    CodeNode {
+        kind: NodeKind::Function,
+        name: i.intern(&func.name),
+        qualified_name: i.intern(&func.qualified_name),
+        file_path: file_key,
+        language: lang_key,
+        line_start: func.line_start,
+        line_end: func.line_end,
+        complexity: complexity as u16,
+        param_count: func.parameters.len().min(255) as u8,
+        method_count: 0,
+        max_nesting: func.max_nesting.unwrap_or(0).min(255) as u8,
+        return_count: 0,
+        commit_count: 0,
+        flags,
+    }
 }
 
 /// Build a CodeNode for a single class, attaching optional doc_comment and annotations.
-fn build_class_node(class: &Class, relative_str: &str) -> CodeNode {
-    let mut node = CodeNode::new(NodeKind::Class, &class.name, relative_str)
-        .with_qualified_name(&class.qualified_name)
-        .with_lines(class.line_start, class.line_end)
-        .with_property("methodCount", class.methods.len() as i64);
-    if let Some(ref doc) = class.doc_comment {
-        node = node.with_property("doc_comment", doc.as_str());
-    }
+///
+/// String properties (doc_comment) are written to the ExtraProps side table
+/// via `graph.update_node_properties()` after the node is inserted into the graph.
+fn build_class_node(graph: &GraphStore, class: &Class, relative_str: &str) -> CodeNode {
+    let i = &graph.interner;
+    let file_key = i.intern(relative_str);
+    let lang_key = i.intern(detect_language_from_path_str(relative_str));
+
+    let mut flags: u8 = 0;
     if !class.annotations.is_empty() {
-        node = node.with_property(
-            "annotations",
-            serde_json::Value::Array(
-                class
-                    .annotations
-                    .iter()
-                    .map(|a| serde_json::Value::String(a.clone()))
-                    .collect(),
-            ),
-        );
+        flags |= FLAG_HAS_DECORATORS;
     }
-    node
+
+    CodeNode {
+        kind: NodeKind::Class,
+        name: i.intern(&class.name),
+        qualified_name: i.intern(&class.qualified_name),
+        file_path: file_key,
+        language: lang_key,
+        line_start: class.line_start,
+        line_end: class.line_end,
+        complexity: 0,
+        param_count: 0,
+        method_count: class.methods.len().min(65535) as u16,
+        max_nesting: 0,
+        return_count: 0,
+        commit_count: 0,
+        flags,
+    }
 }
 
 /// Derive a module qualified name from a relative file path.
@@ -247,51 +291,83 @@ pub(super) fn build_graph(
         .map(|(file_path, result)| {
             let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
             let relative_str = relative_path.display().to_string();
-            let language = detect_language(file_path);
-            let loc = count_lines(file_path).unwrap_or(0);
+
+            let i = &graph.interner;
+            let rel_key = i.intern(&relative_str);
+            let lang_key = i.intern(detect_language_from_path_str(&relative_str));
 
             let mut file_nodes = Vec::with_capacity(1);
             let mut func_nodes = Vec::with_capacity(result.functions.len());
             let mut class_nodes = Vec::with_capacity(result.classes.len());
             let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
             // File node
-            file_nodes.push(
-                CodeNode::new(NodeKind::File, &relative_str, &relative_str)
-                    .with_qualified_name(&relative_str)
-                    .with_language(&language)
-                    .with_property("loc", loc as i64),
-            );
+            file_nodes.push(CodeNode {
+                kind: NodeKind::File,
+                name: rel_key,
+                qualified_name: rel_key,
+                file_path: rel_key,
+                language: lang_key,
+                line_start: 0,
+                line_end: 0,
+                complexity: 0,
+                param_count: 0,
+                method_count: 0,
+                max_nesting: 0,
+                return_count: 0,
+                commit_count: 0,
+                flags: 0,
+            });
 
             // Function nodes
             for func in &result.functions {
-                let loc = if func.line_end >= func.line_start {
-                    func.line_end - func.line_start + 1
-                } else {
-                    1
-                };
                 let complexity = func.complexity.unwrap_or(1);
                 let address_taken = result.address_taken.contains(&func.name);
 
-                let mut func_node = CodeNode::new(NodeKind::Function, &func.name, &relative_str)
-                    .with_qualified_name(&func.qualified_name)
-                    .with_lines(func.line_start, func.line_end)
-                    .with_property("is_async", func.is_async)
-                    .with_property("complexity", complexity as i64)
-                    .with_property("loc", loc as i64)
-                    .with_property("address_taken", address_taken)
-                    .with_property("paramCount", func.parameters.len() as i64)
-                    .with_property("params", func.parameters.join(","));
-                if let Some(ref doc) = func.doc_comment {
-                    func_node = func_node.with_property("doc_comment", doc.as_str());
+                let mut flags: u8 = 0;
+                if func.is_async {
+                    flags |= FLAG_IS_ASYNC;
+                }
+                if address_taken {
+                    flags |= FLAG_ADDRESS_TAKEN;
                 }
                 if !func.annotations.is_empty() {
-                    func_node = func_node.with_property(
-                        "annotations",
-                        serde_json::Value::Array(
-                            func.annotations.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
-                        ),
-                    );
+                    flags |= FLAG_HAS_DECORATORS;
                 }
+
+                let func_node = CodeNode {
+                    kind: NodeKind::Function,
+                    name: i.intern(&func.name),
+                    qualified_name: i.intern(&func.qualified_name),
+                    file_path: rel_key,
+                    language: lang_key,
+                    line_start: func.line_start,
+                    line_end: func.line_end,
+                    complexity: complexity as u16,
+                    param_count: func.parameters.len().min(255) as u8,
+                    method_count: 0,
+                    max_nesting: func.max_nesting.unwrap_or(0).min(255) as u8,
+                    return_count: 0,
+                    commit_count: 0,
+                    flags,
+                };
+
+                // Store string properties in extra_props side table
+                let params_str = func.parameters.join(",");
+                let has_params = !params_str.is_empty();
+                let has_doc = func.doc_comment.is_some();
+                if has_params || has_doc {
+                    let ep = ExtraProps {
+                        params: if has_params {
+                            Some(i.intern(&params_str))
+                        } else {
+                            None
+                        },
+                        doc_comment: func.doc_comment.as_ref().map(|d| i.intern(d)),
+                        ..Default::default()
+                    };
+                    graph.set_extra_props(func_node.qualified_name, ep);
+                }
+
                 func_nodes.push(func_node);
                 edges.push((
                     relative_str.clone(),
@@ -310,21 +386,37 @@ pub(super) fn build_graph(
 
             // Class nodes
             for class in &result.classes {
-                let mut class_node = CodeNode::new(NodeKind::Class, &class.name, &relative_str)
-                    .with_qualified_name(&class.qualified_name)
-                    .with_lines(class.line_start, class.line_end)
-                    .with_property("methodCount", class.methods.len() as i64);
-                if let Some(ref doc) = class.doc_comment {
-                    class_node = class_node.with_property("doc_comment", doc.as_str());
-                }
+                let mut flags: u8 = 0;
                 if !class.annotations.is_empty() {
-                    class_node = class_node.with_property(
-                        "annotations",
-                        serde_json::Value::Array(
-                            class.annotations.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
-                        ),
-                    );
+                    flags |= FLAG_HAS_DECORATORS;
                 }
+
+                let class_node = CodeNode {
+                    kind: NodeKind::Class,
+                    name: i.intern(&class.name),
+                    qualified_name: i.intern(&class.qualified_name),
+                    file_path: rel_key,
+                    language: lang_key,
+                    line_start: class.line_start,
+                    line_end: class.line_end,
+                    complexity: 0,
+                    param_count: 0,
+                    method_count: class.methods.len().min(65535) as u16,
+                    max_nesting: 0,
+                    return_count: 0,
+                    commit_count: 0,
+                    flags,
+                };
+
+                // Store string properties in extra_props side table
+                if class.doc_comment.is_some() {
+                    let ep = ExtraProps {
+                        doc_comment: class.doc_comment.as_ref().map(|d| i.intern(d)),
+                        ..Default::default()
+                    };
+                    graph.set_extra_props(class_node.qualified_name, ep);
+                }
+
                 class_nodes.push(class_node);
                 edges.push((
                     relative_str.clone(),
@@ -442,28 +534,57 @@ pub(super) fn build_graph_chunked(
             .map(|(file_path, result)| {
                 let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
                 let relative_str = relative_path.display().to_string();
-                let language = detect_language(file_path);
-                let loc = count_lines(file_path).unwrap_or(0);
+
+                let i = &graph.interner;
+                let rel_key = i.intern(&relative_str);
+                let lang_key = i.intern(detect_language_from_path_str(&relative_str));
 
                 let mut file_nodes = Vec::with_capacity(1);
                 let mut func_nodes = Vec::with_capacity(result.functions.len());
                 let mut class_nodes = Vec::with_capacity(result.classes.len());
                 let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
                 // File node
-                file_nodes.push(
-                    CodeNode::new(NodeKind::File, &relative_str, &relative_str)
-                        .with_qualified_name(&relative_str)
-                        .with_language(&language)
-                        .with_property("loc", loc as i64),
-                );
+                file_nodes.push(CodeNode {
+                    kind: NodeKind::File,
+                    name: rel_key,
+                    qualified_name: rel_key,
+                    file_path: rel_key,
+                    language: lang_key,
+                    line_start: 0,
+                    line_end: 0,
+                    complexity: 0,
+                    param_count: 0,
+                    method_count: 0,
+                    max_nesting: 0,
+                    return_count: 0,
+                    commit_count: 0,
+                    flags: 0,
+                });
 
                 // Function nodes
                 for func in &result.functions {
-                    let loc = func.line_end.saturating_sub(func.line_start).saturating_add(1);
                     let complexity = func.complexity.unwrap_or(1);
                     let address_taken = result.address_taken.contains(&func.name);
 
-                    let func_node = build_func_node(func, &relative_str, loc, complexity, address_taken);
+                    let func_node = build_func_node(graph, func, &relative_str, complexity, address_taken);
+
+                    // Store string properties in extra_props side table
+                    let params_str = func.parameters.join(",");
+                    let has_params = !params_str.is_empty();
+                    let has_doc = func.doc_comment.is_some();
+                    if has_params || has_doc {
+                        let ep = ExtraProps {
+                            params: if has_params {
+                                Some(i.intern(&params_str))
+                            } else {
+                                None
+                            },
+                            doc_comment: func.doc_comment.as_ref().map(|d| i.intern(d)),
+                            ..Default::default()
+                        };
+                        graph.set_extra_props(func_node.qualified_name, ep);
+                    }
+
                     func_nodes.push(func_node);
                     edges.push((
                         relative_str.clone(),
@@ -482,7 +603,17 @@ pub(super) fn build_graph_chunked(
 
                 // Class nodes
                 for class in &result.classes {
-                    let class_node = build_class_node(class, &relative_str);
+                    let class_node = build_class_node(graph, class, &relative_str);
+
+                    // Store string properties in extra_props side table
+                    if class.doc_comment.is_some() {
+                        let ep = ExtraProps {
+                            doc_comment: class.doc_comment.as_ref().map(|d| i.intern(d)),
+                            ..Default::default()
+                        };
+                        graph.set_extra_props(class_node.qualified_name, ep);
+                    }
+
                     class_nodes.push(class_node);
                     edges.push((
                         relative_str.clone(),
@@ -947,8 +1078,10 @@ pub(super) fn build_import_edges_fast(
             .or_else(|| first_other_file(module_lookup.by_stem.get(clean_import), relative_str));
 
         if let Some(target_file) = matched_file {
-            let import_edge =
-                CodeEdge::imports().with_property("is_type_only", import_info.is_type_only);
+            let mut import_edge = CodeEdge::imports();
+            if import_info.is_type_only {
+                import_edge = import_edge.with_type_only();
+            }
             edges.push((relative_str.to_string(), target_file, import_edge));
         }
     }
@@ -993,12 +1126,29 @@ fn build_value_store(
     }
 
     // 2. Insert Variable nodes for module-level constants into the graph
+    let i = &graph.interner;
+    let empty = i.empty_key();
     let var_nodes: Vec<CodeNode> = value_store
         .constants
         .keys()
         .map(|qn| {
-            CodeNode::new(NodeKind::Variable, qn, "")
-                .with_qualified_name(qn)
+            let qn_key = i.intern(qn);
+            CodeNode {
+                kind: NodeKind::Variable,
+                name: qn_key,
+                qualified_name: qn_key,
+                file_path: empty,
+                language: empty,
+                line_start: 0,
+                line_end: 0,
+                complexity: 0,
+                param_count: 0,
+                method_count: 0,
+                max_nesting: 0,
+                return_count: 0,
+                commit_count: 0,
+                flags: 0,
+            }
         })
         .collect();
     if !var_nodes.is_empty() {
@@ -1013,7 +1163,7 @@ fn build_value_store(
     let topo_order: Vec<String> = graph
         .get_functions()
         .iter()
-        .map(|n| n.qualified_name.clone())
+        .map(|n| i.resolve(n.qualified_name).to_string())
         .collect();
 
     // 4. Build call map for propagation (caller -> set of callees)
@@ -1076,29 +1226,60 @@ impl StreamingGraphBuilderImpl {
 
 impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
     fn on_file(&mut self, info: ParsedFileInfo) -> Result<()> {
+        let i = &self.graph.interner;
+        let rel_key = i.intern(&info.relative_path);
+        let lang_key = i.intern(&info.language);
+
         // Add file node immediately
-        let file_node = CodeNode::new(NodeKind::File, &info.relative_path, &info.relative_path)
-            .with_qualified_name(&info.relative_path)
-            .with_language(&info.language)
-            .with_property("loc", info.loc as i64);
+        let file_node = CodeNode {
+            kind: NodeKind::File,
+            name: rel_key,
+            qualified_name: rel_key,
+            file_path: rel_key,
+            language: lang_key,
+            line_start: 0,
+            line_end: 0,
+            complexity: 0,
+            param_count: 0,
+            method_count: 0,
+            max_nesting: 0,
+            return_count: 0,
+            commit_count: 0,
+            flags: 0,
+        };
         self.graph.add_node(file_node);
 
         // Add function nodes immediately
         for func in &info.functions {
-            let loc = if func.line_end >= func.line_start {
-                func.line_end - func.line_start + 1
-            } else {
-                1
-            };
             let address_taken = info.address_taken.contains(&func.name);
 
-            let func_node = CodeNode::new(NodeKind::Function, &func.name, &info.relative_path)
-                .with_qualified_name(&func.qualified_name)
-                .with_lines(func.line_start, func.line_end)
-                .with_property("is_async", func.is_async)
-                .with_property("complexity", func.complexity as i64)
-                .with_property("loc", loc as i64)
-                .with_property("address_taken", address_taken);
+            let mut flags: u8 = 0;
+            if func.is_async {
+                flags |= FLAG_IS_ASYNC;
+            }
+            if address_taken {
+                flags |= FLAG_ADDRESS_TAKEN;
+            }
+            if func.has_annotations {
+                flags |= FLAG_HAS_DECORATORS;
+            }
+
+            let func_node = CodeNode {
+                kind: NodeKind::Function,
+                name: i.intern(&func.name),
+                qualified_name: i.intern(&func.qualified_name),
+                file_path: rel_key,
+                language: lang_key,
+                line_start: func.line_start,
+                line_end: func.line_end,
+                complexity: func.complexity as u16,
+                param_count: 0,
+                method_count: 0,
+                max_nesting: 0,
+                return_count: 0,
+                commit_count: 0,
+                flags,
+            };
             self.graph.add_node(func_node);
 
             // Collect contains edge
@@ -1122,10 +1303,22 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
 
         // Add class nodes immediately
         for class in &info.classes {
-            let class_node = CodeNode::new(NodeKind::Class, &class.name, &info.relative_path)
-                .with_qualified_name(&class.qualified_name)
-                .with_lines(class.line_start, class.line_end)
-                .with_property("methodCount", class.method_count as i64);
+            let class_node = CodeNode {
+                kind: NodeKind::Class,
+                name: i.intern(&class.name),
+                qualified_name: i.intern(&class.qualified_name),
+                file_path: rel_key,
+                language: lang_key,
+                line_start: class.line_start,
+                line_end: class.line_end,
+                complexity: 0,
+                param_count: 0,
+                method_count: class.method_count as u16,
+                max_nesting: 0,
+                return_count: 0,
+                commit_count: 0,
+                flags: 0,
+            };
             self.graph.add_node(class_node);
 
             // Collect contains edge
@@ -1165,8 +1358,10 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
             if target == &info.relative_path {
                 continue;
             }
-            let import_edge =
-                CodeEdge::imports().with_property("is_type_only", import.is_type_only);
+            let mut import_edge = CodeEdge::imports();
+            if import.is_type_only {
+                import_edge = import_edge.with_type_only();
+            }
             self.edges
                 .push((info.relative_path.clone(), target.clone(), import_edge));
         }
@@ -1412,21 +1607,48 @@ mod tests {
         let relative_str = "app/routes.py";
 
         // File node (the caller for decorated functions)
-        let file_node = CodeNode::new(NodeKind::File, relative_str, relative_str)
-            .with_qualified_name(relative_str);
+        let i = &graph.interner;
+        let rel_key = i.intern(relative_str);
+        let empty = i.empty_key();
+        let file_node = CodeNode {
+            kind: NodeKind::File,
+            name: rel_key,
+            qualified_name: rel_key,
+            file_path: rel_key,
+            language: empty,
+            line_start: 0,
+            line_end: 0,
+            complexity: 0,
+            param_count: 0,
+            method_count: 0,
+            max_nesting: 0,
+            return_count: 0,
+            commit_count: 0,
+            flags: 0,
+        };
 
         // Simulate build_graph inline path: create nodes and edges
         let mut func_nodes = vec![file_node];
         let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
 
         for func in &result.functions {
-            let loc = func.line_end.saturating_sub(func.line_start).saturating_add(1);
             let complexity = func.complexity.unwrap_or(1);
-            let func_node = CodeNode::new(NodeKind::Function, &func.name, relative_str)
-                .with_qualified_name(&func.qualified_name)
-                .with_lines(func.line_start, func.line_end)
-                .with_property("complexity", complexity as i64)
-                .with_property("loc", loc as i64);
+            let func_node = CodeNode {
+                kind: NodeKind::Function,
+                name: i.intern(&func.name),
+                qualified_name: i.intern(&func.qualified_name),
+                file_path: rel_key,
+                language: empty,
+                line_start: func.line_start,
+                line_end: func.line_end,
+                complexity: complexity as u16,
+                param_count: 0,
+                method_count: 0,
+                max_nesting: 0,
+                return_count: 0,
+                commit_count: 0,
+                flags: 0,
+            };
             func_nodes.push(func_node);
 
             emit_decorator_call_edge(
@@ -1444,7 +1666,7 @@ mod tests {
         // Decorated function "index" should have the file node as caller
         let callers = graph.get_callers("app.routes.index:5");
         assert_eq!(callers.len(), 1);
-        assert_eq!(callers[0].name, "app/routes.py"); // File node is the caller
+        assert_eq!(i.resolve(callers[0].name), "app/routes.py"); // File node is the caller
         assert_eq!(graph.call_fan_in("app.routes.index:5"), 1);
 
         // Undecorated function "helper" should have 0 callers

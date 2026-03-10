@@ -32,6 +32,7 @@
 //! - Edge flushing: periodic flush instead of defer-all
 //! - Memory estimation: warns before OOM
 
+use crate::graph::store_models::{FLAG_ADDRESS_TAKEN, FLAG_IS_ASYNC};
 use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
 use crate::parsers::lightweight::{LightweightFileInfo, LightweightParseStats};
 use crate::parsers::parse_file_lightweight;
@@ -277,29 +278,57 @@ impl FlushingGraphBuilder {
         }
 
         // File node — insert first so its index exists for Contains edges
-        let file_node = CodeNode::new(NodeKind::File, &relative, &relative)
-            .with_qualified_name(&relative)
-            .with_language(info.language.as_str())
-            .with_property("loc", info.loc as i64);
+        let i = &self.graph.interner;
+        let rel_key = i.intern(&relative);
+        let lang_key = i.intern(info.language.as_str());
+        let file_node = CodeNode {
+            kind: NodeKind::File,
+            name: rel_key,
+            qualified_name: rel_key,
+            file_path: rel_key,
+            language: lang_key,
+            line_start: 0,
+            line_end: 0,
+            complexity: 0,
+            param_count: 0,
+            method_count: 0,
+            max_nesting: 0,
+            return_count: 0,
+            commit_count: 0,
+            flags: 0,
+        };
         self.graph.add_nodes_batch(vec![file_node]);
 
         // Function + class nodes — Contains edges created inside the graph store
         let mut entity_nodes = Vec::with_capacity(info.functions.len() + info.classes.len());
 
         for func in &info.functions {
-            let loc = func.loc();
             let address_taken = info.address_taken.contains(&func.name);
 
-            let mut node = CodeNode::new(NodeKind::Function, &func.name, &relative)
-                    .with_qualified_name(&func.qualified_name)
-                    .with_lines(func.line_start, func.line_end)
-                    .with_property("is_async", func.is_async)
-                    .with_property("complexity", func.complexity as i64)
-                    .with_property("loc", loc as i64)
-                    .with_property("address_taken", address_taken);
-            if let Some(nesting) = func.max_nesting {
-                node = node.with_property("nesting_depth", i64::from(nesting));
+            let mut flags: u8 = 0;
+            if func.is_async {
+                flags |= FLAG_IS_ASYNC;
             }
+            if address_taken {
+                flags |= FLAG_ADDRESS_TAKEN;
+            }
+
+            let node = CodeNode {
+                kind: NodeKind::Function,
+                name: i.intern(&func.name),
+                qualified_name: i.intern(&func.qualified_name),
+                file_path: rel_key,
+                language: lang_key,
+                line_start: func.line_start,
+                line_end: func.line_end,
+                complexity: func.complexity,
+                param_count: func.param_count,
+                method_count: 0,
+                max_nesting: func.max_nesting.unwrap_or(0) as u8,
+                return_count: 0,
+                commit_count: 0,
+                flags,
+            };
             entity_nodes.push(node);
 
             // Decorated functions still need a Calls edge (file → func via decorator)
@@ -313,12 +342,22 @@ impl FlushingGraphBuilder {
         }
 
         for class in &info.classes {
-            entity_nodes.push(
-                CodeNode::new(NodeKind::Class, &class.name, &relative)
-                    .with_qualified_name(&class.qualified_name)
-                    .with_lines(class.line_start, class.line_end)
-                    .with_property("methodCount", class.method_count as i64),
-            );
+            entity_nodes.push(CodeNode {
+                kind: NodeKind::Class,
+                name: i.intern(&class.name),
+                qualified_name: i.intern(&class.qualified_name),
+                file_path: rel_key,
+                language: lang_key,
+                line_start: class.line_start,
+                line_end: class.line_end,
+                complexity: 0,
+                param_count: 0,
+                method_count: class.method_count,
+                max_nesting: 0,
+                return_count: 0,
+                commit_count: 0,
+                flags: 0,
+            });
         }
 
         // Batch insert with Contains edges created inside the graph store
@@ -470,8 +509,10 @@ impl FlushingGraphBuilder {
 
             if let Some(target) = self.module_lookup.find_match(&import_path) {
                 if *target != file_path {
-                    let edge =
-                        CodeEdge::imports().with_property("is_type_only", is_type_only);
+                    let mut edge = CodeEdge::imports();
+                    if is_type_only {
+                        edge = edge.with_type_only();
+                    }
                     self.edge_buffer
                         .push((file_path, target.clone(), edge));
                     import_resolved += 1;

@@ -13,6 +13,7 @@ use tracing::{debug, info};
 
 use super::blame::GitBlame;
 use super::history::GitHistory;
+use crate::graph::store_models::ExtraProps;
 use crate::graph::{CodeEdge, CodeNode, EdgeKind, GraphStore, NodeKind};
 
 /// Statistics from git enrichment.
@@ -257,12 +258,34 @@ impl<'a> GitEnricher<'a> {
         }
 
         // Create commit node
-        let node = CodeNode::new(NodeKind::Commit, hash, "")
-            .with_qualified_name(hash)
-            .with_property("author", author)
-            .with_property("timestamp", timestamp);
-
+        let i = &self.graph.interner;
+        let empty = i.empty_key();
+        let hash_key = i.intern(hash);
+        let node = CodeNode {
+            kind: NodeKind::Commit,
+            name: hash_key,
+            qualified_name: hash_key,
+            file_path: empty,
+            language: empty,
+            line_start: 0,
+            line_end: 0,
+            complexity: 0,
+            param_count: 0,
+            method_count: 0,
+            max_nesting: 0,
+            return_count: 0,
+            commit_count: 0,
+            flags: 0,
+        };
         self.graph.add_node(node);
+
+        // Store author/timestamp in extra_props side table
+        let ep = ExtraProps {
+            author: Some(i.intern(author)),
+            last_modified: Some(i.intern(timestamp)),
+            ..Default::default()
+        };
+        self.graph.set_extra_props(hash_key, ep);
         self.seen_commits.insert(hash.to_string());
         true
     }

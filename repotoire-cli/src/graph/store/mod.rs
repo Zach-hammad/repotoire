@@ -545,6 +545,19 @@ impl GraphStore {
         false
     }
 
+    /// Set extra properties (cold string data) for a node by its qualified_name StrKey.
+    ///
+    /// This is used by graph builders to store string properties like params,
+    /// doc_comment, and decorators that don't fit in the compact CodeNode struct.
+    pub fn set_extra_props(&self, qn_key: StrKey, props: ExtraProps) {
+        self.extra_props.insert(qn_key, props);
+    }
+
+    /// Get extra properties for a node by its qualified_name StrKey.
+    pub fn get_extra_props(&self, qn_key: StrKey) -> Option<ExtraProps> {
+        self.extra_props.get(&qn_key).map(|r| r.clone())
+    }
+
     /// Get all nodes of a specific kind (sorted by qualified_name for determinism)
     pub fn get_nodes_by_kind(&self, kind: NodeKind) -> Vec<CodeNode> {
         let graph = self.read_graph();
