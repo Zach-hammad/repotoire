@@ -672,6 +672,14 @@ impl Detector for UnsafeTemplateDetector {
         Some(crate::detectors::taint::TaintCategory::Xss)
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "php"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::HAS_TEMPLATE
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting unsafe template detection");
 

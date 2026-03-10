@@ -145,6 +145,14 @@ impl Detector for InsecureDeserializeDetector {
         Some(crate::detectors::taint::TaintCategory::CodeInjection)
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::HAS_SERIALIZE
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 

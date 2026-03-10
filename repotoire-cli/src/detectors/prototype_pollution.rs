@@ -149,6 +149,12 @@ impl Detector for PrototypePollutionDetector {
         Some(crate::detectors::taint::TaintCategory::CodeInjection)
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["js", "ts", "jsx", "tsx"]
+    }
+
+    // No content_requirements — JS-specific, extension is the primary filter
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 

@@ -814,6 +814,14 @@ impl Detector for SQLInjectionDetector {
         Some(TaintCategory::SqlInjection)
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::HAS_SQL
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         debug!("Starting SQL injection detection with taint analysis");
 

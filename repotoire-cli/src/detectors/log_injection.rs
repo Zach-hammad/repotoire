@@ -54,6 +54,12 @@ impl Detector for LogInjectionDetector {
         Some(TaintCategory::LogInjection)
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go"]
+    }
+
+    // No content_requirements — logging is everywhere, don't filter
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 

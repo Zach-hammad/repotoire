@@ -69,6 +69,14 @@ impl Detector for PathTraversalDetector {
         let _ = self.detector_context.set(ctx);
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::FILE_OPS.union(super::detector_context::ContentFlags::PATH_OPS)
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 
