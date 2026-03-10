@@ -288,7 +288,7 @@ impl FlushingGraphBuilder {
             file_path: rel_key,
             language: lang_key,
             line_start: 0,
-            line_end: 0,
+            line_end: info.loc,
             complexity: 0,
             param_count: 0,
             method_count: 0,

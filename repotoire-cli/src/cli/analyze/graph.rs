@@ -300,7 +300,11 @@ pub(super) fn build_graph(
             let mut func_nodes = Vec::with_capacity(result.functions.len());
             let mut class_nodes = Vec::with_capacity(result.classes.len());
             let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
-            // File node
+            // File node — compute LOC from max line_end of functions/classes
+            let file_loc = result.functions.iter().map(|f| f.line_end)
+                .chain(result.classes.iter().map(|c| c.line_end))
+                .max()
+                .unwrap_or(0);
             file_nodes.push(CodeNode {
                 kind: NodeKind::File,
                 name: rel_key,
@@ -308,7 +312,7 @@ pub(super) fn build_graph(
                 file_path: rel_key,
                 language: lang_key,
                 line_start: 0,
-                line_end: 0,
+                line_end: file_loc,
                 complexity: 0,
                 param_count: 0,
                 method_count: 0,
@@ -543,7 +547,11 @@ pub(super) fn build_graph_chunked(
                 let mut func_nodes = Vec::with_capacity(result.functions.len());
                 let mut class_nodes = Vec::with_capacity(result.classes.len());
                 let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
-                // File node
+                // File node — compute LOC from max line_end of functions/classes
+                let file_loc = result.functions.iter().map(|f| f.line_end)
+                    .chain(result.classes.iter().map(|c| c.line_end))
+                    .max()
+                    .unwrap_or(0);
                 file_nodes.push(CodeNode {
                     kind: NodeKind::File,
                     name: rel_key,
@@ -551,7 +559,7 @@ pub(super) fn build_graph_chunked(
                     file_path: rel_key,
                     language: lang_key,
                     line_start: 0,
-                    line_end: 0,
+                    line_end: file_loc,
                     complexity: 0,
                     param_count: 0,
                     method_count: 0,
@@ -1238,7 +1246,7 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
             file_path: rel_key,
             language: lang_key,
             line_start: 0,
-            line_end: 0,
+            line_end: info.loc as u32,
             complexity: 0,
             param_count: 0,
             method_count: 0,
@@ -1610,6 +1618,10 @@ mod tests {
         let i = graph.interner();
         let rel_key = i.intern(relative_str);
         let empty = i.empty_key();
+        let file_loc = result.functions.iter().map(|f| f.line_end)
+            .chain(result.classes.iter().map(|c| c.line_end))
+            .max()
+            .unwrap_or(0);
         let file_node = CodeNode {
             kind: NodeKind::File,
             name: rel_key,
@@ -1617,7 +1629,7 @@ mod tests {
             file_path: rel_key,
             language: empty,
             line_start: 0,
-            line_end: 0,
+            line_end: file_loc,
             complexity: 0,
             param_count: 0,
             method_count: 0,
