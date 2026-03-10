@@ -18,6 +18,7 @@ pub mod content_classifier;
 pub mod detector_context;
 mod engine;
 pub mod file_cache;
+pub mod file_index;
 pub mod file_provider;
 pub mod streaming_engine;
 
@@ -159,6 +160,9 @@ pub use detector_context::{ContentFlags, DetectorContext};
 
 // Re-export file cache
 pub use file_cache::FileContentCache;
+
+// Re-export file index
+pub use file_index::{FileEntry, FileIndex};
 
 // Re-export file provider
 pub use file_provider::{FileProvider, SourceFiles};
