@@ -170,7 +170,7 @@ impl LazyClassDetector {
         methods: &[&crate::graph::store_models::CodeNode],
         method_count: usize,
     ) -> f64 {
-        let i = graph.interner();
+        let _i = graph.interner();
         if method_count == 0 {
             return 0.0;
         }

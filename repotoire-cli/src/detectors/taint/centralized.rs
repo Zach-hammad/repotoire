@@ -78,7 +78,7 @@ pub fn run_centralized_taint(
     repository_path: &Path,
     file_cache: Option<&Arc<FileContentCache>>,
 ) -> CentralizedTaintResults {
-    let i = graph.interner();
+    let _i = graph.interner();
     let analyzer = TaintAnalyzer::new();
     let start = std::time::Instant::now();
 

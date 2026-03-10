@@ -359,7 +359,8 @@ pub(super) fn build_graph(
                 let params_str = func.parameters.join(",");
                 let has_params = !params_str.is_empty();
                 let has_doc = func.doc_comment.is_some();
-                if has_params || has_doc {
+                let has_decorators = !func.annotations.is_empty();
+                if has_params || has_doc || has_decorators {
                     let ep = ExtraProps {
                         params: if has_params {
                             Some(i.intern(&params_str))
@@ -367,6 +368,11 @@ pub(super) fn build_graph(
                             None
                         },
                         doc_comment: func.doc_comment.as_ref().map(|d| i.intern(d)),
+                        decorators: if has_decorators {
+                            Some(i.intern(&func.annotations.join(",")))
+                        } else {
+                            None
+                        },
                         ..Default::default()
                     };
                     graph.set_extra_props(func_node.qualified_name, ep);
@@ -383,7 +389,7 @@ pub(super) fn build_graph(
                 emit_decorator_call_edge(
                     &func.qualified_name,
                     &relative_str,
-                    !func.annotations.is_empty(),
+                    has_decorators,
                     &mut edges,
                 );
             }
@@ -413,9 +419,16 @@ pub(super) fn build_graph(
                 };
 
                 // Store string properties in extra_props side table
-                if class.doc_comment.is_some() {
+                let has_class_doc = class.doc_comment.is_some();
+                let has_class_decorators = !class.annotations.is_empty();
+                if has_class_doc || has_class_decorators {
                     let ep = ExtraProps {
                         doc_comment: class.doc_comment.as_ref().map(|d| i.intern(d)),
+                        decorators: if has_class_decorators {
+                            Some(i.intern(&class.annotations.join(",")))
+                        } else {
+                            None
+                        },
                         ..Default::default()
                     };
                     graph.set_extra_props(class_node.qualified_name, ep);
@@ -580,7 +593,8 @@ pub(super) fn build_graph_chunked(
                     let params_str = func.parameters.join(",");
                     let has_params = !params_str.is_empty();
                     let has_doc = func.doc_comment.is_some();
-                    if has_params || has_doc {
+                    let has_decorators = !func.annotations.is_empty();
+                    if has_params || has_doc || has_decorators {
                         let ep = ExtraProps {
                             params: if has_params {
                                 Some(i.intern(&params_str))
@@ -588,6 +602,11 @@ pub(super) fn build_graph_chunked(
                                 None
                             },
                             doc_comment: func.doc_comment.as_ref().map(|d| i.intern(d)),
+                            decorators: if has_decorators {
+                                Some(i.intern(&func.annotations.join(",")))
+                            } else {
+                                None
+                            },
                             ..Default::default()
                         };
                         graph.set_extra_props(func_node.qualified_name, ep);
@@ -604,7 +623,7 @@ pub(super) fn build_graph_chunked(
                     emit_decorator_call_edge(
                         &func.qualified_name,
                         &relative_str,
-                        !func.annotations.is_empty(),
+                        has_decorators,
                         &mut edges,
                     );
                 }
@@ -614,9 +633,16 @@ pub(super) fn build_graph_chunked(
                     let class_node = build_class_node(graph, class, &relative_str);
 
                     // Store string properties in extra_props side table
-                    if class.doc_comment.is_some() {
+                    let has_class_doc = class.doc_comment.is_some();
+                    let has_class_decorators = !class.annotations.is_empty();
+                    if has_class_doc || has_class_decorators {
                         let ep = ExtraProps {
                             doc_comment: class.doc_comment.as_ref().map(|d| i.intern(d)),
+                            decorators: if has_class_decorators {
+                                Some(i.intern(&class.annotations.join(",")))
+                            } else {
+                                None
+                            },
                             ..Default::default()
                         };
                         graph.set_extra_props(class_node.qualified_name, ep);

@@ -215,7 +215,7 @@ pub struct ClassContextBuilder<'a> {
 
 impl<'a> ClassContextBuilder<'a> {
     pub fn new(graph: &'a dyn crate::graph::GraphQuery) -> Self {
-        let i = graph.interner();
+        let _i = graph.interner();
         Self {
             graph,
             thin_wrapper_complexity: 3.0, // Avg complexity <= 3 = thin methods

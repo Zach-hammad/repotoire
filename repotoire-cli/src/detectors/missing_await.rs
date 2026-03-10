@@ -116,7 +116,7 @@ impl Detector for MissingAwaitDetector {
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let gi = graph.interner();
-        let i = graph.interner();
+        let _i = graph.interner();
         let mut findings = vec![];
         let known_async_funcs = Self::find_async_functions(graph);
 

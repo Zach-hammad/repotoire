@@ -59,7 +59,7 @@ pub fn precompute_gd_startup(
     source_files: &[std::path::PathBuf],
     value_store: Option<Arc<crate::values::store::ValueStore>>,
 ) -> GdPrecomputed {
-    let i = graph.interner();
+    let _i = graph.interner();
     // Four-way parallel: contexts, taint, HMM, and DetectorContext are all independent.
     //   Thread 1: taint (1.5s)           — cross-function + intra-function taint
     //   Thread 2: HMM (0.4s)             — Hidden Markov Model context extraction
@@ -326,7 +326,7 @@ impl DetectorEngine {
         &mut self,
         graph: &dyn crate::graph::GraphQuery,
     ) -> Arc<FunctionContextMap> {
-        let i = graph.interner();
+        let _i = graph.interner();
         if let Some(ref ctx) = self.function_contexts {
             return Arc::clone(ctx);
         }

@@ -232,7 +232,7 @@ impl Detector for InsecureRandomDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        let i = graph.interner();
+        let _i = graph.interner();
         let mut findings = vec![];
 
         // Lazily build name→CodeNode map for O(1) lookup in find_security_callers.

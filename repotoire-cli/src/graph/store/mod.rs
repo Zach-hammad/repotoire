@@ -538,7 +538,9 @@ impl GraphStore {
             }
             if has_extras {
                 drop(graph);
-                self.extra_props.insert(intern_qn, extras);
+                let mut ep = self.extra_props.entry(intern_qn).or_default();
+                if let Some(a) = extras.author { ep.author = Some(a); }
+                if let Some(lm) = extras.last_modified { ep.last_modified = Some(lm); }
             }
             return true;
         }
@@ -567,7 +569,8 @@ impl GraphStore {
             .filter(|n| n.kind == kind)
             .copied()
             .collect();
-        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        let si = self.interner();
+        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -639,7 +642,8 @@ impl GraphStore {
             })
             .copied()
             .collect();
-        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        let si = self.interner();
+        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -654,7 +658,8 @@ impl GraphStore {
             })
             .copied()
             .collect();
-        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        let si = self.interner();
+        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -735,7 +740,11 @@ impl GraphStore {
                 Some((src.qualified_name, dst.qualified_name))
             })
             .collect();
-        edges.sort();
+        let si = self.interner();
+        edges.sort_by(|a, b| {
+            si.resolve(a.0).cmp(si.resolve(b.0))
+                .then_with(|| si.resolve(a.1).cmp(si.resolve(b.1)))
+        });
         edges
     }
 
@@ -773,7 +782,8 @@ impl GraphStore {
             .collect();
 
         // Sort by qualified_name to match get_functions() ordering
-        funcs_pg.sort_by(|a, b| a.1.qualified_name.cmp(&b.1.qualified_name));
+        let si = self.interner();
+        funcs_pg.sort_by(|a, b| si.resolve(a.1.qualified_name).cmp(si.resolve(b.1.qualified_name)));
 
         // petgraph NodeIndex -> function list position
         let pg_to_func: HashMap<NodeIndex, usize> = funcs_pg
@@ -886,7 +896,8 @@ impl GraphStore {
             .filter(|e| e.weight().kind == EdgeKind::Calls)
             .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
-        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        let si = self.interner();
+        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -903,7 +914,8 @@ impl GraphStore {
             .filter(|e| e.weight().kind == EdgeKind::Calls)
             .filter_map(|e| graph.node_weight(e.target()).copied())
             .collect();
-        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        let si = self.interner();
+        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -920,7 +932,8 @@ impl GraphStore {
             .filter(|e| e.weight().kind == EdgeKind::Imports)
             .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
-        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        let si = self.interner();
+        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -937,7 +950,8 @@ impl GraphStore {
             .filter(|e| e.weight().kind == EdgeKind::Inherits)
             .filter_map(|e| graph.node_weight(e.target()).copied())
             .collect();
-        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        let si = self.interner();
+        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -954,7 +968,8 @@ impl GraphStore {
             .filter(|e| e.weight().kind == EdgeKind::Inherits)
             .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
-        nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        let si = self.interner();
+        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -1429,12 +1444,40 @@ impl GraphStore {
             .map(|entry| (self.interner().resolve(*entry.key()).to_string(), entry.value().clone()))
             .collect();
 
+        // Build string table: raw Spur u32 → interned string for all StrKeys in nodes
+        let i = self.interner();
+        let mut string_table: HashMap<u32, String> = HashMap::new();
+        for node in graph_clone.node_weights() {
+            for &key in &[node.name, node.qualified_name, node.file_path, node.language] {
+                let raw = key.into_inner().get();
+                string_table.entry(raw).or_insert_with(|| i.resolve(key).to_string());
+            }
+        }
+
+        // Serialize ExtraProps with resolved strings (StrKeys are process-local)
+        let extra_props_ser: Vec<(String, SerializableExtraProps)> = self.extra_props.iter()
+            .map(|entry| {
+                let qn_str = i.resolve(*entry.key()).to_string();
+                let ep = entry.value();
+                let ser = SerializableExtraProps {
+                    params: ep.params.map(|k| i.resolve(k).to_string()),
+                    doc_comment: ep.doc_comment.map(|k| i.resolve(k).to_string()),
+                    decorators: ep.decorators.map(|k| i.resolve(k).to_string()),
+                    author: ep.author.map(|k| i.resolve(k).to_string()),
+                    last_modified: ep.last_modified.map(|k| i.resolve(k).to_string()),
+                };
+                (qn_str, ser)
+            })
+            .collect();
+
         let cache = GraphCache {
             version: GRAPH_CACHE_VERSION,
             binary_version: env!("CARGO_PKG_VERSION").to_string(),
             graph: graph_clone,
             node_index,
             file_all_nodes,
+            string_table,
+            extra_props: extra_props_ser,
         };
 
         // Serialize and write — no lock held
@@ -1487,14 +1530,54 @@ impl GraphStore {
             lazy_mode: false,
         };
 
+        // Re-intern StrKeys from the string table: old raw u32 → new StrKey
+        let i = store.interner();
+        let remap: HashMap<u32, StrKey> = cache.string_table.iter()
+            .map(|(&raw, s)| (raw, i.intern(s)))
+            .collect();
+
+        // Remap all CodeNode StrKey fields in the deserialized graph
+        {
+            let mut graph = store.write_graph();
+            for idx in graph.node_indices().collect::<Vec<_>>() {
+                if let Some(node) = graph.node_weight_mut(idx) {
+                    if let Some(&new) = remap.get(&node.name.into_inner().get()) {
+                        node.name = new;
+                    }
+                    if let Some(&new) = remap.get(&node.qualified_name.into_inner().get()) {
+                        node.qualified_name = new;
+                    }
+                    if let Some(&new) = remap.get(&node.file_path.into_inner().get()) {
+                        node.file_path = new;
+                    }
+                    if let Some(&new) = remap.get(&node.language.into_inner().get()) {
+                        node.language = new;
+                    }
+                }
+            }
+        }
+
         // Rebuild DashMap indexes from cached data (intern strings back to StrKeys)
         for (key_str, idx) in cache.node_index {
-            let key = store.interner().intern(&key_str);
+            let key = i.intern(&key_str);
             store.node_index.insert(key, idx);
         }
         for (file_str, nodes) in cache.file_all_nodes {
-            let key = store.interner().intern(&file_str);
+            let key = i.intern(&file_str);
             store.file_all_nodes_index.insert(key, nodes);
+        }
+
+        // Rebuild ExtraProps from serialized string values
+        for (qn_str, ser) in cache.extra_props {
+            let qn_key = i.intern(&qn_str);
+            let ep = ExtraProps {
+                params: ser.params.as_deref().map(|s| i.intern(s)),
+                doc_comment: ser.doc_comment.as_deref().map(|s| i.intern(s)),
+                decorators: ser.decorators.as_deref().map(|s| i.intern(s)),
+                author: ser.author.as_deref().map(|s| i.intern(s)),
+                last_modified: ser.last_modified.as_deref().map(|s| i.intern(s)),
+            };
+            store.extra_props.insert(qn_key, ep);
         }
 
         // Rebuild file_functions_index, file_classes_index, and spatial_index from graph
@@ -1547,9 +1630,24 @@ struct GraphCache {
     graph: StableGraph<CodeNode, CodeEdge>,
     node_index: HashMap<String, NodeIndex>,
     file_all_nodes: HashMap<String, Vec<NodeIndex>>,
+    /// Maps raw Spur u32 values to their interned strings, enabling cross-process
+    /// re-interning of StrKey fields in deserialized CodeNode structs.
+    string_table: HashMap<u32, String>,
+    /// ExtraProps serialized with string values (not StrKeys) for cross-process safety.
+    extra_props: Vec<(String, SerializableExtraProps)>,
 }
 
-const GRAPH_CACHE_VERSION: u32 = 2; // Bumped for CompactNode StrKey migration
+/// ExtraProps with string values for serialization (StrKeys are process-local).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerializableExtraProps {
+    params: Option<String>,
+    doc_comment: Option<String>,
+    decorators: Option<String>,
+    author: Option<String>,
+    last_modified: Option<String>,
+}
+
+const GRAPH_CACHE_VERSION: u32 = 3; // Bumped for string_table + ExtraProps persistence
 
 // redb::Database handles cleanup on Drop automatically — no manual flush needed
 

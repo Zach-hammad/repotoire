@@ -12,7 +12,7 @@ pub enum NodeKind {
     Commit,
 }
 
-/// A node in the code graph — compact, Copy, ~40 bytes.
+/// A node in the code graph — compact, Copy, ~48 bytes.
 ///
 /// All string fields are interned StrKeys. Use `graph.interner().resolve(key)`
 /// or the helper methods `qn()`, `path()`, `node_name()` to get `&str`.
@@ -327,9 +327,6 @@ impl CodeNode {
         None
     }
 
-    pub fn get_f64(&self, _key: &str) -> Option<f64> {
-        None
-    }
 }
 
 /// Edge types in the code graph

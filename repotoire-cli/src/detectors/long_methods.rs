@@ -59,7 +59,7 @@ impl LongMethodsDetector {
         lines: u32,
         complexity: i64,
     ) -> bool {
-        let i = graph.interner();
+        let _i = graph.interner();
         let callees = graph.get_callees(qualified_name);
         let out_degree = callees.len();
 
