@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
@@ -710,7 +711,9 @@ fn file_hash_standalone(path: &Path) -> String {
 /// back into the `IncrementalCache` after the loop finishes.
 pub struct ConcurrentCacheView {
     /// Pre-validated cached parse results keyed by file path.
-    pub parse_cache: DashMap<PathBuf, ParseResult>,
+    /// Wrapped in `Arc` so cache hits are cheap atomic increments
+    /// instead of deep `Vec<FunctionInfo>` / `Vec<ClassInfo>` clones.
+    pub parse_cache: DashMap<PathBuf, Arc<ParseResult>>,
 }
 
 impl IncrementalCache {
@@ -729,7 +732,7 @@ impl IncrementalCache {
             if let Some(cached) = self.cache.parse_cache.get(&key) {
                 let current_hash = file_hash_standalone(file);
                 if cached.hash == current_hash {
-                    parse_cache.insert(file.clone(), cached.result.clone());
+                    parse_cache.insert(file.clone(), Arc::new(cached.result.clone()));
                 }
             }
         }
@@ -740,8 +743,11 @@ impl IncrementalCache {
     /// Merge new parse results from a `DashMap` back into the persistent cache.
     ///
     /// Call this after the parallel parsing loop to persist newly parsed files.
-    pub fn merge_new_parse_results(&mut self, new_results: DashMap<PathBuf, ParseResult>) {
-        for (path, result) in new_results.into_iter() {
+    /// Accepts `Arc<ParseResult>` — the Arc is unwrapped (or cloned if shared)
+    /// because the on-disk cache stores owned `ParseResult` values.
+    pub fn merge_new_parse_results(&mut self, new_results: DashMap<PathBuf, Arc<ParseResult>>) {
+        for (path, arc_result) in new_results.into_iter() {
+            let result = Arc::try_unwrap(arc_result).unwrap_or_else(|arc| (*arc).clone());
             self.cache_parse_result(&path, &result);
         }
     }

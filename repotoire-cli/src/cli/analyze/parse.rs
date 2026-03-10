@@ -14,10 +14,11 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// Result of parsing phase
 pub(super) struct ParsePhaseResult {
-    pub parse_results: Vec<(PathBuf, ParseResult)>,
+    pub parse_results: Vec<(PathBuf, Arc<ParseResult>)>,
     pub total_functions: usize,
     pub total_classes: usize,
 }
@@ -33,7 +34,7 @@ pub(super) fn parse_files(
     bar_style: &ProgressStyle,
     is_incremental: bool,
     cache_view: &ConcurrentCacheView,
-    new_results: &DashMap<PathBuf, ParseResult>,
+    new_results: &DashMap<PathBuf, Arc<ParseResult>>,
 ) -> Result<ParsePhaseResult> {
     let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
     parse_bar.set_style(bar_style.clone());
@@ -48,7 +49,7 @@ pub(super) fn parse_files(
     let cache_hits = AtomicUsize::new(0);
     let total_files = files.len();
 
-    let mut parse_results: Vec<(PathBuf, ParseResult)> = files
+    let mut parse_results: Vec<(PathBuf, Arc<ParseResult>)> = files
         .par_iter()
         .filter_map(|file_path| {
             let count = counter.fetch_add(1, Ordering::Relaxed);
@@ -57,9 +58,11 @@ pub(super) fn parse_files(
             }
 
             // Try pre-validated cache (lock-free DashMap read)
+            // Arc::clone is an atomic increment (~1ns) instead of deep-cloning
+            // Vec<FunctionInfo>, Vec<ClassInfo>, etc.
             if let Some(cached) = cache_view.parse_cache.get(file_path) {
                 cache_hits.fetch_add(1, Ordering::Relaxed);
-                let pr: ParseResult = cached.value().clone();
+                let pr = Arc::clone(cached.value());
                 return Some((file_path.clone(), pr));
             }
 
@@ -73,8 +76,9 @@ pub(super) fn parse_files(
             };
 
             // Store new result (lock-free DashMap write)
-            new_results.insert(file_path.clone(), result.clone());
-            Some((file_path.clone(), result))
+            let arc_result = Arc::new(result);
+            new_results.insert(file_path.clone(), Arc::clone(&arc_result));
+            Some((file_path.clone(), arc_result))
         })
         .collect();
 
@@ -163,7 +167,7 @@ pub(super) fn parse_files_chunked(
     bar_style: &ProgressStyle,
     _is_incremental: bool,
     cache_view: &ConcurrentCacheView,
-    new_results: &DashMap<PathBuf, ParseResult>,
+    new_results: &DashMap<PathBuf, Arc<ParseResult>>,
     chunk_size: usize,
 ) -> Result<ParsePhaseResult> {
     let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
@@ -180,7 +184,7 @@ pub(super) fn parse_files_chunked(
         let counter = AtomicUsize::new(0);
         let chunk_start = chunk_idx * chunk_size;
 
-        let mut chunk_results: Vec<(PathBuf, ParseResult)> = chunk
+        let mut chunk_results: Vec<(PathBuf, Arc<ParseResult>)> = chunk
             .par_iter()
             .filter_map(|file_path| {
                 let count = counter.fetch_add(1, Ordering::Relaxed);
@@ -189,9 +193,10 @@ pub(super) fn parse_files_chunked(
                 }
 
                 // Try pre-validated cache (lock-free DashMap read)
+                // Arc::clone is an atomic increment instead of deep clone
                 if let Some(cached) = cache_view.parse_cache.get(file_path) {
                     cache_hits.fetch_add(1, Ordering::Relaxed);
-                    let pr: ParseResult = cached.value().clone();
+                    let pr = Arc::clone(cached.value());
                     return Some((file_path.clone(), pr));
                 }
 
@@ -201,8 +206,9 @@ pub(super) fn parse_files_chunked(
                 }).ok()?;
 
                 // Store new result (lock-free DashMap write)
-                new_results.insert(file_path.clone(), result.clone());
-                Some((file_path.clone(), result))
+                let arc_result = Arc::new(result);
+                new_results.insert(file_path.clone(), Arc::clone(&arc_result));
+                Some((file_path.clone(), arc_result))
             })
             .collect();
 

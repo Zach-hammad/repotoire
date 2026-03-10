@@ -166,7 +166,7 @@ pub fn run(
                 let loc = std::fs::read_to_string(path)
                     .map(|c| c.lines().count())
                     .unwrap_or(0);
-                (pr.clone(), loc)
+                (crate::parsers::ParseResult::clone(pr), loc)
             })
             .collect();
         let commit_sha = std::process::Command::new("git")
@@ -362,7 +362,7 @@ pub fn run(
 
 /// Build an n-gram language model from parsed source files, skipping test/vendor paths.
 /// Returns None if the model doesn't have enough data to be confident.
-fn build_ngram_model(parse_results: &[(PathBuf, crate::parsers::ParseResult)]) -> Option<crate::calibrate::NgramModel> {
+fn build_ngram_model(parse_results: &[(PathBuf, Arc<crate::parsers::ParseResult>)]) -> Option<crate::calibrate::NgramModel> {
     let mut model = crate::calibrate::NgramModel::new();
     for (path, _pr) in parse_results {
         let path_lower = path.to_string_lossy().to_lowercase();

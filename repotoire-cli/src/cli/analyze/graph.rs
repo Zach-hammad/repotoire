@@ -243,7 +243,7 @@ fn emit_decorator_call_edge(
 /// Edges: at least 1 Contains edge per function/class, plus call and import edges.
 /// The edge multiplier (3x nodes) is a heuristic that covers Contains, Calls,
 /// and Imports edges in typical codebases.
-fn estimate_graph_capacity(parse_results: &[(PathBuf, ParseResult)]) -> (usize, usize) {
+fn estimate_graph_capacity(parse_results: &[(PathBuf, Arc<ParseResult>)]) -> (usize, usize) {
     let mut estimated_nodes: usize = 0;
     let mut estimated_edges: usize = 0;
     for (_, pr) in parse_results {
@@ -265,7 +265,7 @@ fn estimate_graph_capacity(parse_results: &[(PathBuf, ParseResult)]) -> (usize, 
 pub(super) fn build_graph(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
-    parse_results: &[(PathBuf, ParseResult)],
+    parse_results: &[(PathBuf, Arc<ParseResult>)],
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
 ) -> Result<crate::values::store::ValueStore> {
@@ -519,7 +519,7 @@ pub(super) fn build_graph(
 pub(super) fn build_graph_chunked(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
-    parse_results: &[(PathBuf, ParseResult)],
+    parse_results: &[(PathBuf, Arc<ParseResult>)],
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
     chunk_size: usize,
@@ -715,7 +715,7 @@ pub(super) fn build_graph_chunked(
 
 /// Build global function name -> qualified name map (parallel)
 pub(super) fn build_global_function_map(
-    parse_results: &[(PathBuf, ParseResult)],
+    parse_results: &[(PathBuf, Arc<ParseResult>)],
 ) -> HashMap<String, String> {
     // Parallel collection then merge - avoids lock contention
     let maps: Vec<HashMap<String, String>> = parse_results
@@ -747,7 +747,7 @@ pub(super) struct ModuleLookup {
 }
 
 impl ModuleLookup {
-    pub(super) fn build(parse_results: &[(PathBuf, ParseResult)], repo_path: &Path) -> Self {
+    pub(super) fn build(parse_results: &[(PathBuf, Arc<ParseResult>)], repo_path: &Path) -> Self {
         // Build index entries in parallel
         let entries: Vec<(usize, String, String, Vec<String>)> = parse_results
             .par_iter()
@@ -801,7 +801,7 @@ impl ModuleLookup {
     pub(super) fn find_matches(
         &self,
         import_path: &str,
-        _parse_results: &[(PathBuf, ParseResult)],
+        _parse_results: &[(PathBuf, Arc<ParseResult>)],
         _repo_path: &Path,
     ) -> Vec<String> {
         let clean_import = import_path
@@ -1011,7 +1011,7 @@ pub(crate) const AMBIGUOUS_METHOD_NAMES: &[&str] = &[
 pub(super) fn build_call_edges_fast(
     edges: &mut Vec<(String, String, CodeEdge)>,
     result: &ParseResult,
-    parse_results: &[(PathBuf, ParseResult)],
+    parse_results: &[(PathBuf, Arc<ParseResult>)],
     _repo_path: &Path,
     global_func_map: &HashMap<String, String>,
     module_lookup: &ModuleLookup,
@@ -1068,7 +1068,7 @@ fn resolve_callee_cross_file(
     callee_name: &str,
     callee_module: Option<&str>,
     module_lookup: &ModuleLookup,
-    parse_results: &[(PathBuf, crate::parsers::ParseResult)],
+    parse_results: &[(PathBuf, Arc<crate::parsers::ParseResult>)],
     global_func_map: &std::collections::HashMap<String, String>,
 ) -> Option<String> {
     if let Some(module) = callee_module {
@@ -1152,7 +1152,7 @@ pub(super) fn save_graph_stats(graph: &GraphStore, repo_path: &Path) -> Result<(
 /// 4. Runs cross-function value propagation using the topo order
 fn build_value_store(
     graph: &Arc<GraphStore>,
-    parse_results: &[(PathBuf, ParseResult)],
+    parse_results: &[(PathBuf, Arc<ParseResult>)],
 ) -> crate::values::store::ValueStore {
     use crate::values::store::ValueStore;
     use std::collections::{HashMap as StdHashMap, HashSet as StdHashSet};
@@ -1721,7 +1721,7 @@ mod tests {
 
     #[test]
     fn test_estimate_graph_capacity_empty() {
-        let results: Vec<(PathBuf, ParseResult)> = vec![];
+        let results: Vec<(PathBuf, Arc<ParseResult>)> = vec![];
         let (nodes, edges) = estimate_graph_capacity(&results);
         assert_eq!(nodes, 0);
         assert_eq!(edges, 0);
@@ -1733,7 +1733,7 @@ mod tests {
 
         let results = vec![(
             PathBuf::from("app/main.py"),
-            ParseResult {
+            Arc::new(ParseResult {
                 functions: vec![
                     Function {
                         name: "foo".to_string(),
@@ -1769,7 +1769,7 @@ mod tests {
                 calls: vec![("app.main.foo:1".to_string(), "bar".to_string())],
                 address_taken: StdHashSet::new(),
                 raw_values: None,
-            },
+            }),
         )];
 
         let (nodes, edges) = estimate_graph_capacity(&results);
