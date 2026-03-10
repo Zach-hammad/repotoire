@@ -86,6 +86,21 @@ impl Detector for DjangoSecurityDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file uses Django
+        let has_django = files.files_with_extension("py").iter().any(|p| {
+            files.content(p).map_or(false, |c| {
+                c.contains("django")
+                    || c.contains("ALLOWED_HOSTS")
+                    || c.contains("SECRET_KEY")
+                    || c.contains("csrf_exempt")
+                    || c.contains(".objects.")
+                    || c.contains("cursor.execute")
+            })
+        });
+        if !has_django {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extension("py") {

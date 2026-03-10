@@ -37,6 +37,14 @@ impl Detector for TorchLoadUnsafeDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file imports torch
+        let has_torch = files.files_with_extension("py").iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("torch"))
+        });
+        if !has_torch {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extension("py") {
@@ -130,6 +138,14 @@ impl Detector for NanEqualityDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file uses ML/numeric libraries
+        let has_ml = files.files_with_extensions(&["py", "js", "ts"]).iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("numpy") || c.contains("torch") || c.contains("math.nan"))
+        });
+        if !has_ml {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts"]) {
@@ -284,6 +300,14 @@ impl Detector for MissingZeroGradDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file imports torch
+        let has_torch = files.files_with_extension("py").iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("torch"))
+        });
+        if !has_torch {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extension("py") {
@@ -329,6 +353,14 @@ impl Detector for ForwardMethodDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file imports torch
+        let has_torch = files.files_with_extension("py").iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("torch"))
+        });
+        if !has_torch {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extension("py") {

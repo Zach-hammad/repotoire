@@ -145,6 +145,14 @@ impl Detector for ExpressSecurityDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file uses Express
+        let has_express = files.files_with_extensions(&["js", "ts"]).iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("express"))
+        });
+        if !has_express {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["js", "ts", "mjs"]) {

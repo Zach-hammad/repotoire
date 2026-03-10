@@ -109,7 +109,8 @@ const GENERIC_IDENTIFIERS: &[&str] = &[
     "next",
 ];
 
-/// Processed function data for similarity comparison
+/// Processed function data for similarity comparison.
+/// Uses an index into a shared signatures array instead of storing full HashSets.
 #[derive(Debug, Clone)]
 pub struct FunctionData {
     pub qualified_name: String,
@@ -118,28 +119,10 @@ pub struct FunctionData {
     pub line_start: u32,
     pub line_end: u32,
     pub loc: usize,
-    pub hash_set: HashSet<String>,
+    /// Index into the shared MinHash signatures array.
+    pub sig_idx: usize,
     pub generic_ratio: f64,
     pub ast_size: usize,
-}
-
-/// Calculate Jaccard similarity between two hash sets
-fn jaccard_similarity(set1: &HashSet<String>, set2: &HashSet<String>) -> f64 {
-    if set1.is_empty() && set2.is_empty() {
-        return 1.0;
-    }
-    if set1.is_empty() || set2.is_empty() {
-        return 0.0;
-    }
-
-    let intersection = set1.intersection(set2).count();
-    let union = set1.union(set2).count();
-
-    if union == 0 {
-        0.0
-    } else {
-        intersection as f64 / union as f64
-    }
 }
 
 /// Pre-built set for O(1) generic identifier lookup
@@ -194,13 +177,15 @@ impl AIDuplicateBlockDetector {
         }
     }
 
-    /// Find duplicate pairs using MinHash/LSH + exact Jaccard verification.
+    /// Find duplicate pairs using MinHash/LSH + MinHash-estimated Jaccard.
     ///
-    /// Uses LSH to reduce O(n²) pairwise comparisons to near-linear,
-    /// then verifies candidates with exact Jaccard (arXiv:2102.08942).
+    /// Uses LSH banding on pre-computed MinHash signatures for candidate generation,
+    /// then verifies candidates with MinHash-estimated Jaccard (±0.1 at k=100).
+    /// Drops the full `HashSet<String>` bigram sets — only signatures are needed.
     fn find_duplicates(
         &self,
         functions: &[FunctionData],
+        signatures: &[[u64; 100]],
     ) -> Vec<(FunctionData, FunctionData, f64)> {
         use rayon::prelude::*;
 
@@ -208,9 +193,7 @@ impl AIDuplicateBlockDetector {
             return Vec::new();
         }
 
-        // Build set references for LSH
-        let sets: Vec<&HashSet<String>> = functions.iter().map(|f| &f.hash_set).collect();
-        let candidates = crate::detectors::ast_fingerprint::lsh_candidate_pairs(&sets);
+        let candidates = crate::detectors::ast_fingerprint::lsh_candidate_pairs_from_sigs(signatures);
 
         debug!(
             "LSH: {} candidates from {} functions ({:.1}% of {:.0} total pairs)",
@@ -220,7 +203,7 @@ impl AIDuplicateBlockDetector {
             functions.len() as f64 * (functions.len() - 1) as f64 / 2.0,
         );
 
-        // Parallel Jaccard verification on LSH candidates
+        // Parallel MinHash Jaccard verification on LSH candidates
         let threshold = self.similarity_threshold;
         let candidate_vec: Vec<_> = candidates.into_iter().collect();
         let mut duplicates: Vec<(FunctionData, FunctionData, f64)> = candidate_vec
@@ -243,8 +226,11 @@ impl AIDuplicateBlockDetector {
                     }
                 }
 
-                // Exact Jaccard verification
-                let similarity = jaccard_similarity(&func1.hash_set, &func2.hash_set);
+                // MinHash-estimated Jaccard (±0.1 at k=100)
+                let similarity = crate::detectors::ast_fingerprint::minhash_jaccard(
+                    &signatures[func1.sig_idx],
+                    &signatures[func2.sig_idx],
+                );
                 if similarity >= threshold {
                     Some((func1.clone(), func2.clone(), similarity))
                 } else {
@@ -407,15 +393,31 @@ impl Detector for AIDuplicateBlockDetector {
             })
             .collect();
 
-        // Use fingerprints cached during the parse phase when available,
-        // falling back to tree-sitter re-parsing only for cache misses.
+        // Collect functions AND their MinHash signatures in parallel.
+        // FunctionData stores only a sig_idx (index into signatures vec).
         let min_loc = self.min_loc;
-        let all_functions: Vec<FunctionData> = file_data
+        let mut all_functions: Vec<FunctionData> = Vec::new();
+        let mut all_signatures: Vec<[u64; 100]> = Vec::new();
+
+        // Parallel phase: collect (FunctionData-minus-sig_idx, signature) tuples
+        struct FuncWithSig {
+            qualified_name: String,
+            name: String,
+            file_path: String,
+            line_start: u32,
+            line_end: u32,
+            loc: usize,
+            generic_ratio: f64,
+            ast_size: usize,
+            sig: [u64; 100],
+        }
+
+        let func_sigs: Vec<FuncWithSig> = file_data
             .par_iter()
             .flat_map_iter(|(path, content, ext)| {
                 let path_str = path.to_string_lossy().to_string();
 
-                // Fast path: use cached fingerprints from parse phase
+                // Fast path: use cached fingerprints + pre-computed sigs from parse phase
                 if let Some(cached) = crate::parsers::get_cached_fps(&path_str) {
                     return cached
                         .into_iter()
@@ -426,16 +428,20 @@ impl Detector for AIDuplicateBlockDetector {
                             }
                             let generic_ratio = calculate_generic_ratio(&fp.identifiers);
                             let ast_size = fp.normalized_bigrams.len();
-                            Some(FunctionData {
+                            // Use pre-computed sig or compute from bigrams
+                            let sig = fp.minhash_sig.unwrap_or_else(|| {
+                                crate::detectors::ast_fingerprint::compute_minhash_signature(&fp.normalized_bigrams)
+                            });
+                            Some(FuncWithSig {
                                 qualified_name: format!("{}::{}", path_str, fp.name),
                                 name: fp.name,
                                 file_path: path_str.clone(),
                                 line_start: fp.line_start,
                                 line_end: fp.line_end,
                                 loc,
-                                hash_set: fp.normalized_bigrams,
                                 generic_ratio,
                                 ast_size,
+                                sig,
                             })
                         })
                         .collect::<Vec<_>>();
@@ -452,22 +458,40 @@ impl Detector for AIDuplicateBlockDetector {
                     }
                     let generic_ratio = calculate_generic_ratio(&fp.identifiers);
                     let ast_size = fp.normalized_bigrams.len();
-                    Some(FunctionData {
+                    let sig = crate::detectors::ast_fingerprint::compute_minhash_signature(&fp.normalized_bigrams);
+                    Some(FuncWithSig {
                         qualified_name: format!("{}::{}", path_str, func.name),
                         name: func.name,
                         file_path: path_str.clone(),
                         line_start: func.line_start,
                         line_end: func.line_end,
                         loc,
-                        hash_set: fp.normalized_bigrams,
                         generic_ratio,
                         ast_size,
+                        sig,
                     })
                 }).collect::<Vec<_>>()
             })
             .collect();
 
-        let duplicates = self.find_duplicates(&all_functions);
+        // Assign sig_idx sequentially (signatures must be contiguous)
+        for fs in func_sigs {
+            let sig_idx = all_signatures.len();
+            all_signatures.push(fs.sig);
+            all_functions.push(FunctionData {
+                qualified_name: fs.qualified_name,
+                name: fs.name,
+                file_path: fs.file_path,
+                line_start: fs.line_start,
+                line_end: fs.line_end,
+                loc: fs.loc,
+                sig_idx,
+                generic_ratio: fs.generic_ratio,
+                ast_size: fs.ast_size,
+            });
+        }
+
+        let duplicates = self.find_duplicates(&all_functions, &all_signatures);
 
         let mut findings = Vec::new();
         for (func1, func2, similarity) in &duplicates {
@@ -487,17 +511,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_jaccard_similarity() {
-        let set1: HashSet<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
-        let set2: HashSet<String> = ["c", "d", "e", "f"].iter().map(|s| s.to_string()).collect();
+    fn test_minhash_jaccard_identical() {
+        let set: HashSet<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
+        let sig = crate::detectors::ast_fingerprint::compute_minhash_signature(&set);
+        let sim = crate::detectors::ast_fingerprint::minhash_jaccard(&sig, &sig);
+        assert_eq!(sim, 1.0, "Identical sets should have Jaccard 1.0");
+    }
 
-        let sim = jaccard_similarity(&set1, &set2);
-        // intersection: c, d (2), union: a, b, c, d, e, f (6)
-        assert!((sim - (2.0 / 6.0)).abs() < 0.01);
-
-        let empty: HashSet<String> = HashSet::new();
-        assert_eq!(jaccard_similarity(&empty, &empty), 1.0);
-        assert_eq!(jaccard_similarity(&set1, &empty), 0.0);
+    #[test]
+    fn test_minhash_jaccard_disjoint() {
+        let set1: HashSet<String> = (0..50).map(|i| format!("a_{}", i)).collect();
+        let set2: HashSet<String> = (50..100).map(|i| format!("b_{}", i)).collect();
+        let sig1 = crate::detectors::ast_fingerprint::compute_minhash_signature(&set1);
+        let sig2 = crate::detectors::ast_fingerprint::compute_minhash_signature(&set2);
+        let sim = crate::detectors::ast_fingerprint::minhash_jaccard(&sig1, &sig2);
+        assert!(sim < 0.2, "Disjoint sets should have low Jaccard, got {}", sim);
     }
 
     #[test]

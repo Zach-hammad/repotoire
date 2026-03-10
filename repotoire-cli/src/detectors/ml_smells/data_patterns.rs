@@ -51,6 +51,14 @@ impl Detector for MissingRandomSeedDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file uses ML libraries
+        let has_ml = files.files_with_extension("py").iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("torch") || c.contains("tensorflow") || c.contains("sklearn"))
+        });
+        if !has_ml {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extension("py") {
@@ -156,6 +164,14 @@ impl Detector for ChainIndexingDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file uses pandas
+        let has_pandas = files.files_with_extension("py").iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("pandas") || c.contains("import pd"))
+        });
+        if !has_pandas {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extension("py") {
@@ -256,6 +272,14 @@ impl Detector for RequireGradTypoDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file imports torch
+        let has_torch = files.files_with_extension("py").iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("torch") || c.contains("require_grad"))
+        });
+        if !has_torch {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extension("py") {
@@ -364,6 +388,14 @@ impl Detector for DeprecatedTorchApiDetector {
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file imports torch
+        let has_torch = files.files_with_extension("py").iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("torch"))
+        });
+        if !has_torch {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         let deprecated_apis = ["solve", "symeig", "qr", "cholesky", "chain_matmul", "range"];

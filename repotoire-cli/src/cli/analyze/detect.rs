@@ -327,6 +327,7 @@ pub(super) fn run_detectors_speculative(
         let vs_clone = value_store.clone();
 
         // Run GI + GD pre-compute in parallel using thread::scope
+        let detectors_ref = engine.detectors();
         let (gi_result, gd_precomputed) = std::thread::scope(|s| {
             // Background thread: GD pre-compute (contexts + HMM + taint + DetectorContext)
             let precompute_handle = s.spawn(|| {
@@ -336,6 +337,7 @@ pub(super) fn run_detectors_speculative(
                     Some(&hmm_cache_path_clone),
                     all_files,
                     vs_clone,
+                    detectors_ref,
                 )
             });
 
@@ -374,6 +376,7 @@ pub(super) fn run_detectors_speculative(
         let hmm_cache_path_clone = repo_path.join(".repotoire");
         let repo_path_clone = repo_path.to_path_buf();
         let vs_clone = value_store.clone();
+        let detectors_ref = engine.detectors();
         // Run GD precompute ∥ git enrichment finish
         let gd_precomputed = std::thread::scope(|s| {
             let gd_handle = s.spawn(|| {
@@ -383,6 +386,7 @@ pub(super) fn run_detectors_speculative(
                     Some(&hmm_cache_path_clone),
                     all_files,
                     vs_clone,
+                    detectors_ref,
                 )
             });
             // Wait for git enrichment while GD precompute runs in parallel

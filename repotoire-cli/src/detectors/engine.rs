@@ -58,21 +58,31 @@ pub fn precompute_gd_startup(
     hmm_cache_path: Option<&std::path::PathBuf>,
     source_files: &[std::path::PathBuf],
     value_store: Option<Arc<crate::values::store::ValueStore>>,
+    detectors: &[Arc<dyn crate::detectors::base::Detector>],
 ) -> GdPrecomputed {
     let _i = graph.interner();
-    // Four-way parallel: contexts, taint, HMM, and DetectorContext are all independent.
-    //   Thread 1: taint (1.5s)           — cross-function + intra-function taint
+
+    // Check which expensive sub-systems are actually needed by the registered detectors.
+    let needs_taint = detectors.iter().any(|d| d.taint_category().is_some());
+    let needs_func_ctx = detectors.iter().any(|d| d.uses_context());
+
+    // Parallel pre-compute: only spawn threads for sub-systems that are needed.
+    //   Thread 1: taint (1.5s)           — cross-function + intra-function taint (skipped if no security detectors)
     //   Thread 2: HMM (0.4s)             — Hidden Markov Model context extraction
     //   Thread 3: DetectorContext (~0.3s) — callers/callees maps, file contents, class hierarchy
-    //   Main:     contexts (1.5s)         — adjacency + betweenness + context map
-    //   Total:    max(1.5, 1.5, 0.4, 0.3) ≈ 1.5s (zero additional wall-clock cost)
+    //   Main:     contexts (1.5s)         — adjacency + betweenness + context map (skipped if no context-using detectors)
     let (contexts, hmm_contexts, taint_results, detector_context) = std::thread::scope(|s| {
-        // Thread 1: Taint analysis
-        let taint_handle = s.spawn(|| {
-            crate::detectors::taint::centralized::run_centralized_taint(
-                graph, repo_path, None,
-            )
-        });
+        // Thread 1: Taint analysis (only if any detector needs taint)
+        let taint_handle = if needs_taint {
+            Some(s.spawn(|| {
+                crate::detectors::taint::centralized::run_centralized_taint(
+                    graph, repo_path, None,
+                )
+            }))
+        } else {
+            debug!("Skipping taint pre-compute: no detectors need taint");
+            None
+        };
 
         // Thread 2: HMM context extraction
         let hmm_handle = s.spawn(|| {
@@ -85,10 +95,20 @@ pub fn precompute_gd_startup(
             Arc::new(super::DetectorContext::build(graph, source_files, vs_clone))
         });
 
-        // Main thread: Function contexts (adjacency + betweenness + context map)
-        let ctx = FunctionContextBuilder::new(graph).build();
+        // Main thread: Function contexts (only if any detector uses context)
+        let ctx = if needs_func_ctx {
+            FunctionContextBuilder::new(graph).build()
+        } else {
+            debug!("Skipping FunctionContextBuilder: no detectors use context");
+            HashMap::new()
+        };
 
-        let taint = taint_handle.join().expect("taint thread panicked");
+        let taint = taint_handle
+            .map(|h| h.join().expect("taint thread panicked"))
+            .unwrap_or_else(|| crate::detectors::taint::centralized::CentralizedTaintResults {
+                cross_function: HashMap::new(),
+                intra_function: HashMap::new(),
+            });
         let hmm = hmm_handle.join().expect("HMM thread panicked");
         let det_ctx = ctx_handle.join().expect("DetectorContext thread panicked");
         (ctx, hmm, taint, det_ctx)
@@ -596,6 +616,11 @@ impl DetectorEngine {
         self.detectors.iter().map(|d| d.name()).collect()
     }
 
+    /// Get a reference to the registered detectors slice
+    pub fn detectors(&self) -> &[Arc<dyn Detector>] {
+        &self.detectors
+    }
+
     /// Run all detectors and collect findings
     ///
     /// # Arguments
@@ -619,28 +644,34 @@ impl DetectorEngine {
         let hmm_contexts = self.build_hmm_contexts(graph);
 
         // Pre-compute centralized taint analysis for all security detectors
+        // (only if at least one detector needs taint results)
+        let needs_taint = self.detectors.iter().any(|d| d.taint_category().is_some());
         let repo_path = Some(files.repo_path());
-        if let Some(repo_path) = repo_path {
-            let taint_results = crate::detectors::taint::centralized::run_centralized_taint(
-                graph,
-                repo_path,
-                None,
-            );
-            for detector in &self.detectors {
-                if let Some(category) = detector.taint_category() {
-                    let cross = taint_results
-                        .cross_function
-                        .get(&category)
-                        .cloned()
-                        .unwrap_or_default();
-                    let intra = taint_results
-                        .intra_function
-                        .get(&category)
-                        .cloned()
-                        .unwrap_or_default();
-                    detector.set_precomputed_taint(cross, intra);
+        if needs_taint {
+            if let Some(repo_path) = repo_path {
+                let taint_results = crate::detectors::taint::centralized::run_centralized_taint(
+                    graph,
+                    repo_path,
+                    None,
+                );
+                for detector in &self.detectors {
+                    if let Some(category) = detector.taint_category() {
+                        let cross = taint_results
+                            .cross_function
+                            .get(&category)
+                            .cloned()
+                            .unwrap_or_default();
+                        let intra = taint_results
+                            .intra_function
+                            .get(&category)
+                            .cloned()
+                            .unwrap_or_default();
+                        detector.set_precomputed_taint(cross, intra);
+                    }
                 }
             }
+        } else {
+            debug!("Skipping taint computation in run(): no detectors need taint");
         }
 
         // Build and inject DetectorContext for run() fallback path

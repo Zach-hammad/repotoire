@@ -51,6 +51,8 @@ pub struct CachedFunctionFP {
     pub identifiers: Vec<String>,
     /// Detected boilerplate patterns.
     pub patterns: Vec<crate::detectors::BoilerplatePattern>,
+    /// Pre-computed MinHash signature for AIDuplicateBlock (avoids recomputing from bigrams).
+    pub minhash_sig: Option<[u64; 100]>,
 }
 
 /// Global cache of per-file function fingerprints, populated during the parse
@@ -285,6 +287,17 @@ fn extract_full_fps(
         &mut fps,
     );
 
+    // Pre-compute MinHash signatures AFTER recursion completes (not inside
+    // collect_full_fps_recursive) to avoid adding [u64; 100] to the recursive
+    // stack frame, which causes stack overflow on deeply nested ASTs (CPython).
+    for fp in &mut fps {
+        if !fp.normalized_bigrams.is_empty() {
+            fp.minhash_sig = Some(
+                crate::detectors::ast_fingerprint::compute_minhash_signature(&fp.normalized_bigrams),
+            );
+        }
+    }
+
     if !fps.is_empty() {
         FP_CACHE.insert(path_str, fps);
     }
@@ -337,6 +350,8 @@ fn collect_full_fps_recursive(
 
             // Include functions even if structural_kinds is empty — AIDuplicateBlock
             // needs normalized_bigrams which can be non-empty on any function.
+            // NOTE: minhash_sig is computed AFTER recursion in extract_full_fps()
+            // to avoid adding 800 bytes ([u64; 100]) to this recursive stack frame.
             if !structural_kinds.is_empty() || !normalized_bigrams.is_empty() {
                 out.push(CachedFunctionFP {
                     name,
@@ -346,6 +361,7 @@ fn collect_full_fps_recursive(
                     normalized_bigrams,
                     identifiers,
                     patterns,
+                    minhash_sig: None,
                 });
             }
         }

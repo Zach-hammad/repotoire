@@ -127,6 +127,14 @@ impl Detector for ReactHooksDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        // Codebase-level pre-filter: skip if no file uses React
+        let has_react = files.files_with_extensions(&["jsx", "tsx", "js", "ts"]).iter().any(|p| {
+            files.content(p).map_or(false, |c| c.contains("react") || c.contains("React") || c.contains("useState") || c.contains("useEffect"))
+        });
+        if !has_react {
+            return Ok(vec![]);
+        }
+
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["js", "jsx", "ts", "tsx"]) {

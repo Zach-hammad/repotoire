@@ -179,6 +179,11 @@ impl Detector for UnusedImportsDetector {
             }
 
             if let Some(content) = files.content(path) {
+                // Fast pre-filter: skip files without any import/require statements
+                if !content.contains("import") && !content.contains("require") {
+                    continue;
+                }
+
                 let all_exports = Self::extract_all_exports(&content);
                 let lines: Vec<&str> = content.lines().collect();
 

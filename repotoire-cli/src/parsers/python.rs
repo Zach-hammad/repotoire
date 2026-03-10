@@ -92,8 +92,8 @@ pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult,
 
     // Extract all entities
     extract_functions(&root, source_bytes, path, &mut result)?;
-    extract_classes(&root, source_bytes, path, &mut result)?;
-    extract_class_methods(&root, source_bytes, path, &mut result)?;
+    let class_nodes = extract_classes(&root, source_bytes, path, &mut result)?;
+    extract_class_methods(&class_nodes, source_bytes, path, &mut result)?;
     extract_imports(&root, source_bytes, &mut result)?;
     extract_calls(&root, source_bytes, path, &mut result)?;
 
@@ -426,13 +426,14 @@ fn extract_parameters(params_node: Option<Node>, source: &[u8]) -> Vec<String> {
 }
 
 /// Extract class definitions from the AST
-fn extract_classes(
-    root: &Node,
+fn extract_classes<'a>(
+    root: &Node<'a>,
     source: &[u8],
     path: &Path,
     result: &mut ParseResult,
-) -> Result<()> {
+) -> Result<Vec<(String, Node<'a>)>> {
     let mut cursor = root.walk();
+    let mut class_nodes = Vec::new();
 
     for node in root.children(&mut cursor) {
         let class_node = if node.kind() == "class_definition" {
@@ -447,12 +448,14 @@ fn extract_classes(
 
         if let Some(class_node) = class_node {
             if let Some(class) = parse_class_node(&class_node, source, path) {
+                let name = class.name.clone();
                 result.classes.push(class);
+                class_nodes.push((name, class_node));
             }
         }
     }
 
-    Ok(())
+    Ok(class_nodes)
 }
 
 /// Parse a single class node into a Class struct
@@ -569,58 +572,17 @@ fn extract_methods(class_node: &Node, source: &[u8]) -> Vec<String> {
     methods
 }
 
-/// Find a class definition node by name in the AST.
-fn find_class_node<'a>(node: &Node<'a>, source: &[u8], class_name: &str) -> Option<Node<'a>> {
-    if node.kind() == "class_definition" {
-        if let Some(name_node) = node.child_by_field_name("name") {
-            if let Ok(name) = name_node.utf8_text(source) {
-                if name == class_name {
-                    return Some(*node);
-                }
-            }
-        }
-    }
-
-    if node.kind() == "decorated_definition" {
-        for child in node.children(&mut node.walk()) {
-            if child.kind() == "class_definition" {
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Ok(name) = name_node.utf8_text(source) {
-                        if name == class_name {
-                            return Some(child);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    for child in node.children(&mut node.walk()) {
-        if let Some(found) = find_class_node(&child, source, class_name) {
-            return Some(found);
-        }
-    }
-
-    None
-}
-
 /// Extract methods from all classes as full Function entries.
 ///
 /// This ensures class methods are first-class citizens in the graph,
 /// making them visible to all detectors (dead code, complexity, etc.).
 fn extract_class_methods(
-    root: &Node,
+    class_nodes: &[(String, Node)],
     source: &[u8],
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    // Collect class names first to avoid borrow conflict with result
-    let class_names: Vec<String> = result.classes.iter().map(|c| c.name.clone()).collect();
-
-    for class_name in &class_names {
-        let Some(class_node) = find_class_node(root, source, class_name) else {
-            continue;
-        };
+    for (class_name, class_node) in class_nodes {
         let Some(body) = class_node.child_by_field_name("body") else {
             continue;
         };

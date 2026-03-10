@@ -1124,6 +1124,21 @@ fn hash_band(band: &[u64]) -> u64 {
     hash
 }
 
+/// Estimate Jaccard similarity from two MinHash signatures.
+///
+/// Standard error ≈ 1/√k ≈ 0.1 at k=100 — acceptable for code quality detection.
+pub fn minhash_jaccard(sig1: &[u64; MINHASH_NUM_HASHES], sig2: &[u64; MINHASH_NUM_HASHES]) -> f64 {
+    let matching = sig1.iter().zip(sig2.iter()).filter(|(a, b)| a == b).count();
+    matching as f64 / MINHASH_NUM_HASHES as f64
+}
+
+/// Compute a MinHash signature for a set of strings (public wrapper).
+pub fn compute_minhash_signature(set: &HashSet<String>) -> [u64; MINHASH_NUM_HASHES] {
+    static COEFFS: std::sync::LazyLock<MinHashCoeffs> =
+        std::sync::LazyLock::new(MinHashCoeffs::new);
+    minhash_signature(set, &COEFFS)
+}
+
 /// Find candidate pairs likely to have Jaccard similarity >= ~0.70.
 ///
 /// Uses MinHash signatures + LSH banding to reduce O(n²) pairwise
@@ -1146,7 +1161,22 @@ pub fn lsh_candidate_pairs(sets: &[&HashSet<String>]) -> HashSet<(usize, usize)>
         .map(|set| minhash_signature(set, &coeffs))
         .collect();
 
-    // LSH banding: O(n · b)
+    lsh_banding(&signatures)
+}
+
+/// Find candidate pairs from pre-computed MinHash signatures.
+///
+/// Same LSH banding as `lsh_candidate_pairs` but skips signature computation.
+/// Used when MinHash sigs are pre-computed during the parse phase.
+pub fn lsh_candidate_pairs_from_sigs(sigs: &[[u64; MINHASH_NUM_HASHES]]) -> HashSet<(usize, usize)> {
+    if sigs.len() < 2 {
+        return HashSet::new();
+    }
+    lsh_banding(sigs)
+}
+
+/// LSH banding on pre-computed signatures: O(n · b).
+fn lsh_banding(signatures: &[[u64; MINHASH_NUM_HASHES]]) -> HashSet<(usize, usize)> {
     let mut candidates = HashSet::new();
     for band in 0..LSH_BANDS {
         let start = band * LSH_ROWS;
