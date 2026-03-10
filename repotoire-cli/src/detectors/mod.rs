@@ -155,7 +155,7 @@ pub use base::{
 };
 
 // Re-export detector context
-pub use detector_context::DetectorContext;
+pub use detector_context::{ContentFlags, DetectorContext};
 
 // Re-export file cache
 pub use file_cache::FileContentCache;

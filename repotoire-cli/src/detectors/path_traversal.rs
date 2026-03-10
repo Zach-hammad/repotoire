@@ -1,13 +1,14 @@
 //! Path Traversal Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::detector_context::ContentFlags;
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, OnceLock};
 
 static FILE_OP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|[^.\w])(open|unlink|unlinkSync|rmdir|mkdir|copyFile|rename)\s*\(|(?:os\.remove|os\.unlink|shutil\.copy|shutil\.move|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|statSync|accessSync)\s*\(").expect("valid regex"));
 static PATH_JOIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"os\.path\.join|(?:^|[^.\w])path\.join|(?:^|[^.\w])path\.resolve|filepath\.Join|filepath\.Clean|(?:pathlib\.)?Path\s*\(").expect("valid regex"));
@@ -15,6 +16,7 @@ static SEND_FILE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(sendFile|download|serveStatic|send_file|serve_file)\s*\(")
             .expect("valid regex")
     });
+
 #[allow(dead_code)]
 static PATH_RESOLVE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(realpath|abspath|normpath|resolve|Clean)\s*\(").expect("valid regex")
@@ -24,8 +26,9 @@ pub struct PathTraversalDetector {
     repository_path: PathBuf,
     max_findings: usize,
     taint_analyzer: TaintAnalyzer,
-    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
-    precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
+    precomputed_cross: OnceLock<Vec<crate::detectors::taint::TaintPath>>,
+    precomputed_intra: OnceLock<Vec<crate::detectors::taint::TaintPath>>,
+    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl PathTraversalDetector {
@@ -34,8 +37,9 @@ impl PathTraversalDetector {
             repository_path: repository_path.into(),
             max_findings: 50,
             taint_analyzer: TaintAnalyzer::new(),
-            precomputed_cross: std::sync::OnceLock::new(),
-            precomputed_intra: std::sync::OnceLock::new(),
+            precomputed_cross: OnceLock::new(),
+            precomputed_intra: OnceLock::new(),
+            detector_context: OnceLock::new(),
         }
     }
 }
@@ -59,6 +63,10 @@ impl Detector for PathTraversalDetector {
 
     fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
         Some(TaintCategory::PathTraversal)
+    }
+
+    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
+        let _ = self.detector_context.set(ctx);
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
@@ -88,22 +96,50 @@ impl Detector for PathTraversalDetector {
                 break;
             }
 
-            // Cheap pre-filter: skip files without any file-operation keywords
+            // Pre-filter: skip files without file-operation or path-operation keywords
+            let should_check = if let Some(ctx) = self.detector_context.get() {
+                let flags = ctx.content_flags.get(path).copied().unwrap_or_default();
+                flags.has(ContentFlags::FILE_OPS) || flags.has(ContentFlags::PATH_OPS)
+            } else {
+                // No DetectorContext (tests / standalone) — defer to inline check below
+                true
+            };
+
+            if !should_check {
+                continue;
+            }
+
             let raw = match files.content(path) {
                 Some(c) => c,
                 None => continue,
             };
-            if !raw.contains("open") && !raw.contains("unlink") && !raw.contains("rmdir")
-                && !raw.contains("mkdir") && !raw.contains("copyFile") && !raw.contains("rename")
-                && !raw.contains("readFile") && !raw.contains("writeFile")
-                && !raw.contains("shutil") && !raw.contains("os.remove")
-                && !raw.contains("path.join") && !raw.contains("path.resolve")
-                && !raw.contains("os.path") && !raw.contains("filepath")
-                && !raw.contains("pathlib") && !raw.contains("sendFile")
-                && !raw.contains("send_file") && !raw.contains("serve_file")
-                && !raw.contains("createReadStream") && !raw.contains("createWriteStream")
-            {
-                continue;
+
+            // Inline fallback pre-filter when no DetectorContext is available.
+            // Must cover the same keywords as ContentFlags FILE_OPS + PATH_OPS.
+            if self.detector_context.get().is_none() {
+                let has_relevant = raw.contains("open(")
+                    || raw.contains("readFile")
+                    || raw.contains("writeFile")
+                    || raw.contains("path.join")
+                    || raw.contains("path.resolve")
+                    || raw.contains("os.path")
+                    || raw.contains("sendFile")
+                    || raw.contains("send_file")
+                    || raw.contains("serve_file")
+                    || raw.contains("unlink")
+                    || raw.contains("rmdir")
+                    || raw.contains("mkdir")
+                    || raw.contains("copyFile")
+                    || raw.contains("rename(")
+                    || raw.contains("os.remove")
+                    || raw.contains("shutil")
+                    || raw.contains("filepath")
+                    || raw.contains("pathlib")
+                    || raw.contains("createReadStream")
+                    || raw.contains("createWriteStream");
+                if !has_relevant {
+                    continue;
+                }
             }
 
             let rel_path = path

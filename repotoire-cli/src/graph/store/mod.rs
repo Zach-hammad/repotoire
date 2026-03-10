@@ -208,7 +208,7 @@ impl GraphStore {
             .filter(|entry| entry.key().starts_with(prefix))
             .map(|entry| (entry.key().clone(), *entry.value()))
             .collect();
-        results.sort_by(|a, b| a.0.cmp(&b.0));
+        results.sort_unstable_by(|a, b| a.0.cmp(&b.0));
         results
     }
 
@@ -233,6 +233,14 @@ impl GraphStore {
         }
 
         Ok(())
+    }
+
+    /// Release build-phase caches that are not needed during detection.
+    /// Call after graph building is complete to reclaim memory (~1.8MB for edge_set).
+    pub fn clear_build_caches(&self) {
+        let mut set = self.edge_set.lock().expect("edge_set lock");
+        set.clear();
+        set.shrink_to_fit();
     }
 
     // ==================== Node Operations ====================
@@ -570,7 +578,7 @@ impl GraphStore {
             .copied()
             .collect();
         let si = self.interner();
-        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
+        nodes.sort_by_cached_key(|n| si.resolve(n.qualified_name).to_owned());
         nodes
     }
 
@@ -643,7 +651,7 @@ impl GraphStore {
             .copied()
             .collect();
         let si = self.interner();
-        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
+        nodes.sort_by_cached_key(|n| si.resolve(n.qualified_name).to_owned());
         nodes
     }
 
@@ -659,7 +667,7 @@ impl GraphStore {
             .copied()
             .collect();
         let si = self.interner();
-        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
+        nodes.sort_by_cached_key(|n| si.resolve(n.qualified_name).to_owned());
         nodes
     }
 
@@ -741,7 +749,7 @@ impl GraphStore {
             })
             .collect();
         let si = self.interner();
-        edges.sort_by(|a, b| {
+        edges.sort_unstable_by(|a, b| {
             si.resolve(a.0).cmp(si.resolve(b.0))
                 .then_with(|| si.resolve(a.1).cmp(si.resolve(b.1)))
         });
@@ -783,7 +791,7 @@ impl GraphStore {
 
         // Sort by qualified_name to match get_functions() ordering
         let si = self.interner();
-        funcs_pg.sort_by(|a, b| si.resolve(a.1.qualified_name).cmp(si.resolve(b.1.qualified_name)));
+        funcs_pg.sort_by_cached_key(|item| si.resolve(item.1.qualified_name).to_owned());
 
         // petgraph NodeIndex -> function list position
         let pg_to_func: HashMap<NodeIndex, usize> = funcs_pg
@@ -838,7 +846,7 @@ impl GraphStore {
                 ))
             })
             .collect();
-        edges.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        edges.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
         edges
     }
 
@@ -897,7 +905,7 @@ impl GraphStore {
             .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
         let si = self.interner();
-        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
+        nodes.sort_unstable_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -915,7 +923,7 @@ impl GraphStore {
             .filter_map(|e| graph.node_weight(e.target()).copied())
             .collect();
         let si = self.interner();
-        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
+        nodes.sort_unstable_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -933,7 +941,7 @@ impl GraphStore {
             .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
         let si = self.interner();
-        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
+        nodes.sort_unstable_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 
@@ -969,7 +977,7 @@ impl GraphStore {
             .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
         let si = self.interner();
-        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
+        nodes.sort_unstable_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 

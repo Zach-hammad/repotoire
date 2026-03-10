@@ -532,6 +532,9 @@ fn initialize_graph(
     // Parse files and build graph
     let (parse_result, value_store) = parse_and_build(env, &file_result, &graph, multi, &bar_style)?;
 
+    // Release build-phase caches (edge_set ~1.8MB) now that graph is complete
+    graph.clear_build_caches();
+
     // Save graph cache for future incremental runs (background thread).
     // Guard: skip if incremental mode with no changed files (cache is already warm).
     if !file_result.files_to_parse.is_empty() || !env.config.is_incremental_mode {
@@ -680,6 +683,9 @@ fn initialize_graph_overlapped(
         total_functions,
         total_classes,
     };
+
+    // Release build-phase caches (edge_set ~1.8MB) now that graph is complete
+    graph.clear_build_caches();
 
     // Save graph cache for future incremental runs (background thread).
     // The overlapped path always builds a fresh graph, so always save.

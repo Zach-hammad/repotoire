@@ -9,6 +9,68 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Per-file content presence flags, pre-computed during `DetectorContext::build()`.
+///
+/// Detectors query these via `set_detector_context()` to skip files that lack
+/// relevant keywords, avoiding expensive per-line regex scans on irrelevant files.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct ContentFlags(u32);
+
+impl ContentFlags {
+    /// File I/O operations: open, readFile, writeFile, unlink, rmdir, etc.
+    pub const FILE_OPS: Self = Self(1 << 0);
+    /// Path manipulation: path.join, os.path, filepath, pathlib, etc.
+    pub const PATH_OPS: Self = Self(1 << 1);
+
+    pub fn has(self, flag: Self) -> bool {
+        self.0 & flag.0 != 0
+    }
+
+    pub fn set(&mut self, flag: Self) {
+        self.0 |= flag.0;
+    }
+}
+
+/// Scan file content and return which keyword categories are present.
+///
+/// Called once per file during `DetectorContext::build()` (in parallel via rayon).
+/// Each category uses simple `str::contains()` checks -- no aho-corasick needed.
+fn compute_content_flags(content: &str) -> ContentFlags {
+    let mut flags = ContentFlags::default();
+
+    // FILE_OPS
+    if content.contains("open(")
+        || content.contains("unlink")
+        || content.contains("rmdir")
+        || content.contains("mkdir")
+        || content.contains("copyFile")
+        || content.contains("rename(")
+        || content.contains("readFile")
+        || content.contains("writeFile")
+        || content.contains("shutil")
+        || content.contains("os.remove")
+        || content.contains("createReadStream")
+        || content.contains("createWriteStream")
+        || content.contains("sendFile")
+        || content.contains("send_file")
+        || content.contains("serve_file")
+    {
+        flags.set(ContentFlags::FILE_OPS);
+    }
+
+    // PATH_OPS
+    if content.contains("path.join")
+        || content.contains("path.resolve")
+        || content.contains("os.path")
+        || content.contains("filepath")
+        || content.contains("pathlib")
+    {
+        flags.set(ContentFlags::PATH_OPS);
+    }
+
+    flags
+}
+
 /// Shared pre-computed data available to all detectors.
 ///
 /// This is built in parallel with taint analysis and HMM (zero wall-clock cost)
@@ -23,6 +85,9 @@ pub struct DetectorContext {
     pub class_children: HashMap<String, Vec<String>>,
     /// Pre-loaded raw file content
     pub file_contents: HashMap<PathBuf, Arc<str>>,
+    /// Pre-computed per-file content keyword flags (FILE_OPS, PATH_OPS).
+    /// Populated during build() alongside file_contents, zero extra I/O cost.
+    pub content_flags: HashMap<PathBuf, ContentFlags>,
     /// Pre-built class contexts for god class detection (built as 5th parallel thread)
     pub class_contexts: Option<Arc<ClassContextMap>>,
     /// Resolved variable values from graph-based constant propagation
@@ -79,21 +144,30 @@ impl DetectorContext {
                 .push(i.resolve(*child).to_string());
         }
 
-        // Pre-load file contents in parallel
-        let file_contents: HashMap<PathBuf, Arc<str>> = source_files
+        // Pre-load file contents and compute content flags in parallel (single pass)
+        let file_data: Vec<(PathBuf, Arc<str>, ContentFlags)> = source_files
             .par_iter()
             .filter_map(|f| {
-                std::fs::read_to_string(f)
-                    .ok()
-                    .map(|c| (f.clone(), Arc::from(c.as_str())))
+                std::fs::read_to_string(f).ok().map(|c| {
+                    let flags = compute_content_flags(&c);
+                    (f.clone(), Arc::from(c.as_str()), flags)
+                })
             })
             .collect();
+
+        let mut file_contents = HashMap::with_capacity(file_data.len());
+        let mut content_flags = HashMap::with_capacity(file_data.len());
+        for (path, content, flags) in file_data {
+            file_contents.insert(path.clone(), content);
+            content_flags.insert(path, flags);
+        }
 
         Self {
             callers_by_qn,
             callees_by_qn,
             class_children,
             file_contents,
+            content_flags,
             class_contexts: None,
             value_store,
         }
@@ -237,5 +311,61 @@ mod tests {
         let graph = GraphStore::in_memory();
         let ctx = DetectorContext::build(&graph, &[], None);
         assert!(ctx.value_store.is_none());
+    }
+
+    // ── ContentFlags unit tests ──────────────────────────────────────
+
+    #[test]
+    fn test_content_flags_file_ops() {
+        let flags = super::compute_content_flags("let f = open(path, 'r')");
+        assert!(flags.has(ContentFlags::FILE_OPS));
+        assert!(!flags.has(ContentFlags::PATH_OPS));
+    }
+
+    #[test]
+    fn test_content_flags_path_ops() {
+        let flags = super::compute_content_flags("const p = path.join(dir, file)");
+        assert!(!flags.has(ContentFlags::FILE_OPS));
+        assert!(flags.has(ContentFlags::PATH_OPS));
+    }
+
+    #[test]
+    fn test_content_flags_benign_content() {
+        let flags = super::compute_content_flags("fn main() { println!(\"hello\"); }");
+        assert!(!flags.has(ContentFlags::FILE_OPS));
+        assert!(!flags.has(ContentFlags::PATH_OPS));
+    }
+
+    #[test]
+    fn test_content_flags_multiple_categories() {
+        let flags = super::compute_content_flags(
+            "const f = open(path.join(dir, file), 'r')",
+        );
+        assert!(flags.has(ContentFlags::FILE_OPS));
+        assert!(flags.has(ContentFlags::PATH_OPS));
+    }
+
+    #[test]
+    fn test_content_flags_populated_in_build() {
+        let graph = GraphStore::in_memory();
+        let dir = tempfile::tempdir().unwrap();
+
+        let py_file = dir.path().join("app.py");
+        std::fs::write(&py_file, "f = open(os.path.join(d, request.GET['f']))").unwrap();
+
+        let safe_file = dir.path().join("safe.py");
+        std::fs::write(&safe_file, "x = 1 + 2").unwrap();
+
+        let ctx = DetectorContext::build(&graph, &[py_file.clone(), safe_file.clone()], None);
+
+        // app.py should have both FILE_OPS and PATH_OPS flags
+        let app_flags = ctx.content_flags[&py_file];
+        assert!(app_flags.has(ContentFlags::FILE_OPS));
+        assert!(app_flags.has(ContentFlags::PATH_OPS));
+
+        // safe.py should have no flags
+        let safe_flags = ctx.content_flags[&safe_file];
+        assert!(!safe_flags.has(ContentFlags::FILE_OPS));
+        assert!(!safe_flags.has(ContentFlags::PATH_OPS));
     }
 }
