@@ -21,6 +21,50 @@ impl ContentFlags {
     pub const FILE_OPS: Self = Self(1 << 0);
     /// Path manipulation: path.join, os.path, filepath, pathlib, etc.
     pub const PATH_OPS: Self = Self(1 << 1);
+    /// SQL keywords: SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, execute(
+    pub const HAS_SQL: Self = Self(1 << 2);
+    /// Import/require statements: import, require(, from
+    pub const HAS_IMPORT: Self = Self(1 << 3);
+    /// Dynamic code evaluation: eval(, exec(, Function(
+    pub const HAS_EVAL: Self = Self(1 << 4);
+    /// HTTP client usage: requests., fetch(, axios, urllib, http.get, reqwest, etc.
+    pub const HAS_HTTP_CLIENT: Self = Self(1 << 5);
+    /// User input sources: request., req.body, req.query, input(, sys.argv, etc.
+    pub const HAS_USER_INPUT: Self = Self(1 << 6);
+    /// Cryptographic operations: hashlib, crypto, md5, sha1, AES, encrypt, etc.
+    pub const HAS_CRYPTO: Self = Self(1 << 7);
+    /// Template rendering: render(, template, jinja, Markup(, innerHTML
+    pub const HAS_TEMPLATE: Self = Self(1 << 8);
+    /// Deserialization: pickle, marshal, yaml.load, json.loads, deserialize
+    pub const HAS_SERIALIZE: Self = Self(1 << 9);
+    /// OS command execution: os.system, subprocess, child_process, popen
+    pub const HAS_EXEC: Self = Self(1 << 10);
+    /// Secret/credential patterns: password, secret, api_key, token, private_key, etc.
+    pub const HAS_SECRET_PATTERN: Self = Self(1 << 11);
+    /// ML/data-science libraries: torch, numpy, tensorflow, sklearn, pandas
+    pub const HAS_ML: Self = Self(1 << 12);
+    /// React hooks and imports: useState, useEffect, React, react
+    pub const HAS_REACT: Self = Self(1 << 13);
+    /// Django framework: django, Django
+    pub const HAS_DJANGO: Self = Self(1 << 14);
+    /// Express.js framework: express, app.get(, app.post(, router.
+    pub const HAS_EXPRESS: Self = Self(1 << 15);
+
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    pub const fn all() -> Self {
+        Self(u32::MAX)
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
 
     pub fn has(self, flag: Self) -> bool {
         self.0 & flag.0 != 0
@@ -71,6 +115,151 @@ fn compute_content_flags(content: &str) -> ContentFlags {
         flags.set(ContentFlags::PATH_OPS);
     }
 
+    // HAS_SQL
+    if content.contains("SELECT ")
+        || content.contains("INSERT ")
+        || content.contains("UPDATE ")
+        || content.contains("DELETE ")
+        || content.contains("CREATE ")
+        || content.contains("DROP ")
+        || content.contains("select ")
+        || content.contains("insert ")
+        || content.contains("execute(")
+    {
+        flags.set(ContentFlags::HAS_SQL);
+    }
+
+    // HAS_IMPORT
+    if content.contains("import ")
+        || content.contains("require(")
+        || content.contains("from ")
+    {
+        flags.set(ContentFlags::HAS_IMPORT);
+    }
+
+    // HAS_EVAL
+    if content.contains("eval(")
+        || content.contains("exec(")
+        || content.contains("Function(")
+    {
+        flags.set(ContentFlags::HAS_EVAL);
+    }
+
+    // HAS_HTTP_CLIENT
+    if content.contains("requests.")
+        || content.contains("fetch(")
+        || content.contains("axios")
+        || content.contains("urllib")
+        || content.contains("http.get")
+        || content.contains("http.post")
+        || content.contains("HttpClient")
+        || content.contains("ureq")
+        || content.contains("reqwest")
+    {
+        flags.set(ContentFlags::HAS_HTTP_CLIENT);
+    }
+
+    // HAS_USER_INPUT
+    if content.contains("request.")
+        || content.contains("req.body")
+        || content.contains("req.query")
+        || content.contains("req.params")
+        || content.contains("request.GET")
+        || content.contains("request.POST")
+        || content.contains("input(")
+        || content.contains("sys.argv")
+        || content.contains("process.argv")
+    {
+        flags.set(ContentFlags::HAS_USER_INPUT);
+    }
+
+    // HAS_CRYPTO
+    if content.contains("hashlib")
+        || content.contains("crypto")
+        || content.contains("md5")
+        || content.contains("sha1")
+        || content.contains("DES")
+        || content.contains("AES")
+        || content.contains("cipher")
+        || content.contains("encrypt")
+        || content.contains("decrypt")
+    {
+        flags.set(ContentFlags::HAS_CRYPTO);
+    }
+
+    // HAS_TEMPLATE
+    if content.contains("render(")
+        || content.contains("template")
+        || content.contains("jinja")
+        || content.contains("Markup(")
+        || content.contains("innerHTML")
+    {
+        flags.set(ContentFlags::HAS_TEMPLATE);
+    }
+
+    // HAS_SERIALIZE
+    if content.contains("pickle")
+        || content.contains("marshal")
+        || content.contains("yaml.load")
+        || content.contains("json.loads")
+        || content.contains("deserialize")
+    {
+        flags.set(ContentFlags::HAS_SERIALIZE);
+    }
+
+    // HAS_EXEC
+    if content.contains("os.system")
+        || content.contains("subprocess")
+        || content.contains("child_process")
+        || content.contains("popen")
+    {
+        flags.set(ContentFlags::HAS_EXEC);
+    }
+
+    // HAS_SECRET_PATTERN
+    if content.contains("password")
+        || content.contains("secret")
+        || content.contains("api_key")
+        || content.contains("token")
+        || content.contains("private_key")
+        || content.contains("BEGIN RSA")
+    {
+        flags.set(ContentFlags::HAS_SECRET_PATTERN);
+    }
+
+    // HAS_ML
+    if content.contains("torch")
+        || content.contains("numpy")
+        || content.contains("tensorflow")
+        || content.contains("sklearn")
+        || content.contains("pandas")
+    {
+        flags.set(ContentFlags::HAS_ML);
+    }
+
+    // HAS_REACT
+    if content.contains("useState")
+        || content.contains("useEffect")
+        || content.contains("React")
+        || content.contains("react")
+    {
+        flags.set(ContentFlags::HAS_REACT);
+    }
+
+    // HAS_DJANGO
+    if content.contains("django") || content.contains("Django") {
+        flags.set(ContentFlags::HAS_DJANGO);
+    }
+
+    // HAS_EXPRESS
+    if content.contains("express")
+        || content.contains("app.get(")
+        || content.contains("app.post(")
+        || content.contains("router.")
+    {
+        flags.set(ContentFlags::HAS_EXPRESS);
+    }
+
     flags
 }
 
@@ -88,7 +277,7 @@ pub struct DetectorContext {
     pub class_children: HashMap<String, Vec<String>>,
     /// Pre-loaded raw file content
     pub file_contents: HashMap<PathBuf, Arc<str>>,
-    /// Pre-computed per-file content keyword flags (FILE_OPS, PATH_OPS).
+    /// Pre-computed per-file content keyword flags (16 categories).
     /// Populated during build() alongside file_contents, zero extra I/O cost.
     pub content_flags: HashMap<PathBuf, ContentFlags>,
     /// Pre-built class contexts for god class detection (built as 5th parallel thread)
@@ -370,5 +559,233 @@ mod tests {
         let safe_flags = ctx.content_flags[&safe_file];
         assert!(!safe_flags.has(ContentFlags::FILE_OPS));
         assert!(!safe_flags.has(ContentFlags::PATH_OPS));
+    }
+
+    // ── Extended ContentFlags unit tests ────────────────────────────────
+
+    #[test]
+    fn test_content_flags_has_sql() {
+        let flags = compute_content_flags("cursor.execute(\"SELECT * FROM users\")");
+        assert!(flags.has(ContentFlags::HAS_SQL));
+
+        let flags2 = compute_content_flags("db.run(\"INSERT INTO logs VALUES (?)\")");
+        assert!(flags2.has(ContentFlags::HAS_SQL));
+
+        let no_sql = compute_content_flags("let x = 42;");
+        assert!(!no_sql.has(ContentFlags::HAS_SQL));
+    }
+
+    #[test]
+    fn test_content_flags_has_import() {
+        let flags = compute_content_flags("import os\nfrom pathlib import Path");
+        assert!(flags.has(ContentFlags::HAS_IMPORT));
+
+        let flags2 = compute_content_flags("const fs = require('fs')");
+        assert!(flags2.has(ContentFlags::HAS_IMPORT));
+
+        let no_import = compute_content_flags("fn main() { println!(\"hi\"); }");
+        assert!(!no_import.has(ContentFlags::HAS_IMPORT));
+    }
+
+    #[test]
+    fn test_content_flags_has_eval() {
+        let flags = compute_content_flags("result = eval(user_input)");
+        assert!(flags.has(ContentFlags::HAS_EVAL));
+
+        let flags2 = compute_content_flags("exec(code_str)");
+        assert!(flags2.has(ContentFlags::HAS_EVAL));
+
+        let flags3 = compute_content_flags("new Function(body)");
+        assert!(flags3.has(ContentFlags::HAS_EVAL));
+
+        let no_eval = compute_content_flags("let value = calculate(10);");
+        assert!(!no_eval.has(ContentFlags::HAS_EVAL));
+    }
+
+    #[test]
+    fn test_content_flags_has_user_input() {
+        let flags = compute_content_flags("name = request.GET['name']");
+        assert!(flags.has(ContentFlags::HAS_USER_INPUT));
+
+        let flags2 = compute_content_flags("const data = req.body.data");
+        assert!(flags2.has(ContentFlags::HAS_USER_INPUT));
+
+        let flags3 = compute_content_flags("val = input('Enter: ')");
+        assert!(flags3.has(ContentFlags::HAS_USER_INPUT));
+
+        let flags4 = compute_content_flags("args = sys.argv[1:]");
+        assert!(flags4.has(ContentFlags::HAS_USER_INPUT));
+
+        let no_input = compute_content_flags("x = compute(42)");
+        assert!(!no_input.has(ContentFlags::HAS_USER_INPUT));
+    }
+
+    #[test]
+    fn test_content_flags_has_ml() {
+        let flags = compute_content_flags("import torch\nmodel = torch.nn.Linear(10, 5)");
+        assert!(flags.has(ContentFlags::HAS_ML));
+
+        let flags2 = compute_content_flags("import numpy as np\narr = np.array([1,2,3])");
+        assert!(flags2.has(ContentFlags::HAS_ML));
+
+        let flags3 = compute_content_flags("from sklearn.ensemble import RandomForestClassifier");
+        assert!(flags3.has(ContentFlags::HAS_ML));
+
+        let no_ml = compute_content_flags("fn add(a: i32, b: i32) -> i32 { a + b }");
+        assert!(!no_ml.has(ContentFlags::HAS_ML));
+    }
+
+    #[test]
+    fn test_content_flags_has_http_client() {
+        let flags = compute_content_flags("resp = requests.get(url)");
+        assert!(flags.has(ContentFlags::HAS_HTTP_CLIENT));
+
+        let flags2 = compute_content_flags("const data = await fetch(url)");
+        assert!(flags2.has(ContentFlags::HAS_HTTP_CLIENT));
+
+        let flags3 = compute_content_flags("let client = reqwest::Client::new()");
+        assert!(flags3.has(ContentFlags::HAS_HTTP_CLIENT));
+    }
+
+    #[test]
+    fn test_content_flags_has_crypto() {
+        let flags = compute_content_flags("h = hashlib.sha256(data)");
+        assert!(flags.has(ContentFlags::HAS_CRYPTO));
+
+        let flags2 = compute_content_flags("encrypted = encrypt(plaintext, key)");
+        assert!(flags2.has(ContentFlags::HAS_CRYPTO));
+    }
+
+    #[test]
+    fn test_content_flags_has_template() {
+        let flags = compute_content_flags("return render(request, 'index.html', ctx)");
+        assert!(flags.has(ContentFlags::HAS_TEMPLATE));
+
+        let flags2 = compute_content_flags("el.innerHTML = userInput");
+        assert!(flags2.has(ContentFlags::HAS_TEMPLATE));
+    }
+
+    #[test]
+    fn test_content_flags_has_serialize() {
+        let flags = compute_content_flags("data = pickle.loads(raw)");
+        assert!(flags.has(ContentFlags::HAS_SERIALIZE));
+
+        let flags2 = compute_content_flags("obj = json.loads(text)");
+        assert!(flags2.has(ContentFlags::HAS_SERIALIZE));
+    }
+
+    #[test]
+    fn test_content_flags_has_exec() {
+        let flags = compute_content_flags("os.system('ls -la')");
+        assert!(flags.has(ContentFlags::HAS_EXEC));
+
+        let flags2 = compute_content_flags("proc = subprocess.Popen(cmd)");
+        assert!(flags2.has(ContentFlags::HAS_EXEC));
+
+        let flags3 = compute_content_flags("const cp = require('child_process')");
+        assert!(flags3.has(ContentFlags::HAS_EXEC));
+    }
+
+    #[test]
+    fn test_content_flags_has_secret_pattern() {
+        let flags = compute_content_flags("password = 'hunter2'");
+        assert!(flags.has(ContentFlags::HAS_SECRET_PATTERN));
+
+        let flags2 = compute_content_flags("api_key = os.environ['KEY']");
+        assert!(flags2.has(ContentFlags::HAS_SECRET_PATTERN));
+    }
+
+    #[test]
+    fn test_content_flags_has_react() {
+        let flags = compute_content_flags("const [val, setVal] = useState(0)");
+        assert!(flags.has(ContentFlags::HAS_REACT));
+
+        let flags2 = compute_content_flags("import React from 'react'");
+        assert!(flags2.has(ContentFlags::HAS_REACT));
+    }
+
+    #[test]
+    fn test_content_flags_has_django() {
+        let flags = compute_content_flags("from django.http import HttpResponse");
+        assert!(flags.has(ContentFlags::HAS_DJANGO));
+
+        let no_django = compute_content_flags("from flask import Flask");
+        assert!(!no_django.has(ContentFlags::HAS_DJANGO));
+    }
+
+    #[test]
+    fn test_content_flags_has_express() {
+        let flags = compute_content_flags("const app = express()");
+        assert!(flags.has(ContentFlags::HAS_EXPRESS));
+
+        let flags2 = compute_content_flags("app.get('/api', handler)");
+        assert!(flags2.has(ContentFlags::HAS_EXPRESS));
+
+        let flags3 = compute_content_flags("router.use(middleware)");
+        assert!(flags3.has(ContentFlags::HAS_EXPRESS));
+    }
+
+    #[test]
+    fn test_content_flags_multi_flag_complex() {
+        // A realistic file that should trigger many flags
+        let content = r#"
+import os
+from django.http import HttpResponse
+import hashlib
+
+def view(request):
+    name = request.GET['name']
+    query = "SELECT * FROM users WHERE name = '%s'" % name
+    cursor.execute(query)
+    h = hashlib.md5(name.encode())
+    return render(request, 'result.html', {'hash': h})
+"#;
+        let flags = compute_content_flags(content);
+        assert!(flags.has(ContentFlags::HAS_IMPORT));
+        assert!(flags.has(ContentFlags::HAS_DJANGO));
+        assert!(flags.has(ContentFlags::HAS_CRYPTO));
+        assert!(flags.has(ContentFlags::HAS_USER_INPUT));
+        assert!(flags.has(ContentFlags::HAS_SQL));
+        assert!(flags.has(ContentFlags::HAS_TEMPLATE));
+        // Should NOT have these
+        assert!(!flags.has(ContentFlags::HAS_ML));
+        assert!(!flags.has(ContentFlags::HAS_EXPRESS));
+        assert!(!flags.has(ContentFlags::HAS_REACT));
+    }
+
+    #[test]
+    fn test_content_flags_utility_methods() {
+        let empty = ContentFlags::empty();
+        assert!(empty.is_empty());
+        assert!(!empty.has(ContentFlags::FILE_OPS));
+
+        let all = ContentFlags::all();
+        assert!(!all.is_empty());
+        assert!(all.has(ContentFlags::FILE_OPS));
+        assert!(all.has(ContentFlags::HAS_SQL));
+        assert!(all.has(ContentFlags::HAS_EXPRESS));
+
+        let union = ContentFlags::FILE_OPS.union(ContentFlags::HAS_SQL);
+        assert!(union.has(ContentFlags::FILE_OPS));
+        assert!(union.has(ContentFlags::HAS_SQL));
+        assert!(!union.has(ContentFlags::PATH_OPS));
+    }
+
+    #[test]
+    fn test_content_flags_eval_vs_exec_distinction() {
+        // exec( should trigger HAS_EVAL, NOT HAS_EXEC
+        let flags = compute_content_flags("exec(code_string)");
+        assert!(flags.has(ContentFlags::HAS_EVAL));
+        assert!(!flags.has(ContentFlags::HAS_EXEC));
+
+        // os.system should trigger HAS_EXEC, NOT HAS_EVAL
+        let flags2 = compute_content_flags("os.system('rm -rf /')");
+        assert!(flags2.has(ContentFlags::HAS_EXEC));
+        assert!(!flags2.has(ContentFlags::HAS_EVAL));
+
+        // subprocess should trigger HAS_EXEC only
+        let flags3 = compute_content_flags("subprocess.run(['ls'])");
+        assert!(flags3.has(ContentFlags::HAS_EXEC));
+        assert!(!flags3.has(ContentFlags::HAS_EVAL));
     }
 }
