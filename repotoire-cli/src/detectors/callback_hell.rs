@@ -42,7 +42,7 @@ impl CallbackHellDetector {
             .into_iter()
             .filter(|f| {
                 // Same file or imported module
-                f.file_path == file_path
+                f.path(i) == file_path
                     || f.path(i).rsplit('/').nth(1) == file_path.rsplit('/').nth(1)
             })
             .filter(|f| {

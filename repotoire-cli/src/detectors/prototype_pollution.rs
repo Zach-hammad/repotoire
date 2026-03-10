@@ -190,7 +190,7 @@ impl Detector for PrototypePollutionDetector {
                     let containing_func =
                         graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
                             let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner())).len();
-                            (f.name, callers)
+                            (f.node_name(crate::graph::interner::global_interner()).to_string(), callers)
                         });
 
                     // Check if function receives external data via graph

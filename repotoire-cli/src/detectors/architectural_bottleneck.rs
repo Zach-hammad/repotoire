@@ -355,7 +355,7 @@ impl Detector for ArchitecturalBottleneckDetector {
             }
 
             // Get context for this function
-            let ctx = contexts.get(&func.qualified_name);
+            let ctx = contexts.get(func.qn(i));
 
             // Skip test functions (from context or path)
             if let Some(c) = ctx {

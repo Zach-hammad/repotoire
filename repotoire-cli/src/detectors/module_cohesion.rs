@@ -501,18 +501,23 @@ impl Detector for ModuleCohesionDetector {
         let mut file_internal: HashMap<String, usize> = HashMap::new();
         let mut file_external: HashMap<String, usize> = HashMap::new();
 
+        let gi = graph.interner();
         let calls = graph.get_calls_shared();
-        for (caller, callee) in calls.iter() {
+        for (caller_key, callee_key) in calls.iter() {
+            let caller_str = gi.resolve(*caller_key);
+            let callee_str = gi.resolve(*callee_key);
             if let (Some(caller_node), Some(callee_node)) =
-                (graph.get_node(&caller), graph.get_node(&callee))
+                (graph.get_node(caller_str), graph.get_node(callee_str))
             {
-                if caller_node.file_path == callee_node.file_path {
+                let caller_file = caller_node.path(gi).to_string();
+                let callee_file = callee_node.path(gi).to_string();
+                if caller_file == callee_file {
                     *file_internal
-                        .entry(caller_node.file_path.clone())
+                        .entry(caller_file)
                         .or_insert(0) += 1;
                 } else {
                     *file_external
-                        .entry(caller_node.file_path.clone())
+                        .entry(caller_file)
                         .or_insert(0) += 1;
                 }
             }
@@ -520,8 +525,9 @@ impl Detector for ModuleCohesionDetector {
 
         // Flag files with low cohesion (more external than internal calls)
         for file in graph.get_files_shared().iter() {
-            let internal = *file_internal.get(&file.file_path).unwrap_or(&0);
-            let external = *file_external.get(&file.file_path).unwrap_or(&0);
+            let file_path_str = file.path(gi).to_string();
+            let internal = *file_internal.get(&file_path_str).unwrap_or(&0);
+            let external = *file_external.get(&file_path_str).unwrap_or(&0);
 
             if external > 0 && internal > 0 {
                 let cohesion = internal as f64 / (internal + external) as f64;
@@ -536,7 +542,7 @@ impl Detector for ModuleCohesionDetector {
                             "File '{}' has low cohesion: {} internal calls vs {} external calls ({:.0}% cohesion).",
                             file.path(crate::graph::interner::global_interner()), internal, external, cohesion * 100.0
                         ),
-                        affected_files: vec![file.file_path.clone().into()],
+                        affected_files: vec![file.path(gi).into()],
                         line_start: None,
                         line_end: None,
                         suggested_fix: Some("Consider reorganizing functions into more cohesive modules".to_string()),

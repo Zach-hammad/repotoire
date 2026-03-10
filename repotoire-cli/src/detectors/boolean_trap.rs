@@ -150,7 +150,7 @@ impl Detector for BooleanTrapDetector {
                     notes.push(format!("📝 Function params: {}", params));
                 }
                 // Use O(1) fan-in count to avoid cloning caller CodeNodes
-                let fan_in = graph.call_fan_in(&def.qualified_name);
+                let fan_in = graph.call_fan_in(def.qn(i));
                 if fan_in > 5 {
                     notes.push(format!(
                         "🔥 Widely used ({} callers) - high impact fix",

@@ -74,9 +74,9 @@ impl DetectorContext {
         let mut class_children: HashMap<String, Vec<String>> = HashMap::new();
         for (child, parent) in &inheritance {
             class_children
-                .entry(parent.clone())
+                .entry(i.resolve(*parent).to_string())
                 .or_default()
-                .push(child.clone());
+                .push(i.resolve(*child).to_string());
         }
 
         // Pre-load file contents in parallel

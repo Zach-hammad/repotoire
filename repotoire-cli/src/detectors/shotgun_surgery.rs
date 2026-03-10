@@ -107,8 +107,8 @@ impl ShotgunSurgeryDetector {
                                 continue;
                             }
                             all_callers.insert(caller_qn.clone());
-                            caller_files.insert(caller_node.file_path.clone());
-                            caller_modules.insert(Self::extract_module(&caller_node.file_path));
+                            caller_files.insert(caller_node.path(i).to_string());
+                            caller_modules.insert(Self::extract_module(caller_node.path(i)));
                         }
                     }
                 }
@@ -181,8 +181,9 @@ impl ShotgunSurgeryDetector {
             } else {
                 // Fallback: use graph.get_callers()
                 for upstream in graph.get_callers(caller_qn) {
-                    if !callers.contains(&upstream.qualified_name) {
-                        next_level.insert(upstream.qualified_name.clone());
+                    let uqn = upstream.qn(i).to_string();
+                    if !callers.contains(&uqn) {
+                        next_level.insert(uqn);
                         if next_level.len() >= MAX_PER_LEVEL {
                             return self.trace_cascade_depth(graph, &next_level, depth + 1);
                         }

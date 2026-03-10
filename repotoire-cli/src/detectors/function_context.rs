@@ -241,7 +241,7 @@ impl<'a> FunctionContextBuilder<'a> {
                 );
 
                 FunctionContext {
-                    qualified_name: qn.clone(),
+                    qualified_name: qn.to_string(),
                     name: func.node_name(i).to_string(),
                     file_path: func.path(i).to_string(),
                     module: self.extract_module(func.path(i)),

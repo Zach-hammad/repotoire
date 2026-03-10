@@ -172,7 +172,7 @@ impl Detector for CorsMisconfigDetector {
                             );
                         }
                         if let Some(func) = &containing_func {
-                            notes.push(format!("📦 In function: `{}`", func));
+                            notes.push(format!("📦 In function: `{}`", crate::graph::interner::global_interner().resolve(*func)));
                         }
 
                         let context_notes = if notes.is_empty() {

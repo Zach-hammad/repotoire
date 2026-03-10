@@ -201,7 +201,7 @@ impl Detector for HardcodedTimeoutDetector {
             let (context, is_network) = Self::analyze_context(&m.line_text);
             let path_str = m.path.to_string_lossy();
             let containing_func =
-                graph.find_function_at(&path_str, m.line_num).map(|f| f.name);
+                graph.find_function_at(&path_str, m.line_num).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
 
             let severity = if is_network || occurrences > 3 {
                 Severity::Medium

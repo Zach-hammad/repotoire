@@ -318,7 +318,7 @@ impl Detector for InfluentialCodeDetector {
         );
 
         for func in funcs.iter() {
-            let ctx = contexts.get(&func.qualified_name);
+            let ctx = contexts.get(func.qn(i));
 
             // Skip test functions
             if let Some(c) = ctx {

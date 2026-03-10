@@ -71,12 +71,12 @@ impl<'a> GitEnricher<'a> {
         let mut unique_files: HashSet<String> = HashSet::new();
         for f in &functions {
             if f.get_str("last_modified").is_none() {
-                unique_files.insert(f.path(i).to_string());
+                unique_files.insert(f.path(crate::graph::interner::global_interner()).to_string());
             }
         }
         for c in &classes {
             if c.get_str("last_modified").is_none() {
-                unique_files.insert(c.path(i).to_string());
+                unique_files.insert(c.path(crate::graph::interner::global_interner()).to_string());
             }
         }
 
@@ -152,7 +152,7 @@ impl<'a> GitEnricher<'a> {
                 .blame
                 .get_entity_blame(func.path(crate::graph::interner::global_interner()), line_start, line_end)
                 .inspect_err(|e| {
-                    debug!("Failed to get blame for {}:{}: {}", func.path(i), line_start, e);
+                    debug!("Failed to get blame for {}:{}: {}", func.path(crate::graph::interner::global_interner()), line_start, e);
                 });
             let Ok(blame_info) = blame_result else {
                 stats.files_skipped += 1;

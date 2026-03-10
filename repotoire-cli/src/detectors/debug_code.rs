@@ -165,8 +165,9 @@ impl Detector for DebugCodeDetector {
                             graph.find_function_at(&path_str, line_num).map(|f| f.name);
 
                         // Skip if in a logging utility function
+                        let gi = crate::graph::interner::global_interner();
                         if let Some(ref func) = containing_func {
-                            if Self::is_logging_utility(func) {
+                            if Self::is_logging_utility(gi.resolve(*func)) {
                                 continue;
                             }
                         }
@@ -187,7 +188,7 @@ impl Detector for DebugCodeDetector {
 
                         let mut notes = Vec::new();
                         if let Some(func) = &containing_func {
-                            notes.push(format!("📦 In function: `{}`", func));
+                            notes.push(format!("📦 In function: `{}`", gi.resolve(*func)));
                         }
                         if file_debug_count > 1 {
                             notes.push(format!(

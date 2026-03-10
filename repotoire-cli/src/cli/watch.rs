@@ -163,32 +163,26 @@ fn analyze_single_file(
     // Build a minimal graph with just this file
     let graph = crate::graph::GraphStore::in_memory();
     for func in &parse_result.functions {
-        let node =
-            crate::graph::CodeNode::new(crate::graph::NodeKind::Function, func.node_name(i), &rel_str)
-                .with_property("complexity", func.complexity.unwrap_or(1) as i64)
-                .with_property("loc", (func.line_end - func.line_start + 1) as i64)
-                .with_property("is_async", func.is_async);
+        let mut node =
+            crate::graph::CodeNode::new(crate::graph::NodeKind::Function, &func.name, &rel_str)
+                .with_lines(func.line_start, func.line_end);
+        node.complexity = func.complexity.unwrap_or(1) as u16;
+        if func.is_async {
+            node.flags |= 0b0000_0001; // is_async flag
+        }
         graph.add_node(node);
     }
     for class in &parse_result.classes {
-        let node =
-            crate::graph::CodeNode::new(crate::graph::NodeKind::Class, class.node_name(i), &rel_str)
-                .with_property("methodCount", class.methods.len() as i64);
+        let mut node =
+            crate::graph::CodeNode::new(crate::graph::NodeKind::Class, &class.name, &rel_str);
+        node.method_count = class.methods.len() as u16;
         graph.add_node(node);
     }
 
     // Read file content for line-based detectors
     let source = std::fs::read_to_string(file_path).unwrap_or_default();
-    let loc = source.lines().count();
-    let file_node = crate::graph::CodeNode::new(crate::graph::NodeKind::File, &rel_str, &rel_str)
-        .with_property("loc", loc as i64)
-        .with_property(
-            "language",
-            crate::parsers::language_for_extension(
-                file_path.extension().and_then(|e| e.to_str()).unwrap_or(""),
-            )
-            .unwrap_or("unknown"),
-        );
+    let _loc = source.lines().count();
+    let file_node = crate::graph::CodeNode::file(&rel_str);
     graph.add_node(file_node);
 
     // Run detectors

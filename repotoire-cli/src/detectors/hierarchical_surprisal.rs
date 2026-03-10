@@ -49,7 +49,6 @@ impl Detector for HierarchicalSurprisalDetector {
         _graph: &dyn crate::graph::GraphQuery,
         _files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> Result<Vec<Finding>> {
-        let i = graph.interner();
         // This detector requires function contexts; detect_with_context is used instead.
         Ok(vec![])
     }
@@ -75,7 +74,7 @@ impl Detector for HierarchicalSurprisalDetector {
 
         for (qn, score) in surprising.iter().take(self.max_findings) {
             // Find the function node for file/line info
-            let func = functions.iter().find(|f| f.qualified_name == *qn);
+            let func = functions.iter().find(|f| f.qn(i) == *qn);
             let (file_path, line_start, line_end, func_name) = match func {
                 Some(f) => (
                     PathBuf::from(f.path(i)),

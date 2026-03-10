@@ -462,7 +462,7 @@ impl Detector for AIMissingTestsDetector {
         let mut test_names: Vec<String> = Vec::new();
 
         for f in all_functions.iter() {
-            let is_test = if let Some(ctx) = contexts.get(&f.qualified_name) {
+            let is_test = if let Some(ctx) = contexts.get(f.qn(i)) {
                 ctx.is_test || ctx.role == FunctionRole::Test
             } else {
                 Self::is_test_function(f.node_name(i), f.path(i))
@@ -500,7 +500,7 @@ impl Detector for AIMissingTestsDetector {
         // Find complex public functions without tests
         for func in all_functions.iter() {
             // Skip test functions
-            if let Some(ctx) = contexts.get(&func.qualified_name) {
+            if let Some(ctx) = contexts.get(func.qn(i)) {
                 if ctx.is_test || ctx.role == FunctionRole::Test {
                     continue;
                 }
@@ -536,7 +536,7 @@ impl Detector for AIMissingTestsDetector {
             }
 
             // Get complexity from context or graph
-            let complexity = if let Some(ctx) = contexts.get(&func.qualified_name) {
+            let complexity = if let Some(ctx) = contexts.get(func.qn(i)) {
                 ctx.complexity.unwrap_or(1)
             } else {
                 func.complexity().unwrap_or(1)

@@ -70,10 +70,15 @@ impl CircularDependencyDetector {
             let to = &cycle[(i + 1) % cycle.len()];
 
             // Count imports between these files
+            let gi = graph.interner();
             let imports = graph.get_imports();
             let strength = imports
                 .iter()
-                .filter(|(src, dst)| (src == from || src.ends_with(&format!("/{}", from))) && (dst == to || dst.ends_with(&format!("/{}", to))))
+                .filter(|(src_key, dst_key)| {
+                    let src = gi.resolve(*src_key);
+                    let dst = gi.resolve(*dst_key);
+                    (src == from || src.ends_with(&format!("/{}", from))) && (dst == to || dst.ends_with(&format!("/{}", to)))
+                })
                 .count()
                 .max(1); // At least 1 if there's an edge
 
@@ -111,14 +116,17 @@ impl CircularDependencyDetector {
     ) -> Vec<(String, usize)> {
         let scc_set: std::collections::HashSet<&str> =
             scc_files.iter().map(|s| s.as_str()).collect();
+        let gi = graph.interner();
         let imports = graph.get_imports();
 
         let mut external_imports: HashMap<String, usize> = HashMap::new();
 
-        for (src, dst) in &imports {
+        for (src_key, dst_key) in &imports {
+            let src = gi.resolve(*src_key);
+            let dst = gi.resolve(*dst_key);
             // Count how many times a file in the SCC is imported from OUTSIDE the SCC
-            if !scc_set.contains(src.as_str()) && scc_set.contains(dst.as_str()) {
-                *external_imports.entry(dst.clone()).or_insert(0) += 1;
+            if !scc_set.contains(src) && scc_set.contains(dst) {
+                *external_imports.entry(dst.to_string()).or_insert(0) += 1;
             }
         }
 

@@ -140,8 +140,8 @@ impl Detector for TodoScanner {
                         // Graph-enhanced analysis
                         let containing_func =
                             graph.find_function_at(&path_str, line_u32).map(|f| {
-                                let callers = graph.get_callers(f.qn(i)).len();
-                                (f.name, callers)
+                            let callers = graph.get_callers(f.qn(i)).len();
+                                (f.node_name(crate::graph::interner::global_interner()).to_string(), callers)
                             });
                         let is_dead = Self::is_in_dead_code(graph, &path_str, line_u32);
                         let (category, category_note) = Self::categorize_todo(msg);

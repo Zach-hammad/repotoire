@@ -484,7 +484,7 @@ impl Detector for DegreeCentralityDetector {
                 continue;
             }
 
-            let ctx = contexts.get(&func.qualified_name);
+            let ctx = contexts.get(func.qn(i));
 
             // Skip test functions
             if let Some(c) = ctx {
