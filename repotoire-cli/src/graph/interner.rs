@@ -78,6 +78,12 @@ impl StringInterner {
         // lasso stores strings contiguously which is very efficient
         self.inner.len() * 50 // Assume 50 bytes average per string
     }
+
+    /// Get the StrKey for the empty string "".
+    /// Used as a sentinel for "no value" in CodeNode's optional StrKey fields.
+    pub fn empty_key(&self) -> StrKey {
+        self.intern("")
+    }
 }
 
 /// A read-only interner for when building is complete
@@ -120,184 +126,6 @@ impl ReadOnlyInterner {
     }
 }
 
-/// Compact node representation using interned strings
-///
-/// Size comparison:
-/// - CodeNode with Strings: ~200 bytes minimum
-/// - CompactNode with keys: ~40 bytes
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
-pub struct CompactNode {
-    pub kind: CompactNodeKind,
-    pub name: StrKey,
-    pub qualified_name: StrKey,
-    pub file_path: StrKey,
-    pub line_start: u32,
-    pub line_end: u32,
-    pub flags: u32, // Packed: is_async(1), complexity(15), param_count(8), etc.
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
-pub enum CompactNodeKind {
-    File = 0,
-    Function = 1,
-    Class = 2,
-    Module = 3,
-}
-
-#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
-impl CompactNode {
-    /// Create a file node
-    pub fn file(interner: &StringInterner, path: &str) -> Self {
-        let key = interner.intern(path);
-        Self {
-            kind: CompactNodeKind::File,
-            name: key,
-            qualified_name: key,
-            file_path: key,
-            line_start: 0,
-            line_end: 0,
-            flags: 0,
-        }
-    }
-
-    /// Create a function node
-    pub fn function(
-        interner: &StringInterner,
-        name: &str,
-        qualified_name: &str,
-        file_path: &str,
-        line_start: u32,
-        line_end: u32,
-        is_async: bool,
-        complexity: u16,
-    ) -> Self {
-        let mut flags = 0u32;
-        if is_async {
-            flags |= 1;
-        }
-        flags |= ((complexity as u32) & 0x7FFF) << 1;
-
-        Self {
-            kind: CompactNodeKind::Function,
-            name: interner.intern(name),
-            qualified_name: interner.intern(qualified_name),
-            file_path: interner.intern(file_path),
-            line_start,
-            line_end,
-            flags,
-        }
-    }
-
-    /// Create a class node
-    pub fn class(
-        interner: &StringInterner,
-        name: &str,
-        qualified_name: &str,
-        file_path: &str,
-        line_start: u32,
-        line_end: u32,
-        method_count: u16,
-    ) -> Self {
-        let flags = (method_count as u32) << 16;
-
-        Self {
-            kind: CompactNodeKind::Class,
-            name: interner.intern(name),
-            qualified_name: interner.intern(qualified_name),
-            file_path: interner.intern(file_path),
-            line_start,
-            line_end,
-            flags,
-        }
-    }
-
-    /// Get complexity (for functions)
-    pub fn complexity(&self) -> u16 {
-        ((self.flags >> 1) & 0x7FFF) as u16
-    }
-
-    /// Get is_async flag (for functions)
-    pub fn is_async(&self) -> bool {
-        self.flags & 1 == 1
-    }
-
-    /// Get method count (for classes)
-    pub fn method_count(&self) -> u16 {
-        (self.flags >> 16) as u16
-    }
-
-    /// Lines of code
-    pub fn loc(&self) -> u32 {
-        if self.line_end >= self.line_start {
-            self.line_end - self.line_start + 1
-        } else {
-            1
-        }
-    }
-}
-
-/// Compact edge representation
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
-pub struct CompactEdge {
-    pub kind: CompactEdgeKind,
-    pub source: StrKey, // qualified_name of source
-    pub target: StrKey, // qualified_name of target
-    pub flags: u16,     // Additional flags (is_type_only, etc.)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
-pub enum CompactEdgeKind {
-    Contains = 0,
-    Calls = 1,
-    Imports = 2,
-    Inherits = 3,
-}
-
-#[allow(dead_code)] // Infrastructure for future CodeNode-to-CompactNode migration
-impl CompactEdge {
-    pub fn contains(interner: &StringInterner, source: &str, target: &str) -> Self {
-        Self {
-            kind: CompactEdgeKind::Contains,
-            source: interner.intern(source),
-            target: interner.intern(target),
-            flags: 0,
-        }
-    }
-
-    pub fn calls(interner: &StringInterner, caller: &str, callee: &str) -> Self {
-        Self {
-            kind: CompactEdgeKind::Calls,
-            source: interner.intern(caller),
-            target: interner.intern(callee),
-            flags: 0,
-        }
-    }
-
-    pub fn imports(
-        interner: &StringInterner,
-        importer: &str,
-        imported: &str,
-        is_type_only: bool,
-    ) -> Self {
-        Self {
-            kind: CompactEdgeKind::Imports,
-            source: interner.intern(importer),
-            target: interner.intern(imported),
-            flags: if is_type_only { 1 } else { 0 },
-        }
-    }
-
-    pub fn is_type_only(&self) -> bool {
-        self.flags & 1 == 1
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,28 +147,11 @@ mod tests {
     }
 
     #[test]
-    fn test_compact_node_size() {
-        // Verify CompactNode is small
-        assert!(std::mem::size_of::<CompactNode>() <= 32);
-        assert!(std::mem::size_of::<CompactEdge>() <= 16);
-    }
-
-    #[test]
-    fn test_compact_function_flags() {
+    fn test_empty_key() {
         let interner = StringInterner::new();
-        let node = CompactNode::function(
-            &interner,
-            "my_func",
-            "module::my_func",
-            "src/lib.rs",
-            10,
-            20,
-            true, // is_async
-            42,   // complexity
-        );
-
-        assert!(node.is_async());
-        assert_eq!(node.complexity(), 42);
-        assert_eq!(node.loc(), 11);
+        let ek = interner.empty_key();
+        assert_eq!(interner.resolve(ek), "");
+        // Calling again should return the same key
+        assert_eq!(interner.empty_key(), ek);
     }
 }
