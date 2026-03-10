@@ -235,6 +235,10 @@ impl Detector for MagicNumbersDetector {
             // (starts with //, #, *) and has extensive acceptable-context
             // filtering that catches numbers in most string-literal contexts.
             if let Some(content) = files.content(path) {
+                // Fast exit: skip files with no 2+ consecutive digit sequences
+                if !content.as_bytes().windows(2).any(|w| w[0].is_ascii_digit() && w[1].is_ascii_digit()) {
+                    continue;
+                }
                 let lines: Vec<&str> = content.lines().collect();
                 for (line_num, line) in lines.iter().enumerate() {
                     let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
@@ -250,6 +254,11 @@ impl Detector for MagicNumbersDetector {
                         continue;
                     }
                     if trimmed.to_uppercase().contains("CONST") {
+                        continue;
+                    }
+
+                    // Fast check: skip lines with no digits before running regex
+                    if !trimmed.as_bytes().iter().any(|b| b.is_ascii_digit()) {
                         continue;
                     }
 
