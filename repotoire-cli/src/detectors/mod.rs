@@ -13,6 +13,7 @@
 //! and returns findings. Security detectors also use SSA-based
 //! intra-function taint analysis via tree-sitter ASTs.
 
+pub mod analysis_context;
 pub mod base;
 pub mod content_classifier;
 pub mod detector_context;
@@ -160,6 +161,9 @@ pub use detector_context::{ContentFlags, DetectorContext};
 
 // Re-export file cache
 pub use file_cache::FileContentCache;
+
+// Re-export analysis context
+pub use analysis_context::AnalysisContext;
 
 // Re-export file index
 pub use file_index::{FileEntry, FileIndex};

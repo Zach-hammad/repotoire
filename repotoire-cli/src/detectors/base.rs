@@ -447,6 +447,34 @@ pub trait Detector: Send + Sync {
     fn set_detector_context(&self, _ctx: Arc<super::DetectorContext>) {
         // Default: no-op
     }
+
+    /// File extensions this detector processes.
+    ///
+    /// Return empty slice for graph-only detectors that don't scan files.
+    /// Engine uses this to pre-filter files before calling detect_ctx().
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Content flags required for files this detector processes.
+    ///
+    /// Files without ANY of these flags are skipped.
+    /// Return `ContentFlags::empty()` to receive all files (no filtering).
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::empty()
+    }
+
+    /// Run detection with the unified AnalysisContext.
+    ///
+    /// This is the new primary detection entry point. The default implementation
+    /// delegates to the legacy detect() method for backward compatibility.
+    fn detect_ctx(
+        &self,
+        ctx: &super::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
+        // Default: delegate to legacy detect() with a shim FileProvider
+        self.detect(ctx.graph, &ctx.as_file_provider())
+    }
 }
 
 /// Progress callback for detector execution

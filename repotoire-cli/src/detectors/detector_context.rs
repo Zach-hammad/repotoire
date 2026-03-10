@@ -6,7 +6,7 @@
 
 use crate::detectors::class_context::ClassContextMap;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Per-file content presence flags, pre-computed during `DetectorContext::build()`.
@@ -284,6 +284,8 @@ pub struct DetectorContext {
     pub class_contexts: Option<Arc<ClassContextMap>>,
     /// Resolved variable values from graph-based constant propagation
     pub value_store: Option<Arc<crate::values::store::ValueStore>>,
+    /// Repository root path
+    pub repo_path: PathBuf,
 }
 
 impl DetectorContext {
@@ -295,7 +297,8 @@ impl DetectorContext {
         graph: &dyn crate::graph::GraphQuery,
         source_files: &[PathBuf],
         value_store: Option<Arc<crate::values::store::ValueStore>>,
-    ) -> Self {
+        repo_path: &Path,
+    ) -> (Self, Vec<(PathBuf, Arc<str>, ContentFlags)>) {
         let i = graph.interner();
         use rayon::prelude::*;
 
@@ -347,6 +350,12 @@ impl DetectorContext {
             })
             .collect();
 
+        // Clone file data for FileIndex construction (caller builds FileIndex from this)
+        let file_data_for_index: Vec<(PathBuf, Arc<str>, ContentFlags)> = file_data
+            .iter()
+            .map(|(p, c, f)| (p.clone(), Arc::clone(c), *f))
+            .collect();
+
         let mut file_contents = HashMap::with_capacity(file_data.len());
         let mut content_flags = HashMap::with_capacity(file_data.len());
         for (path, content, flags) in file_data {
@@ -354,7 +363,7 @@ impl DetectorContext {
             content_flags.insert(path, flags);
         }
 
-        Self {
+        (Self {
             callers_by_qn,
             callees_by_qn,
             class_children,
@@ -362,7 +371,8 @@ impl DetectorContext {
             content_flags,
             class_contexts: None,
             value_store,
-        }
+            repo_path: repo_path.to_path_buf(),
+        }, file_data_for_index)
     }
 }
 
@@ -375,7 +385,7 @@ mod tests {
     #[test]
     fn test_empty_graph_produces_empty_context() {
         let graph = GraphStore::in_memory();
-        let ctx = DetectorContext::build(&graph, &[], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
         assert!(ctx.callers_by_qn.is_empty());
         assert!(ctx.callees_by_qn.is_empty());
         assert!(ctx.class_children.is_empty());
@@ -389,7 +399,7 @@ mod tests {
         let file_path = dir.path().join("test.py");
         std::fs::write(&file_path, "def hello(): pass").unwrap();
 
-        let ctx = DetectorContext::build(&graph, &[file_path.clone()], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[file_path.clone()], None, dir.path());
         assert_eq!(ctx.file_contents.len(), 1);
         assert!(ctx.file_contents.contains_key(&file_path));
         assert_eq!(&*ctx.file_contents[&file_path], "def hello(): pass");
@@ -400,7 +410,7 @@ mod tests {
         let graph = GraphStore::in_memory();
         let missing = PathBuf::from("/nonexistent/path/file.py");
 
-        let ctx = DetectorContext::build(&graph, &[missing], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[missing], None, Path::new("/tmp"));
         assert!(ctx.file_contents.is_empty());
     }
 
@@ -416,7 +426,7 @@ mod tests {
         );
         graph.add_edge_by_name("module.caller", "module.callee", CodeEdge::calls());
 
-        let ctx = DetectorContext::build(&graph, &[], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
 
         // callers_by_qn: callee -> [caller]
         assert!(ctx.callers_by_qn.contains_key("module.callee"));
@@ -439,7 +449,7 @@ mod tests {
         );
         graph.add_edge_by_name("module.Child", "module.Parent", CodeEdge::inherits());
 
-        let ctx = DetectorContext::build(&graph, &[], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
         assert!(ctx.class_children.contains_key("module.Parent"));
         assert!(ctx.class_children["module.Parent"].contains(&"module.Child".to_string()));
     }
@@ -460,7 +470,7 @@ mod tests {
         graph.add_edge_by_name("mod.a", "mod.target", CodeEdge::calls());
         graph.add_edge_by_name("mod.b", "mod.target", CodeEdge::calls());
 
-        let ctx = DetectorContext::build(&graph, &[], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
         let callers = &ctx.callers_by_qn["mod.target"];
         assert_eq!(callers.len(), 2);
         assert!(callers.contains(&"mod.a".to_string()));
@@ -483,7 +493,7 @@ mod tests {
         graph.add_edge_by_name("mod.ChildA", "mod.Base", CodeEdge::inherits());
         graph.add_edge_by_name("mod.ChildB", "mod.Base", CodeEdge::inherits());
 
-        let ctx = DetectorContext::build(&graph, &[], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
         let children = &ctx.class_children["mod.Base"];
         assert_eq!(children.len(), 2);
         assert!(children.contains(&"mod.ChildA".to_string()));
@@ -494,14 +504,14 @@ mod tests {
     fn test_value_store_stored_when_provided() {
         let graph = GraphStore::in_memory();
         let store = Arc::new(crate::values::store::ValueStore::new());
-        let ctx = DetectorContext::build(&graph, &[], Some(store));
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[], Some(store), Path::new("/tmp"));
         assert!(ctx.value_store.is_some());
     }
 
     #[test]
     fn test_value_store_none_when_not_provided() {
         let graph = GraphStore::in_memory();
-        let ctx = DetectorContext::build(&graph, &[], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
         assert!(ctx.value_store.is_none());
     }
 
@@ -548,7 +558,7 @@ mod tests {
         let safe_file = dir.path().join("safe.py");
         std::fs::write(&safe_file, "x = 1 + 2").unwrap();
 
-        let ctx = DetectorContext::build(&graph, &[py_file.clone(), safe_file.clone()], None);
+        let (ctx, _file_data) = DetectorContext::build(&graph, &[py_file.clone(), safe_file.clone()], None, dir.path());
 
         // app.py should have both FILE_OPS and PATH_OPS flags
         let app_flags = ctx.content_flags[&py_file];
