@@ -1635,8 +1635,8 @@ mod tests {
             let complexity = func.complexity.unwrap_or(1);
             let func_node = CodeNode {
                 kind: NodeKind::Function,
-                name: i.intern(func.node_name(i)),
-                qualified_name: i.intern(func.qn(i)),
+                name: i.intern(&func.name),
+                qualified_name: i.intern(&func.qualified_name),
                 file_path: rel_key,
                 language: empty,
                 line_start: func.line_start,
@@ -1652,7 +1652,7 @@ mod tests {
             func_nodes.push(func_node);
 
             emit_decorator_call_edge(
-                func.qn(i),
+                &func.qualified_name,
                 relative_str,
                 !func.annotations.is_empty(),
                 &mut edges,

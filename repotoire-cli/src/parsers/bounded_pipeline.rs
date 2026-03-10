@@ -1052,11 +1052,12 @@ mod tests {
             run_bounded_pipeline(files, path, graph.clone(), config, None)
                 .expect("pipeline should succeed");
 
+        let gi = graph.interner();
         let call_edges = graph.get_edges_by_kind(crate::graph::EdgeKind::Calls);
         let spurious = call_edges
             .iter()
-            .filter(|(src, _dst)| src.contains("main"))
-            .filter(|(_src, dst)| dst.contains("process"))
+            .filter(|(src, _dst)| gi.resolve(*src).contains("main"))
+            .filter(|(_src, dst)| gi.resolve(*dst).contains("process"))
             .count();
         assert_eq!(
             spurious, 0,
@@ -1086,10 +1087,11 @@ mod tests {
             run_bounded_pipeline(files, path, graph.clone(), config, None)
                 .expect("pipeline should succeed");
 
+        let gi = graph.interner();
         let call_edges = graph.get_edges_by_kind(crate::graph::EdgeKind::Calls);
         let has_edge = call_edges
             .iter()
-            .any(|(src, dst)| src.contains("main") && dst.contains("helper"));
+            .any(|(src, dst)| gi.resolve(*src).contains("main") && gi.resolve(*dst).contains("helper"));
         assert!(
             has_edge,
             "forward reference should be resolved via pending queue"

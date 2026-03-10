@@ -48,12 +48,7 @@ mod tests {
         let func = CodeNode::function("handler", "app.py")
             .with_qualified_name("app.handler")
             .with_lines(1, 10)
-            .with_property(
-                "annotations",
-                serde_json::Value::Array(vec![serde_json::Value::String(
-                    "exported".to_string(),
-                )]),
-            );
+            .with_property("is_exported", true);
         store.add_node(func);
 
         // Exported but 0 callers -> not API surface
@@ -68,12 +63,7 @@ mod tests {
         let func = CodeNode::function("handler", "app.py")
             .with_qualified_name("app.handler")
             .with_lines(1, 10)
-            .with_property(
-                "annotations",
-                serde_json::Value::Array(vec![serde_json::Value::String(
-                    "exported".to_string(),
-                )]),
-            );
+            .with_property("is_exported", true);
         store.add_node(func);
 
         // Add 3 callers from different files
@@ -125,12 +115,7 @@ mod tests {
         let func = CodeNode::function("handler", "app.py")
             .with_qualified_name("app.handler")
             .with_lines(1, 10)
-            .with_property(
-                "annotations",
-                serde_json::Value::Array(vec![serde_json::Value::String(
-                    "exported".to_string(),
-                )]),
-            );
+            .with_property("is_exported", true);
         store.add_node(func);
 
         // Line 20 is outside the function range 1-10

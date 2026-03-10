@@ -388,7 +388,7 @@ fn test_save_and_load_graph_cache() {
     // Verify edges
     let callers = loaded.get_callers("main.bar");
     assert_eq!(callers.len(), 1);
-    assert_eq!(callers[0].qualified_name, "main.foo");
+    assert_eq!(callers[0].qn(store.interner()), "main.foo");
 }
 
 #[test]
@@ -413,9 +413,11 @@ fn test_file_all_nodes_index_populated() {
     store.add_node(CodeNode::class("Bar", "src/a.rs").with_qualified_name("a.Bar").with_lines(12, 30));
     store.add_node(CodeNode::function("baz", "src/b.rs").with_qualified_name("b.baz").with_lines(1, 5));
 
-    let a_nodes = store.file_all_nodes_index.get("src/a.rs").unwrap();
+    let a_key = store.interner().intern("src/a.rs");
+    let a_nodes = store.file_all_nodes_index.get(&a_key).unwrap();
     assert_eq!(a_nodes.len(), 2);
-    let b_nodes = store.file_all_nodes_index.get("src/b.rs").unwrap();
+    let b_key = store.interner().intern("src/b.rs");
+    let b_nodes = store.file_all_nodes_index.get(&b_key).unwrap();
     assert_eq!(b_nodes.len(), 1);
 }
 
@@ -446,7 +448,7 @@ fn test_remove_file_entities() {
     // Only 1 function remaining
     let funcs = store.get_functions();
     assert_eq!(funcs.len(), 1);
-    assert_eq!(funcs[0].qualified_name, "b.baz");
+    assert_eq!(funcs[0].qn(store.interner()), "b.baz");
 
     // Edge from a.foo to b.baz should be gone
     assert_eq!(store.get_callers("b.baz").len(), 0);
@@ -484,7 +486,7 @@ fn test_delta_patching_roundtrip() {
     assert!(loaded.get_node("a.foo").is_none());
     assert!(loaded.get_node("a.foo_v2").is_some());
     assert_eq!(loaded.get_callers("b.bar").len(), 1);
-    assert_eq!(loaded.get_callers("b.bar")[0].qualified_name, "a.foo_v2");
+    assert_eq!(loaded.get_callers("b.bar")[0].qn(loaded.interner()), "a.foo_v2");
 }
 
 #[test]

@@ -387,10 +387,10 @@ mod tests {
         let mut state = HandlerState::new(dir.path().to_path_buf(), false);
 
         let graph = GraphStore::in_memory();
-        let mut func = CodeNode::function("my_func", "src/lib.rs");
+        let mut func = CodeNode::function("my_func", "src/lib.rs")
+            .with_qualified_name("src::lib::my_func");
         func.line_start = 10;
         func.line_end = 25;
-        func.qualified_name = "src::lib::my_func".to_string();
         graph.add_node(func);
 
         state.set_graph(Arc::new(graph));

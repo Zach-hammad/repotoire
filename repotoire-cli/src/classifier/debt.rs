@@ -224,6 +224,14 @@ mod tests {
     }
 
     impl GraphQuery for MockGraph {
+        fn interner(&self) -> &crate::graph::interner::StringInterner {
+            crate::graph::interner::global_interner()
+        }
+
+        fn extra_props(&self, _qn: crate::graph::interner::StrKey) -> Option<crate::graph::store_models::ExtraProps> {
+            None
+        }
+
         fn get_functions(&self) -> Vec<CodeNode> {
             self.functions.clone()
         }
@@ -237,9 +245,10 @@ mod tests {
         }
 
         fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+            let i = self.interner();
             self.functions
                 .iter()
-                .filter(|f| f.file_path == file_path)
+                .filter(|f| f.path(i) == file_path)
                 .cloned()
                 .collect()
         }
@@ -268,15 +277,15 @@ mod tests {
             2
         }
 
-        fn get_calls(&self) -> Vec<(String, String)> {
+        fn get_calls(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
             vec![]
         }
 
-        fn get_imports(&self) -> Vec<(String, String)> {
+        fn get_imports(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
             vec![]
         }
 
-        fn get_inheritance(&self) -> Vec<(String, String)> {
+        fn get_inheritance(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
             vec![]
         }
 
@@ -305,9 +314,8 @@ mod tests {
     }
 
     fn make_function_node(name: &str, file_path: &str) -> CodeNode {
-        let mut node = CodeNode::new(NodeKind::Function, name, file_path);
-        node.qualified_name = name.to_string();
-        node
+        CodeNode::new(NodeKind::Function, name, file_path)
+            .with_qualified_name(name)
     }
 
     fn make_finding(path: &str, severity: Severity) -> Finding {

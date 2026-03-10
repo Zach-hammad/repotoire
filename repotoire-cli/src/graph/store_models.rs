@@ -145,6 +145,40 @@ impl CodeNode {
         self
     }
 
+    /// Backward-compat shim: map old property names to typed fields.
+    /// Used in tests that haven't been migrated yet.
+    pub fn with_property(mut self, key: &str, value: impl Into<serde_json::Value>) -> Self {
+        let val: serde_json::Value = value.into();
+        match key {
+            "complexity" => {
+                self.complexity = val.as_i64().unwrap_or(0) as u16;
+            }
+            "nesting_depth" | "max_nesting" => {
+                self.max_nesting = val.as_i64().unwrap_or(0) as u8;
+            }
+            "methodCount" | "method_count" => {
+                self.method_count = val.as_i64().unwrap_or(0) as u16;
+            }
+            "param_count" => {
+                self.param_count = val.as_i64().unwrap_or(0) as u8;
+            }
+            "is_async" => {
+                if val.as_bool().unwrap_or(false) {
+                    self.flags |= FLAG_IS_ASYNC;
+                }
+            }
+            "is_exported" | "exported" => {
+                if val.as_bool().unwrap_or(false) {
+                    self.flags |= FLAG_IS_EXPORTED;
+                }
+            }
+            _ => {
+                // Silently ignore unknown properties
+            }
+        }
+        self
+    }
+
     // --- Flag accessors ---
 
     pub fn is_async(&self) -> bool {

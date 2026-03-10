@@ -487,6 +487,14 @@ mod tests {
     }
 
     impl GraphQuery for TestGraph {
+        fn interner(&self) -> &crate::graph::interner::StringInterner {
+            crate::graph::interner::global_interner()
+        }
+
+        fn extra_props(&self, _qn: crate::graph::interner::StrKey) -> Option<crate::graph::store_models::ExtraProps> {
+            None
+        }
+
         fn get_functions(&self) -> Vec<CodeNode> {
             self.functions.clone()
         }
@@ -497,16 +505,18 @@ mod tests {
             Vec::new()
         }
         fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+            let i = self.interner();
             self.functions
                 .iter()
-                .filter(|f| f.file_path == file_path)
+                .filter(|f| f.path(i) == file_path)
                 .cloned()
                 .collect()
         }
         fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+            let i = self.interner();
             self.classes
                 .iter()
-                .filter(|c| c.file_path == file_path)
+                .filter(|c| c.path(i) == file_path)
                 .cloned()
                 .collect()
         }
@@ -525,13 +535,13 @@ mod tests {
         fn call_fan_out(&self, _qn: &str) -> usize {
             2 // fixed for tests
         }
-        fn get_calls(&self) -> Vec<(String, String)> {
+        fn get_calls(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
             Vec::new()
         }
-        fn get_imports(&self) -> Vec<(String, String)> {
+        fn get_imports(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
             Vec::new()
         }
-        fn get_inheritance(&self) -> Vec<(String, String)> {
+        fn get_inheritance(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
             Vec::new()
         }
         fn get_child_classes(&self, _qn: &str) -> Vec<CodeNode> {

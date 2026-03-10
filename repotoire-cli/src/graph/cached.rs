@@ -463,7 +463,7 @@ mod tests {
         let cached = CachedGraphQuery::new(&store);
         let node = cached.get_node("mod.foo");
         assert!(node.is_some());
-        assert_eq!(node.unwrap().name, "foo");
+        assert_eq!(node.unwrap().node_name(cached.interner()), "foo");
     }
 
     #[test]
