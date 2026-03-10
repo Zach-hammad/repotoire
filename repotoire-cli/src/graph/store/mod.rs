@@ -794,22 +794,33 @@ impl GraphStore {
         funcs_pg.sort_by_cached_key(|item| si.resolve(item.1.qualified_name).to_owned());
 
         // petgraph NodeIndex -> function list position
-        let pg_to_func: HashMap<NodeIndex, usize> = funcs_pg
-            .iter()
-            .enumerate()
-            .map(|(i, (pg_idx, _))| (*pg_idx, i))
-            .collect();
+        let func_count = funcs_pg.len();
+        let pg_to_func: HashMap<NodeIndex, usize> = {
+            let mut m = HashMap::with_capacity(func_count);
+            m.extend(
+                funcs_pg
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (pg_idx, _))| (*pg_idx, i)),
+            );
+            m
+        };
 
         // qn -> function list index
-        let qn_to_idx: HashMap<StrKey, usize> = funcs_pg
-            .iter()
-            .enumerate()
-            .map(|(i, (_, node))| (node.qualified_name, i))
-            .collect();
+        let qn_to_idx: HashMap<StrKey, usize> = {
+            let mut m = HashMap::with_capacity(func_count);
+            m.extend(
+                funcs_pg
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, node))| (node.qualified_name, i)),
+            );
+            m
+        };
 
         // Build callers/callees from call edges — zero String allocation
-        let mut callers: HashMap<usize, Vec<usize>> = HashMap::new();
-        let mut callees: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut callers: HashMap<usize, Vec<usize>> = HashMap::with_capacity(func_count / 2);
+        let mut callees: HashMap<usize, Vec<usize>> = HashMap::with_capacity(func_count / 2);
 
         for edge in graph.edge_references() {
             if edge.weight().kind == EdgeKind::Calls {

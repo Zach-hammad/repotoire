@@ -473,7 +473,9 @@ pub(super) fn build_graph(
     let mut all_file_nodes = Vec::with_capacity(parse_results.len());
     let mut all_func_nodes = Vec::with_capacity(total_functions);
     let mut all_class_nodes = Vec::with_capacity(total_classes);
-    let mut all_edges = Vec::new();
+    // Estimate ~3 edges per function (calls + imports + contains)
+    let estimated_edges = total_functions * 3 + parse_results.len();
+    let mut all_edges = Vec::with_capacity(estimated_edges);
 
     for (_file_path, file_nodes, func_nodes, class_nodes, edges) in file_results {
         all_file_nodes.extend(file_nodes);
@@ -482,11 +484,15 @@ pub(super) fn build_graph(
         all_edges.extend(edges);
     }
 
-    // Batch insert all nodes
+    // Batch insert all nodes (single call to reduce lock acquisitions)
     graph_bar.set_message("Inserting nodes...");
-    graph.add_nodes_batch(all_file_nodes);
-    graph.add_nodes_batch(all_func_nodes);
-    graph.add_nodes_batch(all_class_nodes);
+    let mut combined_nodes = Vec::with_capacity(
+        all_file_nodes.len() + all_func_nodes.len() + all_class_nodes.len(),
+    );
+    combined_nodes.extend(all_file_nodes);
+    combined_nodes.extend(all_func_nodes);
+    combined_nodes.extend(all_class_nodes);
+    graph.add_nodes_batch(combined_nodes);
 
     // Batch insert all edges
     graph_bar.set_message("Inserting edges...");
