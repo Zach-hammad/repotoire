@@ -641,7 +641,7 @@ impl TaintAnalyzer {
         // Find source functions
         let source_funcs: Vec<_> = functions
             .iter()
-            .filter(|f| self.is_potential_source_function(i, f, category))
+            .filter(|f| self.is_potential_source_function(graph, f, category))
             .collect();
 
         if source_funcs.is_empty() {
@@ -688,21 +688,25 @@ impl TaintAnalyzer {
     ///   corroborating evidence from the file path (must look web-related)
     fn is_potential_source_function(
         &self,
-        i: &crate::graph::interner::StringInterner,
+        graph: &dyn crate::graph::GraphQuery,
         func: &crate::graph::CodeNode,
         _category: TaintCategory,
     ) -> bool {
+        let i = graph.interner();
         // Strong signal: route decorator — always a source
-        let has_route_decorator = func
-            .get_str("decorators")
-            .map(|d| {
+        // Check has_decorators flag first (cheap), then resolve from ExtraProps
+        let has_route_decorator = func.has_decorators() && {
+            if let Some(dec_key) = graph.extra_props(func.qualified_name).and_then(|ep| ep.decorators) {
+                let d = i.resolve(dec_key);
                 d.contains("@app.route")
                     || d.contains("@router")
                     || d.contains("@get")
                     || d.contains("@post")
                     || d.contains("@api")
-            })
-            .unwrap_or(false);
+            } else {
+                false
+            }
+        };
 
         if has_route_decorator {
             return true;

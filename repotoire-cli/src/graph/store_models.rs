@@ -114,7 +114,7 @@ impl CodeNode {
             qualified_name: fp_key,
             file_path: fp_key,
             language: i.empty_key(),
-            line_start: 0,
+            line_start: 1,
             line_end: 0,
             complexity: 0,
             param_count: 0,
@@ -215,8 +215,9 @@ impl CodeNode {
         }
     }
 
-    /// Cyclomatic complexity (Option for backward compat — returns None if 0)
-    pub fn complexity(&self) -> Option<i64> {
+    /// Cyclomatic complexity as Option<i64> (returns None if 0).
+    /// Use `self.complexity` field directly for the raw u16 value.
+    pub fn complexity_opt(&self) -> Option<i64> {
         if self.complexity > 0 {
             Some(self.complexity as i64)
         } else {
@@ -224,8 +225,9 @@ impl CodeNode {
         }
     }
 
-    /// Parameter count (Option for backward compat — returns None if 0)
-    pub fn param_count(&self) -> Option<i64> {
+    /// Parameter count as Option<i64> (returns None if 0).
+    /// Use `self.param_count` field directly for the raw u8 value.
+    pub fn param_count_opt(&self) -> Option<i64> {
         if self.param_count > 0 {
             Some(self.param_count as i64)
         } else {
@@ -320,8 +322,8 @@ impl CodeNode {
         }
     }
 
+    #[deprecated(note = "String properties are in the ExtraProps side table. Use graph.extra_props(node.qualified_name) instead.")]
     pub fn get_str(&self, _key: &str) -> Option<&str> {
-        // String properties are in the ExtraProps side table.
         None
     }
 

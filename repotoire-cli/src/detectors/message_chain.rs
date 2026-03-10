@@ -225,7 +225,7 @@ impl MessageChainDetector {
             }
 
             // Cheapest filters first — complexity is already on the CodeNode
-            let complexity = func.complexity().unwrap_or(1);
+            let complexity = func.complexity_opt().unwrap_or(1);
             if complexity > 3 {
                 continue; // Not a pass-through
             }
@@ -364,7 +364,7 @@ impl MessageChainDetector {
 
         // Check callee is also a pass-through (low complexity, single callee)
         let callee = &callees[0];
-        let complexity = callee.complexity().unwrap_or(1);
+        let complexity = callee.complexity_opt().unwrap_or(1);
         if complexity > 3 {
             return (
                 depth + 1,

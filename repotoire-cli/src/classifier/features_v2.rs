@@ -318,7 +318,7 @@ impl FeatureExtractorV2 {
                 f[6] = loc as f64;
 
                 // 10: cyclomatic_complexity
-                f[10] = func.complexity().unwrap_or(0) as f64;
+                f[10] = func.complexity_opt().unwrap_or(0) as f64;
 
                 // 11: max_nesting_depth
                 f[11] = func.get_i64("nesting_depth").unwrap_or(0) as f64;

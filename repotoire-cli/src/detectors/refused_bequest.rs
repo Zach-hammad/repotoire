@@ -361,7 +361,7 @@ impl Detector for RefusedBequestDetector {
                     // Count methods that might be refusing bequest (low complexity overrides)
                     let potential_refusals: Vec<_> = child_methods
                         .iter()
-                        .filter(|m| m.complexity().unwrap_or(1) <= 2 && m.loc() <= 5)
+                        .filter(|m| m.complexity_opt().unwrap_or(1) <= 2 && m.loc() <= 5)
                         .collect();
 
                     if potential_refusals.len() >= 2 {

@@ -21,7 +21,7 @@ fn test_basic_operations() {
     assert_eq!(store.get_functions().len(), 1);
 
     let f = store.get_node("main.py::main").unwrap();
-    assert_eq!(f.complexity(), Some(5));
+    assert_eq!(f.complexity_opt(), Some(5));
 }
 
 #[test]

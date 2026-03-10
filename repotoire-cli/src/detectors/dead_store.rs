@@ -224,7 +224,7 @@ impl DeadStoreDetector {
             }
 
             // Check if function has many params but few callees (simple function)
-            if let Some(param_count) = func.param_count() {
+            if let Some(param_count) = func.param_count_opt() {
                 if param_count >= 4 {
                     let callees = graph.get_callees(func.qn(i));
                     let callers = graph.get_callers(func.qn(i));
@@ -285,7 +285,7 @@ impl DeadStoreDetector {
 
             // Function that's called but calls nothing and has params = potential sink
             if !callers.is_empty() && callees.is_empty() {
-                if let Some(param_count) = func.param_count() {
+                if let Some(param_count) = func.param_count_opt() {
                     if param_count >= 3 {
                         debug!(
                             "Sink function {} receives {} params from {} callers but makes no calls",

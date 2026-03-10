@@ -520,7 +520,7 @@ impl Detector for GodClassDetector {
             }
 
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
-            let complexity = class.complexity().unwrap_or(1) as usize;
+            let complexity = class.complexity_opt().unwrap_or(1) as usize;
             let loc = class.loc() as usize;
 
             // Get class context if available

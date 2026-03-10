@@ -371,7 +371,7 @@ impl Detector for AIComplexitySpikeDetector {
 
         // Calculate baseline complexity
         let functions = graph.get_functions_shared();
-        let complexities: Vec<i64> = functions.iter().filter_map(|f| f.complexity()).collect();
+        let complexities: Vec<i64> = functions.iter().filter_map(|f| f.complexity_opt()).collect();
 
         if complexities.is_empty() {
             return Ok(vec![]);
@@ -463,7 +463,7 @@ impl Detector for AIComplexitySpikeDetector {
                 continue;
             }
 
-            if let Some(complexity) = func.complexity() {
+            if let Some(complexity) = func.complexity_opt() {
                 // Apply higher threshold for AST/compiler code (legitimately complex)
                 let effective_threshold = if is_ast_code {
                     threshold * 1.5

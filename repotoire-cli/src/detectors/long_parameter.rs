@@ -381,7 +381,7 @@ impl Detector for LongParameterListDetector {
         let builder_patterns = ["with_", "set_", "add_", "build"];
 
         for func in graph.get_functions_shared().iter() {
-            let param_count = func.param_count().unwrap_or(0) as usize;
+            let param_count = func.param_count_opt().unwrap_or(0) as usize;
 
             // Use configured thresholds
             if param_count <= self.thresholds.max_params {
@@ -405,7 +405,7 @@ impl Detector for LongParameterListDetector {
                 let callees = graph.get_callees(func.qn(i));
                 callees.iter().any(|callee| {
                     // If callee has similar param count, this function is likely a wrapper
-                    let callee_params = callee.param_count().unwrap_or(0) as usize;
+                    let callee_params = callee.param_count_opt().unwrap_or(0) as usize;
                     callee_params >= param_count.saturating_sub(2)
                 })
             };

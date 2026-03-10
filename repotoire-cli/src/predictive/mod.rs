@@ -137,8 +137,8 @@ impl PredictiveCodingEngine {
         let mut feature_vecs: Vec<Vec<f64>> = Vec::with_capacity(functions.len());
         let mut func_features: Vec<(String, Vec<f64>)> = Vec::with_capacity(functions.len());
         for func in functions.iter() {
-            let params = func.param_count().unwrap_or(0);
-            let complexity = func.complexity().unwrap_or(1);
+            let params = func.param_count_opt().unwrap_or(0);
+            let complexity = func.complexity_opt().unwrap_or(1);
             let nesting = func.get_i64("maxNesting").unwrap_or(0);
             let loc = func.loc();
             let returns = func.get_i64("returnCount").unwrap_or(1);

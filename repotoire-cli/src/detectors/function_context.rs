@@ -255,7 +255,7 @@ impl<'a> FunctionContextBuilder<'a> {
                     is_exported,
                     is_test,
                     is_in_utility_module,
-                    complexity: func.complexity(),
+                    complexity: func.complexity_opt(),
                     loc: func.loc(),
                 }
             })

@@ -69,12 +69,18 @@ impl<'a> GitEnricher<'a> {
 
         let mut unique_files: HashSet<String> = HashSet::new();
         for f in &functions {
-            if f.get_str("last_modified").is_none() {
+            let has_last_modified = self.graph.get_extra_props(f.qualified_name)
+                .and_then(|ep| ep.last_modified)
+                .is_some();
+            if !has_last_modified {
                 unique_files.insert(f.path(crate::graph::interner::global_interner()).to_string());
             }
         }
         for c in &classes {
-            if c.get_str("last_modified").is_none() {
+            let has_last_modified = self.graph.get_extra_props(c.qualified_name)
+                .and_then(|ep| ep.last_modified)
+                .is_some();
+            if !has_last_modified {
                 unique_files.insert(c.path(crate::graph::interner::global_interner()).to_string());
             }
         }
@@ -128,7 +134,11 @@ impl<'a> GitEnricher<'a> {
         let functions = self.graph.get_functions();
         let functions_to_enrich: Vec<_> = functions
             .into_iter()
-            .filter(|f| f.get_str("last_modified").is_none())
+            .filter(|f| {
+                self.graph.get_extra_props(f.qualified_name)
+                    .and_then(|ep| ep.last_modified)
+                    .is_none()
+            })
             .collect();
 
         let total = functions_to_enrich.len();
@@ -191,7 +201,11 @@ impl<'a> GitEnricher<'a> {
         let classes = self.graph.get_classes();
         let classes_to_enrich: Vec<_> = classes
             .into_iter()
-            .filter(|c| c.get_str("last_modified").is_none())
+            .filter(|c| {
+                self.graph.get_extra_props(c.qualified_name)
+                    .and_then(|ep| ep.last_modified)
+                    .is_none()
+            })
             .collect();
 
         let total = classes_to_enrich.len();

@@ -132,7 +132,7 @@ impl Detector for LongMethodsDetector {
             }
 
             // Get complexity for analysis
-            let complexity = func.complexity().unwrap_or(1);
+            let complexity = func.complexity_opt().unwrap_or(1);
 
             // === Graph-aware analysis ===
             let is_orchestrator =

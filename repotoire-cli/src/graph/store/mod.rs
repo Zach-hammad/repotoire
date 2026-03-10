@@ -43,8 +43,6 @@ pub struct GraphStore {
     /// Cached graph metrics from detectors, reusable by scoring phase.
     /// Key format: "metric_name:entity_qn" (e.g., "degree_centrality:module.Class")
     metrics_cache: DashMap<String, f64>,
-    /// String interner for memory-efficient qualified name storage
-    pub interner: super::interner::StringInterner,
     /// Extra (cold) properties stored per qualified_name StrKey
     extra_props: DashMap<StrKey, ExtraProps>,
     /// Persistent edge dedup set: prevents duplicate (from, to, kind) edges across batches.
@@ -84,7 +82,7 @@ impl GraphStore {
             file_classes_index: DashMap::new(),
             file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
-            interner: super::interner::StringInterner::new(),
+
             extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
             call_maps_cache: OnceLock::new(),
@@ -114,7 +112,7 @@ impl GraphStore {
             file_classes_index: DashMap::new(),
             file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
-            interner: super::interner::StringInterner::new(),
+
             extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
             call_maps_cache: OnceLock::new(),
@@ -134,7 +132,7 @@ impl GraphStore {
             file_classes_index: DashMap::new(),
             file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
-            interner: super::interner::StringInterner::new(),
+
             extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
             call_maps_cache: OnceLock::new(),
@@ -637,7 +635,7 @@ impl GraphStore {
         let mut nodes: Vec<CodeNode> = graph
             .node_weights()
             .filter(|n| {
-                n.kind == NodeKind::Function && n.complexity().is_some_and(|c| c >= min_complexity)
+                n.kind == NodeKind::Function && n.complexity_opt().is_some_and(|c| c >= min_complexity)
             })
             .copied()
             .collect();
@@ -652,7 +650,7 @@ impl GraphStore {
         let mut nodes: Vec<CodeNode> = graph
             .node_weights()
             .filter(|n| {
-                n.kind == NodeKind::Function && n.param_count().is_some_and(|p| p >= min_params)
+                n.kind == NodeKind::Function && n.param_count_opt().is_some_and(|p| p >= min_params)
             })
             .copied()
             .collect();
@@ -1480,7 +1478,7 @@ impl GraphStore {
             file_classes_index: DashMap::new(),
             file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
-            interner: super::interner::StringInterner::new(),
+
             extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
             call_maps_cache: OnceLock::new(),
@@ -1551,7 +1549,7 @@ struct GraphCache {
     file_all_nodes: HashMap<String, Vec<NodeIndex>>,
 }
 
-const GRAPH_CACHE_VERSION: u32 = 1;
+const GRAPH_CACHE_VERSION: u32 = 2; // Bumped for CompactNode StrKey migration
 
 // redb::Database handles cleanup on Drop automatically — no manual flush needed
 

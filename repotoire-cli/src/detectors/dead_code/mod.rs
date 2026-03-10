@@ -708,9 +708,9 @@ impl DeadCodeDetector {
         // Sort by complexity (descending) for prioritization, then by qualified_name for determinism
         let mut functions: Vec<_> = functions.into_iter().collect();
         functions.sort_by(|a, b| {
-            b.complexity()
+            b.complexity_opt()
                 .unwrap_or(0)
-                .cmp(&a.complexity().unwrap_or(0))
+                .cmp(&a.complexity_opt().unwrap_or(0))
                 .then_with(|| a.qualified_name.cmp(&b.qualified_name))
         });
 
@@ -815,7 +815,7 @@ impl DeadCodeDetector {
                 continue;
             }
 
-            let complexity = func.complexity().unwrap_or(1) as usize;
+            let complexity = func.complexity_opt().unwrap_or(1) as usize;
             let line_start = Some(func.line_start);
 
             findings.push(self.create_function_finding(
@@ -845,9 +845,9 @@ impl DeadCodeDetector {
         // Sort by complexity (descending), then by qualified_name for determinism
         let mut classes: Vec<_> = classes.into_iter().collect();
         classes.sort_by(|a, b| {
-            b.complexity()
+            b.complexity_opt()
                 .unwrap_or(0)
-                .cmp(&a.complexity().unwrap_or(0))
+                .cmp(&a.complexity_opt().unwrap_or(0))
                 .then_with(|| a.qualified_name.cmp(&b.qualified_name))
         });
 
@@ -932,7 +932,7 @@ impl DeadCodeDetector {
                 continue;
             }
 
-            let complexity = class.complexity().unwrap_or(1) as usize;
+            let complexity = class.complexity_opt().unwrap_or(1) as usize;
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
 
             findings.push(self.create_class_finding(

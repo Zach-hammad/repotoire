@@ -500,7 +500,7 @@ impl<'a> GraphScorer<'a> {
         // Simple function ratio (complexity <= 10)
         let simple_count = functions
             .iter()
-            .filter(|f| f.complexity().unwrap_or(1) <= 10)
+            .filter(|f| f.complexity_opt().unwrap_or(1) <= 10)
             .count();
         let simple_ratio = if functions.is_empty() {
             1.0

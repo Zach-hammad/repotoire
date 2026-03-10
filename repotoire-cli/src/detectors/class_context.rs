@@ -326,7 +326,7 @@ impl<'a> ClassContextBuilder<'a> {
                 .unwrap_or_else(|| methods.len());
 
             // Calculate aggregate complexity
-            let total_complexity: i64 = methods.iter().filter_map(|m| m.complexity()).sum();
+            let total_complexity: i64 = methods.iter().filter_map(|m| m.complexity_opt()).sum();
 
             let avg_complexity = if method_count > 0 {
                 total_complexity as f64 / method_count as f64

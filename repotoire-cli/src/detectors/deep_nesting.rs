@@ -178,7 +178,7 @@ impl Detector for DeepNestingDetector {
                     let (func_name, is_entry, complexity, extraction_candidates) =
                         if let Some(func) = &containing_func {
                             let is_entry = Self::is_entry_point(func.node_name(i), func.path(i));
-                            let complexity = func.complexity().unwrap_or(1);
+                            let complexity = func.complexity_opt().unwrap_or(1);
                             let candidates =
                                 self.find_extraction_candidates(graph, func.qn(i));
                             (Some(func.node_name(i).to_string()), is_entry, complexity, candidates)

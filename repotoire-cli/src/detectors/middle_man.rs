@@ -109,7 +109,7 @@ impl MiddleManDetector {
 
         for method in &methods {
             let callees = graph.get_callees(method.qn(i));
-            let complexity = method.complexity().unwrap_or(1);
+            let complexity = method.complexity_opt().unwrap_or(1);
 
             // Pure delegation: single callee, low complexity
             if callees.len() == 1 && complexity <= self.thresholds.max_delegation_complexity {

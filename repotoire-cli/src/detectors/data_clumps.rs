@@ -107,9 +107,11 @@ impl DataClumpsDetector {
     }
 
     /// Extract parameter names from function's parameter property
-    fn extract_params(&self, func: &crate::graph::CodeNode) -> Vec<String> {
-        // Try to get params from properties
-        if let Some(params_str) = func.get_str("params") {
+    fn extract_params(&self, func: &crate::graph::CodeNode, graph: &dyn crate::graph::GraphQuery) -> Vec<String> {
+        // Try to get params from extra_props side table
+        let i = graph.interner();
+        if let Some(params_key) = graph.extra_props(func.qualified_name).and_then(|ep| ep.params) {
+            let params_str = i.resolve(params_key);
             return params_str
                 .split(',')
                 .map(|p| p.trim().to_lowercase())
@@ -118,11 +120,9 @@ impl DataClumpsDetector {
         }
 
         // Try param_count to see if function has parameters
-        if let Some(count) = func.param_count() {
-            if count >= self.thresholds.min_params as i64 {
-                // We know it has params but can't extract names
-                // Return empty - will need parser enhancement
-            }
+        if func.param_count > 0 && (func.param_count as usize) >= self.thresholds.min_params {
+            // We know it has params but can't extract names
+            // Return empty - will need parser enhancement
         }
 
         vec![]
@@ -142,7 +142,7 @@ impl DataClumpsDetector {
         // Step 1: Extract params for qualifying functions
         let mut func_data: Vec<(FuncInfo, HashSet<String>)> = Vec::new();
         for func in functions.iter() {
-            let params = self.extract_params(func);
+            let params = self.extract_params(func, graph);
             if params.len() < self.thresholds.min_params {
                 continue;
             }

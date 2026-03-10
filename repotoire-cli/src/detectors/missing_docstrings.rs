@@ -202,13 +202,13 @@ impl Detector for MissingDocstringsDetector {
                     if is_entry {
                         notes.push("🚪 Entry point / API endpoint".to_string());
                     }
-                    if let Some(pc) = func.param_count() {
+                    if let Some(pc) = func.param_count_opt() {
                         notes.push(format!("📝 {} parameters", pc));
                     }
 
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
 
-                    let template = Self::generate_template(func.node_name(i), func.param_count(), ext);
+                    let template = Self::generate_template(func.node_name(i), func.param_count_opt(), ext);
 
                     findings.push(Finding {
                         id: String::new(),

@@ -164,7 +164,7 @@ fn build_hmm_contexts_standalone(
         let fan_out = adj.get(idx).map_or(0, |v| v.len());
         max_fan_in = max_fan_in.max(fan_in);
         max_fan_out = max_fan_out.max(fan_out);
-        if let Some(c) = func.complexity() {
+        if let Some(c) = func.complexity_opt() {
             total_complexity += c;
             complexity_count += 1;
         }
@@ -192,7 +192,7 @@ fn build_hmm_contexts_standalone(
         let address_taken = func.address_taken();
         let features = FunctionFeatures::extract(
             func.node_name(i), func.path(i), fan_in, fan_out, max_fan_in, max_fan_out,
-            caller_files_count, func.complexity(), avg_complexity, loc, avg_loc,
+            caller_files_count, func.complexity_opt(), avg_complexity, loc, avg_loc,
             3, avg_params, address_taken,
         );
         function_data.push((features, fan_in, fan_out, address_taken));
@@ -425,7 +425,7 @@ impl DetectorEngine {
             max_fan_in = max_fan_in.max(fan_in);
             max_fan_out = max_fan_out.max(fan_out);
 
-            if let Some(c) = func.complexity() {
+            if let Some(c) = func.complexity_opt() {
                 total_complexity += c;
                 complexity_count += 1;
             }
@@ -469,7 +469,7 @@ impl DetectorEngine {
                 max_fan_in,
                 max_fan_out,
                 caller_files_count,
-                func.complexity(),
+                func.complexity_opt(),
                 avg_complexity,
                 loc,
                 avg_loc,

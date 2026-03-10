@@ -271,7 +271,7 @@ impl Detector for InfluentialCodeDetector {
             }
 
             let fan_in = graph.call_fan_in(func.qn(i));
-            let complexity = func.complexity().unwrap_or(1) as usize;
+            let complexity = func.complexity_opt().unwrap_or(1) as usize;
             let loc = func.loc() as usize;
 
             // Influential: high fan-in and large
@@ -337,7 +337,7 @@ impl Detector for InfluentialCodeDetector {
                 )
             } else {
                 let fan_in = graph.call_fan_in(func.qn(i));
-                let complexity = func.complexity().unwrap_or(1) as usize;
+                let complexity = func.complexity_opt().unwrap_or(1) as usize;
                 let loc = func.loc() as usize;
                 (fan_in, complexity, loc, FunctionRole::Unknown, None)
             };

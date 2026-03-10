@@ -146,8 +146,11 @@ impl Detector for BooleanTrapDetector {
             }
 
             if let Some(def) = func_def {
-                if let Some(params) = def.get_str("params") {
-                    notes.push(format!("📝 Function params: {}", params));
+                if let Some(params_str) = graph.extra_props(def.qualified_name)
+                    .and_then(|ep| ep.params)
+                    .map(|key| i.resolve(key).to_string())
+                {
+                    notes.push(format!("📝 Function params: {}", params_str));
                 }
                 // Use O(1) fan-in count to avoid cloning caller CodeNodes
                 let fan_in = graph.call_fan_in(def.qn(i));

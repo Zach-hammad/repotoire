@@ -300,7 +300,7 @@ impl Detector for ArchitecturalBottleneckDetector {
             }
 
             let fan_in = graph.call_fan_in(func.qn(i));
-            let complexity = func.complexity().unwrap_or(1) as usize;
+            let complexity = func.complexity_opt().unwrap_or(1) as usize;
 
             // Bottleneck: high fan-in AND high complexity
             if fan_in >= self.min_fan_in && complexity >= self.min_complexity {
@@ -376,7 +376,7 @@ impl Detector for ArchitecturalBottleneckDetector {
             } else {
                 // Fall back to graph queries
                 let fan_in = graph.call_fan_in(func.qn(i));
-                let complexity = func.complexity().unwrap_or(1) as usize;
+                let complexity = func.complexity_opt().unwrap_or(1) as usize;
                 (fan_in, complexity, FunctionRole::Unknown, None)
             };
 

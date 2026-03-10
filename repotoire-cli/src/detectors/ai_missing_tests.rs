@@ -388,7 +388,7 @@ impl Detector for AIMissingTestsDetector {
                 continue;
             }
 
-            let complexity = func.complexity().unwrap_or(1);
+            let complexity = func.complexity_opt().unwrap_or(1);
             let loc = func.loc();
 
             // Only flag complex/large functions
@@ -539,7 +539,7 @@ impl Detector for AIMissingTestsDetector {
             let complexity = if let Some(ctx) = contexts.get(func.qn(i)) {
                 ctx.complexity.unwrap_or(1)
             } else {
-                func.complexity().unwrap_or(1)
+                func.complexity_opt().unwrap_or(1)
             };
 
             let loc = func.loc();

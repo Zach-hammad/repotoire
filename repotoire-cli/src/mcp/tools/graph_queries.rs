@@ -26,7 +26,7 @@ fn node_to_json(node: &CodeNode, i: &crate::graph::interner::StringInterner) -> 
         "kind": format!("{:?}", node.kind),
         "line_start": node.line_start,
         "line_end": node.line_end,
-        "complexity": node.complexity(),
+        "complexity": node.complexity_opt(),
     })
 }
 
