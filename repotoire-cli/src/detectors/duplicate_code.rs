@@ -7,6 +7,7 @@
 //! - Skip duplicates in test code or generated files
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::interner::StrKey;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -63,15 +64,14 @@ impl DuplicateCodeDetector {
         &self,
         graph: &dyn crate::graph::GraphQuery,
         locations: &[(PathBuf, usize)],
-    ) -> Vec<Option<String>> {
-        let i = graph.interner();
+    ) -> Vec<Option<StrKey>> {
         locations
             .iter()
             .map(|(path, line)| {
                 let path_str = path.to_string_lossy();
                 graph
                     .find_function_at(&path_str, *line as u32)
-                    .map(|f| f.qn(i).to_string())
+                    .map(|f| f.qualified_name)
             })
             .collect()
     }
@@ -80,24 +80,24 @@ impl DuplicateCodeDetector {
     fn analyze_caller_similarity(
         &self,
         graph: &dyn crate::graph::GraphQuery,
-        containing_funcs: &[Option<String>],
+        containing_funcs: &[Option<StrKey>],
     ) -> (usize, String) {
         let i = graph.interner();
-        let valid_funcs: Vec<&String> =
-            containing_funcs.iter().filter_map(|f| f.as_ref()).collect();
+        let valid_funcs: Vec<StrKey> =
+            containing_funcs.iter().filter_map(|f| *f).collect();
 
         if valid_funcs.len() < 2 {
             return (0, String::new());
         }
 
         // Collect all callers for each function
-        let caller_sets: Vec<HashSet<String>> = valid_funcs
+        let caller_sets: Vec<HashSet<StrKey>> = valid_funcs
             .iter()
-            .map(|qn| {
+            .map(|&qn| {
                 graph
-                    .get_callers(qn)
+                    .get_callers(i.resolve(qn))
                     .into_iter()
-                    .map(|c| c.qn(i).to_string())
+                    .map(|c| c.qualified_name)
                     .collect()
             })
             .collect();
@@ -107,29 +107,26 @@ impl DuplicateCodeDetector {
             return (0, String::new());
         }
 
-        let common_callers: HashSet<String> = caller_sets[0]
+        let common_callers: HashSet<StrKey> = caller_sets[0]
             .iter()
             .filter(|caller| caller_sets.iter().skip(1).all(|set| set.contains(*caller)))
-            .cloned()
+            .copied()
             .collect();
 
         // Suggest extraction location based on common callers
         let suggestion = if !common_callers.is_empty() {
             // Build a lookup map once instead of calling get_functions() per caller (O(n) vs O(n*m))
-            let func_path_map: HashMap<String, String> = graph
+            let func_path_map: HashMap<StrKey, StrKey> = graph
                 .get_functions()
                 .into_iter()
-                .map(|f| {
-                    let qn = f.qn(i).to_string();
-                    let path = f.path(i).to_string();
-                    (qn, path)
-                })
+                .map(|f| (f.qualified_name, f.file_path))
                 .collect();
 
             // Find the module that most common callers are in
             let mut module_counts: HashMap<String, usize> = HashMap::new();
-            for caller in &common_callers {
-                if let Some(path) = func_path_map.get(caller.as_str()) {
+            for caller_key in &common_callers {
+                if let Some(&path_key) = func_path_map.get(caller_key) {
+                    let path = i.resolve(path_key);
                     let module = path
                         .rsplit('/')
                         .nth(1)
@@ -246,11 +243,13 @@ impl Detector for DuplicateCodeDetector {
                 };
 
                 // List containing functions if available
+                let interner = graph.interner();
                 let func_list: Vec<String> = containing_funcs
                     .iter()
                     .zip(locations.iter())
                     .filter_map(|(f, (path, line))| {
-                        f.as_ref().map(|qn| {
+                        f.map(|qn_key| {
+                            let qn = interner.resolve(qn_key);
                             let name = qn.rsplit("::").next().unwrap_or(qn);
                             format!(
                                 "  - `{}` ({}:{})",
