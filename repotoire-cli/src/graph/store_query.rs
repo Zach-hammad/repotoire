@@ -1,8 +1,17 @@
+use super::interner::{StrKey, StringInterner};
 use super::store::GraphStore;
-use super::store_models::CodeNode;
+use super::store_models::{CodeNode, ExtraProps};
 use std::collections::{BTreeMap, HashMap};
 
 impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
+    fn interner(&self) -> &StringInterner {
+        (**self).interner()
+    }
+
+    fn extra_props(&self, qn: StrKey) -> Option<ExtraProps> {
+        self.extra_props.get(&qn).map(|e| e.clone())
+    }
+
     fn get_functions(&self) -> Vec<CodeNode> {
         (**self).get_functions()
     }
@@ -43,15 +52,15 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
         (**self).call_fan_out(qn)
     }
 
-    fn get_calls(&self) -> Vec<(String, String)> {
+    fn get_calls(&self) -> Vec<(StrKey, StrKey)> {
         (**self).get_calls()
     }
 
-    fn get_imports(&self) -> Vec<(String, String)> {
+    fn get_imports(&self) -> Vec<(StrKey, StrKey)> {
         (**self).get_imports()
     }
 
-    fn get_inheritance(&self) -> Vec<(String, String)> {
+    fn get_inheritance(&self) -> Vec<(StrKey, StrKey)> {
         (**self).get_inheritance()
     }
 
@@ -86,7 +95,7 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
     fn build_call_maps_raw(
         &self,
     ) -> (
-        HashMap<String, usize>,
+        HashMap<StrKey, usize>,
         HashMap<usize, Vec<usize>>,
         HashMap<usize, Vec<usize>>,
     ) {
@@ -95,6 +104,14 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
 }
 
 impl super::traits::GraphQuery for GraphStore {
+    fn interner(&self) -> &StringInterner {
+        &self.interner
+    }
+
+    fn extra_props(&self, qn: StrKey) -> Option<ExtraProps> {
+        self.extra_props.get(&qn).map(|e| e.clone())
+    }
+
     fn get_functions(&self) -> Vec<CodeNode> {
         self.get_functions()
     }
@@ -135,15 +152,15 @@ impl super::traits::GraphQuery for GraphStore {
         self.call_fan_out(qn)
     }
 
-    fn get_calls(&self) -> Vec<(String, String)> {
+    fn get_calls(&self) -> Vec<(StrKey, StrKey)> {
         self.get_calls()
     }
 
-    fn get_imports(&self) -> Vec<(String, String)> {
+    fn get_imports(&self) -> Vec<(StrKey, StrKey)> {
         self.get_imports()
     }
 
-    fn get_inheritance(&self) -> Vec<(String, String)> {
+    fn get_inheritance(&self) -> Vec<(StrKey, StrKey)> {
         self.get_inheritance()
     }
 
@@ -178,7 +195,7 @@ impl super::traits::GraphQuery for GraphStore {
     fn build_call_maps_raw(
         &self,
     ) -> (
-        HashMap<String, usize>,
+        HashMap<StrKey, usize>,
         HashMap<usize, Vec<usize>>,
         HashMap<usize, Vec<usize>>,
     ) {

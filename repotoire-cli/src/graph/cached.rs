@@ -11,7 +11,8 @@
 //! Used by DetectorEngine to avoid redundant graph scans across multiple
 //! detectors in the same analysis run.
 
-use super::store_models::CodeNode;
+use super::interner::{StrKey, StringInterner};
+use super::store_models::{CodeNode, ExtraProps};
 use super::traits::GraphQuery;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Once, OnceLock};
@@ -28,14 +29,14 @@ pub struct CachedGraphQuery<'a> {
     functions: OnceLock<Arc<[CodeNode]>>,
     classes: OnceLock<Arc<[CodeNode]>>,
     files: OnceLock<Arc<[CodeNode]>>,
-    calls: OnceLock<Arc<[(String, String)]>>,
-    imports: OnceLock<Vec<(String, String)>>,
-    inheritance: OnceLock<Vec<(String, String)>>,
+    calls: OnceLock<Arc<[(StrKey, StrKey)]>>,
+    imports: OnceLock<Vec<(StrKey, StrKey)>>,
+    inheritance: OnceLock<Vec<(StrKey, StrKey)>>,
     import_cycles: OnceLock<Vec<Vec<String>>>,
     /// Pre-computed set of file paths that participate in import cycles
     cycle_members: OnceLock<std::collections::HashSet<String>>,
     /// qn → index into functions Vec
-    qn_to_idx: OnceLock<HashMap<String, usize>>,
+    qn_to_idx: OnceLock<HashMap<StrKey, usize>>,
     /// callee_idx → Vec of caller indices
     callers_idx: OnceLock<HashMap<usize, Vec<usize>>>,
     /// caller_idx → Vec of callee indices
@@ -44,9 +45,9 @@ pub struct CachedGraphQuery<'a> {
     /// has a race where N threads all see is_none() and all build redundantly)
     call_maps_init: Once,
     /// file_path → Vec of indices into cached functions Vec (O(1) per-file lookup)
-    funcs_by_file_idx: OnceLock<HashMap<String, Vec<usize>>>,
+    funcs_by_file_idx: OnceLock<HashMap<StrKey, Vec<usize>>>,
     /// file_path → Vec of indices into cached classes Vec (O(1) per-file lookup)
-    classes_by_file_idx: OnceLock<HashMap<String, Vec<usize>>>,
+    classes_by_file_idx: OnceLock<HashMap<StrKey, Vec<usize>>>,
 }
 
 impl<'a> CachedGraphQuery<'a> {
@@ -73,7 +74,7 @@ impl<'a> CachedGraphQuery<'a> {
     /// Check if a file path participates in any import cycle.
     ///
     /// Uses a pre-computed HashSet instead of cloning the full cycle list,
-    /// making per-finding lookups O(1) instead of O(cycles × cycle_size).
+    /// making per-finding lookups O(1) instead of O(cycles x cycle_size).
     pub fn is_in_import_cycle(&self, file_path: &str) -> bool {
         let members = self.cycle_members.get_or_init(|| {
             let cycles = self.find_import_cycles();
@@ -98,11 +99,11 @@ impl<'a> CachedGraphQuery<'a> {
     /// Build index maps by delegating to inner graph's build_call_maps_raw().
     ///
     /// GraphStore's override iterates petgraph edges directly (zero String allocation),
-    /// avoiding the 12.5M+ (String, String) clone from get_calls().
+    /// avoiding the 12.5M+ (StrKey, StrKey) clone from get_calls().
     fn build_call_maps(
         &self,
     ) -> (
-        HashMap<String, usize>,
+        HashMap<StrKey, usize>,
         HashMap<usize, Vec<usize>>,
         HashMap<usize, Vec<usize>>,
     ) {
@@ -134,12 +135,20 @@ impl<'a> CachedGraphQuery<'a> {
         let functions = self.functions.get().expect("functions must be initialized");
         indices
             .iter()
-            .filter_map(|&i| functions.get(i).cloned())
+            .filter_map(|&i| functions.get(i).copied())
             .collect()
     }
 }
 
 impl GraphQuery for CachedGraphQuery<'_> {
+    fn interner(&self) -> &StringInterner {
+        self.inner.interner()
+    }
+
+    fn extra_props(&self, qn: StrKey) -> Option<ExtraProps> {
+        self.inner.extra_props(qn)
+    }
+
     // === Cached methods (expensive full-scan) ===
 
     fn get_functions(&self) -> Vec<CodeNode> {
@@ -178,26 +187,26 @@ impl GraphQuery for CachedGraphQuery<'_> {
         )
     }
 
-    fn get_calls(&self) -> Vec<(String, String)> {
+    fn get_calls(&self) -> Vec<(StrKey, StrKey)> {
         self.calls
             .get_or_init(|| Arc::from(self.inner.get_calls()))
             .to_vec()
     }
 
-    fn get_calls_shared(&self) -> Arc<[(String, String)]> {
+    fn get_calls_shared(&self) -> Arc<[(StrKey, StrKey)]> {
         Arc::clone(
             self.calls
                 .get_or_init(|| Arc::from(self.inner.get_calls())),
         )
     }
 
-    fn get_imports(&self) -> Vec<(String, String)> {
+    fn get_imports(&self) -> Vec<(StrKey, StrKey)> {
         self.imports
             .get_or_init(|| self.inner.get_imports())
             .clone()
     }
 
-    fn get_inheritance(&self) -> Vec<(String, String)> {
+    fn get_inheritance(&self) -> Vec<(StrKey, StrKey)> {
         self.inheritance
             .get_or_init(|| self.inner.get_inheritance())
             .clone()
@@ -209,9 +218,12 @@ impl GraphQuery for CachedGraphQuery<'_> {
         self.ensure_call_maps();
         let qn_map = self.qn_to_idx.get().unwrap();
         let callers = self.callers_idx.get().unwrap();
-        if let Some(&idx) = qn_map.get(qn) {
-            if let Some(indices) = callers.get(&idx) {
-                return self.resolve_indices(indices);
+        let i = self.interner();
+        if let Some(key) = i.get(qn) {
+            if let Some(&idx) = qn_map.get(&key) {
+                if let Some(indices) = callers.get(&idx) {
+                    return self.resolve_indices(indices);
+                }
             }
         }
         Vec::new()
@@ -221,9 +233,12 @@ impl GraphQuery for CachedGraphQuery<'_> {
         self.ensure_call_maps();
         let qn_map = self.qn_to_idx.get().unwrap();
         let callees = self.callees_idx.get().unwrap();
-        if let Some(&idx) = qn_map.get(qn) {
-            if let Some(indices) = callees.get(&idx) {
-                return self.resolve_indices(indices);
+        let i = self.interner();
+        if let Some(key) = i.get(qn) {
+            if let Some(&idx) = qn_map.get(&key) {
+                if let Some(indices) = callees.get(&idx) {
+                    return self.resolve_indices(indices);
+                }
             }
         }
         Vec::new()
@@ -233,8 +248,9 @@ impl GraphQuery for CachedGraphQuery<'_> {
         self.ensure_call_maps();
         let qn_map = self.qn_to_idx.get().unwrap();
         let callers = self.callers_idx.get().unwrap();
-        qn_map
-            .get(qn)
+        let i = self.interner();
+        i.get(qn)
+            .and_then(|key| qn_map.get(&key))
             .and_then(|idx| callers.get(idx))
             .map_or(0, |v| v.len())
     }
@@ -243,8 +259,9 @@ impl GraphQuery for CachedGraphQuery<'_> {
         self.ensure_call_maps();
         let qn_map = self.qn_to_idx.get().unwrap();
         let callees = self.callees_idx.get().unwrap();
-        qn_map
-            .get(qn)
+        let i = self.interner();
+        i.get(qn)
+            .and_then(|key| qn_map.get(&key))
             .and_then(|idx| callees.get(idx))
             .map_or(0, |v| v.len())
     }
@@ -253,30 +270,34 @@ impl GraphQuery for CachedGraphQuery<'_> {
 
     fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
         let all_fns = self.ensure_functions();
+        let i = self.interner();
         let idx_map = self.funcs_by_file_idx.get_or_init(|| {
-            let mut m: HashMap<String, Vec<usize>> = HashMap::new();
-            for (i, f) in all_fns.iter().enumerate() {
-                m.entry(f.file_path.clone()).or_default().push(i);
+            let mut m: HashMap<StrKey, Vec<usize>> = HashMap::new();
+            for (idx, f) in all_fns.iter().enumerate() {
+                m.entry(f.file_path).or_default().push(idx);
             }
             m
         });
-        match idx_map.get(file_path) {
-            Some(indices) => indices.iter().filter_map(|&i| all_fns.get(i).cloned()).collect(),
+        let file_key = i.get(file_path);
+        match file_key.and_then(|k| idx_map.get(&k)) {
+            Some(indices) => indices.iter().filter_map(|&idx| all_fns.get(idx).copied()).collect(),
             None => Vec::new(),
         }
     }
 
     fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
         let all_cls = self.classes.get_or_init(|| Arc::from(self.inner.get_classes()));
+        let i = self.interner();
         let idx_map = self.classes_by_file_idx.get_or_init(|| {
-            let mut m: HashMap<String, Vec<usize>> = HashMap::new();
-            for (i, c) in all_cls.iter().enumerate() {
-                m.entry(c.file_path.clone()).or_default().push(i);
+            let mut m: HashMap<StrKey, Vec<usize>> = HashMap::new();
+            for (idx, c) in all_cls.iter().enumerate() {
+                m.entry(c.file_path).or_default().push(idx);
             }
             m
         });
-        match idx_map.get(file_path) {
-            Some(indices) => indices.iter().filter_map(|&i| all_cls.get(i).cloned()).collect(),
+        let file_key = i.get(file_path);
+        match file_key.and_then(|k| idx_map.get(&k)) {
+            Some(indices) => indices.iter().filter_map(|&idx| all_cls.get(idx).copied()).collect(),
             None => Vec::new(),
         }
     }
@@ -323,17 +344,20 @@ impl GraphQuery for CachedGraphQuery<'_> {
         let qn_map = self.qn_to_idx.get().unwrap();
         let callers = self.callers_idx.get().unwrap();
         let functions = self.ensure_functions();
-        if let Some(&idx) = qn_map.get(qn) {
-            if let Some(indices) = callers.get(&idx) {
-                return indices
-                    .iter()
-                    .filter_map(|&i| functions.get(i))
-                    .filter(|f| {
-                        f.file_path != class_file
-                            || f.line_start < class_start
-                            || f.line_end > class_end
-                    })
-                    .count();
+        let i = self.interner();
+        if let Some(key) = i.get(qn) {
+            if let Some(&idx) = qn_map.get(&key) {
+                if let Some(indices) = callers.get(&idx) {
+                    return indices
+                        .iter()
+                        .filter_map(|&idx| functions.get(idx))
+                        .filter(|f| {
+                            i.resolve(f.file_path) != class_file
+                                || f.line_start < class_start
+                                || f.line_end > class_end
+                        })
+                        .count();
+                }
             }
         }
         0
@@ -345,13 +369,16 @@ impl GraphQuery for CachedGraphQuery<'_> {
         let qn_map = self.qn_to_idx.get().unwrap();
         let callers = self.callers_idx.get().unwrap();
         let functions = self.ensure_functions();
-        if let Some(&idx) = qn_map.get(qn) {
-            if let Some(indices) = callers.get(&idx) {
-                let files: std::collections::HashSet<&str> = indices
-                    .iter()
-                    .filter_map(|&i| functions.get(i).map(|f| f.file_path.as_str()))
-                    .collect();
-                return files.len();
+        let i = self.interner();
+        if let Some(key) = i.get(qn) {
+            if let Some(&idx) = qn_map.get(&key) {
+                if let Some(indices) = callers.get(&idx) {
+                    let files: std::collections::HashSet<StrKey> = indices
+                        .iter()
+                        .filter_map(|&idx| functions.get(idx).map(|f| f.file_path))
+                        .collect();
+                    return files.len();
+                }
             }
         }
         0
@@ -363,28 +390,31 @@ impl GraphQuery for CachedGraphQuery<'_> {
         let qn_map = self.qn_to_idx.get().unwrap();
         let callers = self.callers_idx.get().unwrap();
         let functions = self.ensure_functions();
-        if let Some(&idx) = qn_map.get(qn) {
-            if let Some(indices) = callers.get(&idx) {
-                let modules: std::collections::HashSet<&str> = indices
-                    .iter()
-                    .filter_map(|&i| {
-                        functions.get(i).map(|f| {
-                            std::path::Path::new(&f.file_path)
-                                .parent()
-                                .and_then(|p| p.to_str())
-                                .unwrap_or("root")
+        let i = self.interner();
+        if let Some(key) = i.get(qn) {
+            if let Some(&idx) = qn_map.get(&key) {
+                if let Some(indices) = callers.get(&idx) {
+                    let modules: std::collections::HashSet<&str> = indices
+                        .iter()
+                        .filter_map(|&idx| {
+                            functions.get(idx).map(|f| {
+                                std::path::Path::new(i.resolve(f.file_path))
+                                    .parent()
+                                    .and_then(|p| p.to_str())
+                                    .unwrap_or("root")
+                            })
                         })
-                    })
-                    .collect();
-                return modules.len();
+                        .collect();
+                    return modules.len();
+                }
             }
         }
         0
     }
 
     /// Optimized: converts pre-built index maps to Vec<Vec<usize>> adjacency.
-    /// Avoids cloning millions of (String, String) pairs from get_calls().
-    fn get_call_adjacency(&self) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, HashMap<String, usize>) {
+    /// Avoids cloning millions of (StrKey, StrKey) pairs from get_calls().
+    fn get_call_adjacency(&self) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, HashMap<StrKey, usize>) {
         self.ensure_call_maps();
         let functions = self.ensure_functions();
         let n = functions.len();

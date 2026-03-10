@@ -1,12 +1,20 @@
 //! Graph store traits for detector compatibility
 
 use super::CodeNode;
+use crate::graph::interner::{StrKey, StringInterner};
+use crate::graph::store_models::ExtraProps;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// Common interface for graph stores
 #[allow(dead_code)] // Trait defines public API surface; not all methods called in binary
 pub trait GraphQuery: Send + Sync {
+    /// Access the string interner for resolving StrKey -> &str.
+    fn interner(&self) -> &StringInterner;
+
+    /// Get extra (cold) properties for a node by its qualified_name StrKey.
+    fn extra_props(&self, qn: StrKey) -> Option<ExtraProps>;
+
     /// Get all functions
     fn get_functions(&self) -> Vec<CodeNode>;
 
@@ -56,18 +64,18 @@ pub trait GraphQuery: Send + Sync {
     fn call_fan_out(&self, qn: &str) -> usize;
 
     /// Get all call edges
-    fn get_calls(&self) -> Vec<(String, String)>;
+    fn get_calls(&self) -> Vec<(StrKey, StrKey)>;
 
-    /// Get all call edges as shared Arc — avoids cloning 296K+ (String, String) pairs.
-    fn get_calls_shared(&self) -> Arc<[(String, String)]> {
+    /// Get all call edges as shared Arc — avoids cloning 296K+ (StrKey, StrKey) pairs.
+    fn get_calls_shared(&self) -> Arc<[(StrKey, StrKey)]> {
         Arc::from(self.get_calls())
     }
 
     /// Get all import edges
-    fn get_imports(&self) -> Vec<(String, String)>;
+    fn get_imports(&self) -> Vec<(StrKey, StrKey)>;
 
     /// Get inheritance edges
-    fn get_inheritance(&self) -> Vec<(String, String)>;
+    fn get_inheritance(&self) -> Vec<(StrKey, StrKey)>;
 
     /// Get child classes
     fn get_child_classes(&self, qn: &str) -> Vec<CodeNode>;
@@ -121,9 +129,11 @@ pub trait GraphQuery: Send + Sync {
     /// CachedGraphQuery overrides with a zero-copy implementation that resolves
     /// caller indices directly from the cached functions Arc.
     fn caller_file_spread(&self, qn: &str) -> usize {
+        let i = self.interner();
         let callers = self.get_callers(qn);
-        let files: std::collections::HashSet<&str> =
-            callers.iter().map(|c| c.file_path.as_str()).collect();
+        let files: std::collections::HashSet<StrKey> =
+            callers.iter().map(|c| c.file_path).collect();
+        let _ = i; // interner available if needed for resolution
         files.len()
     }
 
@@ -139,11 +149,12 @@ pub trait GraphQuery: Send + Sync {
         class_start: u32,
         class_end: u32,
     ) -> usize {
+        let i = self.interner();
         let callers = self.get_callers(qn);
         callers
             .iter()
             .filter(|c| {
-                c.file_path != class_file
+                i.resolve(c.file_path) != class_file
                     || c.line_start < class_start
                     || c.line_end > class_end
             })
@@ -152,11 +163,12 @@ pub trait GraphQuery: Send + Sync {
 
     /// Count unique modules (parent directories) of callers — avoids cloning full CodeNodes.
     fn caller_module_spread(&self, qn: &str) -> usize {
+        let i = self.interner();
         let callers = self.get_callers(qn);
         let modules: std::collections::HashSet<&str> = callers
             .iter()
             .map(|c| {
-                std::path::Path::new(&c.file_path)
+                std::path::Path::new(i.resolve(c.file_path))
                     .parent()
                     .and_then(|p| p.to_str())
                     .unwrap_or("root")
@@ -169,28 +181,25 @@ pub trait GraphQuery: Send + Sync {
     ///
     /// Returns index-based maps where indices correspond to positions in `get_functions()`.
     /// GraphStore overrides this to iterate petgraph edges directly, avoiding
-    /// the 12.5M+ (String, String) allocation from `get_calls()`.
+    /// the 12.5M+ (StrKey, StrKey) allocation from `get_calls()`.
     fn build_call_maps_raw(
         &self,
     ) -> (
-        HashMap<String, usize>,
+        HashMap<StrKey, usize>,
         HashMap<usize, Vec<usize>>,
         HashMap<usize, Vec<usize>>,
     ) {
         let functions = self.get_functions();
         let calls = self.get_calls();
-        let qn_to_idx: HashMap<String, usize> = functions
+        let qn_to_idx: HashMap<StrKey, usize> = functions
             .iter()
             .enumerate()
-            .map(|(i, f)| (f.qualified_name.clone(), i))
+            .map(|(i, f)| (f.qualified_name, i))
             .collect();
         let mut callers: HashMap<usize, Vec<usize>> = HashMap::new();
         let mut callees: HashMap<usize, Vec<usize>> = HashMap::new();
         for (caller, callee) in &calls {
-            if let (Some(&from), Some(&to)) = (
-                qn_to_idx.get(caller.as_str()),
-                qn_to_idx.get(callee.as_str()),
-            ) {
+            if let (Some(&from), Some(&to)) = (qn_to_idx.get(caller), qn_to_idx.get(callee)) {
                 callers.entry(to).or_default().push(from);
                 callees.entry(from).or_default().push(to);
             }
@@ -202,21 +211,21 @@ pub trait GraphQuery: Send + Sync {
     ///
     /// Indices correspond to positions in `get_functions()`.
     /// CachedGraphQuery overrides this to reuse pre-built index maps,
-    /// avoiding cloning millions of String pairs from `get_calls()`.
-    fn get_call_adjacency(&self) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, HashMap<String, usize>) {
+    /// avoiding cloning millions of (StrKey, StrKey) pairs from `get_calls()`.
+    fn get_call_adjacency(&self) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, HashMap<StrKey, usize>) {
         let functions = self.get_functions();
         let calls = self.get_calls();
-        let qn_to_idx: HashMap<String, usize> = functions
+        let qn_to_idx: HashMap<StrKey, usize> = functions
             .iter()
             .enumerate()
-            .map(|(i, f)| (f.qualified_name.clone(), i))
+            .map(|(i, f)| (f.qualified_name, i))
             .collect();
         let n = functions.len();
         let mut adj = vec![vec![]; n];
         let mut rev_adj = vec![vec![]; n];
         for (caller, callee) in &calls {
             if let (Some(&from), Some(&to)) =
-                (qn_to_idx.get(caller.as_str()), qn_to_idx.get(callee.as_str()))
+                (qn_to_idx.get(caller), qn_to_idx.get(callee))
             {
                 adj[from].push(to);
                 rev_adj[to].push(from);

@@ -13,11 +13,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock, RwLock};
 
+use super::interner::StrKey;
+use super::store_models::ExtraProps;
 pub use super::store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 
 /// Call maps cache type: (qn_to_idx, callers_by_idx, callees_by_idx)
 type CallMapsRaw = (
-    HashMap<String, usize>,
+    HashMap<StrKey, usize>,
     HashMap<usize, Vec<usize>>,
     HashMap<usize, Vec<usize>>,
 );
@@ -27,22 +29,24 @@ pub struct GraphStore {
     /// In-memory graph
     graph: RwLock<StableGraph<CodeNode, CodeEdge>>,
     /// Node lookup by qualified name — DashMap for lock-free concurrent reads
-    node_index: DashMap<String, NodeIndex>,
+    node_index: DashMap<StrKey, NodeIndex>,
     /// Spatial index: file_path → [(line_start, line_end, NodeIndex)] for O(1) function lookup.
     /// Populated during add_node/add_nodes_batch for Function nodes.
-    function_spatial_index: DashMap<String, Vec<(u32, u32, NodeIndex)>>,
+    function_spatial_index: DashMap<StrKey, Vec<(u32, u32, NodeIndex)>>,
     /// File-scoped function index: file_path → [NodeIndex] for O(1) get_functions_in_file().
-    file_functions_index: DashMap<String, Vec<NodeIndex>>,
+    file_functions_index: DashMap<StrKey, Vec<NodeIndex>>,
     /// File-scoped class index: file_path → [NodeIndex] for O(1) get_classes_in_file().
-    file_classes_index: DashMap<String, Vec<NodeIndex>>,
+    file_classes_index: DashMap<StrKey, Vec<NodeIndex>>,
     /// Reverse index: file_path → all NodeIndexes belonging to that file.
     /// Used for delta patching (removing a file's entities from the graph).
-    file_all_nodes_index: DashMap<String, Vec<NodeIndex>>,
+    file_all_nodes_index: DashMap<StrKey, Vec<NodeIndex>>,
     /// Cached graph metrics from detectors, reusable by scoring phase.
     /// Key format: "metric_name:entity_qn" (e.g., "degree_centrality:module.Class")
     metrics_cache: DashMap<String, f64>,
     /// String interner for memory-efficient qualified name storage
-    interner: super::interner::StringInterner,
+    pub interner: super::interner::StringInterner,
+    /// Extra (cold) properties stored per qualified_name StrKey
+    extra_props: DashMap<StrKey, ExtraProps>,
     /// Persistent edge dedup set: prevents duplicate (from, to, kind) edges across batches.
     /// O(1) lookup instead of O(degree) graph scan per insertion.
     edge_set: Mutex<HashSet<(NodeIndex, NodeIndex, EdgeKind)>>,
@@ -81,6 +85,7 @@ impl GraphStore {
             file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
+            extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
             call_maps_cache: OnceLock::new(),
             db: Some(db),
@@ -110,6 +115,7 @@ impl GraphStore {
             file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
+            extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
             call_maps_cache: OnceLock::new(),
             db: Some(db),
@@ -129,6 +135,7 @@ impl GraphStore {
             file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
+            extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
             call_maps_cache: OnceLock::new(),
             db: None,
@@ -215,6 +222,7 @@ impl GraphStore {
         self.file_classes_index.clear();
         self.file_all_nodes_index.clear();
         self.metrics_cache.clear();
+        self.extra_props.clear();
 
         if let Some(ref db) = self.db {
             let write_txn = db.begin_write()?;
@@ -231,14 +239,14 @@ impl GraphStore {
 
     /// Add a node to the graph
     pub fn add_node(&self, node: CodeNode) -> NodeIndex {
-        let qn = node.qualified_name.clone();
-        let node_file_path = node.file_path.clone();
+        let qn = node.qualified_name;
+        let node_file_path = node.file_path;
         let is_function = node.kind == NodeKind::Function;
-        let file_path = if is_function { Some(node.file_path.clone()) } else { None };
+        let file_path = if is_function { Some(node.file_path) } else { None };
         let line_start = node.line_start;
         let line_end = node.line_end;
         let is_class = node.kind == NodeKind::Class;
-        let class_file_path = if is_class { Some(node.file_path.clone()) } else { None };
+        let class_file_path = if is_class { Some(node.file_path) } else { None };
 
         // Check if node already exists — read DashMap before acquiring graph write lock
         if let Some(idx_ref) = self.node_index.get(&qn) {
@@ -269,7 +277,7 @@ impl GraphStore {
         if is_function {
             if let Some(fp) = file_path {
                 self.function_spatial_index
-                    .entry(fp.clone())
+                    .entry(fp)
                     .or_default()
                     .push((line_start, line_end, idx));
                 self.file_functions_index
@@ -300,14 +308,14 @@ impl GraphStore {
         let mut indices = Vec::with_capacity(nodes.len());
 
         for node in nodes {
-            let qn = node.qualified_name.clone();
-            let node_file_path = node.file_path.clone();
+            let qn = node.qualified_name;
+            let node_file_path = node.file_path;
             let is_function = node.kind == NodeKind::Function;
-            let file_path = if is_function { Some(node.file_path.clone()) } else { None };
+            let file_path = if is_function { Some(node.file_path) } else { None };
             let line_start = node.line_start;
             let line_end = node.line_end;
             let is_class = node.kind == NodeKind::Class;
-            let class_file_path = if is_class { Some(node.file_path.clone()) } else { None };
+            let class_file_path = if is_class { Some(node.file_path) } else { None };
 
             if let Some(idx_ref) = self.node_index.get(&qn) {
                 let idx = *idx_ref;
@@ -324,7 +332,7 @@ impl GraphStore {
                 if is_function {
                     if let Some(fp) = file_path {
                         self.function_spatial_index
-                            .entry(fp.clone())
+                            .entry(fp)
                             .or_default()
                             .push((line_start, line_end, idx));
                         self.file_functions_index
@@ -353,7 +361,7 @@ impl GraphStore {
         indices
     }
 
-    /// Add nodes and create Contains edges (file → function/class) in one operation.
+    /// Add nodes and create Contains edges (file -> function/class) in one operation.
     /// This avoids buffering 84K+ (String, String, CodeEdge) tuples for Contains edges
     /// that are always intra-file and always resolved.
     pub fn add_nodes_batch_with_contains(
@@ -365,17 +373,18 @@ impl GraphStore {
         let mut indices = Vec::with_capacity(nodes.len());
 
         // Resolve file node index (should already exist from a prior add_nodes_batch call)
-        let file_idx = self.node_index.get(file_qn).map(|r| *r);
+        let file_qn_key = self.interner.intern(file_qn);
+        let file_idx = self.node_index.get(&file_qn_key).map(|r| *r);
 
         for node in nodes {
-            let qn = node.qualified_name.clone();
-            let node_file_path = node.file_path.clone();
+            let qn = node.qualified_name;
+            let node_file_path = node.file_path;
             let is_function = node.kind == NodeKind::Function;
-            let file_path = if is_function { Some(node.file_path.clone()) } else { None };
+            let file_path = if is_function { Some(node.file_path) } else { None };
             let line_start = node.line_start;
             let line_end = node.line_end;
             let is_class = node.kind == NodeKind::Class;
-            let class_file_path = if is_class { Some(node.file_path.clone()) } else { None };
+            let class_file_path = if is_class { Some(node.file_path) } else { None };
             let needs_contains = is_function || is_class;
 
             if let Some(idx_ref) = self.node_index.get(&qn) {
@@ -393,7 +402,7 @@ impl GraphStore {
                 if is_function {
                     if let Some(fp) = file_path {
                         self.function_spatial_index
-                            .entry(fp.clone())
+                            .entry(fp)
                             .or_default()
                             .push((line_start, line_end, idx));
                         self.file_functions_index
@@ -415,7 +424,7 @@ impl GraphStore {
                 // Populate file_all_nodes_index for delta patching
                 self.file_all_nodes_index.entry(node_file_path).or_default().push(idx);
 
-                // Add Contains edge: file → function/class (in same write lock)
+                // Add Contains edge: file -> function/class (in same write lock)
                 if needs_contains {
                     if let Some(f_idx) = file_idx {
                         let mut set = self.edge_set.lock().expect("edge_set lock");
@@ -434,14 +443,16 @@ impl GraphStore {
 
     /// Get node index by qualified name
     pub fn get_node_index(&self, qn: &str) -> Option<NodeIndex> {
-        self.node_index.get(qn).map(|r| *r)
+        let key = self.interner.intern(qn);
+        self.node_index.get(&key).map(|r| *r)
     }
 
     /// Get node by qualified name
     pub fn get_node(&self, qn: &str) -> Option<CodeNode> {
-        let idx = self.node_index.get(qn).map(|r| *r)?;
+        let key = self.interner.intern(qn);
+        let idx = self.node_index.get(&key).map(|r| *r)?;
         let graph = self.read_graph();
-        graph.node_weight(idx).cloned()
+        graph.node_weight(idx).copied()
     }
 
     /// Update a node's property
@@ -451,14 +462,38 @@ impl GraphStore {
         key: &str,
         value: impl Into<serde_json::Value>,
     ) -> bool {
+        let intern_qn = self.interner.intern(qn);
         // Read DashMap index first, then acquire graph write lock
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let idx = match self.node_index.get(&intern_qn).map(|r| *r) {
             Some(idx) => idx,
             None => return false,
         };
+        let val: serde_json::Value = value.into();
         let mut graph = self.write_graph();
         if let Some(node) = graph.node_weight_mut(idx) {
-            node.set_property(key, value);
+            match key {
+                "complexity" => node.complexity = val.as_i64().unwrap_or(0) as u16,
+                "paramCount" => node.param_count = val.as_i64().unwrap_or(0) as u8,
+                "methodCount" => node.method_count = val.as_i64().unwrap_or(0) as u16,
+                "maxNesting" | "nesting_depth" => node.max_nesting = val.as_i64().unwrap_or(0) as u8,
+                "returnCount" => node.return_count = val.as_i64().unwrap_or(0) as u8,
+                "commit_count" => node.commit_count = val.as_i64().unwrap_or(0) as u16,
+                "is_async" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_ASYNC); },
+                "is_exported" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_EXPORTED); },
+                "is_public" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_PUBLIC); },
+                "is_method" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_METHOD); },
+                "address_taken" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_ADDRESS_TAKEN); },
+                "has_decorators" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_HAS_DECORATORS); },
+                "author" => if let Some(s) = val.as_str() {
+                    let mut ep = self.extra_props.entry(intern_qn).or_default();
+                    ep.author = Some(self.interner.intern(s));
+                },
+                "last_modified" => if let Some(s) = val.as_str() {
+                    let mut ep = self.extra_props.entry(intern_qn).or_default();
+                    ep.last_modified = Some(self.interner.intern(s));
+                },
+                _ => {}
+            }
             return true;
         }
         false
@@ -466,15 +501,44 @@ impl GraphStore {
 
     /// Update multiple properties on a node
     pub fn update_node_properties(&self, qn: &str, props: &[(&str, serde_json::Value)]) -> bool {
+        let intern_qn = self.interner.intern(qn);
         // Read DashMap index first, then acquire graph write lock
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let idx = match self.node_index.get(&intern_qn).map(|r| *r) {
             Some(idx) => idx,
             None => return false,
         };
         let mut graph = self.write_graph();
         if let Some(node) = graph.node_weight_mut(idx) {
+            let mut extras = ExtraProps::default();
+            let mut has_extras = false;
             for (key, value) in props {
-                node.set_property(key, value.clone());
+                match *key {
+                    "complexity" => node.complexity = value.as_i64().unwrap_or(0) as u16,
+                    "paramCount" => node.param_count = value.as_i64().unwrap_or(0) as u8,
+                    "methodCount" => node.method_count = value.as_i64().unwrap_or(0) as u16,
+                    "maxNesting" | "nesting_depth" => node.max_nesting = value.as_i64().unwrap_or(0) as u8,
+                    "returnCount" => node.return_count = value.as_i64().unwrap_or(0) as u8,
+                    "commit_count" => node.commit_count = value.as_i64().unwrap_or(0) as u16,
+                    "is_async" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_ASYNC); },
+                    "is_exported" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_EXPORTED); },
+                    "is_public" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_PUBLIC); },
+                    "is_method" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_METHOD); },
+                    "address_taken" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_ADDRESS_TAKEN); },
+                    "has_decorators" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_HAS_DECORATORS); },
+                    "author" => if let Some(s) = value.as_str() {
+                        extras.author = Some(self.interner.intern(s));
+                        has_extras = true;
+                    },
+                    "last_modified" => if let Some(s) = value.as_str() {
+                        extras.last_modified = Some(self.interner.intern(s));
+                        has_extras = true;
+                    },
+                    _ => {}
+                }
+            }
+            if has_extras {
+                drop(graph);
+                self.extra_props.insert(intern_qn, extras);
             }
             return true;
         }
@@ -488,7 +552,7 @@ impl GraphStore {
         let mut nodes: Vec<CodeNode> = graph
             .node_weights()
             .filter(|n| n.kind == kind)
-            .cloned()
+            .copied()
             .collect();
         nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         nodes
@@ -512,10 +576,11 @@ impl GraphStore {
     /// Get functions in a specific file. O(1) DashMap lookup + O(K) node reads
     /// where K = number of functions in the file (typically <30).
     pub fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-        if let Some(indices) = self.file_functions_index.get(file_path) {
+        let key = self.interner.intern(file_path);
+        if let Some(indices) = self.file_functions_index.get(&key) {
             let graph = self.read_graph();
             indices.value().iter()
-                .filter_map(|&idx| graph.node_weight(idx).cloned())
+                .filter_map(|&idx| graph.node_weight(idx).copied())
                 .collect()
         } else {
             vec![]
@@ -525,11 +590,12 @@ impl GraphStore {
     /// Find the function containing a specific line in a file. O(1) DashMap lookup +
     /// O(N) scan of functions in that file (typically <30 functions per file).
     pub fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
-        let entries = self.function_spatial_index.get(file_path)?;
+        let key = self.interner.intern(file_path);
+        let entries = self.function_spatial_index.get(&key)?;
         let graph = self.read_graph();
         for &(start, end, idx) in entries.value() {
             if start <= line && end >= line {
-                return graph.node_weight(idx).cloned();
+                return graph.node_weight(idx).copied();
             }
         }
         None
@@ -538,10 +604,11 @@ impl GraphStore {
     /// Get classes in a specific file. O(1) DashMap lookup + O(K) node reads
     /// where K = number of classes in the file (typically <10).
     pub fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-        if let Some(indices) = self.file_classes_index.get(file_path) {
+        let key = self.interner.intern(file_path);
+        if let Some(indices) = self.file_classes_index.get(&key) {
             let graph = self.read_graph();
             indices.value().iter()
-                .filter_map(|&idx| graph.node_weight(idx).cloned())
+                .filter_map(|&idx| graph.node_weight(idx).copied())
                 .collect()
         } else {
             vec![]
@@ -557,7 +624,7 @@ impl GraphStore {
             .filter(|n| {
                 n.kind == NodeKind::Function && n.complexity().is_some_and(|c| c >= min_complexity)
             })
-            .cloned()
+            .copied()
             .collect();
         nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         nodes
@@ -572,7 +639,7 @@ impl GraphStore {
             .filter(|n| {
                 n.kind == NodeKind::Function && n.param_count().is_some_and(|p| p >= min_params)
             })
-            .cloned()
+            .copied()
             .collect();
         nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         nodes
@@ -593,8 +660,10 @@ impl GraphStore {
 
     /// Add edge by qualified names (returns false if either node doesn't exist)
     pub fn add_edge_by_name(&self, from_qn: &str, to_qn: &str, edge: CodeEdge) -> bool {
-        let from = self.node_index.get(from_qn).map(|r| *r);
-        let to = self.node_index.get(to_qn).map(|r| *r);
+        let from_key = self.interner.intern(from_qn);
+        let to_key = self.interner.intern(to_qn);
+        let from = self.node_index.get(&from_key).map(|r| *r);
+        let to = self.node_index.get(&to_key).map(|r| *r);
 
         if let (Some(from), Some(to)) = (from, to) {
             self.add_edge(from, to, edge);
@@ -610,8 +679,10 @@ impl GraphStore {
         let resolved: Vec<_> = edges
             .into_iter()
             .filter_map(|(from_qn, to_qn, edge)| {
-                let from = self.node_index.get(&from_qn).map(|r| *r)?;
-                let to = self.node_index.get(&to_qn).map(|r| *r)?;
+                let from_key = self.interner.intern(&from_qn);
+                let to_key = self.interner.intern(&to_qn);
+                let from = self.node_index.get(&from_key).map(|r| *r)?;
+                let to = self.node_index.get(&to_key).map(|r| *r)?;
                 Some((from, to, edge))
             })
             .collect();
@@ -638,17 +709,17 @@ impl GraphStore {
         added
     }
 
-    /// Get all edges of a specific kind as (source_qn, target_qn) pairs (sorted for determinism)
-    pub fn get_edges_by_kind(&self, kind: EdgeKind) -> Vec<(String, String)> {
+    /// Get all edges of a specific kind as (source_qn, target_qn) StrKey pairs (sorted for determinism)
+    pub fn get_edges_by_kind(&self, kind: EdgeKind) -> Vec<(StrKey, StrKey)> {
         let graph = self.read_graph();
 
-        let mut edges: Vec<(String, String)> = graph
+        let mut edges: Vec<(StrKey, StrKey)> = graph
             .edge_references()
             .filter(|e| e.weight().kind == kind)
             .filter_map(|e| {
                 let src = graph.node_weight(e.source())?;
                 let dst = graph.node_weight(e.target())?;
-                Some((src.qualified_name.clone(), dst.qualified_name.clone()))
+                Some((src.qualified_name, dst.qualified_name))
             })
             .collect();
         edges.sort();
@@ -657,13 +728,13 @@ impl GraphStore {
 
     /// Build call maps directly from petgraph, avoiding 12.5M+ (String, String) allocation.
     ///
-    /// Iterates petgraph edges once, resolving NodeIndex → function list index
+    /// Iterates petgraph edges once, resolving NodeIndex -> function list index
     /// via an intermediate HashMap. No String allocation for edge data.
     /// Function ordering matches get_functions() (sorted by qualified_name).
     pub fn build_call_maps_raw(
         &self,
     ) -> (
-        HashMap<String, usize>,
+        HashMap<StrKey, usize>,
         HashMap<usize, Vec<usize>>,
         HashMap<usize, Vec<usize>>,
     ) {
@@ -691,18 +762,18 @@ impl GraphStore {
         // Sort by qualified_name to match get_functions() ordering
         funcs_pg.sort_by(|a, b| a.1.qualified_name.cmp(&b.1.qualified_name));
 
-        // petgraph NodeIndex → function list position
+        // petgraph NodeIndex -> function list position
         let pg_to_func: HashMap<NodeIndex, usize> = funcs_pg
             .iter()
             .enumerate()
             .map(|(i, (pg_idx, _))| (*pg_idx, i))
             .collect();
 
-        // qn → function list index
-        let qn_to_idx: HashMap<String, usize> = funcs_pg
+        // qn -> function list index
+        let qn_to_idx: HashMap<StrKey, usize> = funcs_pg
             .iter()
             .enumerate()
-            .map(|(i, (_, node))| (node.qualified_name.clone(), i))
+            .map(|(i, (_, node))| (node.qualified_name, i))
             .collect();
 
         // Build callers/callees from call edges — zero String allocation
@@ -729,6 +800,7 @@ impl GraphStore {
 
     /// Get all edges in the graph as (source_qn, dest_qn, edge_kind) tuples.
     /// Results are sorted for deterministic comparison in tests.
+    /// Returns resolved strings for output/test compatibility.
     pub fn get_all_edges(&self) -> Vec<(String, String, EdgeKind)> {
         let graph = self.read_graph();
         let mut edges: Vec<_> = graph
@@ -737,8 +809,8 @@ impl GraphStore {
                 let src_node = graph.node_weight(e.source())?;
                 let dst_node = graph.node_weight(e.target())?;
                 Some((
-                    src_node.qualified_name.clone(),
-                    dst_node.qualified_name.clone(),
+                    self.interner.resolve(src_node.qualified_name).to_string(),
+                    self.interner.resolve(dst_node.qualified_name).to_string(),
                     e.weight().kind,
                 ))
             })
@@ -761,8 +833,10 @@ impl GraphStore {
             }
             total += 1;
             if let (Some(src), Some(dst)) = (graph.node_weight(e.source()), graph.node_weight(e.target())) {
-                let src_mod = std::path::Path::new(&src.file_path).parent();
-                let dst_mod = std::path::Path::new(&dst.file_path).parent();
+                let src_path = self.interner.resolve(src.file_path);
+                let dst_path = self.interner.resolve(dst.file_path);
+                let src_mod = std::path::Path::new(src_path).parent();
+                let dst_mod = std::path::Path::new(dst_path).parent();
                 if src_mod != dst_mod {
                     cross_module += 1;
                 }
@@ -772,23 +846,24 @@ impl GraphStore {
     }
 
     /// Get all import edges (file -> file)
-    pub fn get_imports(&self) -> Vec<(String, String)> {
+    pub fn get_imports(&self) -> Vec<(StrKey, StrKey)> {
         self.get_edges_by_kind(EdgeKind::Imports)
     }
 
     /// Get all call edges (function -> function)
-    pub fn get_calls(&self) -> Vec<(String, String)> {
+    pub fn get_calls(&self) -> Vec<(StrKey, StrKey)> {
         self.get_edges_by_kind(EdgeKind::Calls)
     }
 
     /// Get all inheritance edges (child -> parent)
-    pub fn get_inheritance(&self) -> Vec<(String, String)> {
+    pub fn get_inheritance(&self) -> Vec<(StrKey, StrKey)> {
         self.get_edges_by_kind(EdgeKind::Inherits)
     }
 
     /// Get callers of a function (who calls this?) — sorted by qualified_name for determinism
     pub fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
@@ -796,7 +871,7 @@ impl GraphStore {
         let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Incoming)
             .filter(|e| e.weight().kind == EdgeKind::Calls)
-            .filter_map(|e| graph.node_weight(e.source()).cloned())
+            .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
         nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         nodes
@@ -804,7 +879,8 @@ impl GraphStore {
 
     /// Get callees of a function (what does this call?) — sorted by qualified_name for determinism
     pub fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
@@ -812,7 +888,7 @@ impl GraphStore {
         let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Outgoing)
             .filter(|e| e.weight().kind == EdgeKind::Calls)
-            .filter_map(|e| graph.node_weight(e.target()).cloned())
+            .filter_map(|e| graph.node_weight(e.target()).copied())
             .collect();
         nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         nodes
@@ -820,7 +896,8 @@ impl GraphStore {
 
     /// Get importers of a module/class (who imports this?) — sorted by qualified_name for determinism
     pub fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
@@ -828,7 +905,7 @@ impl GraphStore {
         let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Incoming)
             .filter(|e| e.weight().kind == EdgeKind::Imports)
-            .filter_map(|e| graph.node_weight(e.source()).cloned())
+            .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
         nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         nodes
@@ -836,7 +913,8 @@ impl GraphStore {
 
     /// Get parent classes (what does this inherit from?) — sorted by qualified_name for determinism
     pub fn get_parent_classes(&self, qn: &str) -> Vec<CodeNode> {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
@@ -844,7 +922,7 @@ impl GraphStore {
         let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Outgoing)
             .filter(|e| e.weight().kind == EdgeKind::Inherits)
-            .filter_map(|e| graph.node_weight(e.target()).cloned())
+            .filter_map(|e| graph.node_weight(e.target()).copied())
             .collect();
         nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         nodes
@@ -852,7 +930,8 @@ impl GraphStore {
 
     /// Get child classes (what inherits from this?) — sorted by qualified_name for determinism
     pub fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
         };
@@ -860,7 +939,7 @@ impl GraphStore {
         let mut nodes: Vec<CodeNode> = graph
             .edges_directed(idx, Direction::Incoming)
             .filter(|e| e.weight().kind == EdgeKind::Inherits)
-            .filter_map(|e| graph.node_weight(e.source()).cloned())
+            .filter_map(|e| graph.node_weight(e.source()).copied())
             .collect();
         nodes.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         nodes
@@ -870,7 +949,8 @@ impl GraphStore {
 
     /// Get in-degree (fan-in) for a node
     pub fn fan_in(&self, qn: &str) -> usize {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return 0,
         };
@@ -880,7 +960,8 @@ impl GraphStore {
 
     /// Get out-degree (fan-out) for a node
     pub fn fan_out(&self, qn: &str) -> usize {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return 0,
         };
@@ -890,7 +971,8 @@ impl GraphStore {
 
     /// Get call fan-in (how many functions call this?)
     pub fn call_fan_in(&self, qn: &str) -> usize {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return 0,
         };
@@ -903,7 +985,8 @@ impl GraphStore {
 
     /// Get call fan-out (how many functions does this call?)
     pub fn call_fan_out(&self, qn: &str) -> usize {
-        let idx = match self.node_index.get(qn).map(|r| *r) {
+        let key = self.interner.intern(qn);
+        let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return 0,
         };
@@ -994,11 +1077,8 @@ impl GraphStore {
                     return false;
                 }
                 // Skip type-only imports
-                if edge_kind == EdgeKind::Imports {
-                    let is_type_only = e.weight().properties.get("is_type_only")
-                        .map(|v| v.as_bool().unwrap_or(false) || v == "true")
-                        .unwrap_or(false);
-                    if is_type_only { return false; }
+                if edge_kind == EdgeKind::Imports && e.weight().is_type_only() {
+                    return false;
                 }
                 true
             })
@@ -1021,11 +1101,8 @@ impl GraphStore {
                 continue;
             }
             // Skip type-only imports
-            if edge_kind == EdgeKind::Imports {
-                let is_type_only = edge.weight().properties.get("is_type_only")
-                    .map(|v| v.as_bool().unwrap_or(false) || v == "true")
-                    .unwrap_or(false);
-                if is_type_only { continue; }
+            if edge_kind == EdgeKind::Imports && edge.weight().is_type_only() {
+                continue;
             }
 
             if let (Some(&from), Some(&to)) =
@@ -1048,7 +1125,7 @@ impl GraphStore {
                     .iter()
                     .filter_map(|&filtered_idx| reverse_map.get(&filtered_idx))
                     .filter_map(|&orig_idx| graph.node_weight(orig_idx))
-                    .map(|n| n.qualified_name.clone())
+                    .map(|n| self.interner.resolve(n.qualified_name).to_string())
                     .collect();
 
                 // Sort for consistent ordering and deduplication
@@ -1071,7 +1148,8 @@ impl GraphStore {
     ///
     /// This is useful when you want to show the shortest cycle involving a particular file.
     pub fn find_minimal_cycle(&self, start_qn: &str, edge_kind: EdgeKind) -> Option<Vec<String>> {
-        let start_idx = self.node_index.get(start_qn).map(|r| *r)?;
+        let start_key = self.interner.intern(start_qn);
+        let start_idx = self.node_index.get(&start_key).map(|r| *r)?;
         let graph = self.read_graph();
 
         // BFS to find shortest cycle back to start
@@ -1088,14 +1166,7 @@ impl GraphStore {
                 }
 
                 // Skip type-only imports
-                let is_type_only_import = edge_kind == EdgeKind::Imports
-                    && edge
-                        .weight()
-                        .properties
-                        .get("is_type_only")
-                        .map(|v| v.as_bool().unwrap_or(false) || v == "true")
-                        .unwrap_or(false);
-                if is_type_only_import {
+                if edge_kind == EdgeKind::Imports && edge.weight().is_type_only() {
                     continue;
                 }
 
@@ -1106,7 +1177,7 @@ impl GraphStore {
                     return Some(
                         path.iter()
                             .filter_map(|&idx| graph.node_weight(idx))
-                            .map(|n| n.qualified_name.clone())
+                            .map(|n| self.interner.resolve(n.qualified_name).to_string())
                             .collect(),
                     );
                 }
@@ -1140,22 +1211,40 @@ impl GraphStore {
             // Clear and rebuild nodes table
             let mut table = write_txn.open_table(NODES_TABLE)?;
 
-            // Save nodes
+            // Save nodes — resolve StrKeys to strings for serialization
             for node in graph.node_weights() {
-                let key = format!("node:{}", node.qualified_name);
-                let value = serde_json::to_vec(node)?;
+                let qn_str = self.interner.resolve(node.qualified_name);
+                let key = format!("node:{}", qn_str);
+                // Serialize as intermediate JSON with resolved strings
+                let node_data = serde_json::json!({
+                    "kind": node.kind,
+                    "name": self.interner.resolve(node.name),
+                    "qualified_name": qn_str,
+                    "file_path": self.interner.resolve(node.file_path),
+                    "language": self.interner.resolve(node.language),
+                    "line_start": node.line_start,
+                    "line_end": node.line_end,
+                    "complexity": node.complexity,
+                    "param_count": node.param_count,
+                    "method_count": node.method_count,
+                    "max_nesting": node.max_nesting,
+                    "return_count": node.return_count,
+                    "commit_count": node.commit_count,
+                    "flags": node.flags,
+                });
+                let value = serde_json::to_vec(&node_data)?;
                 table.insert(key.as_str(), value.as_slice())?;
             }
 
-            // Save edges as a single entry
+            // Save edges as a single entry — resolve StrKeys for serialization
             let edges: Vec<_> = graph
                 .edge_references()
                 .filter_map(|e| {
                     let src = graph.node_weight(e.source())?;
                     let dst = graph.node_weight(e.target())?;
                     Some((
-                        src.qualified_name.clone(),
-                        dst.qualified_name.clone(),
+                        self.interner.resolve(src.qualified_name).to_string(),
+                        self.interner.resolve(dst.qualified_name).to_string(),
                         e.weight().clone(),
                     ))
                 })
@@ -1189,13 +1278,30 @@ impl GraphStore {
 
         let mut graph = self.write_graph();
 
-        // Load nodes
+        // Load nodes — intern strings from serialized data
         for item in nodes_table.range::<&str>(..)? {
             let (key, value) = item?;
             let key_str = key.value();
             if key_str.starts_with("node:") {
-                let node: CodeNode = serde_json::from_slice(value.value())?;
-                let qn = node.qualified_name.clone();
+                let data: serde_json::Value = serde_json::from_slice(value.value())?;
+                let kind: NodeKind = serde_json::from_value(data["kind"].clone())?;
+                let empty_key = self.interner.empty_key();
+                let mut node = CodeNode::empty(kind, empty_key);
+                node.name = self.interner.intern(data["name"].as_str().unwrap_or(""));
+                node.qualified_name = self.interner.intern(data["qualified_name"].as_str().unwrap_or(""));
+                node.file_path = self.interner.intern(data["file_path"].as_str().unwrap_or(""));
+                node.language = self.interner.intern(data["language"].as_str().unwrap_or(""));
+                node.line_start = data["line_start"].as_u64().unwrap_or(0) as u32;
+                node.line_end = data["line_end"].as_u64().unwrap_or(0) as u32;
+                node.complexity = data["complexity"].as_u64().unwrap_or(0) as u16;
+                node.param_count = data["param_count"].as_u64().unwrap_or(0) as u8;
+                node.method_count = data["method_count"].as_u64().unwrap_or(0) as u16;
+                node.max_nesting = data["max_nesting"].as_u64().unwrap_or(0) as u8;
+                node.return_count = data["return_count"].as_u64().unwrap_or(0) as u8;
+                node.commit_count = data["commit_count"].as_u64().unwrap_or(0) as u16;
+                node.flags = data["flags"].as_u64().unwrap_or(0) as u8;
+
+                let qn = node.qualified_name;
                 let idx = graph.add_node(node);
                 self.node_index.insert(qn, idx);
             }
@@ -1213,8 +1319,10 @@ impl GraphStore {
                 serde_json::from_slice(edges_entry.value())?;
             let mut set = self.edge_set.lock().expect("edge_set lock poisoned");
             for (src_qn, dst_qn, edge) in edges {
-                let src = self.node_index.get(&src_qn).map(|r| *r);
-                let dst = self.node_index.get(&dst_qn).map(|r| *r);
+                let src_key = self.interner.intern(&src_qn);
+                let dst_key = self.interner.intern(&dst_qn);
+                let src = self.node_index.get(&src_key).map(|r| *r);
+                let dst = self.node_index.get(&dst_key).map(|r| *r);
                 if let (Some(src), Some(dst)) = (src, dst) {
                     set.insert((src, dst, edge.kind));
                     graph.add_edge(src, dst, edge);
@@ -1237,11 +1345,12 @@ impl GraphStore {
 
         for file in files {
             let file_str = file.to_string_lossy();
+            let file_key = self.interner.intern(file_str.as_ref());
 
             // Get all nodes in this file from the reverse index
             let node_idxs: Vec<NodeIndex> = self
                 .file_all_nodes_index
-                .remove(file_str.as_ref())
+                .remove(&file_key)
                 .map(|(_, v)| v)
                 .unwrap_or_default();
 
@@ -1279,9 +1388,9 @@ impl GraphStore {
             }
 
             // Clean up file-scoped indexes
-            self.file_functions_index.remove(file_str.as_ref());
-            self.file_classes_index.remove(file_str.as_ref());
-            self.function_spatial_index.remove(file_str.as_ref());
+            self.file_functions_index.remove(&file_key);
+            self.file_classes_index.remove(&file_key);
+            self.function_spatial_index.remove(&file_key);
         }
     }
 
@@ -1299,11 +1408,12 @@ impl GraphStore {
         let graph_clone = self.read_graph().clone();
 
         // DashMap iteration doesn't hold the graph RwLock
+        // Resolve StrKeys to strings for serialization
         let node_index: HashMap<String, NodeIndex> = self.node_index.iter()
-            .map(|entry| (entry.key().clone(), *entry.value()))
+            .map(|entry| (self.interner.resolve(*entry.key()).to_string(), *entry.value()))
             .collect();
         let file_all_nodes: HashMap<String, Vec<NodeIndex>> = self.file_all_nodes_index.iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .map(|entry| (self.interner.resolve(*entry.key()).to_string(), entry.value().clone()))
             .collect();
 
         let cache = GraphCache {
@@ -1356,6 +1466,7 @@ impl GraphStore {
             file_all_nodes_index: DashMap::new(),
             metrics_cache: DashMap::new(),
             interner: super::interner::StringInterner::new(),
+            extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
             call_maps_cache: OnceLock::new(),
             db: None,
@@ -1363,12 +1474,14 @@ impl GraphStore {
             lazy_mode: false,
         };
 
-        // Rebuild DashMap indexes from cached data
-        for (key, idx) in cache.node_index {
+        // Rebuild DashMap indexes from cached data (intern strings back to StrKeys)
+        for (key_str, idx) in cache.node_index {
+            let key = store.interner.intern(&key_str);
             store.node_index.insert(key, idx);
         }
-        for (file, nodes) in cache.file_all_nodes {
-            store.file_all_nodes_index.insert(file, nodes);
+        for (file_str, nodes) in cache.file_all_nodes {
+            let key = store.interner.intern(&file_str);
+            store.file_all_nodes_index.insert(key, nodes);
         }
 
         // Rebuild file_functions_index, file_classes_index, and spatial_index from graph
@@ -1379,17 +1492,17 @@ impl GraphStore {
                     match node.kind {
                         NodeKind::Function => {
                             store.file_functions_index
-                                .entry(node.file_path.clone())
+                                .entry(node.file_path)
                                 .or_default()
                                 .push(idx);
                             store.function_spatial_index
-                                .entry(node.file_path.clone())
+                                .entry(node.file_path)
                                 .or_default()
                                 .push((node.line_start, node.line_end, idx));
                         }
                         NodeKind::Class => {
                             store.file_classes_index
-                                .entry(node.file_path.clone())
+                                .entry(node.file_path)
                                 .or_default()
                                 .push(idx);
                         }
