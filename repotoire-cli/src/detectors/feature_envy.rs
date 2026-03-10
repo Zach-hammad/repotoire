@@ -574,7 +574,7 @@ impl Detector for FeatureEnvyDetector {
                 let target_module = external_modules.iter().next().cloned().unwrap_or_default();
                 let suggestion = if is_concentrated && !target_module.is_empty() {
                     format!("Consider moving '{}' to the '{}' module where most of its dependencies live", 
-                            func.name, target_module)
+                            func.node_name(i), target_module)
                 } else {
                     "Consider moving this function to the class it uses most".to_string()
                 };
@@ -583,11 +583,11 @@ impl Detector for FeatureEnvyDetector {
                     id: String::new(),
                     detector: "FeatureEnvyDetector".to_string(),
                     severity,
-                    title: format!("Feature Envy: {}", func.name),
+                    title: format!("Feature Envy: {}", func.node_name(i)),
                     description: format!(
                         "Function '{}' calls {} external functions (in {} modules) but only {} internal.\n\n\
                          Primary external dependency: {}",
-                        func.name, external_calls, external_modules.len(), internal_calls,
+                        func.node_name(i), external_calls, external_modules.len(), internal_calls,
                         if is_concentrated { target_module.as_str() } else { "scattered across modules" }
                     ),
                     affected_files: vec![func.path(i).to_string().into()],

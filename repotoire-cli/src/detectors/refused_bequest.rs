@@ -221,7 +221,7 @@ impl RefusedBequestDetector {
                     if callee.qn(i).starts_with(parent_qn) {
                         debug!(
                             "Polymorphic usage: {} calls both {} and parent {}",
-                            caller.name, method.name, parent_qn
+                            caller.node_name(i), method.node_name(i), parent_qn
                         );
                         return true;
                     }
@@ -242,13 +242,14 @@ impl RefusedBequestDetector {
         while let Some((_, parent)) = graph
             .get_inheritance()
             .into_iter()
-            .find(|(child, _)| child == &current)
+            .find(|(child, _)| i.resolve(*child) == current)
         {
-            if seen.contains(&parent) {
+            let parent_str = i.resolve(parent).to_string();
+            if seen.contains(&parent_str) {
                 break; // Avoid cycles
             }
-            seen.insert(parent.clone());
-            current = parent;
+            seen.insert(parent_str.clone());
+            current = parent_str;
             depth += 1;
 
             if depth > 10 {
@@ -276,9 +277,9 @@ impl RefusedBequestDetector {
 
         // For each child method, check if its callers are different from parent's callers
         for child_method in child_methods {
-            let method_name = child_method.name.clone();
+            let method_name = child_method.name;
             let child_callers: HashSet<_> = graph
-                .get_callers(&child_method.qualified_name)
+                .get_callers(child_method.qn(i))
                 .into_iter()
                 .map(|c| c.qualified_name)
                 .collect();
@@ -286,7 +287,7 @@ impl RefusedBequestDetector {
             // Find corresponding parent method
             if let Some(parent_method) = parent_methods.iter().find(|m| m.name == method_name) {
                 let parent_callers: HashSet<_> = graph
-                    .get_callers(&parent_method.qualified_name)
+                    .get_callers(parent_method.qn(i))
                     .into_iter()
                     .map(|c| c.qualified_name)
                     .collect();
@@ -337,7 +338,9 @@ impl Detector for RefusedBequestDetector {
             .map(|c| c.qn(i).to_string())
             .collect();
 
-        for (child_qn, parent_qn) in graph.get_inheritance() {
+        for (child_qn_key, parent_qn_key) in graph.get_inheritance() {
+            let child_qn = i.resolve(child_qn_key);
+            let parent_qn = i.resolve(parent_qn_key);
             // Skip common patterns
             if parent_qn.contains("Base")
                 || parent_qn.contains("Abstract")
@@ -346,12 +349,12 @@ impl Detector for RefusedBequestDetector {
                 continue;
             }
 
-            if let Some(child) = graph.get_node(&child_qn) {
+            if let Some(child) = graph.get_node(child_qn) {
                 // Check if child overrides many methods without calling super
                 let child_methods: Vec<_> = graph
                     .get_functions()
                     .into_iter()
-                    .filter(|f| f.qn(i).starts_with(&child_qn))
+                    .filter(|f| f.qn(i).starts_with(child_qn))
                     .collect();
 
                 if child_methods.len() >= 3 {
@@ -366,14 +369,14 @@ impl Detector for RefusedBequestDetector {
 
                         // Check if child is used polymorphically (someone calls parent type methods on it)
                         let is_polymorphic =
-                            self.check_polymorphic_usage(graph, &child_qn, &parent_qn);
+                            self.check_polymorphic_usage(graph, child_qn, parent_qn);
 
                         // Check inheritance depth (deeper = worse)
-                        let inheritance_depth = self.get_inheritance_depth(graph, &parent_qn);
+                        let inheritance_depth = self.get_inheritance_depth(graph, parent_qn);
 
                         // Calculate if child methods are called differently from parent
                         let has_divergent_callers =
-                            self.check_divergent_callers(graph, &child_methods, &parent_qn);
+                            self.check_divergent_callers(graph, &child_methods, parent_qn);
 
                         // Determine severity based on graph analysis
                         let severity = if is_polymorphic && has_divergent_callers {
@@ -408,11 +411,11 @@ impl Detector for RefusedBequestDetector {
                             id: String::new(),
                             detector: "RefusedBequestDetector".to_string(),
                             severity,
-                            title: format!("Refused Bequest: {}", child.name),
+                            title: format!("Refused Bequest: {}", child.node_name(i)),
                             description: format!(
                                 "Class '{}' inherits from '{}' but may not use inherited behavior properly.\n\n\
                                  {} of {} methods appear to override without using parent.{}",
-                                child.name,
+                                child.node_name(i),
                                 parent_qn.rsplit("::").next().unwrap_or(&parent_qn),
                                 potential_refusals.len(),
                                 child_methods.len(),
@@ -428,7 +431,7 @@ impl Detector for RefusedBequestDetector {
                                          1. Fix the overrides to properly extend parent behavior\n\
                                          2. Extract a new interface that both classes implement\n\
                                          3. Use the Strategy pattern if behavior varies",
-                                        child.name
+                                        child.node_name(i)
                                     )
                                 } else {
                                     "Consider composition over inheritance if not using parent behavior".to_string()

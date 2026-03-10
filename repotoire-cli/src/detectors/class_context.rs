@@ -243,9 +243,9 @@ impl<'a> ClassContextBuilder<'a> {
         let call_map: HashMap<&str, HashSet<&str>> = {
             let mut map: HashMap<&str, HashSet<&str>> = HashMap::new();
             for (caller, callee) in calls.iter() {
-                map.entry(caller.as_str())
+                map.entry(i.resolve(*caller))
                     .or_default()
-                    .insert(callee.as_str());
+                    .insert(i.resolve(*callee));
             }
             map
         };
@@ -261,7 +261,7 @@ impl<'a> ClassContextBuilder<'a> {
                 HashMap::new();
             for class in classes.iter() {
                 classes_by_file
-                    .entry(class.path(i).as_str())
+                    .entry(class.path(i))
                     .or_default()
                     .push(class);
             }
@@ -278,7 +278,7 @@ impl<'a> ClassContextBuilder<'a> {
                         .cloned()
                         .collect();
                     if !methods.is_empty() {
-                        map.insert(class.qn(i).as_str(), methods);
+                        map.insert(class.qn(i), methods);
                     }
                 }
             }
@@ -292,7 +292,7 @@ impl<'a> ClassContextBuilder<'a> {
             let mut method_to_class: HashMap<&str, &str> = HashMap::new();
             for (class_qn, methods) in &class_methods {
                 for method in methods {
-                    method_to_class.insert(method.qn(i).as_str(), class_qn);
+                    method_to_class.insert(method.qn(i), class_qn);
                 }
             }
 
@@ -302,8 +302,8 @@ impl<'a> ClassContextBuilder<'a> {
             let mut usages: HashMap<&str, usize> = HashMap::new();
 
             for (caller, callee) in calls.iter() {
-                let caller_class = method_to_class.get(caller.as_str());
-                let callee_class = method_to_class.get(callee.as_str());
+                let caller_class = method_to_class.get(i.resolve(*caller));
+                let callee_class = method_to_class.get(i.resolve(*callee));
                 if let (Some(&from_class), Some(&to_class)) = (caller_class, callee_class) {
                     if from_class != to_class && class_pair_seen.insert((from_class, to_class)) {
                         *usages.entry(to_class).or_insert(0) += 1;
@@ -318,7 +318,7 @@ impl<'a> ClassContextBuilder<'a> {
         for class in classes.iter() {
             let qn = class.qn(i);
 
-            let methods = class_methods.get(qn.as_str()).cloned().unwrap_or_default();
+            let methods = class_methods.get(qn).cloned().unwrap_or_default();
             // Use methodCount property if available (from parser), fall back to graph count
             let method_count = class
                 .get_i64("methodCount")
@@ -339,10 +339,10 @@ impl<'a> ClassContextBuilder<'a> {
             let mut external_deps: HashSet<String> = HashSet::new();
 
             for method in &methods {
-                if let Some(callees) = call_map.get(method.qn(i).as_str()) {
+                if let Some(callees) = call_map.get(method.qn(i)) {
                     let external_calls: Vec<_> = callees
                         .iter()
-                        .filter(|c| !methods.iter().any(|m| &m.qualified_name.as_str() == *c))
+                        .filter(|c| !methods.iter().any(|m| m.qn(i) == **c))
                         .collect();
 
                     if !external_calls.is_empty() {
@@ -364,9 +364,9 @@ impl<'a> ClassContextBuilder<'a> {
             };
 
             // Count public methods (heuristic: doesn't start with _)
-            let public_methods = methods.iter().filter(|m| !m.name.starts_with('_')).count();
+            let public_methods = methods.iter().filter(|m| !m.node_name(i).starts_with('_')).count();
 
-            let usages = *class_usages.get(qn.as_str()).unwrap_or(&0);
+            let usages = *class_usages.get(qn).unwrap_or(&0);
             let is_test = self.is_test_path(class.path(i));
             let is_framework_path = self.is_framework_path(class.path(i));
 
@@ -384,9 +384,9 @@ impl<'a> ClassContextBuilder<'a> {
             );
 
             contexts.insert(
-                qn.clone(),
+                qn.to_string(),
                 ClassContext {
-                    qualified_name: qn.clone(),
+                    qualified_name: qn.to_string(),
                     name: class.node_name(i).to_string(),
                     file_path: class.path(i).to_string(),
                     method_count,

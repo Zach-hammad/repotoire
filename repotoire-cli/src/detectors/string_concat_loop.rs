@@ -335,11 +335,11 @@ impl Detector for StringConcatLoopDetector {
                             id: String::new(),
                             detector: "StringConcatLoopDetector".to_string(),
                             severity: Severity::Medium,
-                            title: format!("Hidden string concat: {} → {}", func.name, callee.name),
+                            title: format!("Hidden string concat: {} → {}", func.node_name(i), callee.node_name(i)),
                             description: format!(
                                 "Function '{}' contains a loop and calls '{}' which does string concatenation.\n\n\
                                  This creates the same O(n²) performance issue across function boundaries.",
-                                func.name, callee.name
+                                func.node_name(i), callee.node_name(i)
                             ),
                             affected_files: vec![PathBuf::from(func.path(i))],
                             line_start: Some(func.line_start),

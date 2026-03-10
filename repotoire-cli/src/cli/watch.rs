@@ -153,7 +153,6 @@ fn analyze_single_file(
     ngram_model: Option<crate::calibrate::NgramModel>,
     relaxed: bool,
 ) -> Vec<Finding> {
-    let i = graph.interner();
     let Ok(parse_result) = parse_file(file_path) else {
         return vec![];
     };

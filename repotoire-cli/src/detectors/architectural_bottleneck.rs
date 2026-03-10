@@ -388,7 +388,7 @@ impl Detector for ArchitecturalBottleneckDetector {
                 if role == FunctionRole::Utility && fan_in < 30 && complexity < 20 {
                     debug!(
                         "Skipping utility {} (fan_in={}, complexity={})",
-                        func.name, fan_in, complexity
+                        func.node_name(i), fan_in, complexity
                     );
                     continue;
                 }

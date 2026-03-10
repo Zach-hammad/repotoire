@@ -160,7 +160,7 @@ impl PredictiveCodingEngine {
         // Build a lookup map to avoid O(n^2) scanning inside the chain loop
         let fn_by_name: HashMap<&str, &crate::graph::CodeNode> = functions
             .iter()
-            .map(|f| (f.qn(i).as_str(), f))
+            .map(|f| (f.qn(i), f))
             .collect();
 
         // Score chains using L1 model — find a confident language model.

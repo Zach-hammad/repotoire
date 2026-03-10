@@ -253,7 +253,7 @@ impl Detector for LazyClassDetector {
 
             // --- Expensive: per-file bundled/minified/fixture check (cached) ---
             let excluded = *file_excluded
-                .entry(class.path(i).as_str())
+                .entry(class.path(i))
                 .or_insert_with(|| {
                     if crate::detectors::content_classifier::is_likely_bundled_path(class.path(i)) {
                         return true;
@@ -285,7 +285,7 @@ impl Detector for LazyClassDetector {
         let mut by_file: std::collections::HashMap<&str, Vec<&crate::graph::store_models::CodeNode>> =
             std::collections::HashMap::new();
         for class in &candidates {
-            by_file.entry(class.path(i).as_str()).or_default().push(class);
+            by_file.entry(class.path(i)).or_default().push(class);
         }
 
         for (file_path, file_classes) in &by_file {
@@ -304,7 +304,7 @@ impl Detector for LazyClassDetector {
                 if external_callers >= self.thresholds.min_callers_to_skip {
                     debug!(
                         "Skipping {} - has {} external callers (threshold: {})",
-                        class.name, external_callers, self.thresholds.min_callers_to_skip
+                        class.node_name(i), external_callers, self.thresholds.min_callers_to_skip
                     );
                     continue;
                 }
@@ -331,11 +331,11 @@ impl Detector for LazyClassDetector {
                     id: String::new(),
                     detector: "LazyClassDetector".to_string(),
                     severity,
-                    title: format!("Lazy Class: {}", class.name),
+                    title: format!("Lazy Class: {}", class.node_name(i)),
                     description: format!(
                         "Class '{}' has only {} method(s) and {} LOC. {}\n\n\
                          Consider inlining this class's functionality or expanding it.",
-                        class.name, method_count, loc, usage_note
+                        class.node_name(i), method_count, loc, usage_note
                     ),
                     affected_files: vec![class.path(i).to_string().into()],
                     line_start: Some(class.line_start),

@@ -117,7 +117,7 @@ impl Detector for BooleanTrapDetector {
         };
         let func_by_name: Option<std::collections::HashMap<&str, &crate::graph::store_models::CodeNode>> =
             all_funcs.as_ref().map(|funcs| {
-                funcs.iter().map(|f| (f.node_name(i).as_str(), f)).collect()
+                funcs.iter().map(|f| (f.node_name(i), f)).collect()
             });
 
         // Second pass: create findings with graph context

@@ -1,0 +1,24 @@
+
+🎼 Repotoire Analysis
+
+🔍 Analyzing: /tmp/cpython-bench
+📦 Detected:  Library
+
+📐 Using adaptive thresholds from style profile
+🌊 Overlapped walk+parse mode (streaming)
+🕸️  Initializing graph database...
+✓ Found 3415 source files
+
+🕵️  Running detectors (speculative mode)...
+
+Slowest graph-independent detectors:
+   1. AIBoilerplateDetector                     16507ms
+   2. duplicate-code                             9294ms
+   3. hardcoded-timeout                          7132ms
+   4. magic-numbers                              5987ms
+   5. debug-code                                 5528ms
+   6. wildcard-imports                           5295ms
+   7. AIDuplicateBlockDetector                   4869ms
+   8. hardcoded-ips                              3583ms
+   9. cors-misconfig                             2281ms
+  10. UnusedImportsDetector                      1936ms

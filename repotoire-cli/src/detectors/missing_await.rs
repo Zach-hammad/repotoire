@@ -126,7 +126,7 @@ impl Detector for MissingAwaitDetector {
         let all_functions = graph.get_functions_shared();
         let mut funcs_by_file: std::collections::HashMap<&str, Vec<&crate::graph::CodeNode>> = std::collections::HashMap::new();
         for func in all_functions.iter() {
-            funcs_by_file.entry(func.path(gi).as_str()).or_default().push(func);
+            funcs_by_file.entry(func.path(gi)).or_default().push(func);
         }
 
         for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx", "py"]) {

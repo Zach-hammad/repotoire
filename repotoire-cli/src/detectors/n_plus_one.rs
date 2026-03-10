@@ -87,7 +87,7 @@ impl NPlusOneDetector {
             }
             for caller in graph.get_callers(&qn) {
                 if !reaches_query.contains_key(caller.qn(i)) {
-                    let chain = format!("{} → {}", caller.name, query_chain);
+                    let chain = format!("{} → {}", caller.node_name(i), query_chain);
                     reaches_query.insert(caller.qn(i).to_string(), chain.clone());
                     queue.push_back((caller.qualified_name, chain, depth + 1));
                 }
@@ -163,12 +163,12 @@ impl NPlusOneDetector {
                         id: String::new(),
                         detector: "NPlusOneDetector".to_string(),
                         severity: Severity::High,
-                        title: format!("Hidden N+1: {} calls query in loop", func.name),
+                        title: format!("Hidden N+1: {} calls query in loop", func.node_name(i)),
                         description: format!(
                             "Function '{}' contains a loop and calls '{}' which leads to a database query.\n\n\
                              **Call chain:** {} → {}\n\n\
                              This may cause N database queries instead of 1.",
-                            func.name,
+                            func.node_name(i),
                             callee.name,
                             callee.name,
                             query_chain

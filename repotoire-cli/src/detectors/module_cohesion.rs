@@ -534,7 +534,7 @@ impl Detector for ModuleCohesionDetector {
                         title: "Low Module Cohesion".to_string(),
                         description: format!(
                             "File '{}' has low cohesion: {} internal calls vs {} external calls ({:.0}% cohesion).",
-                            file.file_path, internal, external, cohesion * 100.0
+                            file.path(crate::graph::interner::global_interner()), internal, external, cohesion * 100.0
                         ),
                         affected_files: vec![file.file_path.clone().into()],
                         line_start: None,

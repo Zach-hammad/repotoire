@@ -45,21 +45,21 @@ impl InconsistentReturnsDetector {
                 for line in lines.get(start..end).unwrap_or(&[]) {
                     // Look for patterns like: x = func(), if func(), return func()
                     if line.contains(func.node_name(i)) {
-                        if line.contains("=") && line.contains(&format!("{}(", func.name)) {
+                        if line.contains("=") && line.contains(&format!("{}(", func.node_name(i))) {
                             callers_using_value += 1;
                             break;
                         }
                         if line.trim().starts_with("return")
-                            && line.contains(&format!("{}(", func.name))
+                            && line.contains(&format!("{}(", func.node_name(i)))
                         {
                             callers_using_value += 1;
                             break;
                         }
-                        if line.contains("if") && line.contains(&format!("{}(", func.name)) {
+                        if line.contains("if") && line.contains(&format!("{}(", func.node_name(i))) {
                             callers_using_value += 1;
                             break;
                         }
-                        if line.contains("await") && line.contains(&format!("{}(", func.name)) {
+                        if line.contains("await") && line.contains(&format!("{}(", func.node_name(i))) {
                             callers_using_value += 1;
                             break;
                         }
@@ -222,7 +222,7 @@ impl Detector for InconsistentReturnsDetector {
                         id: String::new(),
                         detector: "InconsistentReturnsDetector".to_string(),
                         severity,
-                        title: format!("Inconsistent returns in '{}'", func.name),
+                        title: format!("Inconsistent returns in '{}'", func.node_name(i)),
                         description: format!(
                             "Function has mixed return behavior - some paths return values, others don't.{}",
                             context_notes

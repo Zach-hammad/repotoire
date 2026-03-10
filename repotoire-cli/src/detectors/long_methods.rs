@@ -231,10 +231,10 @@ impl Detector for LongMethodsDetector {
                 id: String::new(),
                 detector: "LongMethodsDetector".to_string(),
                 severity,
-                title: format!("Long method: {} ({} lines)", func.name, lines),
+                title: format!("Long method: {} ({} lines)", func.node_name(i), lines),
                 description: format!(
                     "Function '{}' has {} lines (threshold: {}).{}",
-                    func.name, lines, self.threshold, context_notes
+                    func.node_name(i), lines, self.threshold, context_notes
                 ),
                 affected_files: vec![PathBuf::from(func.path(i))],
                 line_start: Some(func.line_start),

@@ -235,7 +235,7 @@ impl DeadStoreDetector {
                             id: String::new(),
                             detector: "DeadStoreDetector".to_string(),
                             severity: Severity::Low,
-                            title: format!("Function `{}` has {} parameters but simple body", func.name, param_count),
+                            title: format!("Function `{}` has {} parameters but simple body", func.node_name(i), param_count),
                             description: format!(
                                 "Function with {} parameters only calls {} other functions.\n\
                                  This suggests some parameters may be unused.\n\n\
@@ -289,7 +289,7 @@ impl DeadStoreDetector {
                     if param_count >= 3 {
                         debug!(
                             "Sink function {} receives {} params from {} callers but makes no calls",
-                            func.name, param_count, callers.len()
+                            func.node_name(i), param_count, callers.len()
                         );
                     }
                 }

@@ -532,7 +532,7 @@ impl Detector for GodClassDetector {
                 if ctx.skip_god_class() || ctx.is_test {
                     debug!(
                         "Skipping {} ({:?}): {}",
-                        class.name, ctx.role, ctx.role_reason
+                        class.node_name(i), ctx.role, ctx.role_reason
                     );
                     continue;
                 }
@@ -540,7 +540,7 @@ impl Detector for GodClassDetector {
 
             // Fall back to pattern exclusion if no graph context
             if ctx.is_none() && self.is_excluded_pattern(class.node_name(i)) {
-                debug!("Skipping excluded pattern: {}", class.name);
+                debug!("Skipping excluded pattern: {}", class.node_name(i));
                 continue;
             }
 
@@ -554,7 +554,7 @@ impl Detector for GodClassDetector {
                     || lower_path.starts_with("tests/")
                     || lower_path.starts_with("test/")
                 {
-                    debug!("Skipping test class: {}", class.name);
+                    debug!("Skipping test class: {}", class.node_name(i));
                     continue;
                 }
             }

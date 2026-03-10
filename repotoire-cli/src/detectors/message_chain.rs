@@ -254,7 +254,7 @@ impl MessageChainDetector {
             if self.is_trait_delegation_chain(&chain_members) {
                 debug!(
                     "Skipping trait delegation chain starting at {} ({} levels, same-name forwarding)",
-                    func.name, chain_depth
+                    func.node_name(i), chain_depth
                 );
                 for member in &chain_members {
                     reported_in_chain.insert(member.clone());
@@ -288,12 +288,12 @@ impl MessageChainDetector {
                 id: String::new(),
                 detector: "MessageChainDetector".to_string(),
                 severity,
-                title: format!("Delegation chain: {} starts a {}-level chain", func.name, chain_depth),
+                title: format!("Delegation chain: {} starts a {}-level chain", func.node_name(i), chain_depth),
                 description: format!(
                     "Function '{}' is the entry point of a {}-level delegation chain across {} files.\n\n\
                      Each function in the chain just delegates to the next with minimal logic. \
                      Consider collapsing intermediate layers.",
-                    func.name, chain_depth, files_in_chain.len()
+                    func.node_name(i), chain_depth, files_in_chain.len()
                 ),
                 affected_files: vec![func.path(i).to_string().into()],
                 line_start: Some(func.line_start),

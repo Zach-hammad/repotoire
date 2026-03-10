@@ -172,7 +172,7 @@ impl RegexInLoopDetector {
                     visited,
                     depth + 1,
                 ) {
-                    return Some(format!("{} \u{2192} {}", callee.name, chain));
+                    return Some(format!("{} \u{2192} {}", callee.node_name(i), chain));
                 }
             }
         }
@@ -385,12 +385,12 @@ impl Detector for RegexInLoopDetector {
                             id: String::new(),
                             detector: "RegexInLoopDetector".to_string(),
                             severity: Severity::Medium,
-                            title: format!("Hidden regex in loop: {}", func.name),
+                            title: format!("Hidden regex in loop: {}", func.node_name(i)),
                             description: format!(
                                 "Function '{}' contains a loop and calls '{}' which compiles a regex.\n\n\
                                  **Call chain:** {} \u{2192} {}\n\n\
                                  This may cause regex compilation on every iteration.",
-                                func.name, callee_name, callee_name, chain
+                                func.node_name(i), callee_name, callee_name, chain
                             ),
                             affected_files: vec![PathBuf::from(func.path(i))],
                             line_start: Some(func.line_start),

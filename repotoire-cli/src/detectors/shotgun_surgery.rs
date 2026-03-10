@@ -315,12 +315,12 @@ impl Detector for ShotgunSurgeryDetector {
                 id: String::new(),
                 detector: "ShotgunSurgeryDetector".to_string(),
                 severity,
-                title: format!("Shotgun Surgery Risk: {}", class.name),
+                title: format!("Shotgun Surgery Risk: {}", class.node_name(i)),
                 description: format!(
                     "Class '{}' is called by **{} functions** across **{} files** in **{} modules**.\n\n\
                      Any change to this class requires updates throughout the codebase.{}\n\n\
                      **Affected files (sample):**\n  - {}{}",
-                    class.name,
+                    class.node_name(i),
                     analysis.direct_callers,
                     analysis.affected_files,
                     analysis.affected_modules,
@@ -524,11 +524,11 @@ impl Detector for ShotgunSurgeryDetector {
                     id: String::new(),
                     detector: "ShotgunSurgeryDetector".to_string(),
                     severity: Severity::High,
-                    title: format!("High-Impact Function: {}", func.name),
+                    title: format!("High-Impact Function: {}", func.node_name(i)),
                     description: format!(
                         "Function '{}' is called from {} places across {} modules.\n\n\
                          Changes will have wide-reaching effects.",
-                        func.name,
+                        func.node_name(i),
                         fan_in,
                         module_count
                     ),

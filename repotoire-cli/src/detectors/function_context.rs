@@ -168,7 +168,7 @@ impl<'a> FunctionContextBuilder<'a> {
         let (adj, rev_adj, qn_to_idx) = self.graph.get_call_adjacency();
 
         // Pre-extract file paths for module lookups (indexed by adjacency index)
-        let file_paths: Vec<&str> = functions.iter().map(|f| f.path(i).as_str()).collect();
+        let file_paths: Vec<&str> = functions.iter().map(|f| f.path(i)).collect();
 
         // Calculate betweenness centrality (parallelized)
         let betweenness = self.calculate_betweenness(&adj);

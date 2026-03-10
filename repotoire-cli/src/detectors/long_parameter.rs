@@ -484,10 +484,10 @@ impl Detector for LongParameterListDetector {
                 id: String::new(),
                 detector: "LongParameterListDetector".to_string(),
                 severity,
-                title: format!("Long parameter list: {}", func.name),
+                title: format!("Long parameter list: {}", func.node_name(i)),
                 description: format!(
                     "Function '{}' has {} parameters (threshold: {}).{}\n\n📊 {}",
-                    func.name,
+                    func.node_name(i),
                     param_count,
                     self.thresholds.max_params,
                     pattern_notes,

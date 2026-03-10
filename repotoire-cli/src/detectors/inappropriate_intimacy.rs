@@ -222,6 +222,7 @@ impl Detector for InappropriateIntimacyDetector {
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let i = graph.interner();
         use std::collections::HashMap;
 
         // Expected architectural layers - these calling down is normal, not intimacy
@@ -279,36 +280,40 @@ impl Detector for InappropriateIntimacyDetector {
         let mut b_to_a_funcs: HashMap<(String, String), HashSet<String>> = HashMap::new();
 
         let calls = graph.get_calls_shared();
-        for (caller, callee) in calls.iter() {
+        for (caller_key, callee_key) in calls.iter() {
+            let caller_str = i.resolve(*caller_key);
+            let callee_str = i.resolve(*callee_key);
             if let (Some(caller_node), Some(callee_node)) =
-                (graph.get_node(&caller), graph.get_node(&callee))
+                (graph.get_node(caller_str), graph.get_node(callee_str))
             {
-                if caller_node.file_path != callee_node.file_path {
+                let caller_file = caller_node.path(i);
+                let callee_file = callee_node.path(i);
+                if caller_file != callee_file {
                     // Skip expected layered architecture dependencies
-                    if is_expected_layer_dependency(&caller_node.file_path, &callee_node.file_path)
+                    if is_expected_layer_dependency(caller_file, callee_file)
                     {
                         continue;
                     }
 
-                    let key = if caller_node.file_path < callee_node.file_path {
-                        (caller_node.file_path.clone(), callee_node.file_path.clone())
+                    let key = if caller_file < callee_file {
+                        (caller_file.to_string(), callee_file.to_string())
                     } else {
-                        (callee_node.file_path.clone(), caller_node.file_path.clone())
+                        (callee_file.to_string(), caller_file.to_string())
                     };
 
                     // Track direction and functions called
-                    if caller_node.file_path < callee_node.file_path {
+                    if caller_file < callee_file {
                         *a_to_b.entry(key.clone()).or_insert(0) += 1;
                         a_to_b_funcs
                             .entry(key)
                             .or_default()
-                            .insert(callee_node.name.clone());
+                            .insert(callee_node.node_name(i).to_string());
                     } else {
                         *b_to_a.entry(key.clone()).or_insert(0) += 1;
                         b_to_a_funcs
                             .entry(key)
                             .or_default()
-                            .insert(callee_node.name.clone());
+                            .insert(callee_node.node_name(i).to_string());
                     }
                 }
             }

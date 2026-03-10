@@ -189,7 +189,7 @@ fn build_hmm_contexts_standalone(
                 .len()
         });
         let loc = func.line_end.saturating_sub(func.line_start) + 1;
-        let address_taken = func.properties.get("address_taken").and_then(|v| v.as_bool()).unwrap_or(false);
+        let address_taken = func.address_taken();
         let features = FunctionFeatures::extract(
             func.node_name(i), func.path(i), fan_in, fan_out, max_fan_in, max_fan_out,
             caller_files_count, func.complexity(), avg_complexity, loc, avg_loc,
@@ -459,11 +459,7 @@ impl DetectorEngine {
             });
 
             let loc = func.line_end.saturating_sub(func.line_start) + 1;
-            let address_taken = func
-                .properties
-                .get("address_taken")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+            let address_taken = func.address_taken();
 
             let features = FunctionFeatures::extract(
                 func.node_name(i),
@@ -1330,7 +1326,7 @@ impl DetectorEngine {
         if idx > 0 {
             let func = funcs[idx - 1];
             if func.line_end >= line {
-                return Some(func.qn(i));
+                return Some(func.qn(crate::graph::interner::global_interner()));
             }
         }
 

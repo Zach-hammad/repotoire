@@ -115,7 +115,7 @@ impl SurprisalDetector {
                 severity,
                 title: format!(
                     "Unusual code pattern in `{}`",
-                    func.name
+                    func.node_name(i)
                 ),
                 description: format!(
                     "Function `{}` has unusually high surprisal ({:.1} bits, project mean: {:.1}, z-score: {:.1}).\n\n\
@@ -126,7 +126,7 @@ impl SurprisalDetector {
                      - Copy-pasted from a different codebase\n\
                      - Unusual algorithm or pattern\n\
                      - Potential bug (buggy code tends to be more surprising)",
-                    func.name, avg_surprisal, baseline_mean, z_score,
+                    func.node_name(i), avg_surprisal, baseline_mean, z_score,
                     max_surprisal, peak_content
                 ),
                 affected_files: vec![path.to_path_buf()],

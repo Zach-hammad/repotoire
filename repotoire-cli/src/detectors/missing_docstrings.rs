@@ -214,10 +214,10 @@ impl Detector for MissingDocstringsDetector {
                         id: String::new(),
                         detector: "MissingDocstringsDetector".to_string(),
                         severity,
-                        title: format!("Missing documentation: `{}`", func.name),
+                        title: format!("Missing documentation: `{}`", func.node_name(i)),
                         description: format!(
                             "Function `{}` has no documentation.{}",
-                            func.name, context_notes
+                            func.node_name(i), context_notes
                         ),
                         affected_files: vec![file_path.clone()],
                         line_start: Some(func.line_start),

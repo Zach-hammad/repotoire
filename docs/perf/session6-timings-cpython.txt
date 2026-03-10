@@ -1,0 +1,86 @@
+
+🎼 Repotoire Analysis
+
+🔍 Analyzing: /home/zhammad/personal/cpython
+📦 Detected:  Library
+
+📐 Using adaptive thresholds from style profile
+🌊 Overlapped walk+parse+GI mode (streaming)
+🕸️  Initializing graph database...
+
+Slowest graph-independent detectors:
+   1. duplicate-code                              921ms
+   2. AIBoilerplateDetector                       754ms
+   3. AIDuplicateBlockDetector                    748ms
+   4. UnusedImportsDetector                       603ms
+   5. magic-numbers                               422ms
+   6. hardcoded-ips                               281ms
+   7. PickleDeserializationDetector               215ms
+   8. InsecureTlsDetector                         204ms
+   9. torch-load-unsafe                           201ms
+  10. wildcard-imports                            177ms
+✓ Found 3415 source files, 570 GI findings (overlapped with parse)
+
+🕵️  Running detectors (speculative mode)...
+
+Slowest graph-dependent detectors:
+   1. UnreachableCodeDetector                     822ms
+   2. ShotgunSurgeryDetector                      546ms
+   3. boolean-trap                                472ms
+   4. regex-in-loop                               386ms
+   5. path-traversal                              374ms
+   6. GodClassDetector                            357ms
+   7. CoreUtilityDetector                         340ms
+   8. DeadCodeDetector                            334ms
+   9. AIComplexitySpikeDetector                   296ms
+  10. InappropriateIntimacyDetector               294ms
+  11. SQLInjectionDetector                        291ms
+  12. string-concat-loop                          271ms
+  13. mutable-default-args                        261ms
+  14. DeadStoreDetector                           237ms
+  15. ModuleCohesionDetector                      232ms
+  → Ran 98 detectors — 9849 raw issues (570 file-local + 9279 graph-based)
+
+
+[1mRepotoire Analysis[0m
+[2m──────────────────────────────────────[0m
+Score: [1m84.7/100[0m  Grade: [92m[1mB[0m  Files: 3415  Functions: 71926  Classes: 13869  LOC: 2119669
+
+[1mSCORES[0m
+  Structure: [32m99[0m  Quality: [31m53[0m  Architecture: [32m97[0m
+
+[1mFINDINGS[0m (20 total)
+  [31m20 critical[0m
+
+[2m  #   SEV   TITLE                                    FILE[0m
+[2m  ─────────────────────────────────────────────────────────────────[0m
+  [2m  1[0m  [31m[C][0m  Structural duplicate: timeout_at ≈ ...    [2m...ib/asyncio/timeouts.py:163[0m
+  [2m  2[0m  [31m[C][0m  Structural duplicate: __init__ ≈ _s...    [2m...cpython/Lib/doctest.py:2870[0m
+  [2m  3[0m  [31m[C][0m  Insecure deserialization: Ruby Mars...    [2m..._bootstrap_external.py:500[0m
+  [2m  4[0m  [31m[C][0m  Insecure deserialization: Ruby Mars...    [2m...on/Lib/modulefinder.py:350[0m
+  [2m  5[0m  [31m[C][0m  Insecure deserialization: eval()          [2m...l/cpython/Lib/pydoc.py:2045[0m
+  [2m  6[0m  [31m[C][0m  XML External Entity (XXE) vulnerabi...    [2m...l/etree/ElementTree.py:1780[0m
+  [2m  7[0m  [31m[C][0m  XML External Entity (XXE) vulnerabi...    [2m...xml/sax/expatreader.py:103[0m
+  [2m  8[0m  [31m[C][0m  XML External Entity (XXE) vulnerabi...    [2m...xml/sax/expatreader.py:426[0m
+  [2m  9[0m  [31m[C][0m  Insecure deserialization: Ruby Mars...    [2m...ython/Lib/zipimport.py:728[0m
+  [2m 10[0m  [31m[C][0m  Insecure deserialization: Ruby Mars...    [2m...ls/build/deepfreeze.py:479[0m
+
+  [2m...and 10 more (use --page 2 or findings -i)[0m
+
+[2mGood shape. Address remaining issues for an A.[0m
+
+
+📑 Showing page 1 of 477 (20 findings per page, 9540 total)
+   Use --page 2 to see more
+
+Phase timings:
+  setup            0.001s  (0.0%)
+  init+parse       2.633s  (46.2%)
+  calibrate        0.000s  (0.0%)
+  detect           2.411s  (42.3%)
+  postprocess      0.255s  (4.5%)
+  scoring          0.152s  (2.7%)
+  output           0.173s  (3.0%)
+  TOTAL            5.705s
+
+✨ Analysis complete in 5.70s

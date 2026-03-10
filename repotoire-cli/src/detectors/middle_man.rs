@@ -240,11 +240,11 @@ impl Detector for MiddleManDetector {
                 id: String::new(),
                 detector: "MiddleManDetector".to_string(),
                 severity,
-                title: format!("Middle Man: {}", class.name),
+                title: format!("Middle Man: {}", class.node_name(i)),
                 description: format!(
                     "Class '{}' delegates {:.0}% of its methods ({}/{}) {}.\n\n\
                      This class adds indirection without significant value.{}",
-                    class.name,
+                    class.node_name(i),
                     analysis.delegation_ratio * 100.0,
                     analysis.delegation_count,
                     analysis.method_count,

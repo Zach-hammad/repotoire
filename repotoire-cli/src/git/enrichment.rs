@@ -152,7 +152,7 @@ impl<'a> GitEnricher<'a> {
                 .blame
                 .get_entity_blame(func.path(crate::graph::interner::global_interner()), line_start, line_end)
                 .inspect_err(|e| {
-                    debug!("Failed to get blame for {}:{}: {}", func.file_path, line_start, e);
+                    debug!("Failed to get blame for {}:{}: {}", func.path(i), line_start, e);
                 });
             let Ok(blame_info) = blame_result else {
                 stats.files_skipped += 1;
@@ -215,7 +215,7 @@ impl<'a> GitEnricher<'a> {
                 .blame
                 .get_entity_blame(class.path(crate::graph::interner::global_interner()), line_start, line_end)
                 .inspect_err(|e| {
-                    debug!("Failed to get blame for {}:{}: {}", class.file_path, line_start, e);
+                    debug!("Failed to get blame for {}:{}: {}", class.path(i), line_start, e);
                 });
             let Ok(blame_info) = blame_result else {
                 stats.files_skipped += 1;

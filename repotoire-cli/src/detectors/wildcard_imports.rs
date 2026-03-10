@@ -55,8 +55,8 @@ impl WildcardImportsDetector {
         // Filter to functions from this module
         let module_symbols: HashSet<&str> = all_functions
             .iter()
-            .filter(|f| f.path(i).contains(module) || f.qn(i).starts_with(module))
-            .map(|f| f.node_name(i).as_str())
+            .filter(|f| f.path(crate::graph::interner::global_interner()).contains(module) || f.qn(crate::graph::interner::global_interner()).starts_with(module))
+            .map(|f| f.node_name(crate::graph::interner::global_interner()))
             .collect();
 
         // Check which are used in the content

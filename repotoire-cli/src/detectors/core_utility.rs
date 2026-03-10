@@ -376,10 +376,10 @@ impl Detector for CoreUtilityDetector {
                 id: String::new(),
                 detector: "CoreUtilityDetector".to_string(),
                 severity: Severity::Info,
-                title: format!("Core Utility: {}", func.name),
+                title: format!("Core Utility: {}", func.node_name(i)),
                 description: format!(
                     "Function '{}' is used by {} callers. This is a core utility - ensure it's well-tested.",
-                    func.name, fan_in
+                    func.node_name(i), fan_in
                 ),
                 affected_files: vec![func.path(i).to_string().into()],
                 line_start: Some(func.line_start),

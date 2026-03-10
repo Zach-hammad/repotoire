@@ -9,7 +9,6 @@ use std::path::Path;
 ///
 /// Note: Cypher queries are no longer supported. Use the built-in query commands instead.
 pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
-    let i = graph.interner();
     let repo_path = path
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
@@ -23,6 +22,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     }
 
     let graph = GraphStore::new(&db_path).with_context(|| "Failed to open graph database")?;
+    let i = graph.interner();
 
     let json_output = format == "json";
 
@@ -70,12 +70,12 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("file") {
         let files = graph.get_files();
         if json_output {
-            let json: Vec<_> = files.iter().map(|f| serde_json::json!({"path": f.file_path})).collect();
+            let json: Vec<_> = files.iter().map(|f| serde_json::json!({"path": f.path(i)})).collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Files ({})\n", style("📊").bold(), files.len());
             for file in files.iter().take(50) {
-                println!("  {}", style(&file.file_path).cyan());
+                println!("  {}", style(file.path(i)).cyan());
             }
             if files.len() > 50 {
                 println!("  ... and {} more", files.len() - 50);
@@ -84,12 +84,12 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("call") {
         let calls = graph.get_calls();
         if json_output {
-            let json: Vec<_> = calls.iter().map(edge_pair_to_json).collect();
+            let json: Vec<_> = calls.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
             for (from, to) in calls.iter().take(50) {
-                println!("  {} -> {}", style(from).cyan(), style(to).green());
+                println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
             }
             if calls.len() > 50 {
                 println!("  ... and {} more", calls.len() - 50);
@@ -98,7 +98,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     } else if query_lower.contains("import") {
         let imports = graph.get_imports();
         if json_output {
-            let json: Vec<_> = imports.iter().map(edge_pair_to_json).collect();
+            let json: Vec<_> = imports.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
             println!("{}", serde_json::to_string_pretty(&json)?);
         } else {
             println!(
@@ -107,7 +107,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
                 imports.len()
             );
             for (from, to) in imports.iter().take(50) {
-                println!("  {} -> {}", style(from).cyan(), style(to).green());
+                println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
             }
             if imports.len() > 50 {
                 println!("  ... and {} more", imports.len() - 50);
@@ -250,25 +250,23 @@ pub fn stats(path: &Path) -> Result<()> {
 }
 
 fn function_to_json(f: &crate::graph::CodeNode) -> serde_json::Value {
+    let i = crate::graph::interner::global_interner();
     serde_json::json!({
-        "name": f.name,
-        "qualified_name": f.qualified_name,
-        "file": f.file_path,
+        "name": f.node_name(i),
+        "qualified_name": f.qn(i),
+        "file": f.path(i),
         "line_start": f.line_start,
         "line_end": f.line_end,
     })
 }
 
 fn class_to_json(c: &crate::graph::CodeNode) -> serde_json::Value {
+    let i = crate::graph::interner::global_interner();
     serde_json::json!({
-        "name": c.name,
-        "qualified_name": c.qualified_name,
-        "file": c.file_path,
+        "name": c.node_name(i),
+        "qualified_name": c.qn(i),
+        "file": c.path(i),
         "line_start": c.line_start,
         "line_end": c.line_end,
     })
-}
-
-fn edge_pair_to_json((from, to): &(String, String)) -> serde_json::Value {
-    serde_json::json!({"from": from, "to": to})
 }

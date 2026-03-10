@@ -485,10 +485,10 @@ impl Detector for AIComplexitySpikeDetector {
                         id: String::new(),
                         detector: "AIComplexitySpikeDetector".to_string(),
                         severity,
-                        title: format!("Complexity Spike: {}", func.name),
+                        title: format!("Complexity Spike: {}", func.node_name(i)),
                         description: format!(
                             "Function '{}' has complexity {} (avg: {:.1}, z-score: {:.1}). Possible AI-generated code.",
-                            func.name, complexity, avg, z_score
+                            func.node_name(i), complexity, avg, z_score
                         ),
                         affected_files: vec![func.path(i).to_string().into()],
                         line_start: Some(func.line_start),
