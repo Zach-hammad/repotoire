@@ -151,7 +151,7 @@ impl PredictiveCodingEngine {
         let structural_scorer = structural::StructuralScorer::from_features(&feature_vecs);
 
         // === L1.5: Dependency chain surprisal ===
-        let calls: Vec<(String, String)> = graph.get_calls();
+        let calls: Vec<(String, String)> = graph.get_calls().into_iter().map(|(a, b)| (i.resolve(a).to_string(), i.resolve(b).to_string())).collect();
         // Cap chains to 10k to avoid combinatorial explosion on large call graphs.
         // 10k chains is more than enough for distributional statistics.
         let chains = dependency_chain::extract_dependency_chains_bounded(&calls, 4, 10_000);
@@ -216,7 +216,7 @@ impl PredictiveCodingEngine {
         let mut module_funcs: HashMap<String, Vec<&crate::graph::CodeNode>> = HashMap::new();
         for func in functions.iter() {
             let module = func
-                .file_path
+                .path(i)
                 .rsplit_once('/')
                 .map(|(dir, _)| dir)
                 .unwrap_or("root");
@@ -334,7 +334,7 @@ impl PredictiveCodingEngine {
 
             // L4: Module distance
             let module = func
-                .file_path
+                .path(crate::graph::interner::global_interner())
                 .rsplit_once('/')
                 .map(|(dir, _)| dir)
                 .unwrap_or("root");

@@ -9,7 +9,7 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
     }
 
     fn extra_props(&self, qn: StrKey) -> Option<ExtraProps> {
-        self.extra_props.get(&qn).map(|e| e.clone())
+        self.get_extra_props(qn)
     }
 
     fn get_functions(&self) -> Vec<CodeNode> {
@@ -109,7 +109,7 @@ impl super::traits::GraphQuery for GraphStore {
     }
 
     fn extra_props(&self, qn: StrKey) -> Option<ExtraProps> {
-        self.extra_props.get(&qn).map(|e| e.clone())
+        self.get_extra_props(qn)
     }
 
     fn get_functions(&self) -> Vec<CodeNode> {

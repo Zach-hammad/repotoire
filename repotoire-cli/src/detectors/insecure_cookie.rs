@@ -154,7 +154,7 @@ impl Detector for InsecureCookieDetector {
                             Self::is_sensitive_cookie(line, &surrounding);
                         let flags = Self::check_cookie_flags(&lines, i);
                         let containing_func =
-                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.name);
+                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
 
                         // Collect missing flags
                         let mut missing = Vec::new();

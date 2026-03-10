@@ -110,7 +110,7 @@ impl PrototypePollutionDetector {
         if let Some(func) = graph
             .get_functions()
             .into_iter()
-            .find(|f| f.file_path == file_path && f.name == func_name)
+            .find(|f| f.path(i) == file_path && f.node_name(i) == func_name)
         {
             let callers = graph.get_callers(func.qn(i));
             for caller in callers {

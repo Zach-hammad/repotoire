@@ -15,13 +15,8 @@ pub fn is_api_surface(graph: &dyn GraphQuery, file_path: &str, line: u32) -> boo
         return false;
     };
 
-    // Check if exported (via annotation)
-    let is_exported = func
-        .properties
-        .get("annotations")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(|a| a.as_str() == Some("exported")))
-        .unwrap_or(false);
+    // Check if exported (via flag)
+    let is_exported = func.is_exported();
 
     if !is_exported {
         return false;

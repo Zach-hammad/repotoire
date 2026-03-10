@@ -190,7 +190,7 @@ pub fn compute_debt(
         }
 
         results.push(FileDebt {
-            file_path: path.clone(),
+            file_path: path.to_string(),
             risk_score,
             finding_density,
             coupling_score,

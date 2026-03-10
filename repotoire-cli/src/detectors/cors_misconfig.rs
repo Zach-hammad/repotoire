@@ -144,7 +144,7 @@ impl Detector for CorsMisconfigDetector {
                         let has_credentials = Self::allows_credentials(&lines, i);
                         let is_sensitive = Self::involves_sensitive_data(line, surrounding);
                         let containing_func =
-                            graph.find_function_at(&path_str, line_num).map(|f| f.name);
+                            graph.find_function_at(&path_str, line_num).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
 
                         // Skip if clearly dev-only
                         if is_dev_only {
@@ -172,7 +172,7 @@ impl Detector for CorsMisconfigDetector {
                             );
                         }
                         if let Some(func) = &containing_func {
-                            notes.push(format!("📦 In function: `{}`", crate::graph::interner::global_interner().resolve(*func)));
+                            notes.push(format!("📦 In function: `{}`", func));
                         }
 
                         let context_notes = if notes.is_empty() {

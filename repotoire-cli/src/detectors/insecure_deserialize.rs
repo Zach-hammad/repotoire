@@ -102,7 +102,7 @@ impl InsecureDeserializeDetector {
                     || name_lower.starts_with("put")
                     || name_lower.starts_with("delete");
 
-                (f.name, callers.len(), is_handler)
+                (f.node_name(i).to_string(), callers.len(), is_handler)
             })
     }
 

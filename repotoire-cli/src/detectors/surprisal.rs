@@ -55,7 +55,7 @@ impl SurprisalDetector {
         // Get functions from the graph for this file
         let all_funcs = graph.get_functions_shared();
         let functions: Vec<_> = all_funcs.iter()
-            .filter(|f| f.path(i) == *rel_str || rel_str.ends_with(f.path(i)) || f.path(i).ends_with(&*rel_str))
+            .filter(|f| f.path(i) == rel_str.as_ref() || rel_str.ends_with(f.path(i)) || f.path(i).ends_with(&*rel_str))
             .collect();
 
         for func in &functions {
@@ -200,7 +200,7 @@ impl Detector for SurprisalDetector {
 
                 let all_funcs = graph.get_functions_shared();
                 let functions: Vec<_> = all_funcs.iter()
-                    .filter(|f| f.path(i) == *rel_str || rel_str.ends_with(f.path(i)) || f.path(i).ends_with(&*rel_str))
+                    .filter(|f| f.path(i) == rel_str.as_ref() || rel_str.ends_with(f.path(i)) || f.path(i).ends_with(&*rel_str))
                     .collect();
 
                 for func in &functions {

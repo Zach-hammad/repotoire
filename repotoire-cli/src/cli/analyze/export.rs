@@ -165,12 +165,13 @@ fn build_git_features(repo_path: &Path) -> HashMap<String, GitFeatures> {
 
 /// Build a file path -> LOC map from the graph's file nodes.
 fn build_file_loc_map(graph: &dyn GraphQuery) -> HashMap<String, f64> {
+    let i = graph.interner();
     let files = graph.get_files();
     let mut loc_map = HashMap::new();
 
     for file_node in &files {
         let loc = file_node.loc() as f64;
-        loc_map.insert(file_node.file_path.clone(), loc);
+        loc_map.insert(file_node.path(i).to_string(), loc);
     }
 
     // Also aggregate function LOC per file for files that might not have
@@ -178,7 +179,7 @@ fn build_file_loc_map(graph: &dyn GraphQuery) -> HashMap<String, f64> {
     let functions = graph.get_functions();
     for func in &functions {
         let entry = loc_map
-            .entry(func.file_path.clone())
+            .entry(func.path(i).to_string())
             .or_insert(0.0);
         // Only use function LOC if file LOC isn't already set
         if *entry == 0.0 {

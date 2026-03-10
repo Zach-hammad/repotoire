@@ -134,7 +134,7 @@ impl SyncInAsyncDetector {
     ) -> Option<String> {
         graph
             .find_function_at(file_path, line)
-            .map(|f| f.name)
+            .map(|f| f.node_name(crate::graph::interner::global_interner()).to_string())
     }
 }
 

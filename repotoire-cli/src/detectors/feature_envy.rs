@@ -531,7 +531,7 @@ impl Detector for FeatureEnvyDetector {
             let mut external_modules: HashSet<String> = HashSet::new();
 
             for callee in &callees {
-                if callee.path(i) == *own_file {
+                if callee.path(i) == own_file {
                     internal_calls += 1;
                 } else {
                     external_calls += 1;

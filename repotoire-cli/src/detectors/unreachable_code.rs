@@ -673,7 +673,7 @@ impl UnreachableCodeDetector {
                 }
 
                 // Get all callers from pre-built map (O(1) lookup)
-                let callers = match callee_to_callers.get(func.qn(i)) {
+                let callers = match callee_to_callers.get(&func.qualified_name) {
                     Some(c) => c,
                     None => continue, // No callers — would have been caught as directly dead
                 };

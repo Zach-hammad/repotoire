@@ -49,7 +49,7 @@ impl CallbackHellDetector {
                 // Look for async functions or promise-returning functions
                 f.node_name(i).starts_with("async") || f.node_name(i).contains("Async") || f.node_name(i).ends_with("Async")
             })
-            .map(|f| f.name)
+            .map(|f| f.node_name(i).to_string())
             .take(5)
             .collect()
     }

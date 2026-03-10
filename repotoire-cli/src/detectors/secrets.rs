@@ -457,7 +457,7 @@ impl Detector for SecretDetector {
                         || name_lower.contains("init")
                         || name_lower.contains("setup")
                         || name_lower.contains("settings");
-                    let func_name = f.name;
+                    let func_name = f.node_name(i);
 
                     let mut notes = Vec::new();
                     notes.push(format!(

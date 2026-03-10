@@ -89,7 +89,7 @@ impl NPlusOneDetector {
                 if !reaches_query.contains_key(caller.qn(i)) {
                     let chain = format!("{} → {}", caller.node_name(i), query_chain);
                     reaches_query.insert(caller.qn(i).to_string(), chain.clone());
-                    queue.push_back((caller.qualified_name, chain, depth + 1));
+                    queue.push_back((caller.qn(i).to_string(), chain, depth + 1));
                 }
             }
         }
@@ -169,8 +169,8 @@ impl NPlusOneDetector {
                              **Call chain:** {} → {}\n\n\
                              This may cause N database queries instead of 1.",
                             func.node_name(i),
-                            callee.name,
-                            callee.name,
+                            callee.node_name(i),
+                            callee.node_name(i),
                             query_chain
                         ),
                         affected_files: vec![PathBuf::from(func.path(i))],

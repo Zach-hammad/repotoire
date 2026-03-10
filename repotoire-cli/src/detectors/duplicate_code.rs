@@ -56,13 +56,14 @@ impl DuplicateCodeDetector {
         graph: &dyn crate::graph::GraphQuery,
         locations: &[(PathBuf, usize)],
     ) -> Vec<Option<String>> {
+        let i = graph.interner();
         locations
             .iter()
             .map(|(path, line)| {
                 let path_str = path.to_string_lossy();
                 graph
                     .find_function_at(&path_str, *line as u32)
-                    .map(|f| f.qualified_name)
+                    .map(|f| f.qn(i).to_string())
             })
             .collect()
     }
@@ -88,7 +89,7 @@ impl DuplicateCodeDetector {
                 graph
                     .get_callers(qn)
                     .into_iter()
-                    .map(|c| c.qualified_name)
+                    .map(|c| c.qn(i).to_string())
                     .collect()
             })
             .collect();
@@ -115,7 +116,7 @@ impl DuplicateCodeDetector {
                     .find(|f| f.qn(i) == caller)
                 {
                     let module = func
-                        .file_path
+                        .path(i)
                         .rsplit('/')
                         .nth(1)
                         .unwrap_or("utils")

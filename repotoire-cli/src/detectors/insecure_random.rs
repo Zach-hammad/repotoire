@@ -281,7 +281,7 @@ impl Detector for InsecureRandomDetector {
 
                         let (context, usage) = Self::analyze_usage(line, &surrounding);
                         let containing_func =
-                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.name);
+                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
 
                         // Check if function is called by security code
                         let security_callers = if let Some(ref func) = containing_func {

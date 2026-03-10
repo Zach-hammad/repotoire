@@ -58,7 +58,7 @@ impl DjangoSecurityDetector {
                 || name_lower.contains("api")
                 || name_lower.contains("handler");
 
-            (f.name, callers.len(), is_view)
+            (f.node_name(i).to_string(), callers.len(), is_view)
         })
     }
 

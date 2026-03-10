@@ -35,15 +35,13 @@ impl MissingAwaitDetector {
         }
     }
 
-    /// Identify async functions from the graph — only trust the is_async property
+    /// Identify async functions from the graph — only trust the is_async flag
     fn find_async_functions(graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let i = graph.interner();
         let mut async_funcs = HashSet::new();
         for func in graph.get_functions_shared().iter() {
-            if let Some(is_async) = func.properties.get("is_async") {
-                if is_async.as_bool().unwrap_or(false) {
-                    async_funcs.insert(func.node_name(i).to_string());
-                }
+            if func.is_async() {
+                async_funcs.insert(func.node_name(i).to_string());
             }
         }
         async_funcs

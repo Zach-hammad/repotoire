@@ -295,7 +295,7 @@ impl Detector for XxeDetector {
                                     || name.contains("import")
                                     || name.contains("parse")
                             });
-                            (f.name, has_external_callers)
+                            (f.node_name(crate::graph::interner::global_interner()).to_string(), has_external_callers)
                         });
 
                     // Calculate severity

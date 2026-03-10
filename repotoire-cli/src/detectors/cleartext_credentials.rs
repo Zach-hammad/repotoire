@@ -100,7 +100,7 @@ impl CleartextCredentialsDetector {
                     || name_lower.contains("token")
                     || name_lower.contains("session");
 
-                (f.name, callers.len(), is_auth_related)
+                (f.node_name(i).to_string(), callers.len(), is_auth_related)
             })
     }
 

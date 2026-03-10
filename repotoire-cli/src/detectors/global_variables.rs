@@ -83,8 +83,9 @@ impl GlobalVariablesDetector {
         let module_name = file_name.split('.').next().unwrap_or("");
 
         // Look for imports of this module
+        let gi = graph.interner();
         for (_, import_target) in graph.get_imports() {
-            if import_target.contains(module_name) {
+            if gi.resolve(import_target).contains(module_name) {
                 return true;
             }
         }

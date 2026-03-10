@@ -6,6 +6,7 @@
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
 use crate::graph::{EdgeKind, GraphStore, NodeKind};
+use crate::graph::interner::StrKey;
 use petgraph::algo::dijkstra;
 use petgraph::graph::NodeIndex;
 use rayon::prelude::*;
@@ -131,7 +132,6 @@ pub struct FunctionContextBuilder<'a> {
 
 impl<'a> FunctionContextBuilder<'a> {
     pub fn new(graph: &'a dyn crate::graph::GraphQuery) -> Self {
-        let i = graph.interner();
         Self {
             graph,
             utility_in_degree_threshold: 10,
@@ -210,13 +210,13 @@ impl<'a> FunctionContextBuilder<'a> {
 
                 // Get betweenness for this function
                 let betweenness_score = qn_to_idx
-                    .get(qn)
+                    .get(&func.qualified_name)
                     .and_then(|&idx| normalized_betweenness.get(idx))
                     .copied()
                     .unwrap_or(0.0);
 
                 // Get call depth
-                let call_depth = call_depths.get(qn).copied().unwrap_or(0);
+                let call_depth = call_depths.get(&func.qualified_name).copied().unwrap_or(0);
 
                 // Detect test file
                 let is_test = self.is_test_path(func.path(i));
@@ -377,8 +377,8 @@ impl<'a> FunctionContextBuilder<'a> {
     fn calculate_call_depths(
         &self,
         adj: &[Vec<usize>],
-        qn_to_idx: &HashMap<String, usize>,
-    ) -> HashMap<String, usize> {
+        qn_to_idx: &HashMap<StrKey, usize>,
+    ) -> HashMap<StrKey, usize> {
         let n = adj.len();
         if n == 0 {
             return HashMap::new();
@@ -420,14 +420,14 @@ impl<'a> FunctionContextBuilder<'a> {
         }
 
         // Convert to HashMap with qualified names
-        let idx_to_qn: HashMap<usize, &String> =
-            qn_to_idx.iter().map(|(qn, &idx)| (idx, qn)).collect();
+        let idx_to_qn: HashMap<usize, StrKey> =
+            qn_to_idx.iter().map(|(qn, &idx)| (idx, *qn)).collect();
 
         depths
             .iter()
             .enumerate()
             .filter(|(_, &d)| d != usize::MAX)
-            .filter_map(|(i, &d)| idx_to_qn.get(&i).map(|qn| ((*qn).clone(), d)))
+            .filter_map(|(i, &d)| idx_to_qn.get(&i).map(|qn| (*qn, d)))
             .collect()
     }
 

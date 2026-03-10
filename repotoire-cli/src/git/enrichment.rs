@@ -49,7 +49,6 @@ pub struct GitEnricher<'a> {
 impl<'a> GitEnricher<'a> {
     /// Create a new git enricher.
     pub fn new(history: &'a GitHistory, graph: &'a GraphStore) -> Result<Self> {
-        let i = graph.interner();
         let repo_root = history.repo_root()?;
         let blame = GitBlame::open(repo_root)?;
         Ok(Self {
@@ -215,7 +214,7 @@ impl<'a> GitEnricher<'a> {
                 .blame
                 .get_entity_blame(class.path(crate::graph::interner::global_interner()), line_start, line_end)
                 .inspect_err(|e| {
-                    debug!("Failed to get blame for {}:{}: {}", class.path(i), line_start, e);
+                    debug!("Failed to get blame for {}:{}: {}", class.path(crate::graph::interner::global_interner()), line_start, e);
                 });
             let Ok(blame_info) = blame_result else {
                 stats.files_skipped += 1;

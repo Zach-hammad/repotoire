@@ -186,7 +186,10 @@ fn handle_function_history(
     let functions = graph.get_functions_in_file(file);
     let func_node = functions
         .iter()
-        .find(|f| f.name == name || f.qualified_name == name);
+        .find(|f| {
+            let gi = crate::graph::interner::global_interner();
+            f.node_name(gi) == name || f.qn(gi) == name
+        });
 
     let (line_start, line_end) = match func_node {
         Some(node) if node.line_start > 0 && node.line_end > 0 => {

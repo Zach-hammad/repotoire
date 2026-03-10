@@ -65,7 +65,6 @@ impl DeepNestingDetector {
         file_path: &str,
         line: u32,
     ) -> Option<crate::graph::CodeNode> {
-        let i = graph.interner();
         graph.find_function_at(file_path, line)
     }
 
@@ -111,7 +110,7 @@ impl DeepNestingDetector {
                 let callers = graph.get_callers(c.qn(i));
                 callers.len() == 1 // Only called from this function
             })
-            .map(|c| c.name)
+            .map(|c| c.node_name(i).to_string())
             .take(3)
             .collect()
     }

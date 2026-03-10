@@ -55,7 +55,7 @@ impl ImplicitCoercionDetector {
                     || name_lower.starts_with("delete")
                     || name_lower.starts_with("handle");
 
-                (f.name, caller_count, is_handler)
+                (f.node_name(i).to_string(), caller_count, is_handler)
             })
     }
 

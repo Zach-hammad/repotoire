@@ -72,7 +72,7 @@ impl LargeFilesDetector {
         let mut importers: HashSet<String> = HashSet::new();
         for func in &functions {
             for caller in graph.get_callers(func.qn(i)) {
-                if caller.file_path != file_path {
+                if caller.path(i) != file_path {
                     importers.insert(caller.path(i).to_string());
                 }
             }

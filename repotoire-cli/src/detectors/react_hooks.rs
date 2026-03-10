@@ -85,20 +85,21 @@ impl ReactHooksDetector {
         file_path: &str,
         line: u32,
     ) -> Option<String> {
+        let i = graph.interner();
         graph
             .get_functions()
             .into_iter()
             .find(|f| {
-                f.file_path == file_path
+                f.path(i) == file_path
                     && f.line_start <= line
                     && f.line_end >= line
-                    && f.name
+                    && f.node_name(i)
                         .chars()
                         .next()
                         .map(|c| c.is_uppercase())
                         .unwrap_or(false)
             })
-            .map(|f| f.name)
+            .map(|f| f.node_name(i).to_string())
     }
 
     /// Check for custom hooks (functions starting with 'use')

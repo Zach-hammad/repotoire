@@ -268,12 +268,12 @@ impl DataClumpsDetector {
         callees_map: &HashMap<&str, HashSet<String>>,
         funcs: &[FuncInfo],
     ) -> (usize, bool) {
-        let func_qns: HashSet<&str> = funcs.iter().map(|f| &f.qualified_name).collect();
+        let func_qns: HashSet<&str> = funcs.iter().map(|f| f.qualified_name.as_str()).collect();
         let mut call_count = 0;
         let mut has_chain = false;
 
         for func in funcs {
-            if let Some(callees) = callees_map.get(&func.qualified_name) {
+            if let Some(callees) = callees_map.get(func.qualified_name.as_str()) {
                 for callee_qn in callees {
                     if func_qns.contains(callee_qn.as_str()) {
                         call_count += 1;
@@ -304,12 +304,12 @@ impl DataClumpsDetector {
 
         for clump in clumps {
             let param_set: HashSet<&String> = clump.params.iter().collect();
-            let func_set: HashSet<&str> = clump.funcs.iter().map(|f| &f.name).collect();
+            let func_set: HashSet<&str> = clump.funcs.iter().map(|f| f.name.as_str()).collect();
 
             let is_subset = result.iter().any(|existing: &DataClump| {
                 let existing_params: HashSet<&String> = existing.params.iter().collect();
                 let existing_funcs: HashSet<&str> =
-                    existing.funcs.iter().map(|f| &f.name).collect();
+                    existing.funcs.iter().map(|f| f.name.as_str()).collect();
                 param_set.is_subset(&existing_params) && func_set.is_subset(&existing_funcs)
             });
 

@@ -93,11 +93,9 @@ pub fn handle_get_architecture(state: &mut HandlerState) -> Result<Value> {
     let files = graph.get_files();
     let mut lang_counts: std::collections::HashMap<String, i64> =
         std::collections::HashMap::new();
+    let gi = crate::graph::interner::global_interner();
     for file in &files {
-        let lang = file
-            .language
-            .clone()
-            .unwrap_or_else(|| "unknown".to_string());
+        let lang = file.lang(gi).unwrap_or("unknown").to_string();
         *lang_counts.entry(lang).or_insert(0) += 1;
     }
     let languages: Vec<Value> = lang_counts

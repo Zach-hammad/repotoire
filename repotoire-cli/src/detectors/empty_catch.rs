@@ -387,10 +387,11 @@ impl Detector for EmptyCatchDetector {
         let mut findings = vec![];
 
         // Pre-build name→qualified_name map once — O(N) instead of O(N) per catch block
+        let gi = graph.interner();
         let func_qn_map: std::collections::HashMap<String, String> = graph
             .get_functions()
             .into_iter()
-            .map(|f| (f.name, f.qualified_name))
+            .map(|f| (f.node_name(gi).to_string(), f.qn(gi).to_string()))
             .collect();
 
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "cs"]) {

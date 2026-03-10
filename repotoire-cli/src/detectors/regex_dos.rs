@@ -92,7 +92,7 @@ impl RegexDosDetector {
                     || name_lower.contains("handler")
                     || name_lower.contains("route");
 
-                (f.name, callers.len(), processes_input)
+                (f.node_name(i).to_string(), callers.len(), processes_input)
             })
     }
 
