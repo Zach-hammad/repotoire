@@ -46,6 +46,7 @@ pub struct GdPrecomputed {
     pub hmm_contexts: Arc<HashMap<String, FunctionContext>>,
     pub taint_results: crate::detectors::taint::centralized::CentralizedTaintResults,
     pub detector_context: Arc<super::DetectorContext>,
+    pub file_index: Arc<super::FileIndex>,
 }
 
 /// Build all GD pre-compute data (contexts + HMM + taint) as a standalone computation.
@@ -71,7 +72,7 @@ pub fn precompute_gd_startup(
     //   Thread 2: HMM (0.4s)             — Hidden Markov Model context extraction
     //   Thread 3: DetectorContext (~0.3s) — callers/callees maps, file contents, class hierarchy
     //   Main:     contexts (1.5s)         — adjacency + betweenness + context map (skipped if no context-using detectors)
-    let (contexts, hmm_contexts, taint_results, detector_context) = std::thread::scope(|s| {
+    let (contexts, hmm_contexts, taint_results, detector_context, file_index) = std::thread::scope(|s| {
         // Thread 1: Taint analysis (only if any detector needs taint)
         let taint_handle = if needs_taint {
             Some(s.spawn(|| {
@@ -92,8 +93,9 @@ pub fn precompute_gd_startup(
         // Thread 3: DetectorContext (callers/callees maps, file contents, class hierarchy)
         let vs_clone = value_store.clone();
         let ctx_handle = s.spawn(move || {
-            let (det_ctx, _file_data) = super::DetectorContext::build(graph, source_files, vs_clone, repo_path);
-            Arc::new(det_ctx)
+            let (det_ctx, file_data) = super::DetectorContext::build(graph, source_files, vs_clone, repo_path);
+            let file_index = Arc::new(super::FileIndex::new(file_data));
+            (Arc::new(det_ctx), file_index)
         });
 
         // Main thread: Function contexts (only if any detector uses context)
@@ -111,8 +113,8 @@ pub fn precompute_gd_startup(
                 intra_function: HashMap::new(),
             });
         let hmm = hmm_handle.join().expect("HMM thread panicked");
-        let det_ctx = ctx_handle.join().expect("DetectorContext thread panicked");
-        (ctx, hmm, taint, det_ctx)
+        let (det_ctx, file_index) = ctx_handle.join().expect("DetectorContext thread panicked");
+        (ctx, hmm, taint, det_ctx, file_index)
     });
 
     GdPrecomputed {
@@ -120,6 +122,7 @@ pub fn precompute_gd_startup(
         hmm_contexts: Arc::new(hmm_contexts),
         taint_results,
         detector_context,
+        file_index,
     }
 }
 
@@ -267,6 +270,12 @@ pub struct DetectorEngine {
     timings_enabled: bool,
     /// Whether GD pre-compute data has been injected via `inject_gd_precomputed`
     gd_precomputed: bool,
+    /// Pre-indexed file content for AnalysisContext construction
+    file_index: Option<Arc<super::FileIndex>>,
+    /// Pre-computed taint results (kept for AnalysisContext construction)
+    taint_results: Option<Arc<crate::detectors::taint::centralized::CentralizedTaintResults>>,
+    /// Pre-computed detector context (kept for AnalysisContext construction)
+    detector_context: Option<Arc<super::DetectorContext>>,
 }
 
 impl DetectorEngine {
@@ -295,6 +304,9 @@ impl DetectorEngine {
             hmm_cache_path: None,
             timings_enabled: false,
             gd_precomputed: false,
+            file_index: None,
+            taint_results: None,
+            detector_context: None,
         }
     }
 
@@ -587,6 +599,10 @@ impl DetectorEngine {
             detector.set_detector_context(Arc::clone(&pre.detector_context));
         }
 
+        // Store for AnalysisContext construction
+        self.file_index = Some(pre.file_index);
+        self.taint_results = Some(Arc::new(pre.taint_results));
+        self.detector_context = Some(pre.detector_context);
         self.gd_precomputed = true;
     }
 
@@ -670,20 +686,35 @@ impl DetectorEngine {
                         detector.set_precomputed_taint(cross, intra);
                     }
                 }
+                // Store for AnalysisContext construction
+                self.taint_results = Some(Arc::new(taint_results));
             }
         } else {
             debug!("Skipping taint computation in run(): no detectors need taint");
+            // Store empty taint results so AnalysisContext can still be built
+            if self.taint_results.is_none() {
+                self.taint_results = Some(Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
+                    cross_function: HashMap::new(),
+                    intra_function: HashMap::new(),
+                }));
+            }
         }
 
         // Build and inject DetectorContext for run() fallback path
         if !self.gd_precomputed {
             let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
-            let (det_ctx, _file_data) = super::DetectorContext::build(graph, &source_file_paths, None, files.repo_path());
+            let (det_ctx, file_data) = super::DetectorContext::build(graph, &source_file_paths, None, files.repo_path());
             let det_ctx = Arc::new(det_ctx);
+            let file_index = Arc::new(super::FileIndex::new(file_data));
             for detector in &self.detectors {
                 detector.set_detector_context(Arc::clone(&det_ctx));
             }
+            self.file_index = Some(file_index);
+            self.detector_context = Some(det_ctx);
         }
+
+        // Build AnalysisContext for detect_ctx() dispatch
+        let analysis_ctx = self.build_analysis_ctx(graph, &contexts);
 
         // Partition detectors into independent and dependent
         let (independent, dependent): (Vec<_>, Vec<_>) = self
@@ -727,7 +758,7 @@ impl DetectorEngine {
                         return DetectorResult::skipped(detector.name());
                     }
 
-                    let result = self.run_single_detector(detector, graph, files, &contexts_for_parallel);
+                    let result = self.run_single_detector(detector, graph, files, &contexts_for_parallel, analysis_ctx.as_ref());
                     finding_count_parallel.fetch_add(result.findings.len(), Ordering::Relaxed);
 
                     // Update progress
@@ -776,7 +807,7 @@ impl DetectorEngine {
                 continue;
             }
 
-            let result = self.run_single_detector(&detector, graph, files, &contexts);
+            let result = self.run_single_detector(&detector, graph, files, &contexts, analysis_ctx.as_ref());
             finding_count.fetch_add(result.findings.len(), Ordering::Relaxed);
 
             // Update progress
@@ -909,6 +940,7 @@ impl DetectorEngine {
 
         let contexts_clone = Arc::clone(&contexts);
         let finding_count_clone = Arc::clone(&finding_count);
+        // GI detectors run without full graph data — pass None for analysis_ctx
         let results: Vec<DetectorResult> = pool.install(|| {
             gi_detectors
                 .par_iter()
@@ -922,7 +954,7 @@ impl DetectorEngine {
                     }
 
                     let result =
-                        self.run_single_detector(detector, graph, files, &contexts_clone);
+                        self.run_single_detector(detector, graph, files, &contexts_clone, None);
                     finding_count_clone.fetch_add(result.findings.len(), Ordering::Relaxed);
 
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1039,11 +1071,17 @@ impl DetectorEngine {
 
             // Build and inject DetectorContext for fallback path
             let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
-            let (det_ctx, _file_data) = super::DetectorContext::build(graph, &source_file_paths, None, files.repo_path());
+            let (det_ctx, file_data) = super::DetectorContext::build(graph, &source_file_paths, None, files.repo_path());
             let det_ctx = Arc::new(det_ctx);
+            let file_index = Arc::new(super::FileIndex::new(file_data));
             for detector in &gd_detectors {
                 detector.set_detector_context(Arc::clone(&det_ctx));
             }
+
+            // Store for AnalysisContext construction
+            self.file_index = Some(file_index);
+            self.taint_results = Some(Arc::new(taint_results));
+            self.detector_context = Some(det_ctx);
 
             (ctx, hmm)
         };
@@ -1056,6 +1094,9 @@ impl DetectorEngine {
             gd_detectors.into_iter().partition(|d| !d.is_dependent());
 
         let total = parallel.len() + sequential.len();
+
+        // Build AnalysisContext for detect_ctx() dispatch
+        let analysis_ctx = self.build_analysis_ctx(graph, &contexts);
 
         // Run parallel graph-dependent detectors
         let pool = rayon::ThreadPoolBuilder::new()
@@ -1078,7 +1119,7 @@ impl DetectorEngine {
                     }
 
                     let result =
-                        self.run_single_detector(detector, graph, files, &contexts_clone);
+                        self.run_single_detector(detector, graph, files, &contexts_clone, analysis_ctx.as_ref());
                     finding_count_clone.fetch_add(result.findings.len(), Ordering::Relaxed);
 
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1119,7 +1160,7 @@ impl DetectorEngine {
                 continue;
             }
 
-            let result = self.run_single_detector(&detector, graph, files, &contexts);
+            let result = self.run_single_detector(&detector, graph, files, &contexts, analysis_ctx.as_ref());
             finding_count.fetch_add(result.findings.len(), Ordering::Relaxed);
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1211,17 +1252,25 @@ impl DetectorEngine {
                     detector.set_precomputed_taint(cross, intra);
                 }
             }
+            // Store for AnalysisContext construction
+            self.taint_results = Some(Arc::new(taint_results));
         }
 
         // Build and inject DetectorContext for run_detailed() fallback path
         if !self.gd_precomputed {
             let source_file_paths: Vec<std::path::PathBuf> = files.files().to_vec();
-            let (det_ctx, _file_data) = super::DetectorContext::build(graph, &source_file_paths, None, files.repo_path());
+            let (det_ctx, file_data) = super::DetectorContext::build(graph, &source_file_paths, None, files.repo_path());
             let det_ctx = Arc::new(det_ctx);
+            let file_index = Arc::new(super::FileIndex::new(file_data));
             for detector in &self.detectors {
                 detector.set_detector_context(Arc::clone(&det_ctx));
             }
+            self.file_index = Some(file_index);
+            self.detector_context = Some(det_ctx);
         }
+
+        // Build AnalysisContext for detect_ctx() dispatch
+        let analysis_ctx = self.build_analysis_ctx(graph, &contexts);
 
         // Partition detectors
         let (independent, dependent): (Vec<_>, Vec<_>) = self
@@ -1240,13 +1289,13 @@ impl DetectorEngine {
         let mut all_results: Vec<DetectorResult> = pool.install(|| {
             independent
                 .par_iter()
-                .map(|detector| self.run_single_detector(detector, graph, files, &contexts_for_parallel))
+                .map(|detector| self.run_single_detector(detector, graph, files, &contexts_for_parallel, analysis_ctx.as_ref()))
                 .collect()
         });
 
         // Run dependent sequentially
         for detector in dependent {
-            all_results.push(self.run_single_detector(&detector, graph, files, &contexts));
+            all_results.push(self.run_single_detector(&detector, graph, files, &contexts, analysis_ctx.as_ref()));
         }
 
         // Filter out test file findings if enabled
@@ -1379,6 +1428,27 @@ impl DetectorEngine {
         finding.affected_files.iter().all(|path| is_test_file(path))
     }
 
+    /// Build an AnalysisContext from pre-computed engine state.
+    ///
+    /// Returns `None` if the required data (file_index, taint_results,
+    /// detector_context) hasn't been stored yet.
+    fn build_analysis_ctx<'g>(
+        &self,
+        graph: &'g dyn crate::graph::GraphQuery,
+        contexts: &Arc<FunctionContextMap>,
+    ) -> Option<super::AnalysisContext<'g>> {
+        let file_index = self.file_index.as_ref()?;
+        let taint = self.taint_results.as_ref()?;
+        let det_ctx = self.detector_context.as_ref()?;
+        Some(super::AnalysisContext {
+            graph,
+            files: Arc::clone(file_index),
+            functions: Arc::clone(contexts),
+            taint: Arc::clone(taint),
+            detector_ctx: Arc::clone(det_ctx),
+        })
+    }
+
     /// Run a single detector with error handling and timing
     fn run_single_detector(
         &self,
@@ -1386,6 +1456,7 @@ impl DetectorEngine {
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &Arc<FunctionContextMap>,
+        analysis_ctx: Option<&super::AnalysisContext<'_>>,
     ) -> DetectorResult {
         let name = detector.name().to_string();
         let start = Instant::now();
@@ -1395,7 +1466,9 @@ impl DetectorEngine {
         // Wrap in catch_unwind to handle panics
         let contexts_clone = Arc::clone(contexts);
         let detect_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if detector.uses_context() {
+            if let Some(ctx) = analysis_ctx {
+                detector.detect_ctx(ctx)
+            } else if detector.uses_context() {
                 detector.detect_with_context(graph, files, &contexts_clone)
             } else {
                 detector.detect(graph, files)
