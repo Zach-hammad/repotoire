@@ -362,6 +362,7 @@ impl Detector for LongParameterListDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         // Constructor/factory patterns that legitimately need many params
@@ -387,7 +388,7 @@ impl Detector for LongParameterListDetector {
                 continue;
             }
 
-            let name_lower = func.name.to_lowercase();
+            let name_lower = func.node_name(i).to_lowercase();
 
             // === Graph-aware pattern detection ===
 
@@ -401,7 +402,7 @@ impl Detector for LongParameterListDetector {
 
             // 3. Check if function delegates most params to a single callee (wrapper pattern)
             let is_delegator = {
-                let callees = graph.get_callees(&func.qualified_name);
+                let callees = graph.get_callees(func.qn(i));
                 callees.iter().any(|callee| {
                     // If callee has similar param count, this function is likely a wrapper
                     let callee_params = callee.param_count().unwrap_or(0) as usize;
@@ -410,11 +411,11 @@ impl Detector for LongParameterListDetector {
             };
 
             // 4. Check if this is an entry point handler (acceptable)
-            let is_entry_point = func.file_path.contains("/handlers/")
-                || func.file_path.contains("/routes/")
-                || func.file_path.contains("/views/")
-                || func.name.contains("handle")
-                || func.name.contains("endpoint");
+            let is_entry_point = func.path(i).contains("/handlers/")
+                || func.path(i).contains("/routes/")
+                || func.path(i).contains("/views/")
+                || func.node_name(i).contains("handle")
+                || func.node_name(i).contains("endpoint");
 
             // Calculate severity with graph-aware adjustments
             let mut severity = self.calculate_severity(param_count);
@@ -492,7 +493,7 @@ impl Detector for LongParameterListDetector {
                     pattern_notes,
                     explanation.to_note()
                 ),
-                affected_files: vec![func.file_path.clone().into()],
+                affected_files: vec![func.path(i).to_string().into()],
                 line_start: Some(func.line_start),
                 line_end: Some(func.line_end),
                 suggested_fix: Some(suggestion),

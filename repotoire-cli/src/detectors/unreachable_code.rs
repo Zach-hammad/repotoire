@@ -5,6 +5,7 @@
 //! 2. Functions with zero callers in the call graph (dead functions)
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::interner::StrKey;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -355,56 +356,56 @@ impl UnreachableCodeDetector {
 
     /// Find functions with zero callers using the call graph
     fn find_dead_functions(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let functions = graph.get_functions_shared();
 
-        // Pre-build caller/callee maps from get_calls_shared() — borrows &str from
-        // the Arc to avoid cloning ~600K Strings (296K calls × 2).
+        // Pre-build caller/callee maps from get_calls_shared() using StrKey for O(1) lookups.
         let calls = graph.get_calls_shared();
-        let mut callee_to_callers: HashMap<&str, Vec<&str>> = HashMap::new();
-        let mut caller_to_callees: HashMap<&str, Vec<&str>> = HashMap::new();
-        let mut called_functions: HashSet<&str> = HashSet::with_capacity(calls.len());
+        let mut callee_to_callers: HashMap<StrKey, Vec<StrKey>> = HashMap::new();
+        let mut caller_to_callees: HashMap<StrKey, Vec<StrKey>> = HashMap::new();
+        let mut called_functions: HashSet<StrKey> = HashSet::with_capacity(calls.len());
         for (caller, callee) in calls.iter() {
-            called_functions.insert(callee.as_str());
+            called_functions.insert(*callee);
             callee_to_callers
-                .entry(callee.as_str())
+                .entry(*callee)
                 .or_default()
-                .push(caller.as_str());
+                .push(*caller);
             caller_to_callees
-                .entry(caller.as_str())
+                .entry(*caller)
                 .or_default()
-                .push(callee.as_str());
+                .push(*callee);
         }
 
         // First pass: find directly dead functions
-        let mut directly_dead: HashSet<String> = HashSet::new();
+        let mut directly_dead: HashSet<StrKey> = HashSet::new();
         // Per-file exclusion cache: avoids re-checking bundled/minified/fixture per file
-        let mut file_excluded: rustc_hash::FxHashMap<&str, bool> = rustc_hash::FxHashMap::default();
+        let mut file_excluded: rustc_hash::FxHashMap<StrKey, bool> = rustc_hash::FxHashMap::default();
         // Per-file content cache: avoids repeated DashMap lookups for exported/self.method checks
-        let mut file_content: rustc_hash::FxHashMap<&str, Option<std::sync::Arc<String>>> = rustc_hash::FxHashMap::default();
+        let mut file_content: rustc_hash::FxHashMap<StrKey, Option<std::sync::Arc<String>>> = rustc_hash::FxHashMap::default();
 
         for func in functions.iter() {
             // Skip if it's called somewhere
-            if called_functions.contains(func.qualified_name.as_str()) {
+            if called_functions.contains(&func.qualified_name) {
                 continue;
             }
 
             // Skip entry points
-            if self.is_entry_point(&func.name, &func.file_path) {
+            if self.is_entry_point(func.node_name(i), func.path(i)) {
                 continue;
             }
 
             // Skip functions whose address is taken (callbacks, dispatch tables, etc.)
             // These are invoked indirectly via function pointers, not direct calls
-            if func.get_bool("address_taken").unwrap_or(false) {
+            if func.address_taken() {
                 continue;
             }
 
+            let fp = func.path(i);
             // Per-file exclusion: test, scripts, non-production, framework, bundled (cached)
             let excluded = *file_excluded
-                .entry(func.file_path.as_str())
+                .entry(func.file_path)
                 .or_insert_with(|| {
-                    let fp = &func.file_path;
                     // Test files
                     if fp.contains("/test") || fp.contains("_test.")
                         || fp.contains("/tests/") || fp.contains("conftest")
@@ -448,27 +449,28 @@ impl UnreachableCodeDetector {
                 continue;
             }
 
+            let func_name = func.node_name(i);
             // Skip CLI-related functions (often entry points)
-            if func.file_path.contains("/cli")
-                || func.name.contains("locate")
-                || func.name.contains("app")
-                || func.name.contains("create")
+            if fp.contains("/cli")
+                || func_name.contains("locate")
+                || func_name.contains("app")
+                || func_name.contains("create")
             {
                 continue;
             }
 
             // Skip private/internal functions (underscore prefix)
-            if func.name.starts_with('_') && !func.name.starts_with("__") {
+            if func_name.starts_with('_') && !func_name.starts_with("__") {
                 continue;
             }
 
             // Skip constructors (always called when class is instantiated)
-            if func.name == "constructor" || func.name == "__init__" || func.name == "new" {
+            if func_name == "constructor" || func_name == "__init__" || func_name == "new" {
                 continue;
             }
 
             // Skip dev-only functions (conditional compilation)
-            let name_lower = func.name.to_lowercase();
+            let name_lower = func_name.to_lowercase();
             if name_lower.ends_with("dev")
                 || name_lower.contains("indev")
                 || name_lower.starts_with("warn")
@@ -480,33 +482,33 @@ impl UnreachableCodeDetector {
             // Expensive checks AFTER cheap graph-based filters:
             // Get/cache file content once per file (avoids repeated DashMap lookups)
             let content = file_content
-                .entry(func.file_path.as_str())
+                .entry(func.file_path)
                 .or_insert_with(|| {
-                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                    crate::cache::global_cache().content(std::path::Path::new(fp))
                 });
 
             if let Some(ref content) = content {
                 // Skip exported functions
                 if Self::is_exported_function_with_content(
-                    &func.file_path, &func.qualified_name, func.line_start, content,
+                    fp, func.qn(i), func.line_start, content,
                 ) {
                     continue;
                 }
 
                 // Check if method is called via self.method() in same file
-                let self_call = format!("self.{}(", func.name);
+                let self_call = format!("self.{}(", func_name);
                 if content.contains(&self_call) {
                     continue;
                 }
             }
 
-            directly_dead.insert(func.qualified_name.clone());
+            directly_dead.insert(func.qualified_name);
         }
 
         // Second pass: find transitively dead functions
         // (functions only called by dead functions)
         let transitively_dead =
-            self.find_transitively_dead(&functions, &callee_to_callers, &directly_dead);
+            self.find_transitively_dead(i, &functions, &callee_to_callers, &directly_dead);
 
         // Create findings for directly dead functions
         for func in functions.iter() {
@@ -515,12 +517,12 @@ impl UnreachableCodeDetector {
             }
 
             // Check how many functions this dead function calls (impact) — O(1) lookup
-            let dead_callees: Vec<&str> = caller_to_callees
-                .get(func.qualified_name.as_str())
+            let dead_callees: Vec<StrKey> = caller_to_callees
+                .get(&func.qualified_name)
                 .map(|cs| {
                     cs.iter()
                         .copied()
-                        .filter(|c| transitively_dead.contains(*c))
+                        .filter(|c| transitively_dead.contains(c))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -529,13 +531,15 @@ impl UnreachableCodeDetector {
                 format!(
                     "\n\n⚠️ **Cascade**: Removing this also removes {} transitively dead function(s):\n{}",
                     dead_callees.len(),
-                    dead_callees.iter().take(3).map(|c| format!("  - {}", c)).collect::<Vec<_>>().join("\n")
+                    dead_callees.iter().take(3).map(|c| format!("  - {}", i.resolve(*c))).collect::<Vec<_>>().join("\n")
                 )
             } else {
                 String::new()
             };
 
-            debug!("Dead function found: {} in {}", func.name, func.file_path);
+            let func_name = func.node_name(i);
+            let func_path = func.path(i);
+            debug!("Dead function found: {} in {}", func_name, func_path);
 
             findings.push(Finding {
                 id: String::new(),
@@ -545,13 +549,13 @@ impl UnreachableCodeDetector {
                 } else {
                     Severity::Medium
                 },
-                title: format!("Dead function: {}", func.name),
+                title: format!("Dead function: {}", func_name),
                 description: format!(
                     "Function '{}' has **zero callers** in the codebase.\n\n\
                      This function is never called and may be dead code that can be removed.{}",
-                    func.name, cascade_note
+                    func_name, cascade_note
                 ),
-                affected_files: vec![func.file_path.clone().into()],
+                affected_files: vec![PathBuf::from(func_path)],
                 line_start: Some(func.line_start),
                 line_end: Some(func.line_end),
                 suggested_fix: Some(
@@ -587,37 +591,38 @@ impl UnreachableCodeDetector {
             }
 
             // Find which dead function(s) call this one — O(1) lookup
-            let dead_callers: Vec<&str> = callee_to_callers
-                .get(func.qualified_name.as_str())
+            let dead_callers: Vec<StrKey> = callee_to_callers
+                .get(&func.qualified_name)
                 .map(|callers| {
                     callers
                         .iter()
                         .copied()
                         .filter(|c| {
-                            directly_dead.contains(*c)
-                                || transitively_dead.contains(*c)
+                            directly_dead.contains(c)
+                                || transitively_dead.contains(c)
                         })
                         .collect()
                 })
                 .unwrap_or_default();
 
+            let func_name = func.node_name(i);
             findings.push(Finding {
                 id: String::new(),
                 detector: "UnreachableCodeDetector".to_string(),
                 severity: Severity::Low, // Lower - fixing root dead function will resolve this
-                title: format!("Transitively dead: {}", func.name),
+                title: format!("Transitively dead: {}", func_name),
                 description: format!(
                     "Function '{}' is only called by dead function(s):\n{}\n\n\
                      Removing the dead callers will make this removable too.",
-                    func.name,
+                    func_name,
                     dead_callers
                         .iter()
                         .take(3)
-                        .map(|c| format!("  - {}", c))
+                        .map(|c| format!("  - {}", i.resolve(*c)))
                         .collect::<Vec<_>>()
                         .join("\n")
                 ),
-                affected_files: vec![func.file_path.clone().into()],
+                affected_files: vec![PathBuf::from(func.path(i))],
                 line_start: Some(func.line_start),
                 line_end: Some(func.line_end),
                 suggested_fix: Some(
@@ -640,11 +645,12 @@ impl UnreachableCodeDetector {
     /// Find functions that are transitively dead (only called by dead functions)
     fn find_transitively_dead(
         &self,
+        i: &crate::graph::interner::StringInterner,
         functions: &[crate::graph::store_models::CodeNode],
-        callee_to_callers: &HashMap<&str, Vec<&str>>,
-        directly_dead: &HashSet<String>,
-    ) -> HashSet<String> {
-        let mut transitively_dead: HashSet<String> = HashSet::new();
+        callee_to_callers: &HashMap<StrKey, Vec<StrKey>>,
+        directly_dead: &HashSet<StrKey>,
+    ) -> HashSet<StrKey> {
+        let mut transitively_dead: HashSet<StrKey> = HashSet::new();
         let mut changed = true;
         let mut iterations = 0;
 
@@ -662,24 +668,24 @@ impl UnreachableCodeDetector {
                 }
 
                 // Skip entry points
-                if self.is_entry_point(&func.name, &func.file_path) {
+                if self.is_entry_point(func.node_name(i), func.path(i)) {
                     continue;
                 }
 
                 // Get all callers from pre-built map (O(1) lookup)
-                let callers = match callee_to_callers.get(func.qualified_name.as_str()) {
+                let callers = match callee_to_callers.get(func.qn(i)) {
                     Some(c) => c,
                     None => continue, // No callers — would have been caught as directly dead
                 };
 
                 // Check if ALL callers are dead
                 let all_callers_dead = callers.iter().all(|c| {
-                    directly_dead.contains(*c)
-                        || transitively_dead.contains(*c)
+                    directly_dead.contains(c)
+                        || transitively_dead.contains(c)
                 });
 
                 if all_callers_dead {
-                    transitively_dead.insert(func.qualified_name.clone());
+                    transitively_dead.insert(func.qualified_name);
                     changed = true;
                 }
             }

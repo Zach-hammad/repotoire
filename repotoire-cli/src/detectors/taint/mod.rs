@@ -610,6 +610,7 @@ impl TaintAnalyzer {
         category: TaintCategory,
         functions: Option<&[crate::graph::CodeNode]>,
     ) -> Vec<TaintPath> {
+        let i = graph.interner();
         let owned_functions;
         let functions = match functions {
             Some(f) => f,
@@ -623,7 +624,7 @@ impl TaintAnalyzer {
         let sink_funcs: Vec<_> = functions
             .iter()
             .filter(|f| {
-                self.is_sink(&f.name, category) || self.is_sink(&f.qualified_name, category)
+                self.is_sink(f.node_name(i), category) || self.is_sink(f.qn(i), category)
             })
             .collect();
 
@@ -634,13 +635,13 @@ impl TaintAnalyzer {
         // Build sink set ONCE (outside source loop)
         let sink_qns: HashSet<&str> = sink_funcs
             .iter()
-            .map(|f| f.qualified_name.as_str())
+            .map(|f| f.qn(i))
             .collect();
 
         // Find source functions
         let source_funcs: Vec<_> = functions
             .iter()
-            .filter(|f| self.is_potential_source_function(f, category))
+            .filter(|f| self.is_potential_source_function(i, f, category))
             .collect();
 
         if source_funcs.is_empty() {
@@ -652,19 +653,19 @@ impl TaintAnalyzer {
         for source in &source_funcs {
             let source_paths = self.bfs_to_sinks(
                 graph,
-                &source.qualified_name,
+                source.qn(i),
                 &sink_qns,
                 category,
             );
 
             for (sink_qn, call_chain, sanitizer) in source_paths {
-                if let Some(sink) = sink_funcs.iter().find(|f| f.qualified_name == sink_qn) {
+                if let Some(sink) = sink_funcs.iter().find(|f| f.qn(i) == sink_qn) {
                     paths.push(TaintPath {
-                        source_function: source.name.clone(),
-                        source_file: source.file_path.clone(),
+                        source_function: source.node_name(i).to_string(),
+                        source_file: source.path(i).to_string(),
                         source_line: source.line_start,
-                        sink_function: sink.name.clone(),
-                        sink_file: sink.file_path.clone(),
+                        sink_function: sink.node_name(i).to_string(),
+                        sink_file: sink.path(i).to_string(),
                         sink_line: sink.line_start,
                         category,
                         call_chain,
@@ -687,6 +688,7 @@ impl TaintAnalyzer {
     ///   corroborating evidence from the file path (must look web-related)
     fn is_potential_source_function(
         &self,
+        i: &crate::graph::interner::StringInterner,
         func: &crate::graph::CodeNode,
         _category: TaintCategory,
     ) -> bool {
@@ -707,8 +709,8 @@ impl TaintAnalyzer {
         }
 
         // Strong signal: function name/qn contains actual source patterns (request.body, etc.)
-        let name_lower = func.name.to_lowercase();
-        let qn_lower = func.qualified_name.to_lowercase();
+        let name_lower = func.node_name(i).to_lowercase();
+        let qn_lower = func.qn(i).to_lowercase();
 
         let references_source = if let Some(sources) = self.sources.get(&_category) {
             sources.iter().any(|s| {
@@ -741,7 +743,7 @@ impl TaintAnalyzer {
         }
 
         // Corroborating evidence: file path looks web-related
-        let path_lower = func.file_path.to_lowercase();
+        let path_lower = func.path(i).to_lowercase();
         path_lower.contains("route")
             || path_lower.contains("view")
             || path_lower.contains("handler")
@@ -763,6 +765,7 @@ impl TaintAnalyzer {
         sink_qns: &HashSet<&str>,
         category: TaintCategory,
     ) -> Vec<(String, Vec<String>, Option<String>)> {
+        let i = graph.interner();
         let mut results = Vec::new();
         let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
@@ -786,27 +789,29 @@ impl TaintAnalyzer {
             let callees = graph.get_callees(&current_qn);
 
             for callee in callees {
-                if visited.contains(&callee.qualified_name) {
+                let callee_qn = callee.qn(i).to_string();
+                if visited.contains(&callee_qn) {
                     continue;
                 }
 
-                visited.insert(callee.qualified_name.clone());
+                visited.insert(callee_qn.clone());
 
+                let callee_name = callee.node_name(i);
                 let mut new_path = path.clone();
-                new_path.push(callee.name.clone());
+                new_path.push(callee_name.to_string());
 
                 // Check if this callee is a sanitizer
                 let new_sanitizer = if sanitizer.is_some() {
                     sanitizer.clone()
-                } else if self.is_sanitizer(&callee.name, category)
-                    || self.is_sanitizer(&callee.qualified_name, category)
+                } else if self.is_sanitizer(callee_name, category)
+                    || self.is_sanitizer(&callee_qn, category)
                 {
-                    Some(callee.name.clone())
+                    Some(callee_name.to_string())
                 } else {
                     None
                 };
 
-                queue.push_back((callee.qualified_name.clone(), new_path, new_sanitizer));
+                queue.push_back((callee_qn, new_path, new_sanitizer));
             }
         }
 
@@ -870,6 +875,7 @@ impl TaintAnalyzer {
         func_qn: &str,
         category: TaintCategory,
     ) -> Vec<TaintPath> {
+        let i = graph.interner();
         let mut paths = Vec::new();
 
         // Get the function
@@ -881,33 +887,35 @@ impl TaintAnalyzer {
         // Check direct callees for sinks
         let callees = graph.get_callees(func_qn);
         for callee in &callees {
-            if self.is_sink(&callee.name, category)
-                || self.is_sink(&callee.qualified_name, category)
+            let callee_name = callee.node_name(i);
+            let callee_qn = callee.qn(i);
+            if self.is_sink(callee_name, category)
+                || self.is_sink(callee_qn, category)
             {
                 // Direct call to sink from this function
                 let is_sanitized = callees.iter().any(|c| {
-                    self.is_sanitizer(&c.name, category)
-                        || self.is_sanitizer(&c.qualified_name, category)
+                    self.is_sanitizer(c.node_name(i), category)
+                        || self.is_sanitizer(c.qn(i), category)
                 });
 
                 let sanitizer = if is_sanitized {
                     callees
                         .iter()
                         .find(|c| {
-                            self.is_sanitizer(&c.name, category)
-                                || self.is_sanitizer(&c.qualified_name, category)
+                            self.is_sanitizer(c.node_name(i), category)
+                                || self.is_sanitizer(c.qn(i), category)
                         })
-                        .map(|c| c.name.clone())
+                        .map(|c| c.node_name(i).to_string())
                 } else {
                     None
                 };
 
                 paths.push(TaintPath {
-                    source_function: func.name.clone(),
-                    source_file: func.file_path.clone(),
+                    source_function: func.node_name(i).to_string(),
+                    source_file: func.path(i).to_string(),
                     source_line: func.line_start,
-                    sink_function: callee.name.clone(),
-                    sink_file: callee.file_path.clone(),
+                    sink_function: callee_name.to_string(),
+                    sink_file: callee.path(i).to_string(),
                     sink_line: callee.line_start,
                     category,
                     call_chain: vec![],
@@ -924,8 +932,8 @@ impl TaintAnalyzer {
             func_qn,
             &callees
                 .iter()
-                .filter(|c| self.is_sink(&c.name, category))
-                .map(|c| c.qualified_name.as_str())
+                .filter(|c| self.is_sink(c.node_name(i), category))
+                .map(|c| c.qn(i))
                 .collect(),
             category,
         );
@@ -933,11 +941,11 @@ impl TaintAnalyzer {
         for (sink_qn, chain, sanitizer) in indirect_paths {
             if let Some(sink) = graph.get_node(&sink_qn) {
                 paths.push(TaintPath {
-                    source_function: func.name.clone(),
-                    source_file: func.file_path.clone(),
+                    source_function: func.node_name(i).to_string(),
+                    source_file: func.path(i).to_string(),
                     source_line: func.line_start,
-                    sink_function: sink.name.clone(),
-                    sink_file: sink.file_path.clone(),
+                    sink_function: sink.node_name(i).to_string(),
+                    sink_file: sink.path(i).to_string(),
                     sink_line: sink.line_start,
                     category,
                     call_chain: chain,
@@ -1039,26 +1047,29 @@ pub fn run_intra_function_taint(
     category: TaintCategory,
     repository_path: &Path,
 ) -> Vec<TaintPath> {
+    let i = graph.interner();
     let functions = graph.get_functions_shared();
     let mut all_paths = Vec::new();
 
     // Cache file contents to avoid re-reading
-    let mut file_cache: HashMap<String, String> = HashMap::new();
+    use crate::graph::interner::StrKey;
+    let mut file_cache: HashMap<StrKey, String> = HashMap::new();
 
     for func in functions.iter() {
+        let func_path = func.path(i);
         // Need a source file to analyze
-        if func.file_path.is_empty() {
+        if func_path.is_empty() {
             continue;
         }
 
-        let full_path = repository_path.join(&func.file_path);
+        let full_path = repository_path.join(func_path);
 
         // Read file (cached)
         let content = match file_cache.get(&func.file_path) {
             Some(c) => c.clone(),
             None => match std::fs::read_to_string(&full_path) {
                 Ok(c) => {
-                    file_cache.insert(func.file_path.clone(), c.clone());
+                    file_cache.insert(func.file_path, c.clone());
                     c
                 }
                 Err(_) => continue,
@@ -1072,7 +1083,7 @@ pub fn run_intra_function_taint(
 
         // Extract function body from source
         let line_start = func.line_start as usize;
-        let line_end = func.get_i64("lineEnd").unwrap_or(0) as usize;
+        let line_end = func.line_end as usize;
 
         if line_start == 0 || line_end == 0 || line_end < line_start {
             continue;
@@ -1090,10 +1101,11 @@ pub fn run_intra_function_taint(
         let language = Language::from_extension(ext);
 
         // Run intra-function analysis
+        let func_name = func.node_name(i);
         let paths = analyzer.analyze_intra_function(
             &func_body,
-            &func.name,
-            &func.file_path,
+            func_name,
+            func_path,
             line_start,
             language,
             category,

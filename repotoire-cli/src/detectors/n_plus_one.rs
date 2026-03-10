@@ -46,11 +46,12 @@ impl NPlusOneDetector {
     /// 1. Database-accessing functions almost always have descriptive names
     /// 2. False positives are filtered by the loop + callee check downstream
     fn find_query_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
+        let i = graph.interner();
         let mut query_funcs = HashSet::new();
 
         for func in graph.get_functions_shared().iter() {
-            if QUERY_FUNC.is_match(&func.name) {
-                query_funcs.insert(func.qualified_name.clone());
+            if QUERY_FUNC.is_match(func.node_name(i)) {
+                query_funcs.insert(func.qn(i).to_string());
             }
         }
 
@@ -66,6 +67,7 @@ impl NPlusOneDetector {
         graph: &dyn crate::graph::GraphQuery,
         query_funcs: &HashSet<String>,
     ) -> HashMap<String, String> {
+        let i = graph.interner();
         use std::collections::VecDeque;
 
         let mut reaches_query: HashMap<String, String> = HashMap::new();
@@ -84,9 +86,9 @@ impl NPlusOneDetector {
                 continue;
             }
             for caller in graph.get_callers(&qn) {
-                if !reaches_query.contains_key(&caller.qualified_name) {
+                if !reaches_query.contains_key(caller.qn(i)) {
                     let chain = format!("{} → {}", caller.name, query_chain);
-                    reaches_query.insert(caller.qualified_name.clone(), chain.clone());
+                    reaches_query.insert(caller.qn(i).to_string(), chain.clone());
                     queue.push_back((caller.qualified_name, chain, depth + 1));
                 }
             }
@@ -97,6 +99,7 @@ impl NPlusOneDetector {
 
     /// Find N+1 patterns using graph traversal
     fn find_graph_n_plus_one(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let query_funcs = self.find_query_functions(graph);
 
@@ -124,7 +127,7 @@ impl NPlusOneDetector {
             }
 
             // Fast path exclusions — single pass over skip prefixes
-            let fp = &func.file_path;
+            let fp = func.path(i);
             if fp.contains("_test.")
                 || skip_prefixes.iter().any(|p| fp.contains(p))
                 || crate::detectors::content_classifier::is_likely_bundled_path(fp)
@@ -133,9 +136,9 @@ impl NPlusOneDetector {
             }
 
             // Check if this function contains a loop (cached per-file lines)
-            let lines = file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+            let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
                 crate::cache::global_cache()
-                    .masked_content(std::path::Path::new(&func.file_path))
+                    .masked_content(std::path::Path::new(func.path(i)))
                     .map(|c| c.lines().map(String::from).collect())
                     .unwrap_or_default()
             });
@@ -154,8 +157,8 @@ impl NPlusOneDetector {
 
             // Check if any callee transitively reaches a query function
             // (pre-computed via reverse BFS — O(1) lookup)
-            for callee in graph.get_callees(&func.qualified_name) {
-                if let Some(query_chain) = reaches_query.get(&callee.qualified_name) {
+            for callee in graph.get_callees(func.qn(i)) {
+                if let Some(query_chain) = reaches_query.get(callee.qn(i)) {
                     findings.push(Finding {
                         id: String::new(),
                         detector: "NPlusOneDetector".to_string(),
@@ -170,7 +173,7 @@ impl NPlusOneDetector {
                             callee.name,
                             query_chain
                         ),
-                        affected_files: vec![PathBuf::from(&func.file_path)],
+                        affected_files: vec![PathBuf::from(func.path(i))],
                         line_start: Some(func.line_start),
                         line_end: Some(func.line_end),
                         suggested_fix: Some(

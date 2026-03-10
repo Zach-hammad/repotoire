@@ -59,6 +59,7 @@ pub fn precompute_gd_startup(
     source_files: &[std::path::PathBuf],
     value_store: Option<Arc<crate::values::store::ValueStore>>,
 ) -> GdPrecomputed {
+    let i = graph.interner();
     // Four-way parallel: contexts, taint, HMM, and DetectorContext are all independent.
     //   Thread 1: taint (1.5s)           — cross-function + intra-function taint
     //   Thread 2: HMM (0.4s)             — Hidden Markov Model context extraction
@@ -107,6 +108,7 @@ fn build_hmm_contexts_standalone(
     graph: &dyn crate::graph::GraphQuery,
     hmm_cache_path: Option<&std::path::PathBuf>,
 ) -> HashMap<String, FunctionContext> {
+    let i = graph.interner();
     // Try to load cached HMM+CRF model
     let mut classifier = if let Some(path) = hmm_cache_path {
         let model_path = path.join("hmm_model.json");
@@ -131,7 +133,7 @@ fn build_hmm_contexts_standalone(
 
     // Build call data from index-based adjacency
     let (adj, rev_adj, qn_to_idx) = graph.get_call_adjacency();
-    let file_paths: Vec<String> = functions.iter().map(|f| f.file_path.clone()).collect();
+    let file_paths: Vec<String> = functions.iter().map(|f| f.path(i).to_string()).collect();
 
     // Limit function count to prevent OOM on huge codebases
     const MAX_FUNCTIONS_FOR_HMM: usize = 20_000;
@@ -189,7 +191,7 @@ fn build_hmm_contexts_standalone(
         let loc = func.line_end.saturating_sub(func.line_start) + 1;
         let address_taken = func.properties.get("address_taken").and_then(|v| v.as_bool()).unwrap_or(false);
         let features = FunctionFeatures::extract(
-            &func.name, &func.file_path, fan_in, fan_out, max_fan_in, max_fan_out,
+            func.node_name(i), func.path(i), fan_in, fan_out, max_fan_in, max_fan_out,
             caller_files_count, func.complexity(), avg_complexity, loc, avg_loc,
             3, avg_params, address_taken,
         );
@@ -213,8 +215,8 @@ fn build_hmm_contexts_standalone(
     // Classify all functions
     let mut contexts = HashMap::new();
     for (func, (features, _, _, _)) in functions.iter().zip(function_data.iter()) {
-        let context = classifier.classify(&func.qualified_name, features);
-        contexts.insert(func.qualified_name.clone(), context);
+        let context = classifier.classify(func.qn(i), features);
+        contexts.insert(func.qn(i).to_string(), context);
     }
 
     info!("Classified {} functions using HMM (standalone)", contexts.len());
@@ -324,6 +326,7 @@ impl DetectorEngine {
         &mut self,
         graph: &dyn crate::graph::GraphQuery,
     ) -> Arc<FunctionContextMap> {
+        let i = graph.interner();
         if let Some(ref ctx) = self.function_contexts {
             return Arc::clone(ctx);
         }
@@ -347,6 +350,7 @@ impl DetectorEngine {
         &mut self,
         graph: &dyn crate::graph::GraphQuery,
     ) -> Arc<HashMap<String, FunctionContext>> {
+        let i = graph.interner();
         if let Some(ref ctx) = self.hmm_contexts {
             return Arc::clone(ctx);
         }
@@ -381,7 +385,7 @@ impl DetectorEngine {
         let (adj, rev_adj, qn_to_idx) = graph.get_call_adjacency();
         // Pre-extract file paths indexed by original function position (owned, since
         // functions may be sorted/truncated later but adj/rev_adj use original indices)
-        let file_paths: Vec<String> = functions.iter().map(|f| f.file_path.clone()).collect();
+        let file_paths: Vec<String> = functions.iter().map(|f| f.path(i).to_string()).collect();
 
         // Limit function count to prevent OOM on huge codebases
         const MAX_FUNCTIONS_FOR_HMM: usize = 20_000;
@@ -462,8 +466,8 @@ impl DetectorEngine {
                 .unwrap_or(false);
 
             let features = FunctionFeatures::extract(
-                &func.name,
-                &func.file_path,
+                func.node_name(i),
+                func.path(i),
                 fan_in,
                 fan_out,
                 max_fan_in,
@@ -501,8 +505,8 @@ impl DetectorEngine {
         // Classify all functions
         let mut contexts = HashMap::new();
         for (func, (features, _, _, _)) in functions.iter().zip(function_data.iter()) {
-            let context = classifier.classify(&func.qualified_name, features);
-            contexts.insert(func.qualified_name.clone(), context);
+            let context = classifier.classify(func.qn(i), features);
+            contexts.insert(func.qn(i).to_string(), context);
         }
 
         info!("Classified {} functions using HMM", contexts.len());
@@ -604,6 +608,7 @@ impl DetectorEngine {
     /// # Returns
     /// All findings from all detectors, sorted by severity (highest first)
     pub fn run(&mut self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let start = Instant::now();
         info!(
             "Starting detection with {} detectors on {} workers",
@@ -796,7 +801,7 @@ impl DetectorEngine {
         let all_functions = graph.get_functions_shared();
         let mut func_by_file: HashMap<&str, Vec<&crate::graph::CodeNode>> = HashMap::new();
         for func in all_functions.iter() {
-            func_by_file.entry(&func.file_path).or_default().push(func);
+            func_by_file.entry(func.path(i)).or_default().push(func);
         }
         let before_hmm = all_findings.len();
         all_findings = self.apply_hmm_context_filter(all_findings, &hmm_contexts, &func_by_file);
@@ -952,6 +957,7 @@ impl DetectorEngine {
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let cached = CachedGraphQuery::new(graph);
         let graph: &dyn crate::graph::GraphQuery = &cached;
 
@@ -1116,7 +1122,7 @@ impl DetectorEngine {
         let cached_funcs = cached.get_functions_ref();
         let mut func_by_file: HashMap<&str, Vec<&crate::graph::CodeNode>> = HashMap::new();
         for func in cached_funcs {
-            func_by_file.entry(&func.file_path).or_default().push(func);
+            func_by_file.entry(func.path(i)).or_default().push(func);
         }
         let before_hmm = findings.len();
         findings = self.apply_hmm_context_filter(findings, &hmm_contexts, &func_by_file);
@@ -1324,7 +1330,7 @@ impl DetectorEngine {
         if idx > 0 {
             let func = funcs[idx - 1];
             if func.line_end >= line {
-                return Some(&func.qualified_name);
+                return Some(func.qn(i));
             }
         }
 

@@ -183,8 +183,10 @@ impl GraphStore {
 
     /// Get the string interner for memory-efficient qualified name storage.
     /// Use for interning frequently-repeated strings like file paths and qualified names.
-    pub fn interner(&self) -> &super::interner::StringInterner {
-        &self.interner
+    /// Returns the global singleton interner shared by all GraphStore instances and
+    /// CodeNode convenience builders.
+    pub fn interner(&self) -> &'static super::interner::StringInterner {
+        super::interner::global_interner()
     }
 
     // ==================== Metrics Cache ====================
@@ -373,7 +375,7 @@ impl GraphStore {
         let mut indices = Vec::with_capacity(nodes.len());
 
         // Resolve file node index (should already exist from a prior add_nodes_batch call)
-        let file_qn_key = self.interner.intern(file_qn);
+        let file_qn_key = self.interner().intern(file_qn);
         let file_idx = self.node_index.get(&file_qn_key).map(|r| *r);
 
         for node in nodes {
@@ -443,13 +445,13 @@ impl GraphStore {
 
     /// Get node index by qualified name
     pub fn get_node_index(&self, qn: &str) -> Option<NodeIndex> {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         self.node_index.get(&key).map(|r| *r)
     }
 
     /// Get node by qualified name
     pub fn get_node(&self, qn: &str) -> Option<CodeNode> {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = self.node_index.get(&key).map(|r| *r)?;
         let graph = self.read_graph();
         graph.node_weight(idx).copied()
@@ -462,7 +464,7 @@ impl GraphStore {
         key: &str,
         value: impl Into<serde_json::Value>,
     ) -> bool {
-        let intern_qn = self.interner.intern(qn);
+        let intern_qn = self.interner().intern(qn);
         // Read DashMap index first, then acquire graph write lock
         let idx = match self.node_index.get(&intern_qn).map(|r| *r) {
             Some(idx) => idx,
@@ -486,11 +488,11 @@ impl GraphStore {
                 "has_decorators" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_HAS_DECORATORS); },
                 "author" => if let Some(s) = val.as_str() {
                     let mut ep = self.extra_props.entry(intern_qn).or_default();
-                    ep.author = Some(self.interner.intern(s));
+                    ep.author = Some(self.interner().intern(s));
                 },
                 "last_modified" => if let Some(s) = val.as_str() {
                     let mut ep = self.extra_props.entry(intern_qn).or_default();
-                    ep.last_modified = Some(self.interner.intern(s));
+                    ep.last_modified = Some(self.interner().intern(s));
                 },
                 _ => {}
             }
@@ -501,7 +503,7 @@ impl GraphStore {
 
     /// Update multiple properties on a node
     pub fn update_node_properties(&self, qn: &str, props: &[(&str, serde_json::Value)]) -> bool {
-        let intern_qn = self.interner.intern(qn);
+        let intern_qn = self.interner().intern(qn);
         // Read DashMap index first, then acquire graph write lock
         let idx = match self.node_index.get(&intern_qn).map(|r| *r) {
             Some(idx) => idx,
@@ -526,11 +528,11 @@ impl GraphStore {
                     "address_taken" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_ADDRESS_TAKEN); },
                     "has_decorators" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_HAS_DECORATORS); },
                     "author" => if let Some(s) = value.as_str() {
-                        extras.author = Some(self.interner.intern(s));
+                        extras.author = Some(self.interner().intern(s));
                         has_extras = true;
                     },
                     "last_modified" => if let Some(s) = value.as_str() {
-                        extras.last_modified = Some(self.interner.intern(s));
+                        extras.last_modified = Some(self.interner().intern(s));
                         has_extras = true;
                     },
                     _ => {}
@@ -589,7 +591,7 @@ impl GraphStore {
     /// Get functions in a specific file. O(1) DashMap lookup + O(K) node reads
     /// where K = number of functions in the file (typically <30).
     pub fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-        let key = self.interner.intern(file_path);
+        let key = self.interner().intern(file_path);
         if let Some(indices) = self.file_functions_index.get(&key) {
             let graph = self.read_graph();
             indices.value().iter()
@@ -603,7 +605,7 @@ impl GraphStore {
     /// Find the function containing a specific line in a file. O(1) DashMap lookup +
     /// O(N) scan of functions in that file (typically <30 functions per file).
     pub fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
-        let key = self.interner.intern(file_path);
+        let key = self.interner().intern(file_path);
         let entries = self.function_spatial_index.get(&key)?;
         let graph = self.read_graph();
         for &(start, end, idx) in entries.value() {
@@ -617,7 +619,7 @@ impl GraphStore {
     /// Get classes in a specific file. O(1) DashMap lookup + O(K) node reads
     /// where K = number of classes in the file (typically <10).
     pub fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-        let key = self.interner.intern(file_path);
+        let key = self.interner().intern(file_path);
         if let Some(indices) = self.file_classes_index.get(&key) {
             let graph = self.read_graph();
             indices.value().iter()
@@ -673,8 +675,8 @@ impl GraphStore {
 
     /// Add edge by qualified names (returns false if either node doesn't exist)
     pub fn add_edge_by_name(&self, from_qn: &str, to_qn: &str, edge: CodeEdge) -> bool {
-        let from_key = self.interner.intern(from_qn);
-        let to_key = self.interner.intern(to_qn);
+        let from_key = self.interner().intern(from_qn);
+        let to_key = self.interner().intern(to_qn);
         let from = self.node_index.get(&from_key).map(|r| *r);
         let to = self.node_index.get(&to_key).map(|r| *r);
 
@@ -692,8 +694,8 @@ impl GraphStore {
         let resolved: Vec<_> = edges
             .into_iter()
             .filter_map(|(from_qn, to_qn, edge)| {
-                let from_key = self.interner.intern(&from_qn);
-                let to_key = self.interner.intern(&to_qn);
+                let from_key = self.interner().intern(&from_qn);
+                let to_key = self.interner().intern(&to_qn);
                 let from = self.node_index.get(&from_key).map(|r| *r)?;
                 let to = self.node_index.get(&to_key).map(|r| *r)?;
                 Some((from, to, edge))
@@ -822,8 +824,8 @@ impl GraphStore {
                 let src_node = graph.node_weight(e.source())?;
                 let dst_node = graph.node_weight(e.target())?;
                 Some((
-                    self.interner.resolve(src_node.qualified_name).to_string(),
-                    self.interner.resolve(dst_node.qualified_name).to_string(),
+                    self.interner().resolve(src_node.qualified_name).to_string(),
+                    self.interner().resolve(dst_node.qualified_name).to_string(),
                     e.weight().kind,
                 ))
             })
@@ -846,8 +848,8 @@ impl GraphStore {
             }
             total += 1;
             if let (Some(src), Some(dst)) = (graph.node_weight(e.source()), graph.node_weight(e.target())) {
-                let src_path = self.interner.resolve(src.file_path);
-                let dst_path = self.interner.resolve(dst.file_path);
+                let src_path = self.interner().resolve(src.file_path);
+                let dst_path = self.interner().resolve(dst.file_path);
                 let src_mod = std::path::Path::new(src_path).parent();
                 let dst_mod = std::path::Path::new(dst_path).parent();
                 if src_mod != dst_mod {
@@ -875,7 +877,7 @@ impl GraphStore {
 
     /// Get callers of a function (who calls this?) — sorted by qualified_name for determinism
     pub fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
@@ -892,7 +894,7 @@ impl GraphStore {
 
     /// Get callees of a function (what does this call?) — sorted by qualified_name for determinism
     pub fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
@@ -909,7 +911,7 @@ impl GraphStore {
 
     /// Get importers of a module/class (who imports this?) — sorted by qualified_name for determinism
     pub fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
@@ -926,7 +928,7 @@ impl GraphStore {
 
     /// Get parent classes (what does this inherit from?) — sorted by qualified_name for determinism
     pub fn get_parent_classes(&self, qn: &str) -> Vec<CodeNode> {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
@@ -943,7 +945,7 @@ impl GraphStore {
 
     /// Get child classes (what inherits from this?) — sorted by qualified_name for determinism
     pub fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return vec![],
@@ -962,7 +964,7 @@ impl GraphStore {
 
     /// Get in-degree (fan-in) for a node
     pub fn fan_in(&self, qn: &str) -> usize {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return 0,
@@ -973,7 +975,7 @@ impl GraphStore {
 
     /// Get out-degree (fan-out) for a node
     pub fn fan_out(&self, qn: &str) -> usize {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return 0,
@@ -984,7 +986,7 @@ impl GraphStore {
 
     /// Get call fan-in (how many functions call this?)
     pub fn call_fan_in(&self, qn: &str) -> usize {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return 0,
@@ -998,7 +1000,7 @@ impl GraphStore {
 
     /// Get call fan-out (how many functions does this call?)
     pub fn call_fan_out(&self, qn: &str) -> usize {
-        let key = self.interner.intern(qn);
+        let key = self.interner().intern(qn);
         let idx = match self.node_index.get(&key).map(|r| *r) {
             Some(idx) => idx,
             None => return 0,
@@ -1138,7 +1140,7 @@ impl GraphStore {
                     .iter()
                     .filter_map(|&filtered_idx| reverse_map.get(&filtered_idx))
                     .filter_map(|&orig_idx| graph.node_weight(orig_idx))
-                    .map(|n| self.interner.resolve(n.qualified_name).to_string())
+                    .map(|n| self.interner().resolve(n.qualified_name).to_string())
                     .collect();
 
                 // Sort for consistent ordering and deduplication
@@ -1161,7 +1163,7 @@ impl GraphStore {
     ///
     /// This is useful when you want to show the shortest cycle involving a particular file.
     pub fn find_minimal_cycle(&self, start_qn: &str, edge_kind: EdgeKind) -> Option<Vec<String>> {
-        let start_key = self.interner.intern(start_qn);
+        let start_key = self.interner().intern(start_qn);
         let start_idx = self.node_index.get(&start_key).map(|r| *r)?;
         let graph = self.read_graph();
 
@@ -1190,7 +1192,7 @@ impl GraphStore {
                     return Some(
                         path.iter()
                             .filter_map(|&idx| graph.node_weight(idx))
-                            .map(|n| self.interner.resolve(n.qualified_name).to_string())
+                            .map(|n| self.interner().resolve(n.qualified_name).to_string())
                             .collect(),
                     );
                 }
@@ -1226,15 +1228,15 @@ impl GraphStore {
 
             // Save nodes — resolve StrKeys to strings for serialization
             for node in graph.node_weights() {
-                let qn_str = self.interner.resolve(node.qualified_name);
+                let qn_str = self.interner().resolve(node.qualified_name);
                 let key = format!("node:{}", qn_str);
                 // Serialize as intermediate JSON with resolved strings
                 let node_data = serde_json::json!({
                     "kind": node.kind,
-                    "name": self.interner.resolve(node.name),
+                    "name": self.interner().resolve(node.name),
                     "qualified_name": qn_str,
-                    "file_path": self.interner.resolve(node.file_path),
-                    "language": self.interner.resolve(node.language),
+                    "file_path": self.interner().resolve(node.file_path),
+                    "language": self.interner().resolve(node.language),
                     "line_start": node.line_start,
                     "line_end": node.line_end,
                     "complexity": node.complexity,
@@ -1256,8 +1258,8 @@ impl GraphStore {
                     let src = graph.node_weight(e.source())?;
                     let dst = graph.node_weight(e.target())?;
                     Some((
-                        self.interner.resolve(src.qualified_name).to_string(),
-                        self.interner.resolve(dst.qualified_name).to_string(),
+                        self.interner().resolve(src.qualified_name).to_string(),
+                        self.interner().resolve(dst.qualified_name).to_string(),
                         e.weight().clone(),
                     ))
                 })
@@ -1298,12 +1300,12 @@ impl GraphStore {
             if key_str.starts_with("node:") {
                 let data: serde_json::Value = serde_json::from_slice(value.value())?;
                 let kind: NodeKind = serde_json::from_value(data["kind"].clone())?;
-                let empty_key = self.interner.empty_key();
+                let empty_key = self.interner().empty_key();
                 let mut node = CodeNode::empty(kind, empty_key);
-                node.name = self.interner.intern(data["name"].as_str().unwrap_or(""));
-                node.qualified_name = self.interner.intern(data["qualified_name"].as_str().unwrap_or(""));
-                node.file_path = self.interner.intern(data["file_path"].as_str().unwrap_or(""));
-                node.language = self.interner.intern(data["language"].as_str().unwrap_or(""));
+                node.name = self.interner().intern(data["name"].as_str().unwrap_or(""));
+                node.qualified_name = self.interner().intern(data["qualified_name"].as_str().unwrap_or(""));
+                node.file_path = self.interner().intern(data["file_path"].as_str().unwrap_or(""));
+                node.language = self.interner().intern(data["language"].as_str().unwrap_or(""));
                 node.line_start = data["line_start"].as_u64().unwrap_or(0) as u32;
                 node.line_end = data["line_end"].as_u64().unwrap_or(0) as u32;
                 node.complexity = data["complexity"].as_u64().unwrap_or(0) as u16;
@@ -1332,8 +1334,8 @@ impl GraphStore {
                 serde_json::from_slice(edges_entry.value())?;
             let mut set = self.edge_set.lock().expect("edge_set lock poisoned");
             for (src_qn, dst_qn, edge) in edges {
-                let src_key = self.interner.intern(&src_qn);
-                let dst_key = self.interner.intern(&dst_qn);
+                let src_key = self.interner().intern(&src_qn);
+                let dst_key = self.interner().intern(&dst_qn);
                 let src = self.node_index.get(&src_key).map(|r| *r);
                 let dst = self.node_index.get(&dst_key).map(|r| *r);
                 if let (Some(src), Some(dst)) = (src, dst) {
@@ -1358,7 +1360,7 @@ impl GraphStore {
 
         for file in files {
             let file_str = file.to_string_lossy();
-            let file_key = self.interner.intern(file_str.as_ref());
+            let file_key = self.interner().intern(file_str.as_ref());
 
             // Get all nodes in this file from the reverse index
             let node_idxs: Vec<NodeIndex> = self
@@ -1423,10 +1425,10 @@ impl GraphStore {
         // DashMap iteration doesn't hold the graph RwLock
         // Resolve StrKeys to strings for serialization
         let node_index: HashMap<String, NodeIndex> = self.node_index.iter()
-            .map(|entry| (self.interner.resolve(*entry.key()).to_string(), *entry.value()))
+            .map(|entry| (self.interner().resolve(*entry.key()).to_string(), *entry.value()))
             .collect();
         let file_all_nodes: HashMap<String, Vec<NodeIndex>> = self.file_all_nodes_index.iter()
-            .map(|entry| (self.interner.resolve(*entry.key()).to_string(), entry.value().clone()))
+            .map(|entry| (self.interner().resolve(*entry.key()).to_string(), entry.value().clone()))
             .collect();
 
         let cache = GraphCache {
@@ -1489,11 +1491,11 @@ impl GraphStore {
 
         // Rebuild DashMap indexes from cached data (intern strings back to StrKeys)
         for (key_str, idx) in cache.node_index {
-            let key = store.interner.intern(&key_str);
+            let key = store.interner().intern(&key_str);
             store.node_index.insert(key, idx);
         }
         for (file_str, nodes) in cache.file_all_nodes {
-            let key = store.interner.intern(&file_str);
+            let key = store.interner().intern(&file_str);
             store.file_all_nodes_index.insert(key, nodes);
         }
 

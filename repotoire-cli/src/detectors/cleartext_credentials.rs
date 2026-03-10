@@ -83,11 +83,12 @@ impl CleartextCredentialsDetector {
         file_path: &str,
         line: u32,
     ) -> Option<(String, usize, bool)> {
+        let i = graph.interner();
         graph
             .find_function_at(file_path, line)
             .map(|f| {
-                let callers = graph.get_callers(&f.qualified_name);
-                let name_lower = f.name.to_lowercase();
+                let callers = graph.get_callers(f.qn(i));
+                let name_lower = f.node_name(i).to_lowercase();
 
                 // Check if this is an auth-related function
                 let is_auth_related = name_lower.contains("auth")

@@ -278,7 +278,7 @@ impl FlushingGraphBuilder {
         }
 
         // File node — insert first so its index exists for Contains edges
-        let i = &self.graph.interner;
+        let i = self.graph.interner();
         let rel_key = i.intern(&relative);
         let lang_key = i.intern(info.language.as_str());
         let file_node = CodeNode {

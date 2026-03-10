@@ -105,7 +105,7 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
 
 impl super::traits::GraphQuery for GraphStore {
     fn interner(&self) -> &StringInterner {
-        &self.interner
+        self.interner()
     }
 
     fn extra_props(&self, qn: StrKey) -> Option<ExtraProps> {

@@ -202,22 +202,23 @@ impl RefusedBequestDetector {
         child_qn: &str,
         parent_qn: &str,
     ) -> bool {
+        let i = graph.interner();
         // Look for functions that reference the parent type and might receive child instances
         // This is heuristic - check if parent is used as parameter/return type in callers of child methods
 
         let child_methods: Vec<_> = graph
             .get_functions()
             .into_iter()
-            .filter(|f| f.qualified_name.starts_with(child_qn))
+            .filter(|f| f.qn(i).starts_with(child_qn))
             .collect();
 
         for method in &child_methods {
-            let callers = graph.get_callers(&method.qualified_name);
+            let callers = graph.get_callers(method.qn(i));
             for caller in &callers {
                 // If caller also calls parent methods, it might be polymorphic usage
-                let caller_callees = graph.get_callees(&caller.qualified_name);
+                let caller_callees = graph.get_callees(caller.qn(i));
                 for callee in &caller_callees {
-                    if callee.qualified_name.starts_with(parent_qn) {
+                    if callee.qn(i).starts_with(parent_qn) {
                         debug!(
                             "Polymorphic usage: {} calls both {} and parent {}",
                             caller.name, method.name, parent_qn
@@ -233,6 +234,7 @@ impl RefusedBequestDetector {
 
     /// Get the depth of the inheritance hierarchy
     fn get_inheritance_depth(&self, graph: &dyn crate::graph::GraphQuery, class_qn: &str) -> usize {
+        let i = graph.interner();
         let mut depth = 0;
         let mut current = class_qn.to_string();
         let mut seen = HashSet::new();
@@ -264,11 +266,12 @@ impl RefusedBequestDetector {
         child_methods: &[crate::graph::CodeNode],
         parent_qn: &str,
     ) -> bool {
+        let i = graph.interner();
         // Get parent methods
         let parent_methods: Vec<_> = graph
             .get_functions()
             .into_iter()
-            .filter(|f| f.qualified_name.starts_with(parent_qn))
+            .filter(|f| f.qn(i).starts_with(parent_qn))
             .collect();
 
         // For each child method, check if its callers are different from parent's callers
@@ -324,13 +327,14 @@ impl Detector for RefusedBequestDetector {
         Some(&self.config)
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         // Build set of all class names for polymorphism detection
         let _all_classes: HashSet<String> = graph
             .get_classes()
             .into_iter()
-            .map(|c| c.qualified_name.clone())
+            .map(|c| c.qn(i).to_string())
             .collect();
 
         for (child_qn, parent_qn) in graph.get_inheritance() {
@@ -347,7 +351,7 @@ impl Detector for RefusedBequestDetector {
                 let child_methods: Vec<_> = graph
                     .get_functions()
                     .into_iter()
-                    .filter(|f| f.qualified_name.starts_with(&child_qn))
+                    .filter(|f| f.qn(i).starts_with(&child_qn))
                     .collect();
 
                 if child_methods.len() >= 3 {
@@ -414,7 +418,7 @@ impl Detector for RefusedBequestDetector {
                                 child_methods.len(),
                                 graph_notes
                             ),
-                            affected_files: vec![child.file_path.clone().into()],
+                            affected_files: vec![child.path(i).to_string().into()],
                             line_start: Some(child.line_start),
                             line_end: Some(child.line_end),
                             suggested_fix: Some(

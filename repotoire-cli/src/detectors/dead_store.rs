@@ -206,18 +206,19 @@ impl DeadStoreDetector {
 
     /// Use graph to find functions with unused parameters
     fn find_unused_params(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         for func in graph.get_functions_shared().iter() {
             // Skip test files
-            if func.file_path.contains("/test") || func.file_path.contains("_test.") {
+            if func.path(i).contains("/test") || func.path(i).contains("_test.") {
                 continue;
             }
 
             // Skip interface implementations (check qualified name for common patterns)
-            if func.qualified_name.contains("Interface.")
-                || func.qualified_name.contains("Trait.")
-                || func.qualified_name.contains("Protocol.")
+            if func.qn(i).contains("Interface.")
+                || func.qn(i).contains("Trait.")
+                || func.qn(i).contains("Protocol.")
             {
                 continue;
             }
@@ -225,8 +226,8 @@ impl DeadStoreDetector {
             // Check if function has many params but few callees (simple function)
             if let Some(param_count) = func.param_count() {
                 if param_count >= 4 {
-                    let callees = graph.get_callees(&func.qualified_name);
-                    let callers = graph.get_callers(&func.qualified_name);
+                    let callees = graph.get_callees(func.qn(i));
+                    let callers = graph.get_callers(func.qn(i));
 
                     // Simple function with many params = likely unused params
                     if callees.len() <= 2 && param_count >= 5 {
@@ -242,7 +243,7 @@ impl DeadStoreDetector {
                                  **Suggestion:** Review if all parameters are necessary.",
                                 param_count, callees.len(), callers.len()
                             ),
-                            affected_files: vec![PathBuf::from(&func.file_path)],
+                            affected_files: vec![PathBuf::from(func.path(i))],
                             line_start: Some(func.line_start),
                             line_end: Some(func.line_end),
                             suggested_fix: Some(
@@ -273,13 +274,14 @@ impl DeadStoreDetector {
         &self,
         graph: &dyn crate::graph::GraphQuery,
     ) -> Vec<Finding> {
+        let i = graph.interner();
         // This requires tracking parameter usage within functions
         // For now, identify functions that receive values but don't propagate them
         let findings = Vec::new();
 
         for func in graph.get_functions_shared().iter() {
-            let callees = graph.get_callees(&func.qualified_name);
-            let callers = graph.get_callers(&func.qualified_name);
+            let callees = graph.get_callees(func.qn(i));
+            let callers = graph.get_callers(func.qn(i));
 
             // Function that's called but calls nothing and has params = potential sink
             if !callers.is_empty() && callees.is_empty() {

@@ -207,6 +207,7 @@ impl MessageChainDetector {
     /// We only report the chain HEAD (the entry point) to avoid N findings
     /// for a single chain.
     fn find_delegation_chains(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let mut reported_in_chain: HashSet<String> = HashSet::new();
 
@@ -214,12 +215,12 @@ impl MessageChainDetector {
         let all_functions = graph.get_functions_shared();
         let qn_to_file: HashMap<String, String> = all_functions
             .iter()
-            .map(|f| (f.qualified_name.clone(), f.file_path.clone()))
+            .map(|f| (f.qn(i).to_string(), f.path(i).to_string()))
             .collect();
 
         for func in all_functions.iter() {
             // Skip if already reported as part of another chain
-            if reported_in_chain.contains(&func.qualified_name) {
+            if reported_in_chain.contains(func.qn(i)) {
                 continue;
             }
 
@@ -231,8 +232,8 @@ impl MessageChainDetector {
 
             // Use fan_in/fan_out counts (integer lookup, zero allocation) instead of
             // get_callers/get_callees which clone Vec<CodeNode> per call.
-            let fan_out = graph.call_fan_out(&func.qualified_name);
-            let fan_in = graph.call_fan_in(&func.qualified_name);
+            let fan_out = graph.call_fan_out(func.qn(i));
+            let fan_in = graph.call_fan_in(func.qn(i));
 
             // Chain HEAD: has callers != 1 (entry point), but single callee (pass-through)
             if fan_in == 1 || fan_out != 1 {
@@ -241,7 +242,7 @@ impl MessageChainDetector {
 
             // Trace the chain forward
             let (chain_depth, chain_members) =
-                self.trace_chain_with_members(graph, &func.qualified_name, 0);
+                self.trace_chain_with_members(graph, func.qn(i), 0);
 
             if chain_depth < self.thresholds.min_chain_depth as i32 {
                 continue;
@@ -294,7 +295,7 @@ impl MessageChainDetector {
                      Consider collapsing intermediate layers.",
                     func.name, chain_depth, files_in_chain.len()
                 ),
-                affected_files: vec![func.file_path.clone().into()],
+                affected_files: vec![func.path(i).to_string().into()],
                 line_start: Some(func.line_start),
                 line_end: Some(func.line_end),
                 suggested_fix: Some("Consider collapsing the delegation chain or using direct access".to_string()),
@@ -345,6 +346,7 @@ impl MessageChainDetector {
         qn: &str,
         depth: i32,
     ) -> (i32, Vec<String>) {
+        let i = graph.interner();
         if depth > 10 {
             return (depth, vec![qn.to_string()]);
         }
@@ -366,12 +368,12 @@ impl MessageChainDetector {
         if complexity > 3 {
             return (
                 depth + 1,
-                vec![qn.to_string(), callee.qualified_name.clone()],
+                vec![qn.to_string(), callee.qn(i).to_string()],
             );
         }
 
         let (sub_depth, mut members) =
-            self.trace_chain_with_members(graph, &callee.qualified_name, depth + 1);
+            self.trace_chain_with_members(graph, callee.qn(i), depth + 1);
         members.insert(0, qn.to_string());
         (sub_depth, members)
     }

@@ -261,15 +261,16 @@ impl Detector for InfluentialCodeDetector {
 
     /// Legacy detection without context
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         for func in graph.get_functions_shared().iter() {
             // Skip by name pattern
-            if self.should_skip_by_name(&func.name) {
+            if self.should_skip_by_name(func.node_name(i)) {
                 continue;
             }
 
-            let fan_in = graph.call_fan_in(&func.qualified_name);
+            let fan_in = graph.call_fan_in(func.qn(i));
             let complexity = func.complexity().unwrap_or(1) as usize;
             let loc = func.loc() as usize;
 
@@ -279,8 +280,8 @@ impl Detector for InfluentialCodeDetector {
                     || loc >= self.high_loc_threshold as usize)
             {
                 findings.push(self.create_finding(
-                    &func.name,
-                    &func.file_path,
+                    func.node_name(i),
+                    func.path(i),
                     func.line_start,
                     func.line_end,
                     fan_in,
@@ -307,6 +308,7 @@ impl Detector for InfluentialCodeDetector {
         _files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let funcs = graph.get_functions_shared();
 
@@ -334,7 +336,7 @@ impl Detector for InfluentialCodeDetector {
                     Some(c.betweenness),
                 )
             } else {
-                let fan_in = graph.call_fan_in(&func.qualified_name);
+                let fan_in = graph.call_fan_in(func.qn(i));
                 let complexity = func.complexity().unwrap_or(1) as usize;
                 let loc = func.loc() as usize;
                 (fan_in, complexity, loc, FunctionRole::Unknown, None)
@@ -371,8 +373,8 @@ impl Detector for InfluentialCodeDetector {
 
             if should_flag {
                 findings.push(self.create_finding(
-                    &func.name,
-                    &func.file_path,
+                    func.node_name(i),
+                    func.path(i),
                     func.line_start,
                     func.line_end,
                     fan_in,

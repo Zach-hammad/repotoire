@@ -79,9 +79,10 @@ impl ShotgunSurgeryDetector {
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
     ) -> Option<ImpactAnalysis> {
+        let i = graph.interner();
         // Find all methods belonging to this class using file-scoped index (O(1) lookup)
         // instead of scanning all 71k functions.
-        let file_funcs = graph.get_functions_in_file(&class.file_path);
+        let file_funcs = graph.get_functions_in_file(class.path(i));
         let methods: Vec<_> = file_funcs
             .iter()
             .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
@@ -95,7 +96,7 @@ impl ShotgunSurgeryDetector {
         for method in &methods {
             if let Some(ctx) = self.detector_context.get() {
                 // Fast path: use pre-built callers map (avoids Vec<CodeNode> clone)
-                if let Some(caller_qn_list) = ctx.callers_by_qn.get(&method.qualified_name) {
+                if let Some(caller_qn_list) = ctx.callers_by_qn.get(method.qn(i)) {
                     for caller_qn in caller_qn_list {
                         if let Some(caller_node) = graph.get_node(caller_qn) {
                             // Skip internal callers (same class)
@@ -113,16 +114,16 @@ impl ShotgunSurgeryDetector {
                 }
             } else {
                 // Fallback: use graph.get_callers() (test path / no context)
-                for caller in graph.get_callers(&method.qualified_name) {
+                for caller in graph.get_callers(method.qn(i)) {
                     if caller.file_path == class.file_path
                         && caller.line_start >= class.line_start
                         && caller.line_end <= class.line_end
                     {
                         continue;
                     }
-                    all_callers.insert(caller.qualified_name.clone());
-                    caller_files.insert(caller.file_path.clone());
-                    caller_modules.insert(Self::extract_module(&caller.file_path));
+                    all_callers.insert(caller.qn(i).to_string());
+                    caller_files.insert(caller.path(i).to_string());
+                    caller_modules.insert(Self::extract_module(caller.path(i)));
                 }
             }
         }
@@ -152,6 +153,7 @@ impl ShotgunSurgeryDetector {
         callers: &HashSet<String>,
         depth: usize,
     ) -> usize {
+        let i = graph.interner();
         // Cap at depth 3; also cap per-level expansion to avoid O(N^3) on dense graphs
         const MAX_PER_LEVEL: usize = 50;
         if depth >= 3 || callers.is_empty() {
@@ -276,12 +278,13 @@ impl Detector for ShotgunSurgeryDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let all_functions = graph.get_functions_shared();
 
         for class in graph.get_classes_shared().iter() {
             // Skip interfaces
-            if class.qualified_name.contains("::interface::") {
+            if class.qn(i).contains("::interface::") {
                 continue;
             }
 
@@ -325,7 +328,7 @@ impl Detector for ShotgunSurgeryDetector {
                     sample_list,
                     more_note
                 ),
-                affected_files: vec![class.file_path.clone().into()],
+                affected_files: vec![class.path(i).to_string().into()],
                 line_start: Some(class.line_start),
                 line_end: Some(class.line_end),
                 suggested_fix: Some("Options to reduce coupling:\n\
@@ -473,12 +476,12 @@ impl Detector for ShotgunSurgeryDetector {
         let min_fan_in = self.thresholds.min_callers * 2;
         for func in all_functions.iter() {
             // Fast O(1) fan-in check first — eliminates 99%+ functions before string ops
-            if graph.call_fan_in(&func.qualified_name) < min_fan_in {
+            if graph.call_fan_in(func.qn(i)) < min_fan_in {
                 continue;
             }
 
             // Skip common trait implementations
-            let name_lower = func.name.to_lowercase();
+            let name_lower = func.node_name(i).to_lowercase();
             if SKIP_METHODS
                 .iter()
                 .any(|m| name_lower == *m || name_lower.starts_with(m))
@@ -492,7 +495,7 @@ impl Detector for ShotgunSurgeryDetector {
             }
 
             // Skip runtime/interpreter functions (short prefix + underscore pattern)
-            if Self::has_runtime_prefix(&func.name) {
+            if Self::has_runtime_prefix(func.node_name(i)) {
                 continue;
             }
 
@@ -507,16 +510,16 @@ impl Detector for ShotgunSurgeryDetector {
             }
 
             // Skip functions in utility paths
-            let path_lower = func.file_path.to_lowercase();
+            let path_lower = func.path(i).to_lowercase();
             if UTILITY_PATHS.iter().any(|p| path_lower.contains(p)) {
                 continue;
             }
 
             // Zero-copy: count caller modules without cloning CodeNodes
-            let module_count = graph.caller_module_spread(&func.qualified_name);
+            let module_count = graph.caller_module_spread(func.qn(i));
 
             if module_count >= self.thresholds.critical_modules {
-                let fan_in = graph.call_fan_in(&func.qualified_name);
+                let fan_in = graph.call_fan_in(func.qn(i));
                 findings.push(Finding {
                     id: String::new(),
                     detector: "ShotgunSurgeryDetector".to_string(),
@@ -529,7 +532,7 @@ impl Detector for ShotgunSurgeryDetector {
                         fan_in,
                         module_count
                     ),
-                    affected_files: vec![func.file_path.clone().into()],
+                    affected_files: vec![func.path(i).to_string().into()],
                     line_start: Some(func.line_start),
                     line_end: Some(func.line_end),
                     suggested_fix: Some(

@@ -80,13 +80,14 @@ impl SyncInAsyncDetector {
     /// Find all functions that contain blocking calls.
     /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).
     fn find_blocking_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
+        let i = graph.interner();
         let mut blocking_funcs = HashSet::new();
         let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
         for func in graph.get_functions_shared().iter() {
-            let lines = file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+            let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
                 crate::cache::global_cache()
-                    .masked_content(std::path::Path::new(&func.file_path))
+                    .masked_content(std::path::Path::new(func.path(i)))
                     .map(|c| c.lines().map(String::from).collect())
                     .unwrap_or_default()
             });
@@ -96,7 +97,7 @@ impl SyncInAsyncDetector {
 
             for line in lines.get(start..end).unwrap_or(&[]) {
                 if BLOCKING.is_match(line) {
-                    blocking_funcs.insert(func.qualified_name.clone());
+                    blocking_funcs.insert(func.qn(i).to_string());
                     break;
                 }
             }
@@ -112,12 +113,13 @@ impl SyncInAsyncDetector {
         func: &crate::graph::CodeNode,
         blocking_funcs: &HashSet<String>,
     ) -> Vec<String> {
+        let i = graph.interner();
         let mut blocked_by = Vec::new();
-        let callees = graph.get_callees(&func.qualified_name);
+        let callees = graph.get_callees(func.qn(i));
 
         for callee in callees {
-            if blocking_funcs.contains(&callee.qualified_name) {
-                blocked_by.push(callee.name.clone());
+            if blocking_funcs.contains(callee.qn(i)) {
+                blocked_by.push(callee.node_name(i).to_string());
             }
         }
 

@@ -324,10 +324,10 @@ impl FeatureExtractorV2 {
                 f[11] = func.get_i64("nesting_depth").unwrap_or(0) as f64;
 
                 // 12: fan_in
-                f[12] = g.call_fan_in(&func.qualified_name) as f64;
+                f[12] = g.call_fan_in(func.qn(i)) as f64;
 
                 // 13: fan_out
-                f[13] = g.call_fan_out(&func.qualified_name) as f64;
+                f[13] = g.call_fan_out(func.qn(i)) as f64;
 
                 // 9: finding_line_span_norm — span / function_loc
                 let span = finding_end.saturating_sub(finding_line).saturating_add(1) as f64;

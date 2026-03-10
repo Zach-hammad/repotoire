@@ -105,15 +105,16 @@ impl PrototypePollutionDetector {
         func_name: &str,
         file_path: &str,
     ) -> bool {
+        let i = graph.interner();
         // Check if function is called from route handlers
         if let Some(func) = graph
             .get_functions()
             .into_iter()
             .find(|f| f.file_path == file_path && f.name == func_name)
         {
-            let callers = graph.get_callers(&func.qualified_name);
+            let callers = graph.get_callers(func.qn(i));
             for caller in callers {
-                let caller_lower = caller.name.to_lowercase();
+                let caller_lower = caller.node_name(i).to_lowercase();
                 if caller_lower.contains("route")
                     || caller_lower.contains("handle")
                     || caller_lower.contains("api")
@@ -188,7 +189,7 @@ impl Detector for PrototypePollutionDetector {
                     let has_sanitization = Self::has_sanitization(&lines, i);
                     let containing_func =
                         graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
-                            let callers = graph.get_callers(&f.qualified_name).len();
+                            let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner())).len();
                             (f.name, callers)
                         });
 

@@ -225,7 +225,7 @@ impl Detector for UnhandledPromiseDetector {
                         let is_critical = Self::is_critical_context(line, &context);
                         let containing_func =
                             graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
-                                let callers = graph.get_callers(&f.qualified_name).len();
+                                let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner())).len();
                                 (f.name, callers)
                             });
 

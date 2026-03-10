@@ -92,8 +92,9 @@ impl MiddleManDetector {
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
     ) -> Option<DelegationAnalysis> {
+        let i = graph.interner();
         // Find methods belonging to this class using file-scoped index (O(1) lookup)
-        let file_funcs = graph.get_functions_in_file(&class.file_path);
+        let file_funcs = graph.get_functions_in_file(class.path(i));
         let methods: Vec<_> = file_funcs
             .iter()
             .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
@@ -107,7 +108,7 @@ impl MiddleManDetector {
         let mut delegation_targets: HashMap<String, usize> = HashMap::new();
 
         for method in &methods {
-            let callees = graph.get_callees(&method.qualified_name);
+            let callees = graph.get_callees(method.qn(i));
             let complexity = method.complexity().unwrap_or(1);
 
             // Pure delegation: single callee, low complexity
@@ -116,7 +117,7 @@ impl MiddleManDetector {
 
                 // Track which class/module we're delegating to
                 let target = &callees[0];
-                let target_module = Self::extract_module(&target.file_path);
+                let target_module = Self::extract_module(target.path(i));
                 *delegation_targets.entry(target_module).or_insert(0) += 1;
             }
         }
@@ -197,18 +198,19 @@ impl Detector for MiddleManDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         for class in graph.get_classes_shared().iter() {
             // Skip interfaces
-            if class.qualified_name.contains("::interface::")
-                || class.qualified_name.contains("::type::")
+            if class.qn(i).contains("::interface::")
+                || class.qn(i).contains("::type::")
             {
                 continue;
             }
 
             // Skip excluded patterns
-            if self.should_exclude(&class.name) {
+            if self.should_exclude(class.node_name(i)) {
                 continue;
             }
 
@@ -249,7 +251,7 @@ impl Detector for MiddleManDetector {
                     target_info,
                     concentration_note
                 ),
-                affected_files: vec![class.file_path.clone().into()],
+                affected_files: vec![class.path(i).to_string().into()],
                 line_start: Some(class.line_start),
                 line_end: Some(class.line_end),
                 suggested_fix: Some(format!(

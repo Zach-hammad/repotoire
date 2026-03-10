@@ -144,15 +144,16 @@ impl LazyClassDetector {
         class: &crate::graph::CodeNode,
         methods: &[&crate::graph::store_models::CodeNode],
     ) -> usize {
+        let i = graph.interner();
         let mut total = 0usize;
         for method in methods {
             // Quick check: skip methods with 0 callers (avoids index lookup)
-            if graph.call_fan_in(&method.qualified_name) == 0 {
+            if graph.call_fan_in(method.qn(i)) == 0 {
                 continue;
             }
             total += graph.count_external_callers_of(
-                &method.qualified_name,
-                &class.file_path,
+                method.qn(i),
+                class.path(i),
                 class.line_start,
                 class.line_end,
             );
@@ -169,6 +170,7 @@ impl LazyClassDetector {
         methods: &[&crate::graph::store_models::CodeNode],
         method_count: usize,
     ) -> f64 {
+        let i = graph.interner();
         if method_count == 0 {
             return 0.0;
         }
@@ -202,6 +204,7 @@ impl Detector for LazyClassDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let classes = graph.get_classes_shared();
 
@@ -223,19 +226,19 @@ impl Detector for LazyClassDetector {
             }
 
             // --- String checks (no allocation, no I/O) ---
-            if class.qualified_name.contains("::interface::")
-                || class.qualified_name.contains("::type::")
+            if class.qn(i).contains("::interface::")
+                || class.qn(i).contains("::type::")
             {
                 continue;
             }
 
-            if self.should_exclude(&class.name) {
+            if self.should_exclude(class.node_name(i)) {
                 continue;
             }
 
             // Skip test fixture/model classes (path-based, cheap)
             {
-                let lower_path = class.file_path.to_lowercase();
+                let lower_path = class.path(i).to_lowercase();
                 if lower_path.contains("/test/") || lower_path.contains("/tests/")
                     || lower_path.contains("/__tests__/") || lower_path.contains("/spec/")
                     || lower_path.contains("/fixtures/")
@@ -250,18 +253,18 @@ impl Detector for LazyClassDetector {
 
             // --- Expensive: per-file bundled/minified/fixture check (cached) ---
             let excluded = *file_excluded
-                .entry(class.file_path.as_str())
+                .entry(class.path(i).as_str())
                 .or_insert_with(|| {
-                    if crate::detectors::content_classifier::is_likely_bundled_path(&class.file_path) {
+                    if crate::detectors::content_classifier::is_likely_bundled_path(class.path(i)) {
                         return true;
                     }
                     if let Some(content) =
-                        crate::cache::global_cache().content(std::path::Path::new(&class.file_path))
+                        crate::cache::global_cache().content(std::path::Path::new(class.path(i)))
                     {
                         if crate::detectors::content_classifier::is_bundled_code(&content)
                             || crate::detectors::content_classifier::is_minified_code(&content)
                             || crate::detectors::content_classifier::is_fixture_code(
-                                &class.file_path,
+                                class.path(i),
                                 &content,
                             )
                         {
@@ -282,7 +285,7 @@ impl Detector for LazyClassDetector {
         let mut by_file: std::collections::HashMap<&str, Vec<&crate::graph::store_models::CodeNode>> =
             std::collections::HashMap::new();
         for class in &candidates {
-            by_file.entry(class.file_path.as_str()).or_default().push(class);
+            by_file.entry(class.path(i).as_str()).or_default().push(class);
         }
 
         for (file_path, file_classes) in &by_file {
@@ -334,7 +337,7 @@ impl Detector for LazyClassDetector {
                          Consider inlining this class's functionality or expanding it.",
                         class.name, method_count, loc, usage_note
                     ),
-                    affected_files: vec![class.file_path.clone().into()],
+                    affected_files: vec![class.path(i).to_string().into()],
                     line_start: Some(class.line_start),
                     line_end: Some(class.line_end),
                     suggested_fix: Some(

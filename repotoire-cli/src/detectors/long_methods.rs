@@ -59,6 +59,7 @@ impl LongMethodsDetector {
         lines: u32,
         complexity: i64,
     ) -> bool {
+        let i = graph.interner();
         let callees = graph.get_callees(qualified_name);
         let out_degree = callees.len();
 
@@ -79,12 +80,13 @@ impl LongMethodsDetector {
         graph: &dyn crate::graph::GraphQuery,
         qualified_name: &str,
     ) -> Vec<String> {
+        let i = graph.interner();
         let callees = graph.get_callees(qualified_name);
 
         // Group callees by their module/file
         let mut modules: HashSet<String> = HashSet::new();
         for callee in &callees {
-            if let Some(module) = callee.file_path.rsplit('/').nth(1) {
+            if let Some(module) = callee.path(i).rsplit('/').nth(1) {
                 modules.insert(module.to_string());
             }
         }
@@ -111,6 +113,7 @@ impl Detector for LongMethodsDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         for func in graph.get_functions_shared().iter() {
@@ -119,7 +122,7 @@ impl Detector for LongMethodsDetector {
             }
 
             // Skip detector files (they have inherently complex parsing logic)
-            if func.file_path.contains("/detectors/") {
+            if func.path(i).contains("/detectors/") {
                 continue;
             }
 
@@ -133,10 +136,10 @@ impl Detector for LongMethodsDetector {
 
             // === Graph-aware analysis ===
             let is_orchestrator =
-                self.is_orchestrator(graph, &func.qualified_name, lines, complexity);
-            let callee_clusters = self.find_callee_clusters(graph, &func.qualified_name);
+                self.is_orchestrator(graph, func.qn(i), lines, complexity);
+            let callee_clusters = self.find_callee_clusters(graph, func.qn(i));
             let density = Self::complexity_density(complexity, lines);
-            let callees = graph.get_callees(&func.qualified_name);
+            let callees = graph.get_callees(func.qn(i));
             let out_degree = callees.len();
 
             // Calculate severity with graph awareness
@@ -233,7 +236,7 @@ impl Detector for LongMethodsDetector {
                     "Function '{}' has {} lines (threshold: {}).{}",
                     func.name, lines, self.threshold, context_notes
                 ),
-                affected_files: vec![PathBuf::from(&func.file_path)],
+                affected_files: vec![PathBuf::from(func.path(i))],
                 line_start: Some(func.line_start),
                 line_end: Some(func.line_end),
                 suggested_fix: Some(suggestion),

@@ -128,11 +128,12 @@ impl Detector for CommentedCodeDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         // Pre-build function name set once — O(N) instead of O(N) per commented block
         let all_func_names: HashSet<String> =
-            graph.get_functions_shared().iter().map(|f| f.name.clone()).collect();
+            graph.get_functions_shared().iter().map(|f| f.node_name(i).to_string()).collect();
 
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]) {
             if findings.len() >= self.max_findings {

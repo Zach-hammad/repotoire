@@ -43,9 +43,10 @@ impl DjangoSecurityDetector {
         file_path: &str,
         line: u32,
     ) -> Option<(String, usize, bool)> {
+        let i = graph.interner();
         graph.find_function_at(file_path, line).map(|f| {
-            let callers = graph.get_callers(&f.qualified_name);
-            let name_lower = f.name.to_lowercase();
+            let callers = graph.get_callers(f.qn(i));
+            let name_lower = f.node_name(i).to_lowercase();
 
             // Check if this is a view function
             let is_view = name_lower.contains("view")

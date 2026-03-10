@@ -103,13 +103,14 @@ impl Detector for MutableDefaultArgsDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         // Pre-build lookup: (file_path, func_name) → CodeNode — O(N) once instead of O(N) per match
         let func_lookup: std::collections::HashMap<(String, String), crate::graph::store_models::CodeNode> = graph
             .get_functions()
             .into_iter()
-            .map(|f| ((f.file_path.clone(), f.name.clone()), f))
+            .map(|f| ((f.path(i).to_string(), f.node_name(i).to_string()), f))
             .collect();
 
         for path in files.files_with_extension("py") {
@@ -136,7 +137,7 @@ impl Detector for MutableDefaultArgsDetector {
                         // Get function info from pre-built lookup — O(1)
                         let key = (path_str.clone(), func_name.to_string());
                         let (caller_count, is_public, func_end) = if let Some(func) = func_lookup.get(&key) {
-                            let callers = graph.get_callers(&func.qualified_name);
+                            let callers = graph.get_callers(func.qn(crate::graph::interner::global_interner()));
                             let is_pub = !func_name.starts_with('_');
                             (callers.len(), is_pub, func.line_end as usize)
                         } else {

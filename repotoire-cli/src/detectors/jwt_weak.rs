@@ -272,8 +272,8 @@ impl Detector for JwtWeakDetector {
                     let containing_func =
                         graph.find_function_at(&path_str, (i + 1) as u32);
                     let containing_info = containing_func.as_ref().map(|f| {
-                        let callers = graph.get_callers(&f.qualified_name).len();
-                        (f.name.clone(), callers)
+                        let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner())).len();
+                        (f.node_name(crate::graph::interner::global_interner()).to_string(), callers)
                     });
                     let is_auth = containing_info
                         .as_ref()

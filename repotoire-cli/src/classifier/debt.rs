@@ -113,6 +113,7 @@ pub fn compute_debt(
     git_churn: &HashMap<String, (f64, usize, f64)>,
     weights: &DebtWeights,
 ) -> Vec<FileDebt> {
+    let i = graph.interner();
     // 1. Group findings by file path
     let mut findings_by_file: HashMap<String, Vec<&Finding>> = HashMap::new();
     for f in findings {
@@ -127,7 +128,7 @@ pub fn compute_debt(
     let mut results: Vec<FileDebt> = Vec::with_capacity(files.len());
 
     for file_node in &files {
-        let path = &file_node.file_path;
+        let path = file_node.path(i);
 
         // --- finding_density: severity-weighted findings / kLOC ---
         let file_findings = findings_by_file.get(path).cloned().unwrap_or_default();
@@ -152,8 +153,8 @@ pub fn compute_debt(
         let raw_coupling: usize = functions
             .iter()
             .map(|func| {
-                let fi = graph.call_fan_in(&func.qualified_name);
-                let fo = graph.call_fan_out(&func.qualified_name);
+                let fi = graph.call_fan_in(func.qn(i));
+                let fo = graph.call_fan_out(func.qn(i));
                 fi + fo
             })
             .sum();

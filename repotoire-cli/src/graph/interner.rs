@@ -12,9 +12,25 @@
 //! The savings compound for qualified_name, name, etc.
 
 use lasso::{Spur, ThreadedRodeo};
+use std::sync::LazyLock;
 
 /// A string key - small (4 bytes) reference to an interned string
 pub type StrKey = Spur;
+
+/// Global interner singleton — used by CodeNode convenience builders
+/// (CodeNode::function(), CodeNode::file(), CodeNode::class(), etc.)
+/// so that nodes can be constructed without needing a reference to a
+/// specific GraphStore.
+///
+/// In production, GraphStore also uses this same interner so all StrKeys
+/// are compatible. Tests that create a standalone GraphStore::in_memory()
+/// share this interner too since it's a global singleton.
+static GLOBAL_INTERNER: LazyLock<StringInterner> = LazyLock::new(StringInterner::new);
+
+/// Access the global string interner.
+pub fn global_interner() -> &'static StringInterner {
+    &GLOBAL_INTERNER
+}
 
 /// Thread-safe string interner for concurrent graph building
 #[derive(Debug)]

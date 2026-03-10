@@ -387,6 +387,7 @@ impl Detector for SecretDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&[
@@ -450,8 +451,8 @@ impl Detector for SecretDetector {
                 let path_str = file_path.to_string_lossy().to_string();
 
                 if let Some(f) = graph.find_function_at(&path_str, line) {
-                    let callers = graph.get_callers(&f.qualified_name).len();
-                    let name_lower = f.name.to_lowercase();
+                    let callers = graph.get_callers(f.qn(i)).len();
+                    let name_lower = f.node_name(i).to_lowercase();
                     let is_config = name_lower.contains("config")
                         || name_lower.contains("init")
                         || name_lower.contains("setup")

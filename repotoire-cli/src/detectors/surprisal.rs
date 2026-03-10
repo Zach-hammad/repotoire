@@ -46,6 +46,7 @@ impl SurprisalDetector {
         baseline_mean: f64,
         baseline_std: f64,
     ) -> Vec<Finding> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let rel_path = path.strip_prefix(&self.repository_path).unwrap_or(path);
         let rel_str = rel_path.to_string_lossy();
@@ -54,7 +55,7 @@ impl SurprisalDetector {
         // Get functions from the graph for this file
         let all_funcs = graph.get_functions_shared();
         let functions: Vec<_> = all_funcs.iter()
-            .filter(|f| f.file_path == *rel_str || rel_str.ends_with(&f.file_path) || f.file_path.ends_with(&*rel_str))
+            .filter(|f| f.file_path == *rel_str || rel_str.ends_with(f.path(i)) || f.path(i).ends_with(&*rel_str))
             .collect();
 
         for func in &functions {
@@ -171,6 +172,7 @@ impl Detector for SurprisalDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         if !self.model.is_confident() {
             info!(
                 "SurprisalDetector: skipping analysis — n-gram model is not confident \
@@ -198,7 +200,7 @@ impl Detector for SurprisalDetector {
 
                 let all_funcs = graph.get_functions_shared();
                 let functions: Vec<_> = all_funcs.iter()
-                    .filter(|f| f.file_path == *rel_str || rel_str.ends_with(&f.file_path) || f.file_path.ends_with(&*rel_str))
+                    .filter(|f| f.file_path == *rel_str || rel_str.ends_with(f.path(i)) || f.path(i).ends_with(&*rel_str))
                     .collect();
 
                 for func in &functions {

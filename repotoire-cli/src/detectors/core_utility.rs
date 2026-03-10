@@ -307,6 +307,7 @@ impl Detector for CoreUtilityDetector {
         Some(&self.config)
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         use std::collections::HashSet;
 
         // Pre-build skip set per FILE (not per function) — avoids redundant content
@@ -319,24 +320,24 @@ impl Detector for CoreUtilityDetector {
         {
             let mut seen_files: HashSet<String> = HashSet::new();
             for func in all_functions.iter() {
-                if !seen_files.insert(func.file_path.clone()) {
+                if !seen_files.insert(func.path(i).to_string()) {
                     continue; // already classified this file
                 }
-                if crate::detectors::content_classifier::is_likely_bundled_path(&func.file_path) {
-                    skip_files.insert(func.file_path.clone());
+                if crate::detectors::content_classifier::is_likely_bundled_path(func.path(i)) {
+                    skip_files.insert(func.path(i).to_string());
                     continue;
                 }
                 if let Some(content) =
-                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                    crate::cache::global_cache().content(std::path::Path::new(func.path(i)))
                 {
                     if crate::detectors::content_classifier::is_bundled_code(&content)
                         || crate::detectors::content_classifier::is_minified_code(&content)
                         || crate::detectors::content_classifier::is_fixture_code(
-                            &func.file_path,
+                            func.path(i),
                             &content,
                         )
                     {
-                        skip_files.insert(func.file_path.clone());
+                        skip_files.insert(func.path(i).to_string());
                     }
                 }
             }
@@ -345,27 +346,27 @@ impl Detector for CoreUtilityDetector {
         let mut findings = Vec::new();
 
         for func in all_functions.iter() {
-            if skip_files.contains(&func.file_path) {
+            if skip_files.contains(func.path(i)) {
                 continue;
             }
 
             // fan_in check first (cheap O(1) lookup) — skip 99%+ of functions early
-            let fan_in = graph.call_fan_in(&func.qualified_name);
+            let fan_in = graph.call_fan_in(func.qn(i));
             if fan_in < 10 {
                 continue;
             }
 
-            let fan_out = graph.call_fan_out(&func.qualified_name);
+            let fan_out = graph.call_fan_out(func.qn(i));
             if fan_out > 2 {
                 continue;
             }
 
             // Per-function AST manipulation check (needs func name — can't pre-compute)
             if let Some(content) =
-                crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                crate::cache::global_cache().content(std::path::Path::new(func.path(i)))
             {
                 if crate::detectors::content_classifier::is_ast_manipulation_code(
-                    &func.name, &content,
+                    func.node_name(i), &content,
                 ) {
                     continue;
                 }
@@ -380,7 +381,7 @@ impl Detector for CoreUtilityDetector {
                     "Function '{}' is used by {} callers. This is a core utility - ensure it's well-tested.",
                     func.name, fan_in
                 ),
-                affected_files: vec![func.file_path.clone().into()],
+                affected_files: vec![func.path(i).to_string().into()],
                 line_start: Some(func.line_start),
                 line_end: Some(func.line_end),
                 suggested_fix: Some("Ensure comprehensive test coverage for this core function".to_string()),

@@ -76,13 +76,14 @@ impl RegexInLoopDetector {
     /// Find functions that compile regexes.
     /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).
     fn find_regex_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
+        let i = graph.interner();
         let mut regex_funcs = HashSet::new();
         let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
         let ctx = self.detector_context.get();
 
         for func in graph.get_functions_shared().iter() {
-            let lines = file_lines.entry(func.file_path.clone()).or_insert_with(|| {
-                let path = std::path::Path::new(&func.file_path);
+            let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
+                let path = std::path::Path::new(func.path(i));
                 // Try DetectorContext first, fall back to global_cache
                 if let Some(content) = ctx.and_then(|c| c.file_contents.get(path)).map(|s| &**s) {
                     content.lines().map(String::from).collect()
@@ -111,7 +112,7 @@ impl RegexInLoopDetector {
             if !func_is_cached {
                 for line in lines.get(start..end).unwrap_or(&[]) {
                     if REGEX_NEW.is_match(line) && !is_cached_regex(line) {
-                        regex_funcs.insert(func.qualified_name.clone());
+                        regex_funcs.insert(func.qn(i).to_string());
                         break;
                     }
                 }
@@ -131,6 +132,7 @@ impl RegexInLoopDetector {
         visited: &mut HashSet<String>,
         depth: usize,
     ) -> Option<String> {
+        let i = graph.interner();
         if depth > 3 || visited.contains(func_qn) {
             return None;
         }
@@ -141,7 +143,7 @@ impl RegexInLoopDetector {
             if let Some(callee_qn_list) = ctx.callees_by_qn.get(func_qn) {
                 for callee_qn in callee_qn_list {
                     let callee_name = graph.get_node(callee_qn)
-                        .map(|n| n.name.clone())
+                        .map(|n| n.node_name(i).to_string())
                         .unwrap_or_else(|| callee_qn.clone());
                     if regex_funcs.contains(callee_qn) {
                         return Some(callee_name);
@@ -160,12 +162,12 @@ impl RegexInLoopDetector {
         } else {
             // Fallback: use graph.get_callees()
             for callee in graph.get_callees(func_qn) {
-                if regex_funcs.contains(&callee.qualified_name) {
-                    return Some(callee.name.clone());
+                if regex_funcs.contains(callee.qn(i)) {
+                    return Some(callee.node_name(i).to_string());
                 }
                 if let Some(chain) = self.calls_regex_transitively(
                     graph,
-                    &callee.qualified_name,
+                    callee.qn(i),
                     regex_funcs,
                     visited,
                     depth + 1,
@@ -191,6 +193,7 @@ impl Detector for RegexInLoopDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         // Find all functions that compile regex
@@ -321,13 +324,13 @@ impl Detector for RegexInLoopDetector {
                     break;
                 }
 
-                if func.file_path.ends_with(".rs") {
+                if func.path(i).ends_with(".rs") {
                     continue;
                 }
 
                 // Check if function contains a loop (per-file line caching)
-                let lines = graph_file_lines.entry(func.file_path.clone()).or_insert_with(|| {
-                    let path = std::path::Path::new(&func.file_path);
+                let lines = graph_file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
+                    let path = std::path::Path::new(func.path(i));
                     // Try DetectorContext first, fall back to global_cache
                     if let Some(content) = ctx.and_then(|c| c.file_contents.get(path)).map(|s| &**s) {
                         content.lines().map(String::from).collect()
@@ -354,18 +357,18 @@ impl Detector for RegexInLoopDetector {
                 // Check callees for regex compilation
                 // Collect callee (qn, name) pairs from context or graph fallback
                 let callee_pairs: Vec<(String, String)> = if let Some(c) = ctx {
-                    c.callees_by_qn.get(&func.qualified_name)
+                    c.callees_by_qn.get(func.qn(i))
                         .map(|v| v.iter().map(|qn| {
                             let name = graph.get_node(qn)
-                                .map(|n| n.name.clone())
+                                .map(|n| n.node_name(i).to_string())
                                 .unwrap_or_else(|| qn.clone());
                             (qn.clone(), name)
                         }).collect())
                         .unwrap_or_default()
                 } else {
-                    graph.get_callees(&func.qualified_name)
+                    graph.get_callees(func.qn(i))
                         .into_iter()
-                        .map(|c| (c.qualified_name.clone(), c.name.clone()))
+                        .map(|c| (c.qn(i).to_string(), c.node_name(i).to_string()))
                         .collect()
                 };
 
@@ -389,7 +392,7 @@ impl Detector for RegexInLoopDetector {
                                  This may cause regex compilation on every iteration.",
                                 func.name, callee_name, callee_name, chain
                             ),
-                            affected_files: vec![PathBuf::from(&func.file_path)],
+                            affected_files: vec![PathBuf::from(func.path(i))],
                             line_start: Some(func.line_start),
                             line_end: Some(func.line_end),
                             suggested_fix: Some(

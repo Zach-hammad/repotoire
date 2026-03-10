@@ -31,19 +31,20 @@ impl InconsistentReturnsDetector {
         graph: &dyn crate::graph::GraphQuery,
         func: &crate::graph::CodeNode,
     ) -> (bool, usize) {
-        let callers = graph.get_callers(&func.qualified_name);
+        let i = graph.interner();
+        let callers = graph.get_callers(func.qn(i));
         let mut callers_using_value = 0;
 
         for caller in &callers {
             // Check caller's code for patterns that use return value
-            if let Ok(content) = std::fs::read_to_string(&caller.file_path) {
+            if let Ok(content) = std::fs::read_to_string(caller.path(i)) {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = caller.line_start.saturating_sub(1) as usize;
                 let end = (caller.line_end as usize).min(lines.len());
 
                 for line in lines.get(start..end).unwrap_or(&[]) {
                     // Look for patterns like: x = func(), if func(), return func()
-                    if line.contains(&func.name) {
+                    if line.contains(func.node_name(i)) {
                         if line.contains("=") && line.contains(&format!("{}(", func.name)) {
                             callers_using_value += 1;
                             break;
@@ -130,6 +131,7 @@ impl Detector for InconsistentReturnsDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         for func in graph.get_functions_shared().iter() {
@@ -138,7 +140,7 @@ impl Detector for InconsistentReturnsDetector {
             }
 
             // Skip test functions
-            if func.name.starts_with("test_") || func.file_path.contains("/test") {
+            if func.node_name(i).starts_with("test_") || func.path(i).contains("/test") {
                 continue;
             }
 
@@ -148,7 +150,7 @@ impl Detector for InconsistentReturnsDetector {
                 continue;
             }
 
-            if let Ok(content) = std::fs::read_to_string(&func.file_path) {
+            if let Ok(content) = std::fs::read_to_string(func.path(i)) {
                 let start = func.line_start.saturating_sub(1) as usize;
                 let end = func.line_end as usize;
                 let func_lines: Vec<&str> = content.lines().skip(start).take(end - start).collect();
@@ -225,7 +227,7 @@ impl Detector for InconsistentReturnsDetector {
                             "Function has mixed return behavior - some paths return values, others don't.{}",
                             context_notes
                         ),
-                        affected_files: vec![PathBuf::from(&func.file_path)],
+                        affected_files: vec![PathBuf::from(func.path(i))],
                         line_start: Some(func.line_start),
                         line_end: Some(func.line_end),
                         suggested_fix: Some(suggestion),

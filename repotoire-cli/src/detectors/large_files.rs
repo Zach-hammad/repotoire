@@ -63,6 +63,7 @@ impl LargeFilesDetector {
         graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
     ) -> FileAnalysis {
+        let i = graph.interner();
         let functions = graph.get_functions_in_file(file_path);
 
         let func_count = functions.len();
@@ -70,9 +71,9 @@ impl LargeFilesDetector {
         // Count unique files that import from this file
         let mut importers: HashSet<String> = HashSet::new();
         for func in &functions {
-            for caller in graph.get_callers(&func.qualified_name) {
+            for caller in graph.get_callers(func.qn(i)) {
                 if caller.file_path != file_path {
-                    importers.insert(caller.file_path.clone());
+                    importers.insert(caller.path(i).to_string());
                 }
             }
         }
@@ -80,14 +81,14 @@ impl LargeFilesDetector {
         // Find the largest function
         let largest_func = functions
             .iter()
-            .map(|f| (f.name.clone(), f.line_end.saturating_sub(f.line_start)))
+            .map(|f| (f.node_name(i).to_string(), f.line_end.saturating_sub(f.line_start)))
             .max_by_key(|(_, size)| *size);
 
         // Group functions by prefix to suggest split points
         let mut prefixes: HashSet<String> = HashSet::new();
         for func in &functions {
-            if let Some(prefix) = func.name.split('_').next() {
-                if prefix.len() > 2 && func.name.contains('_') {
+            if let Some(prefix) = func.node_name(i).split('_').next() {
+                if prefix.len() > 2 && func.node_name(i).contains('_') {
                     prefixes.insert(prefix.to_string());
                 }
             }

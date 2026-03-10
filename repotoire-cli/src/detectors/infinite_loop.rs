@@ -193,11 +193,12 @@ impl InfiniteLoopDetector {
 
     /// Check if any called function contains break/return/raise
     fn calls_exit_function(calls: &[String], func_by_name: &std::collections::HashMap<String, &crate::graph::CodeNode>) -> Vec<String> {
+        let i = crate::graph::interner::global_interner();
         let mut exit_funcs = Vec::new();
 
         for call in calls {
             if let Some(func) = func_by_name.get(call) {
-                if let Ok(content) = std::fs::read_to_string(&func.file_path) {
+                if let Ok(content) = std::fs::read_to_string(func.path(i)) {
                     let lines: Vec<&str> = content.lines().collect();
                     let start = func.line_start.saturating_sub(1) as usize;
                     let end = (func.line_end as usize).min(lines.len());
@@ -334,7 +335,8 @@ impl Detector for InfiniteLoopDetector {
                         // Find called functions and check if they exit
                         let calls = Self::find_called_functions(&lines, i, indent);
                         let map = func_by_name.get_or_insert_with(|| {
-                            all_functions.iter().map(|f| (f.name.clone(), f)).collect()
+                            let gi = crate::graph::interner::global_interner();
+                            all_functions.iter().map(|f| (f.node_name(gi).to_string(), f)).collect()
                         });
                         let exit_funcs = Self::calls_exit_function(&calls, map);
 

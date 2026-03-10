@@ -153,6 +153,7 @@ fn analyze_single_file(
     ngram_model: Option<crate::calibrate::NgramModel>,
     relaxed: bool,
 ) -> Vec<Finding> {
+    let i = graph.interner();
     let Ok(parse_result) = parse_file(file_path) else {
         return vec![];
     };
@@ -164,7 +165,7 @@ fn analyze_single_file(
     let graph = crate::graph::GraphStore::in_memory();
     for func in &parse_result.functions {
         let node =
-            crate::graph::CodeNode::new(crate::graph::NodeKind::Function, &func.name, &rel_str)
+            crate::graph::CodeNode::new(crate::graph::NodeKind::Function, func.node_name(i), &rel_str)
                 .with_property("complexity", func.complexity.unwrap_or(1) as i64)
                 .with_property("loc", (func.line_end - func.line_start + 1) as i64)
                 .with_property("is_async", func.is_async);
@@ -172,7 +173,7 @@ fn analyze_single_file(
     }
     for class in &parse_result.classes {
         let node =
-            crate::graph::CodeNode::new(crate::graph::NodeKind::Class, &class.name, &rel_str)
+            crate::graph::CodeNode::new(crate::graph::NodeKind::Class, class.node_name(i), &rel_str)
                 .with_property("methodCount", class.methods.len() as i64);
         graph.add_node(node);
     }

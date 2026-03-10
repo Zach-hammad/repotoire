@@ -465,7 +465,7 @@ Consolidate database access patterns."#
         );
 
         // Build description
-        let func_names: Vec<_> = cluster.functions.iter().map(|f| f.name.clone()).collect();
+        let func_names: Vec<_> = cluster.functions.iter().map(|f| f.node_name(i).to_string()).collect();
         let func_display = if func_names.len() > 5 {
             format!(
                 "{} ... and {} more",
@@ -476,7 +476,7 @@ Consolidate database access patterns."#
             func_names.join(", ")
         };
 
-        let files: HashSet<_> = cluster.functions.iter().map(|f| &f.file_path).collect();
+        let files: HashSet<_> = cluster.functions.iter().map(|f| f.path(i)).collect();
         let mut files_vec: Vec<_> = files.into_iter().collect();
         files_vec.sort();
         let file_display = if files_vec.len() > 3 {
@@ -523,7 +523,7 @@ Consolidate database access patterns."#
         let affected_files: Vec<PathBuf> = cluster
             .functions
             .iter()
-            .map(|f| PathBuf::from(&f.file_path))
+            .map(|f| PathBuf::from(f.path(i)))
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();

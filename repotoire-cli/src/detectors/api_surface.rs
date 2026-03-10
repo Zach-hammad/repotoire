@@ -9,6 +9,7 @@ use crate::graph::GraphQuery;
 /// Check if the function at the given file:line is part of the public API surface.
 /// API surface = exported function with 3+ callers.
 pub fn is_api_surface(graph: &dyn GraphQuery, file_path: &str, line: u32) -> bool {
+    let i = graph.interner();
     // Use spatial index for O(1) lookup instead of scanning all functions
     let Some(func) = graph.find_function_at(file_path, line) else {
         return false;
@@ -27,7 +28,7 @@ pub fn is_api_surface(graph: &dyn GraphQuery, file_path: &str, line: u32) -> boo
     }
 
     // Check fan-in (callers)
-    let fan_in = graph.call_fan_in(&func.qualified_name);
+    let fan_in = graph.call_fan_in(func.qn(i));
     fan_in >= 3
 }
 

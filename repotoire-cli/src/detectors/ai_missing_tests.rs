@@ -343,6 +343,7 @@ impl Detector for AIMissingTestsDetector {
         Some(&self.config)
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         use std::collections::HashSet;
 
@@ -350,19 +351,21 @@ impl Detector for AIMissingTestsDetector {
         let test_funcs: HashSet<String> = graph
             .get_functions()
             .iter()
-            .filter(|f| Self::is_test_function(&f.name, &f.file_path))
-            .map(|f| f.name.clone())
+            .filter(|f| Self::is_test_function(f.node_name(i), f.path(i)))
+            .map(|f| f.node_name(i).to_string())
             .collect();
 
         // Find complex public functions without tests
         for func in graph.get_functions_shared().iter() {
+            let func_name = func.node_name(i);
+            let func_path = func.path(i);
             // Skip test functions, fixtures, and test files
-            if Self::is_test_function(&func.name, &func.file_path) {
+            if Self::is_test_function(func_name, func_path) {
                 continue;
             }
 
             // Skip framework boilerplate (migrations, admin, management commands, configs)
-            let path_lower = func.file_path.to_lowercase();
+            let path_lower = func_path.to_lowercase();
             if path_lower.contains("/migrations/")
                 || path_lower.contains("/admin.py")
                 || path_lower.contains("/apps.py")
@@ -376,12 +379,12 @@ impl Detector for AIMissingTestsDetector {
             }
 
             // Skip private functions
-            if func.name.starts_with('_') && !func.name.starts_with("__") {
+            if func_name.starts_with('_') && !func_name.starts_with("__") {
                 continue;
             }
 
             // Skip dunder methods
-            if func.name.starts_with("__") && func.name.ends_with("__") {
+            if func_name.starts_with("__") && func_name.ends_with("__") {
                 continue;
             }
 
@@ -394,16 +397,13 @@ impl Detector for AIMissingTestsDetector {
             }
 
             // Check if there's a test for this function
-            // Use word-boundary matching: test name must contain _FUNCNAME as a
-            // suffix or _FUNCNAME_ as an infix (not just substring — otherwise
-            // a function named "get" matches "test_get_users")
-            let test_name = format!("test_{}", func.name);
-            let suffix_pattern = format!("_{}", func.name);
+            let test_name = format!("test_{}", func_name);
+            let suffix_pattern = format!("_{}", func_name);
             let has_test = test_funcs.contains(&test_name)
-                || (func.name.len() >= 4
+                || (func_name.len() >= 4
                     && test_funcs.iter().any(|t| {
                         t.ends_with(&suffix_pattern)
-                            || t.contains(&format!("_{}_", func.name))
+                            || t.contains(&format!("_{}_", func_name))
                     }));
             if !has_test {
                 let severity = if complexity > 15 {
@@ -418,15 +418,15 @@ impl Detector for AIMissingTestsDetector {
                     id: String::new(),
                     detector: "AIMissingTestsDetector".to_string(),
                     severity,
-                    title: format!("Missing Test: {}", func.name),
+                    title: format!("Missing Test: {}", func_name),
                     description: format!(
                         "Function '{}' (complexity: {}, {} LOC) has no test coverage.",
-                        func.name, complexity, loc
+                        func_name, complexity, loc
                     ),
-                    affected_files: vec![func.file_path.clone().into()],
+                    affected_files: vec![PathBuf::from(func_path)],
                     line_start: Some(func.line_start),
                     line_end: Some(func.line_end),
-                    suggested_fix: Some(format!("Add test function: test_{}", func.name)),
+                    suggested_fix: Some(format!("Add test function: test_{}", func_name)),
                     estimated_effort: Some("Small (30 min)".to_string()),
                     category: Some("ai_watchdog".to_string()),
                     cwe_id: None,
@@ -451,15 +451,13 @@ impl Detector for AIMissingTestsDetector {
         _files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         // Single call to get_functions_shared() — cached by CachedGraphQuery (Arc clone ~10ns)
         let all_functions = graph.get_functions_shared();
 
         // Build test function name sets for O(1) lookup:
-        // - exact_tests: "test_funcname" for direct match
-        // - suffix_set: "_funcname" suffixes present in any test name
-        // - infix_set: "_funcname_" infixes present in any test name
         let mut exact_tests: HashSet<String> = HashSet::new();
         let mut test_names: Vec<String> = Vec::new();
 
@@ -467,11 +465,12 @@ impl Detector for AIMissingTestsDetector {
             let is_test = if let Some(ctx) = contexts.get(&f.qualified_name) {
                 ctx.is_test || ctx.role == FunctionRole::Test
             } else {
-                Self::is_test_function(&f.name, &f.file_path)
+                Self::is_test_function(f.node_name(i), f.path(i))
             };
             if is_test {
-                exact_tests.insert(f.name.clone());
-                test_names.push(f.name.clone());
+                let fname = f.node_name(i).to_string();
+                exact_tests.insert(fname.clone());
+                test_names.push(fname);
             }
         }
 
@@ -481,25 +480,17 @@ impl Detector for AIMissingTestsDetector {
         );
 
         // Pre-build a set of all suffixes and infixes present in test names.
-        // For each test name like "test_parse_header_fields", we extract:
-        //   suffixes: {"_fields", "_header_fields", "_parse_header_fields"}
-        //   infixes:  {"_parse_", "_header_", "_fields_", "_parse_header_", "_header_fields_"}
-        // Then for a candidate func "parse", we check if "_parse" is in suffix_set
-        // or "_parse_" is in infix_set — both O(1) HashSet lookups.
         let mut suffix_set: HashSet<String> = HashSet::new();
         let mut infix_set: HashSet<String> = HashSet::new();
         for tname in &test_names {
-            // Find all underscore positions to extract word-boundary segments
             let bytes = tname.as_bytes();
-            for (i, &b) in bytes.iter().enumerate() {
+            for (idx, &b) in bytes.iter().enumerate() {
                 if b == b'_' {
-                    // suffix from this underscore to end: "_funcname"
-                    suffix_set.insert(tname[i..].to_string());
-                    // infix: for each later underscore j, "_segment_"
-                    for (j, &b2) in bytes[i + 1..].iter().enumerate() {
+                    suffix_set.insert(tname[idx..].to_string());
+                    for (j, &b2) in bytes[idx + 1..].iter().enumerate() {
                         if b2 == b'_' {
-                            let end = i + 1 + j + 1; // include the trailing underscore
-                            infix_set.insert(tname[i..end].to_string());
+                            let end = idx + 1 + j + 1;
+                            infix_set.insert(tname[idx..end].to_string());
                         }
                     }
                 }
@@ -514,12 +505,14 @@ impl Detector for AIMissingTestsDetector {
                     continue;
                 }
             }
-            if Self::is_test_function(&func.name, &func.file_path) {
+            let func_name = func.node_name(i);
+            let func_path = func.path(i);
+            if Self::is_test_function(func_name, func_path) {
                 continue;
             }
 
             // Skip framework boilerplate (migrations, admin, management commands, configs)
-            let path_lower = func.file_path.to_lowercase();
+            let path_lower = func_path.to_lowercase();
             if path_lower.contains("/migrations/")
                 || path_lower.contains("/admin.py")
                 || path_lower.contains("/apps.py")
@@ -533,12 +526,12 @@ impl Detector for AIMissingTestsDetector {
             }
 
             // Skip private functions
-            if func.name.starts_with('_') && !func.name.starts_with("__") {
+            if func_name.starts_with('_') && !func_name.starts_with("__") {
                 continue;
             }
 
             // Skip dunder methods
-            if func.name.starts_with("__") && func.name.ends_with("__") {
+            if func_name.starts_with("__") && func_name.ends_with("__") {
                 continue;
             }
 
@@ -557,11 +550,11 @@ impl Detector for AIMissingTestsDetector {
             }
 
             // Check if there's a test for this function — all O(1) lookups
-            let test_name = format!("test_{}", func.name);
+            let test_name = format!("test_{}", func_name);
             let has_test = exact_tests.contains(&test_name)
-                || (func.name.len() >= 4 && {
-                    let suffix_pattern = format!("_{}", func.name);
-                    let infix_pattern = format!("_{}_", func.name);
+                || (func_name.len() >= 4 && {
+                    let suffix_pattern = format!("_{}", func_name);
+                    let infix_pattern = format!("_{}_", func_name);
                     suffix_set.contains(&suffix_pattern) || infix_set.contains(&infix_pattern)
                 });
             if !has_test {
@@ -577,15 +570,15 @@ impl Detector for AIMissingTestsDetector {
                     id: String::new(),
                     detector: "AIMissingTestsDetector".to_string(),
                     severity,
-                    title: format!("Missing Test: {}", func.name),
+                    title: format!("Missing Test: {}", func_name),
                     description: format!(
                         "Function '{}' (complexity: {}, {} LOC) has no test coverage.",
-                        func.name, complexity, loc
+                        func_name, complexity, loc
                     ),
-                    affected_files: vec![func.file_path.clone().into()],
+                    affected_files: vec![PathBuf::from(func_path)],
                     line_start: Some(func.line_start),
                     line_end: Some(func.line_end),
-                    suggested_fix: Some(format!("Add test function: test_{}", func.name)),
+                    suggested_fix: Some(format!("Add test function: test_{}", func_name)),
                     estimated_effort: Some("Small (30 min)".to_string()),
                     category: Some("ai_watchdog".to_string()),
                     cwe_id: None,

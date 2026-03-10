@@ -67,12 +67,13 @@ impl TestInProductionDetector {
 
     /// Check if this file is imported by production code
     fn is_imported_by_production(graph: &dyn crate::graph::GraphQuery, file_path: &str) -> bool {
+        let i = graph.interner();
         let funcs = graph.get_functions_in_file(file_path);
 
         for func in funcs {
-            for caller in graph.get_callers(&func.qualified_name) {
+            for caller in graph.get_callers(func.qn(i)) {
                 // Check if caller is not a test file
-                let caller_path = &caller.file_path;
+                let caller_path = caller.path(i);
                 if !crate::detectors::base::is_test_path(caller_path) {
                     return true;
                 }

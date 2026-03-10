@@ -49,6 +49,7 @@ impl Detector for HierarchicalSurprisalDetector {
         _graph: &dyn crate::graph::GraphQuery,
         _files: &dyn crate::detectors::file_provider::FileProvider,
     ) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         // This detector requires function contexts; detect_with_context is used instead.
         Ok(vec![])
     }
@@ -63,6 +64,7 @@ impl Detector for HierarchicalSurprisalDetector {
         files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut engine = PredictiveCodingEngine::new();
         engine.train_and_score(graph, files, contexts);
 
@@ -76,10 +78,10 @@ impl Detector for HierarchicalSurprisalDetector {
             let func = functions.iter().find(|f| f.qualified_name == *qn);
             let (file_path, line_start, line_end, func_name) = match func {
                 Some(f) => (
-                    PathBuf::from(&f.file_path),
+                    PathBuf::from(f.path(i)),
                     Some(f.line_start),
                     Some(f.line_end),
-                    f.name.clone(),
+                    f.node_name(i).to_string(),
                 ),
                 None => continue,
             };

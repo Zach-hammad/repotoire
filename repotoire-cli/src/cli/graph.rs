@@ -9,6 +9,7 @@ use std::path::Path;
 ///
 /// Note: Cypher queries are no longer supported. Use the built-in query commands instead.
 pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
+    let i = graph.interner();
     let repo_path = path
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
@@ -38,8 +39,8 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
             for func in functions.iter().take(50) {
                 println!(
                     "  {} ({}:{})",
-                    style(&func.qualified_name).cyan(),
-                    &func.file_path,
+                    style(func.qn(i)).cyan(),
+                    func.path(i),
                     func.line_start
                 );
             }
@@ -57,8 +58,8 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
             for class in classes.iter().take(50) {
                 println!(
                     "  {} ({}:{})",
-                    style(&class.qualified_name).cyan(),
-                    &class.file_path,
+                    style(class.qn(i)).cyan(),
+                    class.path(i),
                     class.line_start
                 );
             }

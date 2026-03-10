@@ -285,27 +285,28 @@ impl Detector for ArchitecturalBottleneckDetector {
 
     /// Legacy detection without context (fallback)
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         for func in graph.get_functions_shared().iter() {
             // Skip by name pattern
-            if self.should_skip_by_name(&func.name) {
+            if self.should_skip_by_name(func.node_name(i)) {
                 continue;
             }
 
             // Skip test functions
-            if func.file_path.contains("/tests/") || func.name.starts_with("test_") {
+            if func.path(i).contains("/tests/") || func.node_name(i).starts_with("test_") {
                 continue;
             }
 
-            let fan_in = graph.call_fan_in(&func.qualified_name);
+            let fan_in = graph.call_fan_in(func.qn(i));
             let complexity = func.complexity().unwrap_or(1) as usize;
 
             // Bottleneck: high fan-in AND high complexity
             if fan_in >= self.min_fan_in && complexity >= self.min_complexity {
                 findings.push(self.create_finding(
-                    &func.name,
-                    &func.file_path,
+                    func.node_name(i),
+                    func.path(i),
                     func.line_start,
                     func.line_end,
                     fan_in,
@@ -331,6 +332,7 @@ impl Detector for ArchitecturalBottleneckDetector {
         _files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let funcs = graph.get_functions_shared();
 
@@ -341,13 +343,13 @@ impl Detector for ArchitecturalBottleneckDetector {
 
         for func in funcs.iter() {
             // Skip by name pattern (CLI entry points, common utilities)
-            if self.should_skip_by_name(&func.name) {
+            if self.should_skip_by_name(func.node_name(i)) {
                 continue;
             }
 
             // Skip CLI entry points (expected to coordinate many things)
-            if func.file_path.contains("/cli/")
-                && (func.name == "run" || func.name == "execute" || func.name == "main")
+            if func.path(i).contains("/cli/")
+                && (func.node_name(i) == "run" || func.node_name(i) == "execute" || func.node_name(i) == "main")
             {
                 continue;
             }
@@ -360,7 +362,7 @@ impl Detector for ArchitecturalBottleneckDetector {
                 if c.is_test || c.role == FunctionRole::Test {
                     continue;
                 }
-            } else if func.file_path.contains("/tests/") || func.name.starts_with("test_") {
+            } else if func.path(i).contains("/tests/") || func.node_name(i).starts_with("test_") {
                 continue;
             }
 
@@ -373,7 +375,7 @@ impl Detector for ArchitecturalBottleneckDetector {
                 )
             } else {
                 // Fall back to graph queries
-                let fan_in = graph.call_fan_in(&func.qualified_name);
+                let fan_in = graph.call_fan_in(func.qn(i));
                 let complexity = func.complexity().unwrap_or(1) as usize;
                 (fan_in, complexity, FunctionRole::Unknown, None)
             };
@@ -392,8 +394,8 @@ impl Detector for ArchitecturalBottleneckDetector {
                 }
 
                 findings.push(self.create_finding(
-                    &func.name,
-                    &func.file_path,
+                    func.node_name(i),
+                    func.path(i),
                     func.line_start,
                     func.line_end,
                     fan_in,

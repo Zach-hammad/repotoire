@@ -37,11 +37,12 @@ impl MissingAwaitDetector {
 
     /// Identify async functions from the graph — only trust the is_async property
     fn find_async_functions(graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
+        let i = graph.interner();
         let mut async_funcs = HashSet::new();
         for func in graph.get_functions_shared().iter() {
             if let Some(is_async) = func.properties.get("is_async") {
                 if is_async.as_bool().unwrap_or(false) {
-                    async_funcs.insert(func.name.clone());
+                    async_funcs.insert(func.node_name(i).to_string());
                 }
             }
         }
@@ -116,6 +117,8 @@ impl Detector for MissingAwaitDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let gi = graph.interner();
+        let i = graph.interner();
         let mut findings = vec![];
         let known_async_funcs = Self::find_async_functions(graph);
 
@@ -123,7 +126,7 @@ impl Detector for MissingAwaitDetector {
         let all_functions = graph.get_functions_shared();
         let mut funcs_by_file: std::collections::HashMap<&str, Vec<&crate::graph::CodeNode>> = std::collections::HashMap::new();
         for func in all_functions.iter() {
-            funcs_by_file.entry(func.file_path.as_str()).or_default().push(func);
+            funcs_by_file.entry(func.path(gi).as_str()).or_default().push(func);
         }
 
         for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx", "py"]) {
@@ -166,7 +169,7 @@ impl Detector for MissingAwaitDetector {
                 let func_name = file_funcs
                     .iter()
                     .find(|f| f.line_start <= (i + 1) as u32 && f.line_end >= (i + 1) as u32)
-                    .map(|f| f.name.clone())
+                    .map(|f| f.node_name(gi).to_string())
                     .unwrap_or_default();
 
                 // Only flag if the function body actually uses await

@@ -364,6 +364,7 @@ impl Detector for AIComplexitySpikeDetector {
         Some(&self.config)
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         use std::collections::HashSet;
 
         let mut findings = Vec::new();
@@ -394,10 +395,10 @@ impl Detector for AIComplexitySpikeDetector {
         {
             let mut seen_files: HashSet<String> = HashSet::new();
             for func in functions.iter() {
-                if !seen_files.insert(func.file_path.clone()) {
+                if !seen_files.insert(func.path(i).to_string()) {
                     continue; // already classified this file
                 }
-                let fp = &func.file_path;
+                let fp = func.path(i);
                 if fp.contains("/detectors/")
                     || fp.contains("/parsers/")
                     || fp.contains("/runtime/")
@@ -420,11 +421,11 @@ impl Detector for AIComplexitySpikeDetector {
                     || crate::detectors::content_classifier::is_non_production_path(fp)
                     || crate::detectors::content_classifier::is_likely_bundled_path(fp)
                 {
-                    skip_files.insert(func.file_path.clone());
+                    skip_files.insert(func.path(i).to_string());
                     continue;
                 }
                 if crate::detectors::content_classifier::is_compiler_code_path(fp) {
-                    compiler_files.insert(func.file_path.clone());
+                    compiler_files.insert(func.path(i).to_string());
                 }
                 // Content-based classification (once per file, not per function)
                 if let Some(content) =
@@ -434,31 +435,31 @@ impl Detector for AIComplexitySpikeDetector {
                         || crate::detectors::content_classifier::is_minified_code(&content)
                         || crate::detectors::content_classifier::is_fixture_code(fp, &content)
                     {
-                        skip_files.insert(func.file_path.clone());
+                        skip_files.insert(func.path(i).to_string());
                     }
                 }
             }
         }
 
         for func in functions.iter() {
-            if skip_files.contains(&func.file_path) {
+            if skip_files.contains(func.path(i)) {
                 continue;
             }
 
             // Per-function AST manipulation check (needs func name — can't pre-compute per file)
-            let mut is_ast_code = compiler_files.contains(&func.file_path);
+            let mut is_ast_code = compiler_files.contains(func.path(i));
             if !is_ast_code {
                 if let Some(content) =
-                    crate::cache::global_cache().content(std::path::Path::new(&func.file_path))
+                    crate::cache::global_cache().content(std::path::Path::new(func.path(i)))
                 {
                     is_ast_code = crate::detectors::content_classifier::is_ast_manipulation_code(
-                        &func.name, &content,
+                        func.node_name(i), &content,
                     );
                 }
             }
 
             // Skip interpreter/runtime functions (short prefix + underscore pattern)
-            if Self::has_runtime_prefix(&func.name) {
+            if Self::has_runtime_prefix(func.node_name(i)) {
                 continue;
             }
 
@@ -489,7 +490,7 @@ impl Detector for AIComplexitySpikeDetector {
                             "Function '{}' has complexity {} (avg: {:.1}, z-score: {:.1}). Possible AI-generated code.",
                             func.name, complexity, avg, z_score
                         ),
-                        affected_files: vec![func.file_path.clone().into()],
+                        affected_files: vec![func.path(i).to_string().into()],
                         line_start: Some(func.line_start),
                         line_end: Some(func.line_end),
                         suggested_fix: Some("Review and refactor - consider breaking into smaller functions".to_string()),

@@ -18,11 +18,11 @@ use crate::mcp::params::{
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Serialize a `CodeNode` to JSON, including common fields.
-fn node_to_json(node: &CodeNode) -> Value {
+fn node_to_json(node: &CodeNode, i: &crate::graph::interner::StringInterner) -> Value {
     json!({
-        "qualified_name": node.qualified_name,
-        "name": node.name,
-        "file_path": node.file_path,
+        "qualified_name": node.qn(i),
+        "name": node.node_name(i),
+        "file_path": node.path(i),
         "kind": format!("{:?}", node.kind),
         "line_start": node.line_start,
         "line_end": node.line_end,
@@ -50,6 +50,7 @@ fn paginate<T: Clone>(items: Vec<T>, offset: usize, limit: usize) -> (Vec<T>, us
 /// always contains `total_count` and `has_more` alongside the `results` array.
 pub fn handle_query_graph(state: &mut HandlerState, params: &QueryGraphParams) -> Result<Value> {
     let graph = state.graph()?;
+    let i = graph.interner();
 
     let limit = params.limit.unwrap_or(100) as usize;
     let offset = params.offset.unwrap_or(0) as usize;
@@ -57,7 +58,7 @@ pub fn handle_query_graph(state: &mut HandlerState, params: &QueryGraphParams) -
     match params.query_type {
         GraphQueryType::Functions => {
             let nodes = graph.get_functions();
-            let results: Vec<Value> = nodes.iter().map(node_to_json).collect();
+            let results: Vec<Value> = nodes.iter().map(|n| node_to_json(n, i)).collect();
             let (page, total, has_more) = paginate(results, offset, limit);
             Ok(json!({
                 "results": page,
@@ -68,7 +69,7 @@ pub fn handle_query_graph(state: &mut HandlerState, params: &QueryGraphParams) -
         }
         GraphQueryType::Classes => {
             let nodes = graph.get_classes();
-            let results: Vec<Value> = nodes.iter().map(node_to_json).collect();
+            let results: Vec<Value> = nodes.iter().map(|n| node_to_json(n, i)).collect();
             let (page, total, has_more) = paginate(results, offset, limit);
             Ok(json!({
                 "results": page,
@@ -83,8 +84,8 @@ pub fn handle_query_graph(state: &mut HandlerState, params: &QueryGraphParams) -
                 .iter()
                 .map(|f| {
                     json!({
-                        "file_path": f.file_path,
-                        "language": f.language,
+                        "file_path": f.path(i),
+                        "language": f.lang(i).unwrap_or(""),
                     })
                 })
                 .collect();
@@ -124,7 +125,7 @@ pub fn handle_query_graph(state: &mut HandlerState, params: &QueryGraphParams) -
                     "error": format!("Node '{}' not found in graph. Use query_type=functions to list available names.", name),
                 }));
             }
-            let results: Vec<Value> = callers.iter().map(node_to_json).collect();
+            let results: Vec<Value> = callers.iter().map(|n| node_to_json(n, i)).collect();
             let (page, total, has_more) = paginate(results, offset, limit);
             Ok(json!({
                 "results": page,
@@ -153,7 +154,7 @@ pub fn handle_query_graph(state: &mut HandlerState, params: &QueryGraphParams) -
                     "error": format!("Node '{}' not found in graph. Use query_type=functions to list available names.", name),
                 }));
             }
-            let results: Vec<Value> = callees.iter().map(node_to_json).collect();
+            let results: Vec<Value> = callees.iter().map(|n| node_to_json(n, i)).collect();
             let (page, total, has_more) = paginate(results, offset, limit);
             Ok(json!({
                 "results": page,
@@ -206,6 +207,8 @@ pub fn handle_trace_dependencies(
     let direction = params.direction.as_ref().cloned().unwrap_or_default();
     let kind = params.kind.as_ref().cloned().unwrap_or_default();
 
+    let i = graph.interner();
+
     // Resolve root node -- try exact qualified-name match first, then search
     // by short name across functions and classes.
     let root_node = graph.get_node(&params.name).or_else(|| {
@@ -213,7 +216,7 @@ pub fn handle_trace_dependencies(
             .get_functions()
             .into_iter()
             .chain(graph.get_classes())
-            .find(|n| n.name == params.name)
+            .find(|n| n.node_name(i) == params.name)
     });
 
     let root = match root_node {
@@ -226,7 +229,7 @@ pub fn handle_trace_dependencies(
         }
     };
 
-    let root_qn = root.qualified_name.clone();
+    let root_qn = root.qn(i).to_string();
 
     // Determine which edge kinds to follow
     let edge_kinds: Vec<EdgeKind> = match kind {
@@ -272,6 +275,7 @@ fn bfs_trace(
     max_depth: u32,
     reverse: bool,
 ) -> Vec<TracedNode> {
+    let i = graph.interner();
     let mut visited: HashSet<String> = HashSet::new();
     visited.insert(start_qn.to_string());
     let mut queue: VecDeque<(String, u32)> = VecDeque::new();
@@ -301,8 +305,8 @@ fn bfs_trace(
                         graph
                             .get_imports()
                             .into_iter()
-                            .filter(|(src, _dst)| src == &current_qn)
-                            .filter_map(|(_src, dst)| graph.get_node(&dst))
+                            .filter(|(src, _dst)| i.resolve(*src) == current_qn)
+                            .filter_map(|(_src, dst)| graph.get_node(i.resolve(dst)))
                             .collect()
                     }
                     _ => vec![],
@@ -310,15 +314,16 @@ fn bfs_trace(
             };
 
             for neighbor in neighbors {
-                if visited.insert(neighbor.qualified_name.clone()) {
+                let nqn = neighbor.qn(i).to_string();
+                if visited.insert(nqn.clone()) {
                     let traced = TracedNode {
-                        name: neighbor.qualified_name.clone(),
-                        file: neighbor.file_path.clone(),
+                        name: nqn.clone(),
+                        file: neighbor.path(i).to_string(),
                         kind: format!("{:?}", ek).to_lowercase(),
                         depth: depth + 1,
                     };
                     result.push(traced);
-                    queue.push_back((neighbor.qualified_name.clone(), depth + 1));
+                    queue.push_back((nqn, depth + 1));
                 }
             }
         }
@@ -345,6 +350,7 @@ pub fn handle_analyze_impact(
     params: &AnalyzeImpactParams,
 ) -> Result<Value> {
     let graph = state.graph()?;
+    let i = graph.interner();
     let scope = params
         .scope
         .as_ref()
@@ -359,7 +365,7 @@ pub fn handle_analyze_impact(
                 .get_functions_in_file(&params.target)
                 .into_iter()
                 .chain(graph.get_classes_in_file(&params.target))
-                .map(|n| n.qualified_name)
+                .map(|n| n.qn(i).to_string())
                 .collect();
 
             // Also include the file node itself (for IMPORTS edges)
@@ -384,11 +390,11 @@ pub fn handle_analyze_impact(
                     .get_functions()
                     .into_iter()
                     .chain(graph.get_classes())
-                    .find(|n| n.name == name)
+                    .find(|n| n.node_name(i) == name)
             });
 
             match node {
-                Some(n) => vec![n.qualified_name],
+                Some(n) => vec![n.qn(i).to_string()],
                 None => {
                     bail!(
                         "Function or class '{}' not found in the graph. \
@@ -410,13 +416,15 @@ pub fn handle_analyze_impact(
     let mut direct_set: HashSet<String> = HashSet::new();
     for root in &root_names {
         for caller in graph.get_callers(root) {
-            if !root_names.contains(&caller.qualified_name) {
-                direct_set.insert(caller.qualified_name);
+            let cqn = caller.qn(i).to_string();
+            if !root_names.contains(&cqn) {
+                direct_set.insert(cqn);
             }
         }
         for importer in graph.get_importers(root) {
-            if !root_names.contains(&importer.qualified_name) {
-                direct_set.insert(importer.qualified_name);
+            let iqn = importer.qn(i).to_string();
+            if !root_names.contains(&iqn) {
+                direct_set.insert(iqn);
             }
         }
     }
@@ -432,15 +440,17 @@ pub fn handle_analyze_impact(
 
     while let Some(current) = queue.pop_front() {
         for caller in graph.get_callers(&current) {
-            if visited.insert(caller.qualified_name.clone()) {
-                transitive_set.insert(caller.qualified_name.clone());
-                queue.push_back(caller.qualified_name);
+            let cqn = caller.qn(i).to_string();
+            if visited.insert(cqn.clone()) {
+                transitive_set.insert(cqn.clone());
+                queue.push_back(cqn);
             }
         }
         for importer in graph.get_importers(&current) {
-            if visited.insert(importer.qualified_name.clone()) {
-                transitive_set.insert(importer.qualified_name.clone());
-                queue.push_back(importer.qualified_name);
+            let iqn = importer.qn(i).to_string();
+            if visited.insert(iqn.clone()) {
+                transitive_set.insert(iqn.clone());
+                queue.push_back(iqn);
             }
         }
     }
@@ -449,7 +459,7 @@ pub fn handle_analyze_impact(
     let mut affected_files: Vec<String> = transitive_set
         .iter()
         .filter_map(|qn| graph.get_node(qn))
-        .map(|n| n.file_path)
+        .map(|n| n.path(i).to_string())
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();

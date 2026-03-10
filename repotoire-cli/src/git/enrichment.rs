@@ -49,6 +49,7 @@ pub struct GitEnricher<'a> {
 impl<'a> GitEnricher<'a> {
     /// Create a new git enricher.
     pub fn new(history: &'a GitHistory, graph: &'a GraphStore) -> Result<Self> {
+        let i = graph.interner();
         let repo_root = history.repo_root()?;
         let blame = GitBlame::open(repo_root)?;
         Ok(Self {
@@ -70,12 +71,12 @@ impl<'a> GitEnricher<'a> {
         let mut unique_files: HashSet<String> = HashSet::new();
         for f in &functions {
             if f.get_str("last_modified").is_none() {
-                unique_files.insert(f.file_path.clone());
+                unique_files.insert(f.path(i).to_string());
             }
         }
         for c in &classes {
             if c.get_str("last_modified").is_none() {
-                unique_files.insert(c.file_path.clone());
+                unique_files.insert(c.path(i).to_string());
             }
         }
 
@@ -149,7 +150,7 @@ impl<'a> GitEnricher<'a> {
             // Get blame info for this function
             let blame_result = self
                 .blame
-                .get_entity_blame(&func.file_path, line_start, line_end)
+                .get_entity_blame(func.path(crate::graph::interner::global_interner()), line_start, line_end)
                 .inspect_err(|e| {
                     debug!("Failed to get blame for {}:{}: {}", func.file_path, line_start, e);
                 });
@@ -164,7 +165,7 @@ impl<'a> GitEnricher<'a> {
                 continue;
             };
             self.graph.update_node_properties(
-                &func.qualified_name,
+                func.qn(crate::graph::interner::global_interner()),
                 &[
                     (
                         "last_modified",
@@ -212,7 +213,7 @@ impl<'a> GitEnricher<'a> {
             // Get blame info for this class
             let blame_result = self
                 .blame
-                .get_entity_blame(&class.file_path, line_start, line_end)
+                .get_entity_blame(class.path(crate::graph::interner::global_interner()), line_start, line_end)
                 .inspect_err(|e| {
                     debug!("Failed to get blame for {}:{}: {}", class.file_path, line_start, e);
                 });
@@ -229,7 +230,7 @@ impl<'a> GitEnricher<'a> {
 
             // Update class with git data (skip Commit nodes for speed)
             self.graph.update_node_properties(
-                &class.qualified_name,
+                class.qn(crate::graph::interner::global_interner()),
                 &[
                     (
                         "last_modified",
@@ -258,7 +259,7 @@ impl<'a> GitEnricher<'a> {
         }
 
         // Create commit node
-        let i = &self.graph.interner;
+        let i = self.graph.interner();
         let empty = i.empty_key();
         let hash_key = i.intern(hash);
         let node = CodeNode {

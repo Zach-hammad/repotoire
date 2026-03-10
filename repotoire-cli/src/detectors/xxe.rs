@@ -285,9 +285,9 @@ impl Detector for XxeDetector {
                     // Get function context
                     let func_context =
                         graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
-                            let callers = graph.get_callers(&f.qualified_name);
+                            let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner()));
                             let has_external_callers = callers.iter().any(|c| {
-                                let name = c.name.to_lowercase();
+                                let name = c.node_name(crate::graph::interner::global_interner()).to_lowercase();
                                 name.contains("route")
                                     || name.contains("handler")
                                     || name.contains("api")

@@ -98,6 +98,7 @@ impl PredictiveCodingEngine {
         files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &FunctionContextMap,
     ) {
+        let i = graph.interner();
         // === L1: Train per-language token models ===
         let mut token_scorer = token_level::TokenLevelScorer::new();
         let repo_path = files.repo_path();
@@ -145,7 +146,7 @@ impl PredictiveCodingEngine {
                 params, complexity, nesting, loc, returns,
             );
             feature_vecs.push(feat.clone());
-            func_features.push((func.qualified_name.clone(), feat));
+            func_features.push((func.qn(i).to_string(), feat));
         }
         let structural_scorer = structural::StructuralScorer::from_features(&feature_vecs);
 
@@ -159,7 +160,7 @@ impl PredictiveCodingEngine {
         // Build a lookup map to avoid O(n^2) scanning inside the chain loop
         let fn_by_name: HashMap<&str, &crate::graph::CodeNode> = functions
             .iter()
-            .map(|f| (f.qualified_name.as_str(), f))
+            .map(|f| (f.qn(i).as_str(), f))
             .collect();
 
         // Score chains using L1 model — find a confident language model.
@@ -172,9 +173,9 @@ impl PredictiveCodingEngine {
                 .filter_map(|qn| fn_by_name.get(qn.as_str()).copied())
                 .filter_map(|f| {
                     let cached_lines = lines_cache
-                        .entry(f.file_path.clone())
+                        .entry(f.path(i).to_string())
                         .or_insert_with(|| {
-                            let path = repo_path.join(&f.file_path);
+                            let path = repo_path.join(f.path(i));
                             let content = files.content(&path).unwrap_or_else(|| Arc::new(String::new()));
                             content.lines().map(|l| l.to_string()).collect()
                         });
@@ -228,12 +229,12 @@ impl PredictiveCodingEngine {
             let count = funcs.len().max(1) as f64;
             let avg_fan_in = funcs
                 .iter()
-                .map(|f| graph.call_fan_in(&f.qualified_name) as f64)
+                .map(|f| graph.call_fan_in(f.qn(i)) as f64)
                 .sum::<f64>()
                 / count;
             let avg_fan_out = funcs
                 .iter()
-                .map(|f| graph.call_fan_out(&f.qualified_name) as f64)
+                .map(|f| graph.call_fan_out(f.qn(i)) as f64)
                 .sum::<f64>()
                 / count;
 
@@ -287,7 +288,7 @@ impl PredictiveCodingEngine {
 
         for &i in &scored_indices {
             let func = &functions[i];
-            let ext = func.file_path.rsplit('.').next().unwrap_or("rs");
+            let ext = func.path(crate::graph::interner::global_interner()).rsplit('.').next().unwrap_or("rs");
 
             // L1: Token surprisal — skip if no confident model for this language
             let has_model = token_scorer
@@ -298,9 +299,9 @@ impl PredictiveCodingEngine {
 
             let token_score = if has_model {
                 let content = file_cache
-                    .entry(&func.file_path)
+                    .entry(func.path(crate::graph::interner::global_interner()))
                     .or_insert_with(|| {
-                        let path = repo_path.join(&func.file_path);
+                        let path = repo_path.join(func.path(crate::graph::interner::global_interner()));
                         files.content(&path)
                     });
                 if let Some(content) = content {
@@ -326,10 +327,10 @@ impl PredictiveCodingEngine {
                 .unwrap_or(0.0);
 
             // L1.5: Dependency chain
-            let dep_score = chain_scorer.score(&func.qualified_name);
+            let dep_score = chain_scorer.score(func.qn(crate::graph::interner::global_interner()));
 
             // L3: Relational graph feature distance
-            let relational_score = relational_scorer.distance(&func.qualified_name, contexts);
+            let relational_score = relational_scorer.distance(func.qn(crate::graph::interner::global_interner()), contexts);
 
             // L4: Module distance
             let module = func
@@ -340,7 +341,7 @@ impl PredictiveCodingEngine {
             let arch_score = arch_scorer.module_distance(module);
 
             raw_scores.push((
-                func.qualified_name.clone(),
+                func.qn(crate::graph::interner::global_interner()).to_string(),
                 RawScores {
                     token: token_score,
                     structural: structural_score,

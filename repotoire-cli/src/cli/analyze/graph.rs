@@ -125,7 +125,7 @@ fn build_func_node(
     complexity: u32,
     address_taken: bool,
 ) -> CodeNode {
-    let i = &graph.interner;
+    let i = graph.interner();
     let file_key = i.intern(relative_str);
     let lang_key = i.intern(detect_language_from_path_str(relative_str));
 
@@ -163,7 +163,7 @@ fn build_func_node(
 /// String properties (doc_comment) are written to the ExtraProps side table
 /// via `graph.update_node_properties()` after the node is inserted into the graph.
 fn build_class_node(graph: &GraphStore, class: &Class, relative_str: &str) -> CodeNode {
-    let i = &graph.interner;
+    let i = graph.interner();
     let file_key = i.intern(relative_str);
     let lang_key = i.intern(detect_language_from_path_str(relative_str));
 
@@ -292,7 +292,7 @@ pub(super) fn build_graph(
             let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
             let relative_str = relative_path.display().to_string();
 
-            let i = &graph.interner;
+            let i = graph.interner();
             let rel_key = i.intern(&relative_str);
             let lang_key = i.intern(detect_language_from_path_str(&relative_str));
 
@@ -535,7 +535,7 @@ pub(super) fn build_graph_chunked(
                 let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
                 let relative_str = relative_path.display().to_string();
 
-                let i = &graph.interner;
+                let i = graph.interner();
                 let rel_key = i.intern(&relative_str);
                 let lang_key = i.intern(detect_language_from_path_str(&relative_str));
 
@@ -1126,7 +1126,7 @@ fn build_value_store(
     }
 
     // 2. Insert Variable nodes for module-level constants into the graph
-    let i = &graph.interner;
+    let i = graph.interner();
     let empty = i.empty_key();
     let var_nodes: Vec<CodeNode> = value_store
         .constants
@@ -1171,9 +1171,9 @@ fn build_value_store(
         let calls = graph.get_calls();
         let mut map = StdHashMap::new();
         for (caller, callee) in calls {
-            map.entry(caller)
+            map.entry(i.resolve(caller).to_string())
                 .or_insert_with(StdHashSet::new)
-                .insert(callee);
+                .insert(i.resolve(callee).to_string());
         }
         map
     };
@@ -1226,7 +1226,7 @@ impl StreamingGraphBuilderImpl {
 
 impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
     fn on_file(&mut self, info: ParsedFileInfo) -> Result<()> {
-        let i = &self.graph.interner;
+        let i = self.graph.interner();
         let rel_key = i.intern(&info.relative_path);
         let lang_key = i.intern(&info.language);
 
@@ -1607,7 +1607,7 @@ mod tests {
         let relative_str = "app/routes.py";
 
         // File node (the caller for decorated functions)
-        let i = &graph.interner;
+        let i = graph.interner();
         let rel_key = i.intern(relative_str);
         let empty = i.empty_key();
         let file_node = CodeNode {
@@ -1635,8 +1635,8 @@ mod tests {
             let complexity = func.complexity.unwrap_or(1);
             let func_node = CodeNode {
                 kind: NodeKind::Function,
-                name: i.intern(&func.name),
-                qualified_name: i.intern(&func.qualified_name),
+                name: i.intern(func.node_name(i)),
+                qualified_name: i.intern(func.qn(i)),
                 file_path: rel_key,
                 language: empty,
                 line_start: func.line_start,
@@ -1652,7 +1652,7 @@ mod tests {
             func_nodes.push(func_node);
 
             emit_decorator_call_edge(
-                &func.qualified_name,
+                func.qn(i),
                 relative_str,
                 !func.annotations.is_empty(),
                 &mut edges,

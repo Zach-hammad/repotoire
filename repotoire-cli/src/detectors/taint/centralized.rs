@@ -78,6 +78,7 @@ pub fn run_centralized_taint(
     repository_path: &Path,
     file_cache: Option<&Arc<FileContentCache>>,
 ) -> CentralizedTaintResults {
+    let i = graph.interner();
     let analyzer = TaintAnalyzer::new();
     let start = std::time::Instant::now();
 
@@ -129,6 +130,7 @@ fn run_intra_all_categories(
     repository_path: &Path,
     file_cache: Option<&Arc<FileContentCache>>,
 ) -> HashMap<TaintCategory, Vec<TaintPath>> {
+    let i = graph.interner();
     let functions = graph.get_functions_shared();
 
     // Shared file cache for parallel reads
@@ -139,8 +141,8 @@ fn run_intra_all_categories(
     // Group functions by file path — collect lines once per file, not per function
     let mut by_file: HashMap<&str, Vec<usize>> = HashMap::new();
     for (idx, func) in functions.iter().enumerate() {
-        if !func.file_path.is_empty() {
-            by_file.entry(&func.file_path).or_default().push(idx);
+        if !func.path(i).is_empty() {
+            by_file.entry(func.path(i)).or_default().push(idx);
         }
     }
     let file_groups: Vec<(&str, Vec<usize>)> = by_file.into_iter().collect();
@@ -203,8 +205,8 @@ fn run_intra_all_categories(
             for &category in &relevant_categories {
                 let paths = analyzer.analyze_intra_function(
                     &func_body,
-                    &func.name,
-                    &func.file_path,
+                    func.node_name(i),
+                    func.path(i),
                     line_start,
                     language,
                     category,

@@ -73,6 +73,7 @@ impl DuplicateCodeDetector {
         graph: &dyn crate::graph::GraphQuery,
         containing_funcs: &[Option<String>],
     ) -> (usize, String) {
+        let i = graph.interner();
         let valid_funcs: Vec<&String> =
             containing_funcs.iter().filter_map(|f| f.as_ref()).collect();
 
@@ -111,7 +112,7 @@ impl DuplicateCodeDetector {
                 if let Some(func) = graph
                     .get_functions()
                     .into_iter()
-                    .find(|f| &f.qualified_name == caller)
+                    .find(|f| f.qn(i) == caller)
                 {
                     let module = func
                         .file_path

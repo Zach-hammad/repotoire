@@ -131,6 +131,7 @@ pub struct FunctionContextBuilder<'a> {
 
 impl<'a> FunctionContextBuilder<'a> {
     pub fn new(graph: &'a dyn crate::graph::GraphQuery) -> Self {
+        let i = graph.interner();
         Self {
             graph,
             utility_in_degree_threshold: 10,
@@ -149,6 +150,7 @@ impl<'a> FunctionContextBuilder<'a> {
 
     /// Build context map for all functions
     pub fn build(&self) -> FunctionContextMap {
+        let i = self.graph.interner();
         let start = std::time::Instant::now();
 
         let functions = self.graph.get_functions_shared();
@@ -166,7 +168,7 @@ impl<'a> FunctionContextBuilder<'a> {
         let (adj, rev_adj, qn_to_idx) = self.graph.get_call_adjacency();
 
         // Pre-extract file paths for module lookups (indexed by adjacency index)
-        let file_paths: Vec<&str> = functions.iter().map(|f| f.file_path.as_str()).collect();
+        let file_paths: Vec<&str> = functions.iter().map(|f| f.path(i).as_str()).collect();
 
         // Calculate betweenness centrality (parallelized)
         let betweenness = self.calculate_betweenness(&adj);
@@ -187,7 +189,7 @@ impl<'a> FunctionContextBuilder<'a> {
             .par_iter()
             .enumerate()
             .map(|(idx, func)| {
-                let qn = &func.qualified_name;
+                let qn = func.qn(i);
 
                 // Derive metrics from adjacency lists — no per-function graph queries
                 let in_degree = rev_adj[idx].len();
@@ -217,10 +219,10 @@ impl<'a> FunctionContextBuilder<'a> {
                 let call_depth = call_depths.get(qn).copied().unwrap_or(0);
 
                 // Detect test file
-                let is_test = self.is_test_path(&func.file_path);
+                let is_test = self.is_test_path(func.path(i));
 
                 // Detect utility module
-                let is_in_utility_module = self.is_utility_module(&func.file_path);
+                let is_in_utility_module = self.is_utility_module(func.path(i));
 
                 // Check if exported
                 let is_exported = func.get_bool("is_exported").unwrap_or(false)
@@ -240,9 +242,9 @@ impl<'a> FunctionContextBuilder<'a> {
 
                 FunctionContext {
                     qualified_name: qn.clone(),
-                    name: func.name.clone(),
-                    file_path: func.file_path.clone(),
-                    module: self.extract_module(&func.file_path),
+                    name: func.node_name(i).to_string(),
+                    file_path: func.path(i).to_string(),
+                    module: self.extract_module(func.path(i)),
                     in_degree,
                     out_degree,
                     betweenness: betweenness_score,

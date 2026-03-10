@@ -485,6 +485,7 @@ impl Detector for GodClassDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         // Use pre-built class contexts from DetectorContext if available, else build from scratch
@@ -512,8 +513,8 @@ impl Detector for GodClassDetector {
 
         for class in graph.get_classes_shared().iter() {
             // Skip TypeScript/Go interfaces - they have properties, not methods
-            if class.qualified_name.contains("::interface::")
-                || class.qualified_name.contains("::type::")
+            if class.qn(i).contains("::interface::")
+                || class.qn(i).contains("::type::")
             {
                 continue;
             }
@@ -524,7 +525,7 @@ impl Detector for GodClassDetector {
 
             // Get class context if available
             let ctx = class_contexts
-                .and_then(|c| c.get(&class.qualified_name));
+                .and_then(|c| c.get(class.qn(i)));
 
             // Check if we should skip this class entirely based on graph analysis
             if let Some(ctx) = ctx {
@@ -538,14 +539,14 @@ impl Detector for GodClassDetector {
             }
 
             // Fall back to pattern exclusion if no graph context
-            if ctx.is_none() && self.is_excluded_pattern(&class.name) {
+            if ctx.is_none() && self.is_excluded_pattern(class.node_name(i)) {
                 debug!("Skipping excluded pattern: {}", class.name);
                 continue;
             }
 
             // Fall back to test path check if no graph context
             if ctx.is_none() {
-                let lower_path = class.file_path.to_lowercase();
+                let lower_path = class.path(i).to_lowercase();
                 if lower_path.contains("/test/") || lower_path.contains("/tests/")
                     || lower_path.contains("/__tests__/") || lower_path.contains("/spec/")
                     || lower_path.contains("test_") || lower_path.contains("_test.")
@@ -590,8 +591,8 @@ impl Detector for GodClassDetector {
                 let role_info = ctx.map(|c| (&c.role, c.role_reason.as_str()));
 
                 findings.push(self.create_finding(
-                    class.name.clone(),
-                    class.file_path.clone(),
+                    class.node_name(i).to_string(),
+                    class.path(i).to_string(),
                     method_count,
                     complexity,
                     loc,

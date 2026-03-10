@@ -175,12 +175,13 @@ impl GeneratorMisuseDetector {
         graph: &dyn crate::graph::GraphQuery,
         func_map: &std::collections::HashMap<String, crate::graph::store_models::CodeNode>,
     ) -> bool {
+        let i = graph.interner();
         // Check callers to see how the generator is consumed
         if let Some(func) = func_map.get(func_name) {
-            let callers = graph.get_callers(&func.qualified_name);
+            let callers = graph.get_callers(func.qn(i));
 
             for caller in callers {
-                if let Ok(content) = std::fs::read_to_string(&caller.file_path) {
+                if let Ok(content) = std::fs::read_to_string(caller.path(i)) {
                     // Check if caller iterates lazily (for loop) vs list()
                     let has_lazy = content.contains(&"for ".to_string())
                         && content.contains(&format!("{}(", func_name));
@@ -362,7 +363,8 @@ impl Detector for GeneratorMisuseDetector {
                                 func_name,
                                 graph,
                                 func_map.get_or_insert_with(|| {
-                                    graph.get_functions().into_iter().map(|f| (f.name.clone(), f)).collect()
+                                    let gi = graph.interner();
+                                    graph.get_functions().into_iter().map(|f| (f.node_name(gi).to_string(), f)).collect()
                                 }),
                             )
                             && !Self::is_consumed_lazily_in_files(func_name, files)

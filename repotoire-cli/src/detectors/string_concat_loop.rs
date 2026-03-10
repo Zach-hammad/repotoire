@@ -47,13 +47,14 @@ impl StringConcatLoopDetector {
     /// Find functions that do string concatenation.
     /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).
     fn find_concat_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
+        let i = graph.interner();
         let mut concat_funcs = HashSet::new();
         let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
         for func in graph.get_functions_shared().iter() {
-            let lines = file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+            let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
                 crate::cache::global_cache()
-                    .content(std::path::Path::new(&func.file_path))
+                    .content(std::path::Path::new(func.path(i)))
                     .map(|c| c.lines().map(String::from).collect())
                     .unwrap_or_default()
             });
@@ -63,7 +64,7 @@ impl StringConcatLoopDetector {
 
             for line in lines.get(start..end).unwrap_or(&[]) {
                 if STRING_CONCAT.is_match(line) {
-                    concat_funcs.insert(func.qualified_name.clone());
+                    concat_funcs.insert(func.qn(i).to_string());
                     break;
                 }
             }
@@ -128,6 +129,7 @@ impl Detector for StringConcatLoopDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
         let concat_funcs = self.find_concat_functions(graph);
 
@@ -303,14 +305,14 @@ impl Detector for StringConcatLoopDetector {
                     break;
                 }
 
-                if func.file_path.ends_with(".rs") {
+                if func.path(i).ends_with(".rs") {
                     continue;
                 }
 
                 // Check if function contains a loop (per-file line caching)
-                let lines = graph_file_lines.entry(func.file_path.clone()).or_insert_with(|| {
+                let lines = graph_file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
                     crate::cache::global_cache()
-                        .content(std::path::Path::new(&func.file_path))
+                        .content(std::path::Path::new(func.path(i)))
                         .map(|c| c.lines().map(String::from).collect())
                         .unwrap_or_default()
                 });
@@ -327,8 +329,8 @@ impl Detector for StringConcatLoopDetector {
                     continue;
                 }
 
-                for callee in graph.get_callees(&func.qualified_name) {
-                    if concat_funcs.contains(&callee.qualified_name) {
+                for callee in graph.get_callees(func.qn(i)) {
+                    if concat_funcs.contains(callee.qn(i)) {
                         findings.push(Finding {
                             id: String::new(),
                             detector: "StringConcatLoopDetector".to_string(),
@@ -339,7 +341,7 @@ impl Detector for StringConcatLoopDetector {
                                  This creates the same O(n²) performance issue across function boundaries.",
                                 func.name, callee.name
                             ),
-                            affected_files: vec![PathBuf::from(&func.file_path)],
+                            affected_files: vec![PathBuf::from(func.path(i))],
                             line_start: Some(func.line_start),
                             line_end: Some(func.line_end),
                             suggested_fix: Some(

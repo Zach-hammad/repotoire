@@ -127,6 +127,7 @@ impl Detector for MissingDocstringsDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         for func in graph.get_functions_shared().iter() {
@@ -140,32 +141,32 @@ impl Detector for MissingDocstringsDetector {
             }
 
             // Skip private functions (single underscore prefix)
-            if func.name.starts_with('_') && !func.name.starts_with("__") {
+            if func.node_name(i).starts_with('_') && !func.node_name(i).starts_with("__") {
                 continue;
             }
             // Skip test functions
-            if func.name.starts_with("test_")
-                || crate::detectors::base::is_test_path(&func.file_path)
+            if func.node_name(i).starts_with("test_")
+                || crate::detectors::base::is_test_path(func.path(i))
             {
                 continue;
             }
             // Skip generated/vendor code
-            if func.file_path.contains("vendor") || func.file_path.contains("node_modules") {
+            if func.path(i).contains("vendor") || func.path(i).contains("node_modules") {
                 continue;
             }
 
             // Get caller count for prioritization
-            let callers = graph.get_callers(&func.qualified_name);
+            let callers = graph.get_callers(func.qn(i));
             let caller_count = callers.len();
 
             // Check if entry point
-            let is_entry = Self::is_entry_point(&func.name, &func.file_path);
+            let is_entry = Self::is_entry_point(func.node_name(i), func.path(i));
 
             // Determine file extension
-            let ext = func.file_path.rsplit('.').next().unwrap_or("");
+            let ext = func.path(i).rsplit('.').next().unwrap_or("");
 
             // Check for docstring
-            let file_path = PathBuf::from(&func.file_path);
+            let file_path = PathBuf::from(func.path(i));
             if let Ok(content) = std::fs::read_to_string(&file_path) {
                 let file_lines: Vec<&str> = content.lines().collect();
                 let start = (func.line_start as usize).saturating_sub(1);
@@ -207,7 +208,7 @@ impl Detector for MissingDocstringsDetector {
 
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
 
-                    let template = Self::generate_template(&func.name, func.param_count(), ext);
+                    let template = Self::generate_template(func.node_name(i), func.param_count(), ext);
 
                     findings.push(Finding {
                         id: String::new(),

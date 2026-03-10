@@ -17,7 +17,7 @@ pub enum NodeKind {
 /// All string fields are interned StrKeys. Use `graph.interner().resolve(key)`
 /// or the helper methods `qn()`, `path()`, `node_name()` to get `&str`.
 /// Metric fields replace the old `properties: HashMap<String, Value>`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CodeNode {
     // Identity
     pub kind: NodeKind,
@@ -69,6 +69,80 @@ impl CodeNode {
             commit_count: 0,
             flags: 0,
         }
+    }
+
+    // --- Convenience builders (use GraphStore's interner) ---
+
+    /// Create a new CodeNode with the given kind, name, and file_path.
+    /// The qualified_name defaults to `file_path::name`.
+    pub fn new(kind: NodeKind, name: &str, file_path: &str) -> Self {
+        let i = crate::graph::interner::global_interner();
+        let name_key = i.intern(name);
+        let fp_key = i.intern(file_path);
+        let qn = format!("{}::{}", file_path, name);
+        let qn_key = i.intern(&qn);
+        Self {
+            kind,
+            name: name_key,
+            qualified_name: qn_key,
+            file_path: fp_key,
+            language: i.empty_key(),
+            line_start: 0,
+            line_end: 0,
+            complexity: 0,
+            param_count: 0,
+            method_count: 0,
+            max_nesting: 0,
+            return_count: 0,
+            commit_count: 0,
+            flags: 0,
+        }
+    }
+
+    /// Create a Function node.
+    pub fn function(name: &str, file_path: &str) -> Self {
+        Self::new(NodeKind::Function, name, file_path)
+    }
+
+    /// Create a File node (name and qualified_name both set to file_path).
+    pub fn file(file_path: &str) -> Self {
+        let i = crate::graph::interner::global_interner();
+        let fp_key = i.intern(file_path);
+        Self {
+            kind: NodeKind::File,
+            name: fp_key,
+            qualified_name: fp_key,
+            file_path: fp_key,
+            language: i.empty_key(),
+            line_start: 0,
+            line_end: 0,
+            complexity: 0,
+            param_count: 0,
+            method_count: 0,
+            max_nesting: 0,
+            return_count: 0,
+            commit_count: 0,
+            flags: 0,
+        }
+    }
+
+    /// Create a Class node.
+    pub fn class(name: &str, file_path: &str) -> Self {
+        Self::new(NodeKind::Class, name, file_path)
+    }
+
+    /// Builder: set qualified_name.
+    pub fn with_qualified_name(mut self, qn: &str) -> Self {
+        let i = crate::graph::interner::global_interner();
+        self.qualified_name = i.intern(qn);
+        self
+    }
+
+    /// Builder: set line range.
+    pub fn with_lines(mut self, start: u32, end: u32) -> Self {
+        self.line_start = start;
+        self.line_end = end;
+        self
     }
 
     // --- Flag accessors ---
@@ -234,7 +308,7 @@ pub enum EdgeKind {
 }
 
 /// An edge in the code graph — compact, Copy, ~4 bytes.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CodeEdge {
     pub kind: EdgeKind,
     pub flags: u8, // bit 0: is_type_only

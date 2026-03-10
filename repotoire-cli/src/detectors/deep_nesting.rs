@@ -65,6 +65,7 @@ impl DeepNestingDetector {
         file_path: &str,
         line: u32,
     ) -> Option<crate::graph::CodeNode> {
+        let i = graph.interner();
         graph.find_function_at(file_path, line)
     }
 
@@ -99,6 +100,7 @@ impl DeepNestingDetector {
         graph: &dyn crate::graph::GraphQuery,
         func_qn: &str,
     ) -> Vec<String> {
+        let i = graph.interner();
         let callees = graph.get_callees(func_qn);
 
         // Find callees that are called only from this function (private helpers)
@@ -106,7 +108,7 @@ impl DeepNestingDetector {
         callees
             .into_iter()
             .filter(|c| {
-                let callers = graph.get_callers(&c.qualified_name);
+                let callers = graph.get_callers(c.qn(i));
                 callers.len() == 1 // Only called from this function
             })
             .map(|c| c.name)
@@ -124,6 +126,7 @@ impl Detector for DeepNestingDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c"]) {
@@ -175,11 +178,11 @@ impl Detector for DeepNestingDetector {
 
                     let (func_name, is_entry, complexity, extraction_candidates) =
                         if let Some(func) = &containing_func {
-                            let is_entry = Self::is_entry_point(&func.name, &func.file_path);
+                            let is_entry = Self::is_entry_point(func.node_name(i), func.path(i));
                             let complexity = func.complexity().unwrap_or(1);
                             let candidates =
-                                self.find_extraction_candidates(graph, &func.qualified_name);
-                            (Some(func.name.clone()), is_entry, complexity, candidates)
+                                self.find_extraction_candidates(graph, func.qn(i));
+                            (Some(func.node_name(i).to_string()), is_entry, complexity, candidates)
                         } else {
                             (None, false, 1, vec![])
                         };

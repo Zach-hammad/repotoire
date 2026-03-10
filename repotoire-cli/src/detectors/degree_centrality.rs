@@ -416,16 +416,17 @@ impl Detector for DegreeCentralityDetector {
 
     /// Legacy detection without context
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         for func in graph.get_functions_shared().iter() {
             // Skip by name or hub file
-            if self.should_skip_by_name(&func.name) || self.is_hub_file(&func.file_path) {
+            if self.should_skip_by_name(func.node_name(i)) || self.is_hub_file(func.path(i)) {
                 continue;
             }
 
-            let fan_in = graph.call_fan_in(&func.qualified_name);
-            let fan_out = graph.call_fan_out(&func.qualified_name);
+            let fan_in = graph.call_fan_in(func.qn(i));
+            let fan_out = graph.call_fan_out(func.qn(i));
             let total_degree = fan_in + fan_out;
 
             // Skip expected patterns
@@ -442,8 +443,8 @@ impl Detector for DegreeCentralityDetector {
                 && fan_out >= self.min_elevated_fanout
             {
                 findings.push(self.create_finding(
-                    &func.name,
-                    &func.file_path,
+                    func.node_name(i),
+                    func.path(i),
                     func.line_start,
                     func.line_end,
                     fan_in,
@@ -468,6 +469,7 @@ impl Detector for DegreeCentralityDetector {
         _files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
         let funcs = graph.get_functions_shared();
 
@@ -478,7 +480,7 @@ impl Detector for DegreeCentralityDetector {
 
         for func in funcs.iter() {
             // Skip common utility/trait method names
-            if self.should_skip_by_name(&func.name) {
+            if self.should_skip_by_name(func.node_name(i)) {
                 continue;
             }
 
@@ -492,15 +494,15 @@ impl Detector for DegreeCentralityDetector {
             }
 
             // Skip hub files (even with context)
-            if self.is_hub_file(&func.file_path) {
+            if self.is_hub_file(func.path(i)) {
                 continue;
             }
 
             let (fan_in, fan_out, role) = if let Some(c) = ctx {
                 (c.in_degree, c.out_degree, c.role)
             } else {
-                let fan_in = graph.call_fan_in(&func.qualified_name);
-                let fan_out = graph.call_fan_out(&func.qualified_name);
+                let fan_in = graph.call_fan_in(func.qn(i));
+                let fan_out = graph.call_fan_out(func.qn(i));
                 (fan_in, fan_out, FunctionRole::Unknown)
             };
 
@@ -544,8 +546,8 @@ impl Detector for DegreeCentralityDetector {
             }
 
             findings.push(self.create_finding(
-                &func.name,
-                &func.file_path,
+                func.node_name(i),
+                func.path(i),
                 func.line_start,
                 func.line_end,
                 fan_in,

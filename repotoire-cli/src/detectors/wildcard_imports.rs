@@ -55,8 +55,8 @@ impl WildcardImportsDetector {
         // Filter to functions from this module
         let module_symbols: HashSet<&str> = all_functions
             .iter()
-            .filter(|f| f.file_path.contains(module) || f.qualified_name.starts_with(module))
-            .map(|f| f.name.as_str())
+            .filter(|f| f.path(i).contains(module) || f.qn(i).starts_with(module))
+            .map(|f| f.node_name(i).as_str())
             .collect();
 
         // Check which are used in the content

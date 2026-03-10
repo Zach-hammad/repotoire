@@ -39,6 +39,7 @@ impl DetectorContext {
         source_files: &[PathBuf],
         value_store: Option<Arc<crate::values::store::ValueStore>>,
     ) -> Self {
+        let i = graph.interner();
         use rayon::prelude::*;
 
         // Build callers/callees from call maps
@@ -49,20 +50,20 @@ impl DetectorContext {
         let mut callees_by_qn: HashMap<String, Vec<String>> = HashMap::with_capacity(callees_by_idx.len());
 
         for (&callee_idx, caller_idxs) in &callers_by_idx {
-            if let Some(callee_qn) = functions.get(callee_idx).map(|f| f.qualified_name.clone()) {
+            if let Some(callee_qn) = functions.get(callee_idx).map(|f| f.qn(i).to_string()) {
                 let caller_qns: Vec<String> = caller_idxs
                     .iter()
-                    .filter_map(|&ci| functions.get(ci).map(|f| f.qualified_name.clone()))
+                    .filter_map(|&ci| functions.get(ci).map(|f| f.qn(i).to_string()))
                     .collect();
                 callers_by_qn.insert(callee_qn, caller_qns);
             }
         }
 
         for (&caller_idx, callee_idxs) in &callees_by_idx {
-            if let Some(caller_qn) = functions.get(caller_idx).map(|f| f.qualified_name.clone()) {
+            if let Some(caller_qn) = functions.get(caller_idx).map(|f| f.qn(i).to_string()) {
                 let callee_qns: Vec<String> = callee_idxs
                     .iter()
-                    .filter_map(|&ci| functions.get(ci).map(|f| f.qualified_name.clone()))
+                    .filter_map(|&ci| functions.get(ci).map(|f| f.qn(i).to_string()))
                     .collect();
                 callees_by_qn.insert(caller_qn, callee_qns);
             }

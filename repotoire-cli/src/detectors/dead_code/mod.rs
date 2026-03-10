@@ -699,6 +699,7 @@ impl DeadCodeDetector {
 
     /// Find dead functions using GraphStore API
     fn find_dead_functions(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         // Get all functions
@@ -714,8 +715,8 @@ impl DeadCodeDetector {
         });
 
         for func in functions {
-            let name = &func.name;
-            let file_path = &func.file_path;
+            let name = func.node_name(i);
+            let file_path = func.path(i);
 
             // Skip test functions and entry points
             if name.starts_with("test_") || self.is_entry_point(name) {
@@ -724,7 +725,7 @@ impl DeadCodeDetector {
 
             // Skip functions whose address is taken (callbacks, dispatch tables, FFI)
             // This is the primary mechanism for detecting dynamically-called functions
-            if func.get_bool("address_taken").unwrap_or(false) {
+            if func.address_taken() {
                 debug!("Skipping address_taken function: {}", name);
                 continue;
             }
@@ -756,7 +757,8 @@ impl DeadCodeDetector {
 
             // Check if function has any callers — use fan-in count (O(1), zero allocation)
             // instead of get_callers() which clones Vec<CodeNode> per call
-            if graph.call_fan_in(&func.qualified_name) > 0 {
+            let func_qn = func.qn(i);
+            if graph.call_fan_in(func_qn) > 0 {
                 continue; // Function is called, not dead
             }
 
@@ -784,9 +786,9 @@ impl DeadCodeDetector {
             }
 
             // Check additional properties
-            let is_method = func.get_bool("is_method").unwrap_or(false);
-            let has_decorators = self.has_decorator(&func);
-            let is_exported = func.get_bool("is_exported").unwrap_or(false);
+            let is_method = func.is_method();
+            let has_decorators = func.has_decorators();
+            let is_exported = func.is_exported();
 
             // Skip decorated functions - they're registered at runtime (Issue #15)
             // Decorators like @Route, @Controller, @app.route register functions dynamically
@@ -803,8 +805,8 @@ impl DeadCodeDetector {
 
             // Check source for JS/TS export keyword (graph may not have is_exported set)
             // Use qualified_name to get full path since file_path may be relative
-            let full_path = func.qualified_name.split("::").next().unwrap_or(file_path);
-            if self.is_exported_in_source(full_path, func.line_start) {
+            let full_path_str = func_qn.split("::").next().unwrap_or(file_path);
+            if self.is_exported_in_source(full_path_str, func.line_start) {
                 continue;
             }
 
@@ -817,9 +819,9 @@ impl DeadCodeDetector {
             let line_start = Some(func.line_start);
 
             findings.push(self.create_function_finding(
-                func.qualified_name.clone(),
-                name.clone(),
-                func.file_path.clone(),
+                func_qn.to_string(),
+                name.to_string(),
+                file_path.to_string(),
                 line_start,
                 complexity,
             ));
@@ -834,6 +836,7 @@ impl DeadCodeDetector {
 
     /// Find dead classes using GraphStore API
     fn find_dead_classes(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         // Get all classes
@@ -851,8 +854,8 @@ impl DeadCodeDetector {
         let imports = graph.get_imports();
 
         for class in classes {
-            let name = &class.name;
-            let file_path = &class.file_path;
+            let name = class.node_name(i);
+            let file_path = class.path(i);
 
             // Skip common patterns
             if name.ends_with("Error")
@@ -881,27 +884,28 @@ impl DeadCodeDetector {
             }
 
             // Skip exports from framework auto-load files
-            let is_exported = class.get_bool("is_exported").unwrap_or(false);
+            let is_exported = class.is_exported();
             if is_exported && self.is_framework_auto_load(file_path) {
                 continue;
             }
 
+            let class_qn = class.qn(i);
             // Check if class has any callers (instantiation)
-            if graph.call_fan_in(&class.qualified_name) > 0 {
+            if graph.call_fan_in(class_qn) > 0 {
                 continue;
             }
 
             // Check if class has any child classes
-            let children = graph.get_child_classes(&class.qualified_name);
+            let children = graph.get_child_classes(class_qn);
             if !children.is_empty() {
                 continue;
             }
 
             // Check if class's file is imported by other files
             // This catches Python "from module import Class" patterns
-            let class_file = class.file_path.to_lowercase();
+            let class_file = file_path.to_lowercase();
             let file_is_imported = imports.iter().any(|(_, target)| {
-                let target_lower = target.to_lowercase();
+                let target_lower = i.resolve(*target).to_lowercase();
                 // Match if the import target contains the class's file path
                 class_file.ends_with(&target_lower)
                     || target_lower
@@ -923,7 +927,7 @@ impl DeadCodeDetector {
             }
 
             // Skip decorated classes
-            let has_decorators = class.get_bool("has_decorators").unwrap_or(false);
+            let has_decorators = class.has_decorators();
             if has_decorators {
                 continue;
             }
@@ -932,9 +936,9 @@ impl DeadCodeDetector {
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
 
             findings.push(self.create_class_finding(
-                class.qualified_name.clone(),
-                name.clone(),
-                class.file_path.clone(),
+                class_qn.to_string(),
+                name.to_string(),
+                file_path.to_string(),
                 method_count,
                 complexity,
             ));

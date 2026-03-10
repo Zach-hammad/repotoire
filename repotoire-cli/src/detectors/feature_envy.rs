@@ -377,6 +377,7 @@ impl Detector for FeatureEnvyDetector {
         Some(&self.config)
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = Vec::new();
 
         // Skip orchestrator/dispatch function names - these are EXPECTED to call many external functions
@@ -471,28 +472,28 @@ impl Detector for FeatureEnvyDetector {
 
         for func in graph.get_functions_shared().iter() {
             // Skip test functions (they naturally access many things for fixtures)
-            if func.name.starts_with("test_") || func.file_path.contains("/tests/") {
+            if func.node_name(i).starts_with("test_") || func.path(i).contains("/tests/") {
                 continue;
             }
 
             // === Graph-aware role-based filtering ===
-            if self.should_skip_by_role(&func.qualified_name) {
+            if self.should_skip_by_role(func.qn(i)) {
                 continue;
             }
 
             // Skip facade patterns (intentional delegation)
-            if self.is_facade_pattern(&func.qualified_name) {
+            if self.is_facade_pattern(func.qn(i)) {
                 continue;
             }
 
             // Skip methods in orchestrator classes (controllers, routers, handlers, dispatchers)
             // These classes delegate to services by design — flagging them is a false positive
-            if self.is_in_orchestrator_class(&func.qualified_name, &func.file_path) {
+            if self.is_in_orchestrator_class(func.qn(i), func.path(i)) {
                 continue;
             }
 
             // Skip orchestrator functions by name (fallback for no context)
-            let name_lower = func.name.to_lowercase();
+            let name_lower = func.node_name(i).to_lowercase();
             if ORCHESTRATOR_NAMES
                 .iter()
                 .any(|&pat| name_lower == pat || name_lower.starts_with(&format!("{}_", pat)))
@@ -511,19 +512,19 @@ impl Detector for FeatureEnvyDetector {
             }
 
             // Skip utility/orchestrator files
-            let path_lower = func.file_path.to_lowercase();
+            let path_lower = func.path(i).to_lowercase();
             if SKIP_PATHS.iter().any(|&pat| path_lower.contains(pat)) {
                 continue;
             }
 
-            let callees = graph.get_callees(&func.qualified_name);
+            let callees = graph.get_callees(func.qn(i));
             if callees.is_empty() {
                 continue;
             }
 
             // Count calls to own file vs other files
             // Also track which modules are being called
-            let own_file = &func.file_path;
+            let own_file = func.path(i);
             let _own_module = own_file.rsplit('/').nth(1).unwrap_or("");
             let mut internal_calls = 0;
             let mut external_calls = 0;
@@ -535,7 +536,7 @@ impl Detector for FeatureEnvyDetector {
                 } else {
                     external_calls += 1;
                     // Track the external module
-                    if let Some(module) = callee.file_path.rsplit('/').nth(1) {
+                    if let Some(module) = callee.path(i).rsplit('/').nth(1) {
                         external_modules.insert(module.to_string());
                     }
                 }
@@ -559,7 +560,7 @@ impl Detector for FeatureEnvyDetector {
                 };
 
                 // Apply role-based severity multiplier
-                let multiplier = self.get_severity_multiplier(&func.qualified_name);
+                let multiplier = self.get_severity_multiplier(func.qn(i));
                 if multiplier < 1.0 {
                     severity = match severity {
                         Severity::Critical => Severity::High,
@@ -589,7 +590,7 @@ impl Detector for FeatureEnvyDetector {
                         func.name, external_calls, external_modules.len(), internal_calls,
                         if is_concentrated { target_module.as_str() } else { "scattered across modules" }
                     ),
-                    affected_files: vec![func.file_path.clone().into()],
+                    affected_files: vec![func.path(i).to_string().into()],
                     line_start: Some(func.line_start),
                     line_end: Some(func.line_end),
                     suggested_fix: Some(suggestion),

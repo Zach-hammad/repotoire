@@ -448,6 +448,7 @@ impl<'a> GraphScorer<'a> {
 
     /// Compute all graph metrics
     fn compute_graph_metrics(&self) -> GraphMetrics {
+        let i = self.graph.interner();
         let functions = self.graph.get_functions();
         let files = self.graph.get_files();
 
@@ -455,7 +456,7 @@ impl<'a> GraphScorer<'a> {
         let modules: HashSet<String> = files
             .iter()
             .filter_map(|f| {
-                let path = std::path::Path::new(&f.file_path);
+                let path = std::path::Path::new(f.path(i));
                 path.parent().map(|p| p.to_string_lossy().to_string())
             })
             .collect();
@@ -510,7 +511,7 @@ impl<'a> GraphScorer<'a> {
         // Test file ratio
         let test_files = files
             .iter()
-            .filter(|f| self.is_test_file(&f.file_path))
+            .filter(|f| self.is_test_file(f.path(i)))
             .count();
         let test_ratio = if files.is_empty() {
             0.0

@@ -215,6 +215,7 @@ pub struct ClassContextBuilder<'a> {
 
 impl<'a> ClassContextBuilder<'a> {
     pub fn new(graph: &'a dyn crate::graph::GraphQuery) -> Self {
+        let i = graph.interner();
         Self {
             graph,
             thin_wrapper_complexity: 3.0, // Avg complexity <= 3 = thin methods
@@ -224,6 +225,7 @@ impl<'a> ClassContextBuilder<'a> {
 
     /// Build context map for all classes
     pub fn build(&self) -> ClassContextMap {
+        let i = self.graph.interner();
         let start = std::time::Instant::now();
 
         let classes = self.graph.get_classes_shared();
@@ -259,7 +261,7 @@ impl<'a> ClassContextBuilder<'a> {
                 HashMap::new();
             for class in classes.iter() {
                 classes_by_file
-                    .entry(class.file_path.as_str())
+                    .entry(class.path(i).as_str())
                     .or_default()
                     .push(class);
             }
@@ -276,7 +278,7 @@ impl<'a> ClassContextBuilder<'a> {
                         .cloned()
                         .collect();
                     if !methods.is_empty() {
-                        map.insert(class.qualified_name.as_str(), methods);
+                        map.insert(class.qn(i).as_str(), methods);
                     }
                 }
             }
@@ -290,7 +292,7 @@ impl<'a> ClassContextBuilder<'a> {
             let mut method_to_class: HashMap<&str, &str> = HashMap::new();
             for (class_qn, methods) in &class_methods {
                 for method in methods {
-                    method_to_class.insert(method.qualified_name.as_str(), class_qn);
+                    method_to_class.insert(method.qn(i).as_str(), class_qn);
                 }
             }
 
@@ -314,7 +316,7 @@ impl<'a> ClassContextBuilder<'a> {
         let mut contexts = ClassContextMap::new();
 
         for class in classes.iter() {
-            let qn = &class.qualified_name;
+            let qn = class.qn(i);
 
             let methods = class_methods.get(qn.as_str()).cloned().unwrap_or_default();
             // Use methodCount property if available (from parser), fall back to graph count
@@ -337,7 +339,7 @@ impl<'a> ClassContextBuilder<'a> {
             let mut external_deps: HashSet<String> = HashSet::new();
 
             for method in &methods {
-                if let Some(callees) = call_map.get(method.qualified_name.as_str()) {
+                if let Some(callees) = call_map.get(method.qn(i).as_str()) {
                     let external_calls: Vec<_> = callees
                         .iter()
                         .filter(|c| !methods.iter().any(|m| &m.qualified_name.as_str() == *c))
@@ -365,13 +367,13 @@ impl<'a> ClassContextBuilder<'a> {
             let public_methods = methods.iter().filter(|m| !m.name.starts_with('_')).count();
 
             let usages = *class_usages.get(qn.as_str()).unwrap_or(&0);
-            let is_test = self.is_test_path(&class.file_path);
-            let is_framework_path = self.is_framework_path(&class.file_path);
+            let is_test = self.is_test_path(class.path(i));
+            let is_framework_path = self.is_framework_path(class.path(i));
 
             // Infer role
             let (role, role_reason) = self.infer_role(
-                &class.name,
-                &class.file_path,
+                class.node_name(i),
+                class.path(i),
                 method_count,
                 avg_complexity,
                 delegation_ratio,
@@ -385,8 +387,8 @@ impl<'a> ClassContextBuilder<'a> {
                 qn.clone(),
                 ClassContext {
                     qualified_name: qn.clone(),
-                    name: class.name.clone(),
-                    file_path: class.file_path.clone(),
+                    name: class.node_name(i).to_string(),
+                    file_path: class.path(i).to_string(),
                     method_count,
                     loc: class.loc() as usize,
                     complexity: total_complexity as usize,

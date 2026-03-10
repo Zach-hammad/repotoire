@@ -36,17 +36,18 @@ impl CallbackHellDetector {
         graph: &dyn crate::graph::GraphQuery,
         file_path: &str,
     ) -> Vec<String> {
+        let i = graph.interner();
         graph
             .get_functions()
             .into_iter()
             .filter(|f| {
                 // Same file or imported module
                 f.file_path == file_path
-                    || f.file_path.rsplit('/').nth(1) == file_path.rsplit('/').nth(1)
+                    || f.path(i).rsplit('/').nth(1) == file_path.rsplit('/').nth(1)
             })
             .filter(|f| {
                 // Look for async functions or promise-returning functions
-                f.name.starts_with("async") || f.name.contains("Async") || f.name.ends_with("Async")
+                f.node_name(i).starts_with("async") || f.node_name(i).contains("Async") || f.node_name(i).ends_with("Async")
             })
             .map(|f| f.name)
             .take(5)

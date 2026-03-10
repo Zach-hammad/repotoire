@@ -433,6 +433,7 @@ impl Detector for AIChurnDetector {
         Some(&self.config)
     }
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         use crate::detectors::base::is_test_path;
         use crate::git::history::GitHistory;
 
@@ -523,7 +524,7 @@ impl Detector for AIChurnDetector {
                     break;
                 }
 
-                if is_test_path(&func.file_path) || func.loc() < self.min_function_lines as u32 {
+                if is_test_path(func.path(i)) || func.loc() < self.min_function_lines as u32 {
                     continue;
                 }
 
@@ -604,9 +605,9 @@ impl Detector for AIChurnDetector {
                     .unwrap_or_default();
 
                 let record = FunctionChurnRecord {
-                    qualified_name: func.qualified_name.clone(),
-                    file_path: func.file_path.clone(),
-                    function_name: func.name.clone(),
+                    qualified_name: func.qn(i).to_string(),
+                    file_path: func.path(i).to_string(),
+                    function_name: func.node_name(i).to_string(),
                     created_at,
                     creation_commit: creation_commit.hash.clone(),
                     lines_original: func.loc() as usize,

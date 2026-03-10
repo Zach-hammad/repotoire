@@ -187,13 +187,14 @@ impl InsecureRandomDetector {
         func_name: &str,
         func_map: &std::collections::HashMap<String, crate::graph::store_models::CodeNode>,
     ) -> Vec<String> {
+        let i = graph.interner();
         let mut security_callers = Vec::new();
 
         if let Some(func) = func_map.get(func_name) {
-            let callers = graph.get_callers(&func.qualified_name);
+            let callers = graph.get_callers(func.qn(i));
 
             for caller in callers {
-                let caller_lower = caller.name.to_lowercase();
+                let caller_lower = caller.node_name(i).to_lowercase();
                 if caller_lower.contains("auth")
                     || caller_lower.contains("login")
                     || caller_lower.contains("token")
@@ -201,7 +202,7 @@ impl InsecureRandomDetector {
                     || caller_lower.contains("password")
                     || caller_lower.contains("secret")
                 {
-                    security_callers.push(caller.name.clone());
+                    security_callers.push(caller.node_name(i).to_string());
                 }
             }
         }
@@ -231,6 +232,7 @@ impl Detector for InsecureRandomDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
 
         // Lazily build name→CodeNode map for O(1) lookup in find_security_callers.
@@ -284,7 +286,7 @@ impl Detector for InsecureRandomDetector {
                         // Check if function is called by security code
                         let security_callers = if let Some(ref func) = containing_func {
                             let map = func_map.get_or_insert_with(|| {
-                                graph.get_functions().into_iter().map(|f| (f.name.clone(), f)).collect()
+                                graph.get_functions().into_iter().map(|f| (f.node_name(crate::graph::interner::global_interner()).to_string(), f)).collect()
                             });
                             Self::find_security_callers(graph, func, map)
                         } else {

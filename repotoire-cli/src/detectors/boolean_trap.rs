@@ -59,6 +59,7 @@ impl Detector for BooleanTrapDetector {
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+        let i = graph.interner();
         let mut findings = vec![];
         let mut func_call_counts: HashMap<String, usize> = HashMap::new();
 
@@ -116,7 +117,7 @@ impl Detector for BooleanTrapDetector {
         };
         let func_by_name: Option<std::collections::HashMap<&str, &crate::graph::store_models::CodeNode>> =
             all_funcs.as_ref().map(|funcs| {
-                funcs.iter().map(|f| (f.name.as_str(), f)).collect()
+                funcs.iter().map(|f| (f.node_name(i).as_str(), f)).collect()
             });
 
         // Second pass: create findings with graph context
