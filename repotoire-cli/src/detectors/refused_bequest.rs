@@ -331,13 +331,6 @@ impl Detector for RefusedBequestDetector {
         let i = graph.interner();
         let mut findings = Vec::new();
 
-        // Build set of all class names for polymorphism detection
-        let _all_classes: HashSet<String> = graph
-            .get_classes()
-            .into_iter()
-            .map(|c| c.qn(i).to_string())
-            .collect();
-
         for (child_qn_key, parent_qn_key) in graph.get_inheritance() {
             let child_qn = i.resolve(child_qn_key);
             let parent_qn = i.resolve(parent_qn_key);

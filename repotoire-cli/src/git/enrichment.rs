@@ -62,6 +62,7 @@ impl<'a> GitEnricher<'a> {
     /// Enrich all Function and Class nodes with git data.
     pub fn enrich_all(&mut self) -> Result<EnrichmentStats> {
         let mut stats = EnrichmentStats::default();
+        let gi = self.graph.interner();
 
         // Collect all unique files from functions and classes
         let functions = self.graph.get_functions();
@@ -73,7 +74,7 @@ impl<'a> GitEnricher<'a> {
                 .and_then(|ep| ep.last_modified)
                 .is_some();
             if !has_last_modified {
-                unique_files.insert(f.path(crate::graph::interner::global_interner()).to_string());
+                unique_files.insert(f.path(gi).to_string());
             }
         }
         for c in &classes {
@@ -81,7 +82,7 @@ impl<'a> GitEnricher<'a> {
                 .and_then(|ep| ep.last_modified)
                 .is_some();
             if !has_last_modified {
-                unique_files.insert(c.path(crate::graph::interner::global_interner()).to_string());
+                unique_files.insert(c.path(gi).to_string());
             }
         }
 
@@ -129,6 +130,7 @@ impl<'a> GitEnricher<'a> {
     /// Enrich Function nodes with git data.
     fn enrich_functions(&mut self) -> Result<EnrichmentStats> {
         let mut stats = EnrichmentStats::default();
+        let gi = self.graph.interner();
 
         // Get all functions without git data
         let functions = self.graph.get_functions();
@@ -159,9 +161,9 @@ impl<'a> GitEnricher<'a> {
             // Get blame info for this function
             let blame_result = self
                 .blame
-                .get_entity_blame(func.path(crate::graph::interner::global_interner()), line_start, line_end)
+                .get_entity_blame(func.path(gi), line_start, line_end)
                 .inspect_err(|e| {
-                    debug!("Failed to get blame for {}:{}: {}", func.path(crate::graph::interner::global_interner()), line_start, e);
+                    debug!("Failed to get blame for {}:{}: {}", func.path(gi), line_start, e);
                 });
             let Ok(blame_info) = blame_result else {
                 stats.files_skipped += 1;
@@ -174,7 +176,7 @@ impl<'a> GitEnricher<'a> {
                 continue;
             };
             self.graph.update_node_properties(
-                func.qn(crate::graph::interner::global_interner()),
+                func.qn(gi),
                 &[
                     (
                         "last_modified",
@@ -196,6 +198,7 @@ impl<'a> GitEnricher<'a> {
     /// Enrich Class nodes with git data.
     fn enrich_classes(&mut self) -> Result<EnrichmentStats> {
         let mut stats = EnrichmentStats::default();
+        let gi = self.graph.interner();
 
         // Get all classes without git data
         let classes = self.graph.get_classes();
@@ -226,9 +229,9 @@ impl<'a> GitEnricher<'a> {
             // Get blame info for this class
             let blame_result = self
                 .blame
-                .get_entity_blame(class.path(crate::graph::interner::global_interner()), line_start, line_end)
+                .get_entity_blame(class.path(gi), line_start, line_end)
                 .inspect_err(|e| {
-                    debug!("Failed to get blame for {}:{}: {}", class.path(crate::graph::interner::global_interner()), line_start, e);
+                    debug!("Failed to get blame for {}:{}: {}", class.path(gi), line_start, e);
                 });
             let Ok(blame_info) = blame_result else {
                 stats.files_skipped += 1;
@@ -243,7 +246,7 @@ impl<'a> GitEnricher<'a> {
 
             // Update class with git data (skip Commit nodes for speed)
             self.graph.update_node_properties(
-                class.qn(crate::graph::interner::global_interner()),
+                class.qn(gi),
                 &[
                     (
                         "last_modified",

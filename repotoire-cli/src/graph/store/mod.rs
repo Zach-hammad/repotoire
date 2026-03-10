@@ -970,7 +970,7 @@ impl GraphStore {
             .filter_map(|e| graph.node_weight(e.target()).copied())
             .collect();
         let si = self.interner();
-        nodes.sort_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
+        nodes.sort_unstable_by(|a, b| si.resolve(a.qualified_name).cmp(si.resolve(b.qualified_name)));
         nodes
     }
 

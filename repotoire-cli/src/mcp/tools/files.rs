@@ -109,8 +109,8 @@ pub fn handle_get_architecture(state: &mut HandlerState) -> Result<Value> {
         .iter()
         .map(|c| {
             json!({
-                "class_name": c.name,
-                "file": c.file_path,
+                "class_name": c.node_name(gi),
+                "file": c.path(gi),
                 "method_count": c.get_i64("methodCount").unwrap_or(0)
             })
         })

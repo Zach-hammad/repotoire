@@ -33,8 +33,7 @@ fn count_lines(path: &Path) -> Result<usize> {
 }
 
 /// Detect the language from file extension
-#[allow(dead_code)] // Used by streaming parser variants
-fn detect_language(path: &Path) -> String {
+pub(crate) fn detect_language(path: &Path) -> String {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     match ext {
         "py" | "pyi" => "Python",
@@ -690,9 +689,10 @@ pub(super) fn build_graph_chunked(
 
         // Insert this chunk's data immediately (don't accumulate all chunks)
         for (_file_path, file_nodes, func_nodes, class_nodes, edges) in chunk_results {
-            graph.add_nodes_batch(file_nodes);
-            graph.add_nodes_batch(func_nodes);
-            graph.add_nodes_batch(class_nodes);
+            let mut combined_nodes = file_nodes;
+            combined_nodes.extend(func_nodes);
+            combined_nodes.extend(class_nodes);
+            graph.add_nodes_batch(combined_nodes);
             graph.add_edges_batch(edges);
         }
 

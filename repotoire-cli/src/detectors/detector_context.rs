@@ -54,6 +54,9 @@ fn compute_content_flags(content: &str) -> ContentFlags {
         || content.contains("sendFile")
         || content.contains("send_file")
         || content.contains("serve_file")
+        || content.contains("appendFile")
+        || content.contains("statSync")
+        || content.contains("accessSync")
     {
         flags.set(ContentFlags::FILE_OPS);
     }

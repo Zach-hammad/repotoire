@@ -136,7 +136,10 @@ impl Detector for PathTraversalDetector {
                     || raw.contains("filepath")
                     || raw.contains("pathlib")
                     || raw.contains("createReadStream")
-                    || raw.contains("createWriteStream");
+                    || raw.contains("createWriteStream")
+                    || raw.contains("appendFile")
+                    || raw.contains("statSync")
+                    || raw.contains("accessSync");
                 if !has_relevant {
                     continue;
                 }

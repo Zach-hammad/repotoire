@@ -165,11 +165,15 @@ impl CodeNode {
             "is_async" => {
                 if val.as_bool().unwrap_or(false) {
                     self.flags |= FLAG_IS_ASYNC;
+                } else {
+                    self.flags &= !FLAG_IS_ASYNC;
                 }
             }
             "is_exported" | "exported" => {
                 if val.as_bool().unwrap_or(false) {
                     self.flags |= FLAG_IS_EXPORTED;
+                } else {
+                    self.flags &= !FLAG_IS_EXPORTED;
                 }
             }
             _ => {
@@ -202,6 +206,10 @@ impl CodeNode {
 
     pub fn set_flag(&mut self, flag: u8) {
         self.flags |= flag;
+    }
+
+    pub fn clear_flag(&mut self, flag: u8) {
+        self.flags &= !flag;
     }
 
     // --- Metric accessors (backward compat shims) ---

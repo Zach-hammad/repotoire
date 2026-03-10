@@ -291,12 +291,6 @@ impl DeadCodeDetector {
         self.entry_points.contains(name) || name.starts_with("test_")
     }
 
-    /// Check if function has decorators (Issue #15)
-    /// Decorators like @app.route, @Controller, @Route register functions at runtime
-    fn has_decorator(&self, func: &crate::graph::CodeNode) -> bool {
-        func.get_bool("has_decorators").unwrap_or(false)
-    }
-
     /// Check if function name matches callback/handler patterns (Issue #15)
     /// These are typically called dynamically via .on(), .addEventListener(), etc.
     fn is_callback_pattern(&self, name: &str) -> bool {

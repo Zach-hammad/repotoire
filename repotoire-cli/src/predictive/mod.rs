@@ -165,7 +165,7 @@ impl PredictiveCodingEngine {
 
         // Score chains using L1 model — find a confident language model.
         // Cache pre-split lines per file to avoid repeated lines().collect() on large files.
-        let mut lines_cache: HashMap<String, Vec<String>> = HashMap::new();
+        let mut lines_cache: HashMap<&str, Vec<String>> = HashMap::new();
         for chain in &chains {
             // Get representative first-line snippets for chain members
             let chain_lines: Vec<String> = chain
@@ -173,7 +173,7 @@ impl PredictiveCodingEngine {
                 .filter_map(|qn| fn_by_name.get(qn.as_str()).copied())
                 .filter_map(|f| {
                     let cached_lines = lines_cache
-                        .entry(f.path(i).to_string())
+                        .entry(f.path(i))
                         .or_insert_with(|| {
                             let path = repo_path.join(f.path(i));
                             let content = files.content(&path).unwrap_or_else(|| Arc::new(String::new()));
@@ -286,9 +286,9 @@ impl PredictiveCodingEngine {
         // for functions sharing the same file.
         let mut file_cache: HashMap<&str, Option<Arc<String>>> = HashMap::new();
 
-        for &i in &scored_indices {
-            let func = &functions[i];
-            let ext = func.path(crate::graph::interner::global_interner()).rsplit('.').next().unwrap_or("rs");
+        for &idx in &scored_indices {
+            let func = &functions[idx];
+            let ext = func.path(i).rsplit('.').next().unwrap_or("rs");
 
             // L1: Token surprisal — skip if no confident model for this language
             let has_model = token_scorer
@@ -299,9 +299,9 @@ impl PredictiveCodingEngine {
 
             let token_score = if has_model {
                 let content = file_cache
-                    .entry(func.path(crate::graph::interner::global_interner()))
+                    .entry(func.path(i))
                     .or_insert_with(|| {
-                        let path = repo_path.join(func.path(crate::graph::interner::global_interner()));
+                        let path = repo_path.join(func.path(i));
                         files.content(&path)
                     });
                 if let Some(content) = content {
@@ -322,26 +322,26 @@ impl PredictiveCodingEngine {
 
             // L2: Structural distance
             let structural_score = func_features
-                .get(i)
+                .get(idx)
                 .map(|(_, feat)| structural_scorer.mahalanobis_distance(feat))
                 .unwrap_or(0.0);
 
             // L1.5: Dependency chain
-            let dep_score = chain_scorer.score(func.qn(crate::graph::interner::global_interner()));
+            let dep_score = chain_scorer.score(func.qn(i));
 
             // L3: Relational graph feature distance
-            let relational_score = relational_scorer.distance(func.qn(crate::graph::interner::global_interner()), contexts);
+            let relational_score = relational_scorer.distance(func.qn(i), contexts);
 
             // L4: Module distance
             let module = func
-                .path(crate::graph::interner::global_interner())
+                .path(i)
                 .rsplit_once('/')
                 .map(|(dir, _)| dir)
                 .unwrap_or("root");
             let arch_score = arch_scorer.module_distance(module);
 
             raw_scores.push((
-                func.qn(crate::graph::interner::global_interner()).to_string(),
+                func.qn(i).to_string(),
                 RawScores {
                     token: token_score,
                     structural: structural_score,

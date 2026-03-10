@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use crate::cache::CacheCoordinator;
 use crate::detectors::{default_detectors_with_ngram, DetectorEngine};
+use crate::graph::store_models::FLAG_IS_ASYNC;
 use crate::models::Finding;
 use crate::parsers::parse_file;
 
@@ -168,7 +169,7 @@ fn analyze_single_file(
                 .with_lines(func.line_start, func.line_end);
         node.complexity = func.complexity.unwrap_or(1) as u16;
         if func.is_async {
-            node.flags |= 0b0000_0001; // is_async flag
+            node.flags |= FLAG_IS_ASYNC;
         }
         graph.add_node(node);
     }
@@ -181,8 +182,13 @@ fn analyze_single_file(
 
     // Read file content for line-based detectors
     let source = std::fs::read_to_string(file_path).unwrap_or_default();
-    let _loc = source.lines().count();
-    let file_node = crate::graph::CodeNode::file(&rel_str);
+    let loc = source.lines().count();
+    let mut file_node = crate::graph::CodeNode::file(&rel_str);
+    file_node.line_end = loc as u32;
+    let lang = crate::cli::analyze::graph::detect_language(file_path);
+    if !lang.is_empty() {
+        file_node.language = crate::graph::interner::global_interner().intern(&lang);
+    }
     graph.add_node(file_node);
 
     // Run detectors
