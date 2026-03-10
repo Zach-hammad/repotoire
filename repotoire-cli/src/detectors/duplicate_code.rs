@@ -11,6 +11,7 @@ use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use tracing::{debug, info};
 
@@ -37,6 +38,13 @@ impl DuplicateCodeDetector {
             return String::new();
         }
         trimmed.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// Hash a block string to u64 for compact HashMap keys
+    fn hash_block(block: &str) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        block.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Check if a file is a test file
@@ -107,16 +115,22 @@ impl DuplicateCodeDetector {
 
         // Suggest extraction location based on common callers
         let suggestion = if !common_callers.is_empty() {
+            // Build a lookup map once instead of calling get_functions() per caller (O(n) vs O(n*m))
+            let func_path_map: HashMap<String, String> = graph
+                .get_functions()
+                .into_iter()
+                .map(|f| {
+                    let qn = f.qn(i).to_string();
+                    let path = f.path(i).to_string();
+                    (qn, path)
+                })
+                .collect();
+
             // Find the module that most common callers are in
             let mut module_counts: HashMap<String, usize> = HashMap::new();
             for caller in &common_callers {
-                if let Some(func) = graph
-                    .get_functions()
-                    .into_iter()
-                    .find(|f| f.qn(i) == caller)
-                {
-                    let module = func
-                        .path(i)
+                if let Some(path) = func_path_map.get(caller.as_str()) {
+                    let module = path
                         .rsplit('/')
                         .nth(1)
                         .unwrap_or("utils")
@@ -157,23 +171,28 @@ impl Detector for DuplicateCodeDetector {
         let source_files = files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]);
         let min_lines = self.min_lines;
 
-        // Parallel per-file hashing
-        let per_file: Vec<Vec<(String, PathBuf, usize)>> = source_files
+        // Parallel per-file hashing with pre-normalized lines
+        let per_file: Vec<Vec<(u64, PathBuf, usize)>> = source_files
             .par_iter()
             .filter(|path| !Self::is_test_file(path))
             .filter_map(|path| {
                 files.content(path).map(|content| {
-                    let lines: Vec<&str> = content.lines().collect();
+                    // Pre-normalize all lines once (avoids re-normalizing per window position)
+                    let normalized: Vec<String> = content
+                        .lines()
+                        .map(|l| Self::normalize_line(l))
+                        .collect();
                     let mut file_blocks = Vec::new();
-                    for i in 0..lines.len().saturating_sub(min_lines) {
-                        let block: String = lines[i..i + min_lines]
+                    for i in 0..normalized.len().saturating_sub(min_lines) {
+                        let block: String = normalized[i..i + min_lines]
                             .iter()
-                            .map(|l| Self::normalize_line(l))
                             .filter(|l| !l.is_empty())
+                            .cloned()
                             .collect::<Vec<_>>()
                             .join("\n");
                         if block.len() > 50 {
-                            file_blocks.push((block, path.to_path_buf(), i + 1));
+                            let hash = Self::hash_block(&block);
+                            file_blocks.push((hash, path.to_path_buf(), i + 1));
                         }
                     }
                     file_blocks
@@ -181,11 +200,11 @@ impl Detector for DuplicateCodeDetector {
             })
             .collect();
 
-        // Merge into single HashMap
-        let mut blocks: HashMap<String, Vec<(PathBuf, usize)>> = HashMap::new();
+        // Merge into single HashMap keyed by u64 hash (saves ~100 bytes per block vs String)
+        let mut blocks: HashMap<u64, Vec<(PathBuf, usize)>> = HashMap::new();
         for file_blocks in per_file {
-            for (block, path, line) in file_blocks {
-                blocks.entry(block).or_default().push((path, line));
+            for (hash, path, line) in file_blocks {
+                blocks.entry(hash).or_default().push((path, line));
             }
         }
 
