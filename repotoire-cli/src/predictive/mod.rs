@@ -12,6 +12,7 @@ pub mod relational;
 pub mod structural;
 pub mod token_level;
 
+use crate::detectors::function_context::FunctionContextMap;
 use crate::models::Severity;
 
 /// Prediction error at a single hierarchy level for a single entity.
@@ -59,6 +60,8 @@ pub struct CompoundScore {
 // ---------------------------------------------------------------------------
 
 use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::debug;
 
 /// The main engine that orchestrates all 5 hierarchy levels.
 ///
@@ -93,6 +96,7 @@ impl PredictiveCodingEngine {
         &mut self,
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
+        contexts: &FunctionContextMap,
     ) {
         // === L1: Train per-language token models ===
         let mut token_scorer = token_level::TokenLevelScorer::new();
@@ -100,18 +104,33 @@ impl PredictiveCodingEngine {
         let extensions: &[&str] = &[
             "rs", "py", "ts", "tsx", "js", "jsx", "go", "java", "c", "cpp", "cc", "h", "hpp", "cs",
         ];
+        // Train until each language model has sufficient tokens for stable n-gram statistics.
+        // 50k tokens (10x confidence threshold) gives stable trigram distributions;
+        // training beyond this yields diminishing returns while costing O(n) I/O.
+        const L1_TOKEN_SATURATION: usize = 50_000;
+        let mut lang_tokens: HashMap<&str, usize> = HashMap::new();
         for path in files.files_with_extensions(extensions) {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if *lang_tokens.get(ext).unwrap_or(&0) >= L1_TOKEN_SATURATION {
+                continue;
+            }
             if let Some(content) = files.content(path) {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 token_scorer.train_file(&content, ext);
+                *lang_tokens.entry(ext).or_insert(0) += content.split_whitespace().count();
             }
         }
 
         // === Get all functions from graph ===
-        let functions = graph.get_functions_shared();
-        if functions.len() < 20 {
+        let all_functions = graph.get_functions_shared();
+        if all_functions.len() < 20 {
             return; // Not enough data for meaningful statistics
         }
+
+        // Cap scored functions for performance. 5k is enough for robust z-scores
+        // (CLT convergence). Use all functions for model training and covariance
+        // estimation, but only score a subset.
+        const MAX_SCORED: usize = 5_000;
+        let functions = &all_functions;
 
         // === L2: Compute structural features for all functions ===
         let mut feature_vecs: Vec<Vec<f64>> = Vec::with_capacity(functions.len());
@@ -132,7 +151,9 @@ impl PredictiveCodingEngine {
 
         // === L1.5: Dependency chain surprisal ===
         let calls: Vec<(String, String)> = graph.get_calls();
-        let chains = dependency_chain::extract_dependency_chains(&calls, 4);
+        // Cap chains to 10k to avoid combinatorial explosion on large call graphs.
+        // 10k chains is more than enough for distributional statistics.
+        let chains = dependency_chain::extract_dependency_chains_bounded(&calls, 4, 10_000);
         let mut chain_scorer = dependency_chain::DependencyChainScorer::new();
 
         // Build a lookup map to avoid O(n^2) scanning inside the chain loop
@@ -141,24 +162,32 @@ impl PredictiveCodingEngine {
             .map(|f| (f.qualified_name.as_str(), f))
             .collect();
 
-        // Score chains using L1 model — find a confident language model
+        // Score chains using L1 model — find a confident language model.
+        // Cache pre-split lines per file to avoid repeated lines().collect() on large files.
+        let mut lines_cache: HashMap<String, Vec<String>> = HashMap::new();
         for chain in &chains {
             // Get representative first-line snippets for chain members
             let chain_lines: Vec<String> = chain
                 .iter()
                 .filter_map(|qn| fn_by_name.get(qn.as_str()).copied())
                 .filter_map(|f| {
-                    let path = repo_path.join(&f.file_path);
-                    files.content(&path).and_then(|c| {
-                        let lines: Vec<&str> = c.lines().collect();
-                        let start = f.line_start.saturating_sub(1) as usize;
-                        let end = (f.line_end as usize).min(lines.len());
-                        if start < end {
-                            Some(lines[start].to_string())
-                        } else {
-                            None
-                        }
-                    })
+                    let cached_lines = lines_cache
+                        .entry(f.file_path.clone())
+                        .or_insert_with(|| {
+                            let path = repo_path.join(&f.file_path);
+                            let content = files.content(&path).unwrap_or_else(|| Arc::new(String::new()));
+                            content.lines().map(|l| l.to_string()).collect()
+                        });
+                    if cached_lines.is_empty() {
+                        return None;
+                    }
+                    let start = f.line_start.saturating_sub(1) as usize;
+                    let end = (f.line_end as usize).min(cached_lines.len());
+                    if start < end {
+                        Some(cached_lines[start].clone())
+                    } else {
+                        None
+                    }
                 })
                 .filter(|s| !s.is_empty())
                 .collect();
@@ -173,88 +202,11 @@ impl PredictiveCodingEngine {
                 chain_scorer.record_chain(chain, surprisal);
             }
         }
+        drop(lines_cache); // Free cached lines before scoring phase
+        debug!("[predictive] L1.5 extracted {} chains from {} calls", chains.len(), calls.len());
 
-        // === L3: Relational embeddings ===
-        let import_edges = graph.get_imports();
-        let inheritance_edges = graph.get_inheritance();
-
-        // Build node ID mapping: qualified_name -> u32
-        let mut name_to_id: HashMap<String, u32> = HashMap::new();
-        let mut next_id = 0u32;
-
-        let call_edges_u32: Vec<(u32, u32)> = calls
-            .iter()
-            .map(|(a, b)| {
-                let id_a = *name_to_id.entry(a.clone()).or_insert_with(|| {
-                    let id = next_id;
-                    next_id += 1;
-                    id
-                });
-                let id_b = *name_to_id.entry(b.clone()).or_insert_with(|| {
-                    let id = next_id;
-                    next_id += 1;
-                    id
-                });
-                (id_a, id_b)
-            })
-            .collect();
-
-        let import_edges_u32: Vec<(u32, u32)> = import_edges
-            .iter()
-            .map(|(a, b)| {
-                let id_a = *name_to_id.entry(a.clone()).or_insert_with(|| {
-                    let id = next_id;
-                    next_id += 1;
-                    id
-                });
-                let id_b = *name_to_id.entry(b.clone()).or_insert_with(|| {
-                    let id = next_id;
-                    next_id += 1;
-                    id
-                });
-                (id_a, id_b)
-            })
-            .collect();
-
-        let inherit_edges_u32: Vec<(u32, u32)> = inheritance_edges
-            .iter()
-            .map(|(a, b)| {
-                let id_a = *name_to_id.entry(a.clone()).or_insert_with(|| {
-                    let id = next_id;
-                    next_id += 1;
-                    id
-                });
-                let id_b = *name_to_id.entry(b.clone()).or_insert_with(|| {
-                    let id = next_id;
-                    next_id += 1;
-                    id
-                });
-                (id_a, id_b)
-            })
-            .collect();
-
-        let num_nodes = next_id as usize;
-        let mut edge_sets: Vec<(&str, Vec<(u32, u32)>)> = Vec::new();
-        if !call_edges_u32.is_empty() {
-            edge_sets.push(("calls", call_edges_u32));
-        }
-        if !import_edges_u32.is_empty() {
-            edge_sets.push(("imports", import_edges_u32));
-        }
-        if !inherit_edges_u32.is_empty() {
-            edge_sets.push(("inherits", inherit_edges_u32));
-        }
-
-        let relational_scorer = if !edge_sets.is_empty() && num_nodes > 0 {
-            Some(relational::RelationalScorer::from_edge_sets(
-                &edge_sets,
-                num_nodes,
-                64,
-                Some(42),
-            ))
-        } else {
-            None
-        };
+        // === L3: Relational graph features (Mahalanobis distance) ===
+        let relational_scorer = relational::GraphRelationalScorer::from_contexts(contexts);
 
         // === L4: Architectural module profiles ===
         let mut arch_scorer = architectural::ArchitecturalScorer::new();
@@ -299,10 +251,26 @@ impl PredictiveCodingEngine {
         }
         arch_scorer.finalize();
 
-        // === Score all functions at all 5 levels ===
+        // === Score functions at all 5 levels ===
+        // On large repos (>MAX_SCORED functions), pre-filter by L2 structural distance
+        // to avoid scoring all functions (O(n) n-gram scoring is expensive at 72k+).
+        let scored_indices: Vec<usize> = if functions.len() > MAX_SCORED {
+            // Pre-compute L2 distances for all functions, keep top MAX_SCORED
+            let mut indexed_dists: Vec<(usize, f64)> = func_features
+                .iter()
+                .enumerate()
+                .map(|(i, (_, feat))| (i, structural_scorer.mahalanobis_distance(feat)))
+                .collect();
+            indexed_dists.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            indexed_dists.truncate(MAX_SCORED);
+            indexed_dists.into_iter().map(|(i, _)| i).collect()
+        } else {
+            (0..functions.len()).collect()
+        };
+
         let thresholds = compound::default_thresholds();
 
-        // First pass: collect raw scores for all functions
+        // First pass: collect raw scores for scored functions
         struct RawScores {
             token: f64,
             structural: f64,
@@ -311,19 +279,39 @@ impl PredictiveCodingEngine {
             architectural: f64,
         }
 
-        let mut raw_scores: Vec<(String, RawScores)> = Vec::with_capacity(functions.len());
+        let mut raw_scores: Vec<(String, RawScores)> = Vec::with_capacity(scored_indices.len());
 
-        for (i, func) in functions.iter().enumerate() {
+        // Cache file contents to avoid repeated .content() lookups and .lines() splits
+        // for functions sharing the same file.
+        let mut file_cache: HashMap<&str, Option<Arc<String>>> = HashMap::new();
+
+        for &i in &scored_indices {
+            let func = &functions[i];
             let ext = func.file_path.rsplit('.').next().unwrap_or("rs");
 
-            // L1: Token surprisal
-            let token_score = if let Some(content) = files.content(&repo_path.join(&func.file_path))
-            {
-                let lines: Vec<&str> = content.lines().collect();
-                let start = func.line_start.saturating_sub(1) as usize;
-                let end = (func.line_end as usize).min(lines.len());
-                if start < end && end - start >= 4 {
-                    token_scorer.score_function(&lines[start..end], ext)
+            // L1: Token surprisal — skip if no confident model for this language
+            let has_model = token_scorer
+                .models
+                .get(ext)
+                .map(|m| m.is_confident())
+                .unwrap_or(false);
+
+            let token_score = if has_model {
+                let content = file_cache
+                    .entry(&func.file_path)
+                    .or_insert_with(|| {
+                        let path = repo_path.join(&func.file_path);
+                        files.content(&path)
+                    });
+                if let Some(content) = content {
+                    let lines: Vec<&str> = content.lines().collect();
+                    let start = func.line_start.saturating_sub(1) as usize;
+                    let end = (func.line_end as usize).min(lines.len());
+                    if start < end && end - start >= 4 {
+                        token_scorer.score_function(&lines[start..end], ext)
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
                 }
@@ -340,15 +328,8 @@ impl PredictiveCodingEngine {
             // L1.5: Dependency chain
             let dep_score = chain_scorer.score(&func.qualified_name);
 
-            // L3: Relational kNN distance
-            let relational_score = relational_scorer
-                .as_ref()
-                .and_then(|rs| {
-                    name_to_id
-                        .get(&func.qualified_name)
-                        .map(|&id| rs.knn_distance(id, 5))
-                })
-                .unwrap_or(0.0);
+            // L3: Relational graph feature distance
+            let relational_score = relational_scorer.distance(&func.qualified_name, contexts);
 
             // L4: Module distance
             let module = func
@@ -500,8 +481,9 @@ mod tests {
     fn test_engine_empty_graph() {
         let store = crate::graph::GraphStore::in_memory();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let contexts = std::collections::HashMap::new();
         let mut engine = PredictiveCodingEngine::new();
-        engine.train_and_score(&store, &empty_files);
+        engine.train_and_score(&store, &empty_files, &contexts);
         assert!(engine.get_surprising_entities(1).is_empty());
     }
 

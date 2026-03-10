@@ -20,6 +20,19 @@ use std::collections::{HashMap, HashSet};
 /// Cycles are broken by refusing to revisit a node already on the current
 /// path — this guarantees termination without needing a separate visited set.
 pub fn extract_dependency_chains(calls: &[(String, String)], max_depth: usize) -> Vec<Vec<String>> {
+    extract_dependency_chains_bounded(calls, max_depth, usize::MAX)
+}
+
+/// Extract dependency chains with an upper bound on total chains produced.
+///
+/// Identical to `extract_dependency_chains` but stops early once `max_chains`
+/// chains have been collected. This prevents combinatorial explosion on large
+/// call graphs (e.g. CPython's 72k functions).
+pub fn extract_dependency_chains_bounded(
+    calls: &[(String, String)],
+    max_depth: usize,
+    max_chains: usize,
+) -> Vec<Vec<String>> {
     // Build adjacency list from call edges.
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for (caller, callee) in calls {
@@ -28,16 +41,39 @@ pub fn extract_dependency_chains(calls: &[(String, String)], max_depth: usize) -
             .push(callee.as_str());
     }
 
+    // Deduplicate start nodes — starting DFS from the same node multiple times
+    // (once per outgoing edge) is redundant.
+    let unique_starts: Vec<&str> = {
+        let mut seen = HashSet::new();
+        calls
+            .iter()
+            .filter_map(|(start, _)| {
+                if seen.insert(start.as_str()) {
+                    Some(start.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+
     let mut chains = Vec::new();
 
-    // Start a DFS from every call-edge source.
-    for (start, _) in calls {
+    for start in unique_starts {
+        if chains.len() >= max_chains {
+            break;
+        }
+
         let mut initial_visited = HashSet::new();
-        initial_visited.insert(start.clone());
+        initial_visited.insert(start.to_string());
         let mut stack: Vec<(Vec<String>, HashSet<String>)> =
-            vec![(vec![start.clone()], initial_visited)];
+            vec![(vec![start.to_string()], initial_visited)];
 
         while let Some((chain, visited)) = stack.pop() {
+            if chains.len() >= max_chains {
+                break;
+            }
+
             // If we've reached the maximum depth, emit the chain as-is.
             if chain.len() >= max_depth {
                 chains.push(chain);

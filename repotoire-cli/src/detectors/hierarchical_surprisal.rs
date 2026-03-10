@@ -8,10 +8,12 @@
 //! signal than any single metric.
 
 use crate::detectors::base::Detector;
+use crate::detectors::function_context::FunctionContextMap;
 use crate::models::Finding;
 use crate::predictive::PredictiveCodingEngine;
 use anyhow::Result;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub struct HierarchicalSurprisalDetector {
     max_findings: usize,
@@ -44,11 +46,25 @@ impl Detector for HierarchicalSurprisalDetector {
 
     fn detect(
         &self,
+        _graph: &dyn crate::graph::GraphQuery,
+        _files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Result<Vec<Finding>> {
+        // This detector requires function contexts; detect_with_context is used instead.
+        Ok(vec![])
+    }
+
+    fn uses_context(&self) -> bool {
+        true
+    }
+
+    fn detect_with_context(
+        &self,
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
+        contexts: &Arc<FunctionContextMap>,
     ) -> Result<Vec<Finding>> {
         let mut engine = PredictiveCodingEngine::new();
-        engine.train_and_score(graph, files);
+        engine.train_and_score(graph, files, contexts);
 
         let surprising = engine.get_surprising_entities(2); // min concordance 2 for findings
 
