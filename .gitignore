@@ -99,3 +99,4 @@ lean/lake-manifest.json
 .playwright-mcp/
 .repotoire/
 repotoire-vscode/
+.worktrees/
