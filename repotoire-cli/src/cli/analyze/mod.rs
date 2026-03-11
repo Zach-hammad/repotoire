@@ -90,6 +90,121 @@ pub fn run(
     // Clear per-run caches (important for MCP long-running server)
     crate::parsers::clear_structural_fingerprint_cache();
 
+    // ─── Session-based incremental path ────────────────────────────────────
+    // Try to load a persisted AnalysisSession. If found and files changed,
+    // do a fast incremental update instead of the full pipeline.
+    {
+        use crate::session::AnalysisSession;
+        let session_cache_dir = cache_path(path).join("session");
+        if let Ok(Some(mut session)) = AnalysisSession::load(&session_cache_dir) {
+            let changed = session.detect_changed_files()?;
+            if changed.is_empty() {
+                // Fast path: nothing changed — output from session
+                let quiet = std::env::var("REPOTOIRE_QUIET").is_ok();
+                if !quiet {
+                    let icon = if no_emoji { "" } else { "⚡ " };
+                    println!(
+                        "\n{}Using cached session (no changes detected)\n",
+                        style(icon).bold()
+                    );
+                }
+
+                // Build a CachedScoreResult from session data
+                let cached_score = crate::detectors::CachedScoreResult {
+                    score: session.score().unwrap_or(0.0),
+                    grade: session_score_to_grade(session.score().unwrap_or(0.0)),
+                    total_files: session.source_files().len(),
+                    total_functions: 0, // approximation OK for cached path
+                    total_classes: 0,
+                    structure_score: None,
+                    quality_score: None,
+                    architecture_score: None,
+                    total_loc: None,
+                };
+
+                output_cached_results(
+                    no_emoji,
+                    quiet,
+                    &fail_on,
+                    session.findings().to_vec(),
+                    &cached_score,
+                    format,
+                    output_path,
+                    start_time,
+                    explain_score,
+                    &severity,
+                    top,
+                    page,
+                    per_page,
+                    &skip_detector,
+                    &cache_path(path),
+                )?;
+
+                print_final_summary(quiet, no_emoji, start_time);
+                return Ok(());
+            }
+
+            // Incremental path: update session with changed files
+            let inc_start = Instant::now();
+            let _delta = session.update(&changed)?;
+            let inc_elapsed = inc_start.elapsed();
+
+            let quiet = std::env::var("REPOTOIRE_QUIET").is_ok();
+            if !quiet {
+                let icon = if no_emoji { "" } else { "⚡ " };
+                println!(
+                    "\n{}Incremental update: {} files changed ({:.3}s)\n",
+                    style(icon).bold(),
+                    changed.len(),
+                    inc_elapsed.as_secs_f64()
+                );
+            }
+
+            let cached_score = crate::detectors::CachedScoreResult {
+                score: session.score().unwrap_or(0.0),
+                grade: session_score_to_grade(session.score().unwrap_or(0.0)),
+                total_files: session.source_files().len(),
+                total_functions: 0,
+                total_classes: 0,
+                structure_score: None,
+                quality_score: None,
+                architecture_score: None,
+                total_loc: None,
+            };
+
+            output_cached_results(
+                no_emoji,
+                quiet,
+                &fail_on,
+                session.findings().to_vec(),
+                &cached_score,
+                format,
+                output_path,
+                start_time,
+                explain_score,
+                &severity,
+                top,
+                page,
+                per_page,
+                &skip_detector,
+                &cache_path(path),
+            )?;
+
+            // Persist updated session for next run
+            let _ = session.persist(&session_cache_dir);
+
+            if timings {
+                println!(
+                    "\nIncremental update: {:.3}s ({} files changed)",
+                    inc_elapsed.as_secs_f64(),
+                    changed.len()
+                );
+            }
+            print_final_summary(quiet, no_emoji, start_time);
+            return Ok(());
+        }
+    }
+
     // Phase 1: Validate repository and setup environment
     let phase_start = Instant::now();
     let mut env = setup_environment(
@@ -334,6 +449,41 @@ pub fn run(
             cache_findings(&path, &all_findings);
         });
     }
+
+    // Persist AnalysisSession for future incremental runs (fire-and-forget).
+    // This packages the graph, findings, and score into a session that can be
+    // loaded on the next `repotoire analyze` for sub-second incremental updates.
+    {
+        use crate::session::AnalysisSession;
+        let session_cache_dir = cache_path(path).join("session");
+        let _ = std::fs::create_dir_all(&session_cache_dir);
+        let session_graph = Arc::clone(&graph);
+        let session_files = file_result.all_files.clone();
+        let session_findings = report.2.clone();
+        let session_score = score_result.overall_score;
+        let session_repo = env.repo_path.clone();
+        let session_workers = env.config.workers;
+        std::thread::spawn(move || {
+            match AnalysisSession::from_cold_results(
+                &session_repo,
+                session_workers,
+                session_graph,
+                session_files,
+                session_findings,
+                Some(session_score),
+            ) {
+                Ok(session) => {
+                    if let Err(e) = session.persist(&session_cache_dir) {
+                        tracing::warn!("Failed to persist session: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to build session from pipeline results: {}", e);
+                }
+            }
+        });
+    }
+
     phase_timings.push(("output", phase_start.elapsed()));
 
     // Print timing breakdown if requested
@@ -822,6 +972,29 @@ fn generate_reports(
 // ============================================================================
 // Internal helpers
 // ============================================================================
+
+/// Map a numeric health score to a letter grade string.
+///
+/// Used by the session-based incremental path where we don't have the full
+/// `GraphScorer` available. Matches the grade boundaries in `graph_scorer.rs`.
+fn session_score_to_grade(score: f64) -> String {
+    match score as u32 {
+        97..=100 => "A+",
+        93..=96 => "A",
+        90..=92 => "A-",
+        87..=89 => "B+",
+        83..=86 => "B",
+        80..=82 => "B-",
+        77..=79 => "C+",
+        73..=76 => "C",
+        70..=72 => "C-",
+        60..=69 => "D+",
+        50..=59 => "D",
+        40..=49 => "D-",
+        _ => "F",
+    }
+    .to_string()
+}
 
 /// Spawn a background thread to save the graph cache.
 ///
