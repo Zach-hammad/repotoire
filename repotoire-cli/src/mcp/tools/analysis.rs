@@ -12,33 +12,78 @@ use crate::models::FindingsSummary;
 
 /// Run code analysis on the repository.
 ///
-/// Builds a `DetectorEngine` with the project config and style profile,
-/// scans all source files, and returns a JSON summary with `status`,
-/// `total_findings`, and `by_severity` breakdown.
+/// Uses an in-memory `AnalysisSession` that persists between MCP calls.
+/// The first call performs a full cold analysis. Subsequent calls detect
+/// file changes and do incremental updates (re-parse only changed files,
+/// delta-patch the graph, selectively re-run detectors).
+///
+/// Falls back to the legacy one-shot path when the session fails to
+/// initialize (e.g. on an empty or unclonable repo).
 pub fn handle_analyze(state: &mut HandlerState, params: &AnalyzeParams) -> Result<Value> {
     let _incremental = params.incremental.unwrap_or(true);
-
     let repo_path = state.repo_path.clone();
 
-    // Get graph client
+    // ── Session-backed analysis (incremental) ────────────────────────────
+    match state.analyze_with_session() {
+        Ok(result) => {
+            let summary = FindingsSummary::from_findings(&result.findings);
+            let mode = if result.incremental {
+                if result.files_changed > 0 {
+                    format!("incremental ({} files changed)", result.files_changed)
+                } else {
+                    "cached (no changes)".to_string()
+                }
+            } else {
+                "cold".to_string()
+            };
+
+            let mut response = json!({
+                "status": "completed",
+                "repo_path": repo_path.display().to_string(),
+                "total_findings": summary.total,
+                "by_severity": {
+                    "critical": summary.critical,
+                    "high": summary.high,
+                    "medium": summary.medium,
+                    "low": summary.low,
+                    "info": summary.info
+                },
+                "mode": mode,
+                "message": format!("Analysis complete. Found {} issues.", summary.total)
+            });
+
+            // Include health score when available
+            if let Some(score) = result.score {
+                response["health_score"] = json!(score);
+            }
+
+            Ok(response)
+        }
+        Err(e) => {
+            tracing::warn!("Session analysis failed, falling back to one-shot: {}", e);
+            handle_analyze_oneshot(state, &repo_path)
+        }
+    }
+}
+
+/// Legacy one-shot analysis (fallback when session creation fails).
+fn handle_analyze_oneshot(state: &mut HandlerState, repo_path: &std::path::Path) -> Result<Value> {
     let graph = state.graph()?;
 
-    // Build detector engine (with predictive coding)
-    let project_config = crate::config::load_project_config(&repo_path);
-    let style_profile = crate::calibrate::StyleProfile::load(&repo_path);
+    let project_config = crate::config::load_project_config(repo_path);
+    let style_profile = crate::calibrate::StyleProfile::load(repo_path);
     let ngram = state.ngram_model();
     let mut engine = DetectorEngineBuilder::new()
         .workers(4)
         .detectors(default_detectors_with_ngram(
-            &repo_path,
+            repo_path,
             &project_config,
             style_profile.as_ref(),
             ngram,
         ))
         .build();
 
-    // Run analysis
-    let all_files: Vec<std::path::PathBuf> = walk_source_files(&repo_path, None).collect();
+    let all_files: Vec<std::path::PathBuf> = walk_source_files(repo_path, None).collect();
     let source_files = SourceFiles::new(all_files, repo_path.to_path_buf());
     let findings = engine.run(&graph, &source_files)?;
 
@@ -55,6 +100,7 @@ pub fn handle_analyze(state: &mut HandlerState, params: &AnalyzeParams) -> Resul
             "low": summary.low,
             "info": summary.info
         },
+        "mode": "one-shot (fallback)",
         "message": format!("Analysis complete. Found {} issues.", summary.total)
     }))
 }

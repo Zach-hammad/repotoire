@@ -10,6 +10,22 @@ use std::sync::Arc;
 
 use crate::ai::{AiClient, LlmBackend};
 use crate::graph::GraphStore;
+use crate::models::Finding;
+use crate::session::AnalysisSession;
+
+/// Result of a session-based analysis (cold or incremental).
+pub struct SessionAnalysisResult {
+    /// All findings from the current analysis state.
+    pub findings: Vec<Finding>,
+    /// Overall health score (0..100).
+    pub score: Option<f64>,
+    /// All source files known to the session.
+    pub source_files: Vec<PathBuf>,
+    /// Whether this was an incremental update (true) or cold analysis (false).
+    pub incremental: bool,
+    /// Number of files that changed (0 for cold analysis or no-change fast path).
+    pub files_changed: usize,
+}
 
 /// State shared across tool calls
 pub struct HandlerState {
@@ -25,6 +41,9 @@ pub struct HandlerState {
     pub api_url: String,
     /// BYOK: User's own AI backend
     pub ai_backend: Option<LlmBackend>,
+    /// Persistent analysis session for incremental updates across MCP calls.
+    /// `None` until the first `analyze` call, then holds the live session.
+    session: Option<AnalysisSession>,
 }
 
 impl HandlerState {
@@ -59,6 +78,7 @@ impl HandlerState {
             api_key,
             api_url,
             ai_backend,
+            session: None,
         }
     }
 
@@ -112,6 +132,58 @@ impl HandlerState {
     #[allow(dead_code)] // Called from MCP tool handlers and tests
     pub fn set_graph(&mut self, graph: Arc<GraphStore>) {
         self.graph = Some(graph);
+    }
+
+    /// Get or create an analysis session. First call does cold analysis,
+    /// subsequent calls detect file changes and do incremental updates.
+    ///
+    /// The session is kept in memory between MCP tool calls so that the
+    /// graph, findings, and file hashes persist. On the first call we run
+    /// a full cold analysis. On subsequent calls we diff file hashes,
+    /// delta-patch the graph, and selectively re-run detectors.
+    pub fn analyze_with_session(&mut self) -> Result<SessionAnalysisResult> {
+        match self.session.as_mut() {
+            Some(session) => {
+                // Incremental path
+                let changed = session.detect_changed_files()?;
+                if changed.is_empty() {
+                    // No changes — return cached results
+                    Ok(SessionAnalysisResult {
+                        findings: session.findings().to_vec(),
+                        score: session.score(),
+                        source_files: session.source_files().to_vec(),
+                        incremental: true,
+                        files_changed: 0,
+                    })
+                } else {
+                    let files_changed = changed.len();
+                    let _delta = session.update(&changed)?;
+                    Ok(SessionAnalysisResult {
+                        findings: session.findings().to_vec(),
+                        score: session.score(),
+                        source_files: session.source_files().to_vec(),
+                        incremental: true,
+                        files_changed,
+                    })
+                }
+            }
+            None => {
+                // Cold analysis — create new session
+                let session = AnalysisSession::new(&self.repo_path, 8)?;
+                let result = SessionAnalysisResult {
+                    findings: session.findings().to_vec(),
+                    score: session.score(),
+                    source_files: session.source_files().to_vec(),
+                    incremental: false,
+                    files_changed: 0,
+                };
+                // Also populate the graph field so other tools (graph queries,
+                // impact analysis, etc.) can use the session's graph.
+                self.graph = Some(Arc::clone(session.graph()));
+                self.session = Some(session);
+                Ok(result)
+            }
+        }
     }
 }
 
