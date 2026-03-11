@@ -1639,6 +1639,41 @@ impl GraphStore {
         tracing::info!("Loaded graph cache ({} nodes)", store.node_index.len());
         Some(store)
     }
+
+    /// Compute a fingerprint of all cross-file edges. Used to detect topology changes
+    /// for incremental analysis — if this value changes, GraphWide detectors must re-run.
+    pub fn compute_edge_fingerprint(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let graph = self.graph.read().unwrap();
+        let mut edges: Vec<(u32, u32, u8)> = graph
+            .edge_references()
+            .filter(|e| {
+                let src = &graph[e.source()];
+                let tgt = &graph[e.target()];
+                src.file_path != tgt.file_path
+            })
+            .map(|e| {
+                let src = &graph[e.source()];
+                let tgt = &graph[e.target()];
+                (
+                    src.qualified_name.into_inner().get(),
+                    tgt.qualified_name.into_inner().get(),
+                    e.weight().kind as u8,
+                )
+            })
+            .collect();
+        edges.sort_unstable();
+
+        let mut hasher = DefaultHasher::new();
+        for (src, tgt, kind) in &edges {
+            src.hash(&mut hasher);
+            tgt.hash(&mut hasher);
+            kind.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
 }
 
 /// Serializable graph cache for persistent storage between runs.

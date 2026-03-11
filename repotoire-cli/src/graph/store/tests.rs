@@ -498,3 +498,61 @@ fn test_remove_nonexistent_file() {
     store.remove_file_entities(&[std::path::PathBuf::from("src/nonexistent.rs")]);
     assert_eq!(store.get_functions().len(), 1);
 }
+
+// ==================== Edge Fingerprint Tests ====================
+
+#[test]
+fn test_edge_fingerprint_stability() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo"));
+    store.add_node(CodeNode::function("bar", "src/b.rs").with_qualified_name("b.bar"));
+    store.add_edges_batch(vec![
+        ("a.foo".to_string(), "b.bar".to_string(), CodeEdge::new(EdgeKind::Calls)),
+    ]);
+
+    let fp1 = store.compute_edge_fingerprint();
+    let fp2 = store.compute_edge_fingerprint();
+    let fp3 = store.compute_edge_fingerprint();
+
+    assert_eq!(fp1, fp2, "Fingerprint should be stable across calls");
+    assert_eq!(fp2, fp3, "Fingerprint should be stable across calls");
+}
+
+#[test]
+fn test_edge_fingerprint_change_detection() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo"));
+    store.add_node(CodeNode::function("bar", "src/b.rs").with_qualified_name("b.bar"));
+    store.add_node(CodeNode::function("baz", "src/c.rs").with_qualified_name("c.baz"));
+
+    store.add_edges_batch(vec![
+        ("a.foo".to_string(), "b.bar".to_string(), CodeEdge::new(EdgeKind::Calls)),
+    ]);
+    let fp_before = store.compute_edge_fingerprint();
+
+    // Add another cross-file edge — fingerprint must change
+    store.add_edge_by_name("a.foo", "c.baz", CodeEdge::calls());
+    let fp_after = store.compute_edge_fingerprint();
+
+    assert_ne!(fp_before, fp_after, "Adding a cross-file edge must change the fingerprint");
+}
+
+#[test]
+fn test_edge_fingerprint_ignores_intra_file() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo"));
+    store.add_node(CodeNode::function("bar", "src/a.rs").with_qualified_name("a.bar"));
+    store.add_node(CodeNode::function("baz", "src/b.rs").with_qualified_name("b.baz"));
+
+    // One cross-file edge
+    store.add_edges_batch(vec![
+        ("a.foo".to_string(), "b.baz".to_string(), CodeEdge::new(EdgeKind::Calls)),
+    ]);
+    let fp_before = store.compute_edge_fingerprint();
+
+    // Add an intra-file edge (same file) — fingerprint must NOT change
+    store.add_edge_by_name("a.foo", "a.bar", CodeEdge::calls());
+    let fp_after = store.compute_edge_fingerprint();
+
+    assert_eq!(fp_before, fp_after, "Intra-file edges should not affect the fingerprint");
+}
