@@ -178,6 +178,18 @@ impl FileCache {
         self.lines.clear();
         self.masked.clear();
     }
+
+    /// Evict specific files from the cache.
+    ///
+    /// Used by `AnalysisSession::update()` to invalidate stale entries for
+    /// changed files before re-running detectors.
+    pub fn evict(&self, paths: &[PathBuf]) {
+        for path in paths {
+            self.contents.remove(path);
+            self.lines.remove(path);
+            self.masked.remove(path);
+        }
+    }
 }
 
 impl Default for FileCache {

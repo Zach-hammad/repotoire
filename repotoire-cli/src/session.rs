@@ -596,6 +596,14 @@ impl AnalysisSession {
             }
         }
 
+        // ── Phase 5b: Evict changed files from global file cache ─────────
+        // The global FileCache stores file content read during cold analysis.
+        // If we don't evict changed files, detectors will read stale content.
+        {
+            let evict_paths: Vec<PathBuf> = changed_files.to_vec();
+            crate::cache::global_cache().evict(&evict_paths);
+        }
+
         // ── Phase 6: Detect topology change ──────────────────────────────
         let new_fingerprint = self.graph.compute_edge_fingerprint();
         let topology_changed = new_fingerprint != self.edge_fingerprint;
@@ -608,24 +616,65 @@ impl AnalysisSession {
         self.edge_fingerprint = new_fingerprint;
 
         // ── Phase 7: Selective detection ─────────────────────────────────
-        let changed_set: HashSet<PathBuf> = changed_files.iter().cloned().collect();
-        let (fresh_file_findings, new_graph_wide) =
+        // Build changed set with both absolute and relative paths. Detectors
+        // produce findings with mixed path styles: some use absolute paths,
+        // others use paths relative to the repo root.
+        let mut changed_set: HashSet<PathBuf> = changed_files.iter().cloned().collect();
+        for path in changed_files {
+            if let Ok(rel) = path.strip_prefix(&self.repo_path) {
+                changed_set.insert(rel.to_path_buf());
+            }
+        }
+        let (fresh_file_local, fresh_file_scoped_graph, new_graph_wide, rerun_detector_names) =
             self.run_selective_detection(&changed_set, topology_changed)?;
 
         // ── Phase 8: Compose findings ────────────────────────────────────
         let mut composed: Vec<Finding> = Vec::new();
 
-        // (a) Cached findings for unchanged files
+        // Build the set of detector names whose findings are freshly re-computed.
+        // These must be excluded from cached step (a) to avoid double-counting.
+        // Includes: graph-wide detectors (handled in step (d)) and
+        //           FileScopedGraph detectors (handled in step (c)).
+        let graph_wide_detector_names: HashSet<&str> = self
+            .graph_wide_findings
+            .keys()
+            .map(|s| s.as_str())
+            .collect();
+
+        // (a) Cached findings for unchanged files — exclude:
+        //     - Findings whose affected_files overlap with changed files
+        //       (these will be freshly produced in step (b)/(c))
+        //     - ALL FileScopedGraph detector findings (replaced in step (c))
+        //     - ALL GraphWide detector findings (handled in step (d))
         for (path, findings) in &self.findings_by_file {
             if !changed_set.contains(path) {
-                composed.extend(findings.iter().cloned());
+                composed.extend(
+                    findings
+                        .iter()
+                        .filter(|f| {
+                            // Exclude detectors that are fully re-run
+                            if rerun_detector_names.contains(f.detector.as_str())
+                                || graph_wide_detector_names.contains(f.detector.as_str())
+                            {
+                                return false;
+                            }
+                            // Exclude findings that reference any changed file —
+                            // the fresh detection will produce an updated version
+                            !f.affected_files.iter().any(|af| changed_set.contains(af))
+                        })
+                        .cloned(),
+                );
             }
         }
 
-        // (b) Fresh findings for changed files
-        composed.extend(fresh_file_findings);
+        // (b) Fresh FileLocal findings (only for changed files)
+        composed.extend(fresh_file_local);
 
-        // (c) Graph-wide findings (cached or fresh depending on topology)
+        // (c) Fresh FileScopedGraph findings (ALL files — these cross-file
+        //     detectors may produce different results for unchanged files)
+        composed.extend(fresh_file_scoped_graph);
+
+        // (d) Graph-wide findings (cached or fresh depending on topology)
         if topology_changed {
             // Use fresh graph-wide findings
             for findings in new_graph_wide.values() {
@@ -641,6 +690,20 @@ impl AnalysisSession {
 
         // ── Phase 9: Postprocess ─────────────────────────────────────────
         postprocess_session_findings(&mut composed);
+
+        // Deduplicate findings by ID. The `findings_by_file` index stores the same
+        // finding under each of its `affected_files`, so composing from multiple
+        // file buckets can produce duplicates.
+        {
+            let mut seen_ids: HashSet<String> = HashSet::with_capacity(composed.len());
+            composed.retain(|f| {
+                if f.id.is_empty() {
+                    true // keep findings without an ID (shouldn't happen, but safe)
+                } else {
+                    seen_ids.insert(f.id.clone())
+                }
+            });
+        }
 
         // ── Phase 10: Re-score ───────────────────────────────────────────
         let project_config = crate::config::load_project_config(&self.repo_path);
@@ -683,15 +746,24 @@ impl AnalysisSession {
 
     /// Run detectors selectively based on what changed.
     ///
-    /// - FileLocal/FileScopedGraph: run on full graph, filter output to changed files
-    /// - GraphWide: re-run only if topology changed
-    ///
-    /// Returns (file_scoped_findings, graph_wide_findings_by_detector).
+    /// Returns four items:
+    /// 1. `file_local_findings` — FileLocal detector findings for changed files only
+    /// 2. `file_scoped_graph_findings` — FileScopedGraph detector findings for ALL files
+    ///    (cross-file detectors like DuplicateCode may produce different results for
+    ///    unchanged files when the graph changes)
+    /// 3. `graph_wide_findings` — GraphWide detector findings (only if topology changed)
+    /// 4. `rerun_detector_names` — Names of FileScopedGraph detectors whose findings
+    ///    should replace cached entries
     fn run_selective_detection(
         &self,
         changed_set: &HashSet<PathBuf>,
         topology_changed: bool,
-    ) -> Result<(Vec<Finding>, HashMap<String, Vec<Finding>>)> {
+    ) -> Result<(
+        Vec<Finding>,
+        Vec<Finding>,
+        HashMap<String, Vec<Finding>>,
+        HashSet<String>,
+    )> {
         let project_config = crate::config::load_project_config(&self.repo_path);
         let detectors =
             crate::detectors::default_detectors_with_config(&self.repo_path, &project_config);
@@ -700,7 +772,8 @@ impl AnalysisSession {
         // cross-file analysis like duplicate_code). Filtering happens on OUTPUT.
         let source = SourceFiles::new(self.source_files.clone(), self.repo_path.clone());
 
-        let mut file_scoped_findings: Vec<Finding> = Vec::new();
+        let mut file_local_findings: Vec<Finding> = Vec::new();
+        let mut file_scoped_graph_findings: Vec<Finding> = Vec::new();
         let mut graph_wide_findings: HashMap<String, Vec<Finding>> = HashMap::new();
 
         // We build a single engine to benefit from shared precomputation
@@ -720,6 +793,14 @@ impl AnalysisSession {
             .map(|d| (d.name(), d.detector_scope()))
             .collect();
 
+        // Collect names of FileScopedGraph detectors so we can exclude their
+        // cached findings in the composition step
+        let rerun_detector_names: HashSet<String> = detectors
+            .iter()
+            .filter(|d| d.detector_scope() == DetectorScope::FileScopedGraph)
+            .map(|d| d.name().to_string())
+            .collect();
+
         for finding in all_raw {
             let scope = scope_map
                 .get(finding.detector.as_str())
@@ -727,15 +808,20 @@ impl AnalysisSession {
                 .unwrap_or(DetectorScope::GraphWide);
 
             match scope {
-                DetectorScope::FileLocal | DetectorScope::FileScopedGraph => {
+                DetectorScope::FileLocal => {
                     // Only keep findings that touch changed files
                     let touches_changed = finding
                         .affected_files
                         .iter()
                         .any(|af| changed_set.contains(af));
                     if touches_changed {
-                        file_scoped_findings.push(finding);
+                        file_local_findings.push(finding);
                     }
+                }
+                DetectorScope::FileScopedGraph => {
+                    // Keep ALL findings — these cross-file detectors may produce
+                    // different results for unchanged files when the graph changes
+                    file_scoped_graph_findings.push(finding);
                 }
                 DetectorScope::GraphWide => {
                     if topology_changed {
@@ -749,7 +835,12 @@ impl AnalysisSession {
             }
         }
 
-        Ok((file_scoped_findings, graph_wide_findings))
+        Ok((
+            file_local_findings,
+            file_scoped_graph_findings,
+            graph_wide_findings,
+            rerun_detector_names,
+        ))
     }
 }
 
