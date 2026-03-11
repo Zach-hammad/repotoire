@@ -25,21 +25,18 @@ pub fn finding_id(detector: &str, file: &str, line: u32) -> String {
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Scope of a detector - determines when it needs to be re-run
+/// Describes how much of the codebase a detector needs to produce findings.
+/// Used by AnalysisSession to decide which detectors to re-run on incremental updates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[allow(dead_code)] // Used by incremental cache to scope detector re-runs
 pub enum DetectorScope {
-    /// Analyzes a single file in isolation (complexity, naming, etc.)
-    /// Can be cached per-file and only re-run when that file changes.
+    /// Only reads file content. No graph queries. Can run on a single file in isolation.
     FileLocal,
-
-    /// Analyzes relationships between files (coupling, circular deps)
-    /// Must re-run if any related file changes.
-    CrossFile,
-
-    /// Uses full graph analysis (centrality, architectural patterns)
-    /// Must re-run if graph structure changes.
-    GraphBased,
+    /// Uses graph but findings are attributed to specific files' entities.
+    /// Can re-run for just the changed file's entities if graph is available.
+    FileScopedGraph,
+    /// Needs cross-file graph topology (SCC, fan-in/out, call chains).
+    /// Must re-run on full graph if topology changes.
+    GraphWide,
 }
 
 /// Result from running a single detector
@@ -393,13 +390,24 @@ pub trait Detector: Send + Sync {
     /// Scope of this detector - determines when it needs to re-run
     ///
     /// - `FileLocal`: Only analyzes individual files, can be cached per-file
-    /// - `CrossFile`: Analyzes relationships, re-run if any related file changes
-    /// - `GraphBased`: Uses full graph, re-run if graph structure changes
+    /// - `FileScopedGraph`: Uses graph but findings are per-file entity
+    /// - `GraphWide`: Uses full graph topology, re-run if graph structure changes
     ///
-    /// Default is GraphBased (conservative - always re-runs)
-    #[allow(dead_code)] // Used by incremental cache to scope detector re-runs
+    /// Default is GraphWide (conservative - always re-runs)
     fn scope(&self) -> DetectorScope {
-        DetectorScope::GraphBased
+        DetectorScope::GraphWide
+    }
+
+    /// Returns the scope of this detector for incremental analysis.
+    /// FileLocal: re-run only on changed files
+    /// FileScopedGraph: re-run for changed files' entities
+    /// GraphWide: re-run if graph topology changes
+    fn detector_scope(&self) -> DetectorScope {
+        if self.requires_graph() {
+            DetectorScope::FileScopedGraph
+        } else {
+            DetectorScope::FileLocal
+        }
     }
 
     /// Whether this detector requires the full code graph to be built.
