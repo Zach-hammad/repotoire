@@ -6,7 +6,7 @@
 //! - Identify the "weakest link" (least coupled edge)
 //! - Suggest specific refactoring based on what's being imported
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -346,6 +346,11 @@ impl Detector for CircularDependencyDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
+    }
+
+    fn detector_scope(&self) -> DetectorScope {
+        // Uses find_import_cycles() (Tarjan SCC) across the full import graph
+        DetectorScope::GraphWide
     }
 
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {

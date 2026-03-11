@@ -5,7 +5,7 @@
 //! - Identify vulnerable patterns (lodash.merge, deepmerge)
 //! - Check for sanitization in the call chain
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -135,6 +135,11 @@ impl Detector for PrototypePollutionDetector {
     }
     fn description(&self) -> &'static str {
         "Detects prototype pollution vulnerabilities"
+    }
+
+    fn detector_scope(&self) -> DetectorScope {
+        // Uses get_callers() in receives_external_data() to trace cross-file call chains
+        DetectorScope::GraphWide
     }
 
     fn set_precomputed_taint(

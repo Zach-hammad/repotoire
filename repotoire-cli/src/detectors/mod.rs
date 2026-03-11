@@ -860,4 +860,37 @@ mod tests {
             "sql-injection"
         ));
     }
+
+    #[test]
+    fn all_detectors_have_scope() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        let detectors = default_detectors(tmp.path());
+        for d in &detectors {
+            let scope = d.detector_scope();
+            // Exhaustive match ensures we handle all variants
+            match scope {
+                DetectorScope::FileLocal
+                | DetectorScope::FileScopedGraph
+                | DetectorScope::GraphWide => {}
+            }
+        }
+        let file_local = detectors
+            .iter()
+            .filter(|d| d.detector_scope() == DetectorScope::FileLocal)
+            .count();
+        let graph_wide = detectors
+            .iter()
+            .filter(|d| d.detector_scope() == DetectorScope::GraphWide)
+            .count();
+        assert!(
+            file_local > 20,
+            "Expected 20+ FileLocal detectors, got {}",
+            file_local
+        );
+        assert!(
+            graph_wide >= 2,
+            "Expected 2+ GraphWide detectors, got {}",
+            graph_wide
+        );
+    }
 }

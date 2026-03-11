@@ -22,7 +22,7 @@
 //! - Skip Facade patterns (high out-degree, few callers from each module)
 //! - Reduce severity for Hub functions (they bridge modules intentionally)
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::detectors::function_context::{FunctionContext, FunctionContextMap, FunctionRole};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
@@ -376,6 +376,12 @@ impl Detector for FeatureEnvyDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
+
+    fn detector_scope(&self) -> DetectorScope {
+        // Uses get_callees() to follow cross-file call chains for coupling analysis
+        DetectorScope::GraphWide
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let i = graph.interner();
         let mut findings = Vec::new();
