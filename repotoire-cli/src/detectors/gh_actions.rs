@@ -284,6 +284,10 @@ impl Detector for GHActionsInjectionDetector {
         false
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["yml", "yaml"]
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let workflows_dir = self.repository_path.join(".github").join("workflows");
 

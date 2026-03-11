@@ -144,6 +144,14 @@ impl Detector for ExpressSecurityDetector {
         "Detects Express.js security issues"
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["js", "ts"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::HAS_EXPRESS
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         // Codebase-level pre-filter: skip if no file uses Express
         let has_express = files.files_with_extensions(&["js", "ts"]).iter().any(|p| {

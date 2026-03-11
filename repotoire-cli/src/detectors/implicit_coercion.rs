@@ -85,6 +85,10 @@ impl Detector for ImplicitCoercionDetector {
         "Detects == instead of ==="
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["js", "ts", "jsx", "tsx"]
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 

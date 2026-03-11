@@ -82,6 +82,10 @@ impl Detector for HardcodedIpsDetector {
         false
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs", "c", "cpp"]
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut ip_occurrences: HashMap<String, usize> = HashMap::new();

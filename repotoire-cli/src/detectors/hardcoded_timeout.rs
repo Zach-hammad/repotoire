@@ -128,6 +128,10 @@ impl Detector for HardcodedTimeoutDetector {
         false
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let mut occurrence_counts: HashMap<u64, usize> = HashMap::new();

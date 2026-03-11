@@ -386,6 +386,14 @@ impl Detector for SecretDetector {
         "Detects hardcoded secrets, API keys, and passwords"
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "env", "yml", "yaml", "json", "toml", "cfg", "ini", "conf"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::HAS_SECRET_PATTERN
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let i = graph.interner();
         let mut findings = vec![];

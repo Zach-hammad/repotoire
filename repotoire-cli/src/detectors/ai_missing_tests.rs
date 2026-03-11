@@ -342,6 +342,11 @@ impl Detector for AIMissingTestsDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
+
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let i = graph.interner();
         let mut findings = Vec::new();

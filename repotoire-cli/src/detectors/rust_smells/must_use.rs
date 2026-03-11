@@ -34,6 +34,10 @@ impl Detector for MissingMustUseDetector {
         false
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["rs"]
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let pub_fn_result = Regex::new(

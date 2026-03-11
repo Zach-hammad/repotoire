@@ -58,6 +58,10 @@ impl Detector for BooleanTrapDetector {
         "Detects multiple boolean arguments"
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let i = graph.interner();
         let mut findings = vec![];

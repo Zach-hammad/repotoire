@@ -36,6 +36,14 @@ impl Detector for TorchLoadUnsafeDetector {
         false
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py"]
+    }
+
+    fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
+        crate::detectors::detector_context::ContentFlags::HAS_ML
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
@@ -135,6 +143,14 @@ impl Detector for NanEqualityDetector {
 
     fn requires_graph(&self) -> bool {
         false
+    }
+
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py"]
+    }
+
+    fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
+        crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
@@ -299,6 +315,14 @@ impl Detector for MissingZeroGradDetector {
         false
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py"]
+    }
+
+    fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
+        crate::detectors::detector_context::ContentFlags::HAS_ML
+    }
+
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
@@ -350,6 +374,14 @@ impl Detector for ForwardMethodDetector {
 
     fn requires_graph(&self) -> bool {
         false
+    }
+
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py"]
+    }
+
+    fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
+        crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
     fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {

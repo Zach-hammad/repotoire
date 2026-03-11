@@ -426,6 +426,14 @@ impl Detector for InsecureTlsDetector {
     fn requires_graph(&self) -> bool {
         false
     }
+
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::HAS_CRYPTO
+    }
 }
 
 #[cfg(test)]

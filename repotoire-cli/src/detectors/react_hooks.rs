@@ -126,6 +126,14 @@ impl Detector for ReactHooksDetector {
         false
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["js", "ts", "jsx", "tsx"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::HAS_REACT
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         // Codebase-level pre-filter: skip if no file uses React
         let has_react = files.files_with_extensions(&["jsx", "tsx", "js", "ts"]).iter().any(|p| {

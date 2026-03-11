@@ -239,6 +239,10 @@ impl Detector for GeneratorMisuseDetector {
         Some(&self.config)
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts"]
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         let mut findings = vec![];
 

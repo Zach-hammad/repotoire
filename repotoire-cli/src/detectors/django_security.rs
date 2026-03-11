@@ -85,6 +85,14 @@ impl Detector for DjangoSecurityDetector {
         "Detects Django security issues"
     }
 
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py"]
+    }
+
+    fn content_requirements(&self) -> super::detector_context::ContentFlags {
+        super::detector_context::ContentFlags::HAS_DJANGO
+    }
+
     fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
         // Codebase-level pre-filter: skip if no file uses Django
         let has_django = files.files_with_extension("py").iter().any(|p| {
