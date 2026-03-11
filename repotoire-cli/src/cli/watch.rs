@@ -1,7 +1,7 @@
 //! `repotoire watch` — live analysis on file changes
 //!
-//! Watches your codebase and re-analyzes changed files in real-time.
-//! Particularly useful for catching AI-generated code issues as they happen.
+//! Watches your codebase and re-analyzes changed files in real-time using
+//! `AnalysisSession` for full incremental analysis with cross-file context.
 
 use anyhow::Result;
 use console::style;
@@ -12,16 +12,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::cache::CacheCoordinator;
-use crate::detectors::{default_detectors_with_ngram, DetectorEngine};
-use crate::graph::store_models::FLAG_IS_ASYNC;
-use crate::models::Finding;
-use crate::parsers::parse_file;
+use crate::models::Severity;
+use crate::session::{AnalysisDelta, AnalysisSession};
 
 /// Supported source file extensions
 const WATCH_EXTENSIONS: &[&str] = &[
-    "rs", "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "go", "java", "c", "h", "cpp", "cc",
-    "cxx", "hpp", "cs", "kt", "kts",
+    "rs", "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "go", "java", "c", "h", "cpp",
+    "cc", "cxx", "hpp", "cs", "kt", "kts",
 ];
 
 pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()> {
@@ -38,36 +35,29 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
         println!("  {} Press Ctrl+C to stop\n", style("→").dim());
     }
 
-    // Load config and style profile
-    let project_config = crate::config::load_project_config(&repo_path);
-    let style_profile = crate::calibrate::StyleProfile::load(&repo_path);
+    // Cold analysis on startup
+    let start = std::time::Instant::now();
+    if !quiet {
+        println!(
+            "  {} Running initial analysis...",
+            style("⏳").dim()
+        );
+    }
+    let mut session = AnalysisSession::new(&repo_path, 8)?;
+    let cold_elapsed = start.elapsed();
 
-    // Build n-gram model from existing source for predictive coding
-    let ngram_model = {
-        let mut model = crate::calibrate::NgramModel::new();
-        let walker = ignore::WalkBuilder::new(&repo_path)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() { continue; }
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !WATCH_EXTENSIONS.contains(&ext) { continue; }
-            if is_ignored_path(path, &repo_path) { continue; }
-            let Ok(content) = std::fs::read_to_string(path) else { continue; };
-            let tokens = crate::calibrate::NgramModel::tokenize_file(&content);
-            model.train_on_tokens(&tokens);
-        }
-        if model.is_confident() {
-            if !quiet {
-                println!("  {} Learned coding patterns ({} tokens)", style("🧠").dim(), model.total_tokens());
-            }
-            Some(model)
-        } else {
-            None
-        }
-    };
+    if !quiet {
+        let findings = session.findings();
+        let score = session.score();
+        println!(
+            "  {} Initial analysis: {} findings, score {:.1} ({:.2}s)",
+            style("✓").green(),
+            findings.len(),
+            score.unwrap_or(0.0),
+            cold_elapsed.as_secs_f64()
+        );
+        println!();
+    }
 
     // Set up file watcher with debouncing
     let (tx, rx) = mpsc::channel();
@@ -84,21 +74,12 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
 
     debouncer.watch(&repo_path, RecursiveMode::Recursive)?;
 
-    // Build CacheCoordinator for coordinated invalidation on file changes.
-    // The FileCache clone shares the same Arc<DashMap> as the global instance,
-    // so invalidation through the coordinator clears stale entries globally.
-    let mut cache_coordinator = CacheCoordinator::new();
-    cache_coordinator.register(Box::new(crate::cache::global_cache().clone()));
-
-    // Track findings per file for diff display
-    let mut previous_findings: std::collections::HashMap<PathBuf, Vec<Finding>> =
-        std::collections::HashMap::new();
     let mut total_catches = 0u32;
 
     // Main event loop
     while let Ok(events) = rx.recv() {
         // Collect unique changed source files
-        let changed_files: HashSet<PathBuf> = events
+        let changed_files: Vec<PathBuf> = events
             .iter()
             .flat_map(|event| event.paths.iter())
             .filter(|p| {
@@ -106,35 +87,32 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
                     .and_then(|e| e.to_str())
                     .is_some_and(|ext| WATCH_EXTENSIONS.contains(&ext))
                     && !is_ignored_path(p, &repo_path)
+                    && p.is_file()
             })
             .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
             .collect();
 
         if changed_files.is_empty() {
             continue;
         }
 
-        // Invalidate stale cache entries for changed files before re-analyzing
-        let changed_refs: Vec<&Path> =
-            changed_files.iter().map(|p| p.as_path()).collect();
-        cache_coordinator.invalidate_files(&changed_refs);
+        // Incremental update via session
+        let start = std::time::Instant::now();
+        let delta = session.update(&changed_files)?;
+        let elapsed = start.elapsed();
 
-        // Analyze each changed file
-        for file_path in &changed_files {
-            let findings = analyze_single_file(
-                file_path,
-                &repo_path,
-                &project_config,
-                style_profile.as_ref(),
-                ngram_model.clone(),
-                relaxed,
-            );
+        // Filter by severity if relaxed mode
+        let delta = if relaxed {
+            filter_delta_relaxed(delta)
+        } else {
+            delta
+        };
 
-            let prev = previous_findings.get(file_path).cloned().unwrap_or_default();
-            let catches = display_file_diff(file_path, &repo_path, &findings, &prev, no_emoji, quiet);
-            total_catches += catches;
-            previous_findings.insert(file_path.clone(), findings);
-        }
+        // Display results
+        total_catches += delta.new_findings.len() as u32;
+        display_delta(&delta, &changed_files, &repo_path, elapsed, no_emoji, quiet);
     }
 
     println!(
@@ -145,89 +123,135 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
     Ok(())
 }
 
-/// Analyze a single file with all detectors
-fn analyze_single_file(
-    file_path: &Path,
+/// Filter an AnalysisDelta to only show High/Critical findings (relaxed mode).
+fn filter_delta_relaxed(delta: AnalysisDelta) -> AnalysisDelta {
+    AnalysisDelta {
+        new_findings: delta
+            .new_findings
+            .into_iter()
+            .filter(|f| matches!(f.severity, Severity::High | Severity::Critical))
+            .collect(),
+        fixed_findings: delta
+            .fixed_findings
+            .into_iter()
+            .filter(|f| matches!(f.severity, Severity::High | Severity::Critical))
+            .collect(),
+        total_findings: delta.total_findings,
+        score: delta.score,
+        score_delta: delta.score_delta,
+    }
+}
+
+/// Display the results of an incremental update.
+fn display_delta(
+    delta: &AnalysisDelta,
+    changed_files: &[PathBuf],
     repo_path: &Path,
-    project_config: &crate::config::ProjectConfig,
-    style_profile: Option<&crate::calibrate::StyleProfile>,
-    ngram_model: Option<crate::calibrate::NgramModel>,
-    relaxed: bool,
-) -> Vec<Finding> {
-    let Ok(parse_result) = parse_file(file_path) else {
-        return vec![];
-    };
+    elapsed: Duration,
+    no_emoji: bool,
+    quiet: bool,
+) {
+    let time = chrono::Local::now().format("%H:%M:%S");
 
-    let rel_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
-    let rel_str = rel_path.to_string_lossy();
-
-    // Build a minimal graph with just this file
-    let graph = crate::graph::GraphStore::in_memory();
-    for func in &parse_result.functions {
-        let mut node =
-            crate::graph::CodeNode::new(crate::graph::NodeKind::Function, &func.name, &rel_str)
-                .with_lines(func.line_start, func.line_end);
-        node.complexity = func.complexity.unwrap_or(1) as u16;
-        if func.is_async {
-            node.flags |= FLAG_IS_ASYNC;
-        }
-        graph.add_node(node);
-    }
-    for class in &parse_result.classes {
-        let mut node =
-            crate::graph::CodeNode::new(crate::graph::NodeKind::Class, &class.name, &rel_str);
-        node.method_count = class.methods.len() as u16;
-        graph.add_node(node);
-    }
-
-    // Read file content for line-based detectors
-    let source = std::fs::read_to_string(file_path).unwrap_or_default();
-    let loc = source.lines().count();
-    let mut file_node = crate::graph::CodeNode::file(&rel_str);
-    file_node.line_end = loc as u32;
-    let lang = crate::cli::analyze::graph::detect_language(file_path);
-    if !lang.is_empty() {
-        file_node.language = crate::graph::interner::global_interner().intern(&lang);
-    }
-    graph.add_node(file_node);
-
-    // Run detectors
-    let mut engine = DetectorEngine::new(1);
-    let skip_set: HashSet<&str> = HashSet::new();
-    let detectors = default_detectors_with_ngram(repo_path, project_config, style_profile, ngram_model);
-
-    for detector in detectors {
-        let name = detector.name();
-        if !skip_set.contains(name) {
-            engine.register(detector);
-        }
-    }
-
-    let source_files = crate::detectors::SourceFiles::new(vec![file_path.to_path_buf()], repo_path.to_path_buf());
-    let mut findings = match engine.run(&graph, &source_files) {
-        Ok(f) => f,
-        Err(_) => return vec![],
-    };
-
-    // Filter to only findings in this file
-    findings.retain(|f| {
-        f.affected_files.iter().any(|af| {
-            let af_str = af.to_string_lossy();
-            af_str.contains(&*rel_str) || af_str == rel_str.as_ref()
+    // Build a display-friendly list of changed files (relative paths)
+    let file_list: String = changed_files
+        .iter()
+        .map(|p| {
+            p.strip_prefix(repo_path)
+                .unwrap_or(p)
+                .display()
+                .to_string()
         })
-    });
+        .collect::<Vec<_>>()
+        .join(", ");
 
-    // Filter by severity if relaxed
-    if relaxed {
-        findings.retain(|f| {
-            matches!(
-                f.severity,
-                crate::models::Severity::High | crate::models::Severity::Critical
-            )
-        });
+    // No new or fixed findings — show a compact summary line
+    if delta.new_findings.is_empty() && delta.fixed_findings.is_empty() {
+        if !quiet {
+            println!(
+                "{} {} {} ({:.0}ms, {} total findings{})",
+                style(format!("[{}]", time)).dim(),
+                if no_emoji { "→" } else { "📝" },
+                style(&file_list).dim(),
+                elapsed.as_millis(),
+                delta.total_findings,
+                score_suffix(delta),
+            );
+        }
+        return;
     }
 
-    findings
+    // Header with timing
+    println!(
+        "{} {} {} ({:.0}ms)",
+        style(format!("[{}]", time)).dim(),
+        if no_emoji { "→" } else { "📝" },
+        style(&file_list).cyan().bold(),
+        elapsed.as_millis(),
+    );
+
+    // Show new findings
+    for f in &delta.new_findings {
+        let sev_icon = severity_icon(f.severity, no_emoji);
+        let file_line = f
+            .affected_files
+            .first()
+            .map(|af| {
+                let rel = af.strip_prefix(repo_path).unwrap_or(af);
+                match f.line_start {
+                    Some(line) => format!("{}:{}", rel.display(), line),
+                    None => rel.display().to_string(),
+                }
+            })
+            .unwrap_or_default();
+        println!(
+            "  {} {} {} {}",
+            sev_icon,
+            style(f.detector.replace("Detector", "")).yellow(),
+            style(&file_line).dim(),
+            f.title
+        );
+        if is_ai_detector(&f.detector) {
+            println!(
+                "     {} {}",
+                style("⚡").dim(),
+                style("Possible AI-generated code issue").dim().italic()
+            );
+        }
+    }
+
+    // Show fixed findings
+    for f in &delta.fixed_findings {
+        println!(
+            "  {} {} {}",
+            if no_emoji { "FIX " } else { "✅" },
+            style(f.detector.replace("Detector", "")).green(),
+            style(&f.title).strikethrough()
+        );
+    }
+
+    // Score summary
+    if let Some(score) = delta.score {
+        let delta_str = match delta.score_delta {
+            Some(d) if d > 0.5 => format!(" {}", style(format!("+{:.1}", d)).green()),
+            Some(d) if d < -0.5 => format!(" {}", style(format!("{:.1}", d)).red()),
+            _ => String::new(),
+        };
+        println!("  Score: {:.1}{}", score, delta_str);
+    }
+
+    println!();
+}
+
+/// Format a score delta suffix for the compact summary line.
+fn score_suffix(delta: &AnalysisDelta) -> String {
+    match (delta.score, delta.score_delta) {
+        (Some(score), Some(d)) if d.abs() > 0.05 => {
+            format!(", score {:.1} ({:+.1})", score, d)
+        }
+        (Some(score), _) => format!(", score {:.1}", score),
+        _ => String::new(),
+    }
 }
 
 /// Check if a detector is AI-focused
@@ -256,86 +280,8 @@ fn is_ignored_path(path: &Path, repo_path: &Path) -> bool {
         || rel_str.starts_with('.')
 }
 
-/// Display diff between previous and current findings for a file. Returns count of new catches.
-fn display_file_diff(
-    file_path: &Path,
-    repo_path: &Path,
-    findings: &[Finding],
-    prev: &[Finding],
-    no_emoji: bool,
-    quiet: bool,
-) -> u32 {
-    let rel_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
-
-    let new_findings: Vec<_> = findings.iter().filter(|f| {
-        !prev.iter().any(|pf| pf.detector == f.detector && pf.line_start == f.line_start && pf.title == f.title)
-    }).collect();
-
-    let fixed_findings: Vec<_> = prev.iter().filter(|pf| {
-        !findings.iter().any(|f| f.detector == pf.detector && f.line_start == pf.line_start && f.title == pf.title)
-    }).collect();
-
-    if new_findings.is_empty() && fixed_findings.is_empty() {
-        if !quiet && !findings.is_empty() {
-            let time = chrono::Local::now().format("%H:%M:%S");
-            println!(
-                "{} {} {} ({} findings, no changes)",
-                style(format!("[{}]", time)).dim(),
-                if no_emoji { "→" } else { "📝" },
-                style(rel_path.display()).dim(),
-                findings.len()
-            );
-        }
-        return 0;
-    }
-
-    let time = chrono::Local::now().format("%H:%M:%S");
-    println!(
-        "{} {} {}",
-        style(format!("[{}]", time)).dim(),
-        if no_emoji { "→" } else { "📝" },
-        style(rel_path.display()).cyan().bold()
-    );
-
-    let mut catches = 0u32;
-    for f in &new_findings {
-        catches += 1;
-        let sev_icon = severity_icon(f.severity, no_emoji);
-        let line = f.line_start.map_or(String::new(), |l| format!(":{}", l));
-        println!(
-            "  {} {} {} {}",
-            sev_icon,
-            style(&f.detector.replace("Detector", "")).yellow(),
-            style(format!("{}{}", rel_path.display(), line)).dim(),
-            f.title
-        );
-        if is_ai_detector(&f.detector) {
-            println!(
-                "     {} {}",
-                style("⚡").dim(),
-                style("Possible AI-generated code issue").dim().italic()
-            );
-        }
-    }
-
-    for f in &fixed_findings {
-        let line = f.line_start.map_or(String::new(), |l| format!(":{}", l));
-        println!(
-            "  {} {} {} {}",
-            if no_emoji { "FIX " } else { "✅" },
-            style(&f.detector.replace("Detector", "")).green(),
-            style(format!("{}{}", rel_path.display(), line)).dim(),
-            style(&f.title).strikethrough()
-        );
-    }
-
-    println!();
-    catches
-}
-
 /// Map severity to display icon
-fn severity_icon(severity: crate::models::Severity, no_emoji: bool) -> &'static str {
-    use crate::models::Severity;
+fn severity_icon(severity: Severity, no_emoji: bool) -> &'static str {
     match (severity, no_emoji) {
         (Severity::Critical, true) => "CRIT",
         (Severity::Critical, false) => "🔴",
