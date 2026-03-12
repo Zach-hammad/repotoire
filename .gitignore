@@ -91,6 +91,10 @@ lean/lake-manifest.json
 # Benchmark files (allow benchmarks/ dir but exclude Python bench files)
 **/bench_*.py
 
+# Benchmark suite (cloned repos and analysis results)
+benchmark/*/repo/
+benchmark/*/results.json
+
 # Claude Code (keep architecture-patterns.json for documentation)
 .claude/*
 !.claude/architecture-patterns.json
