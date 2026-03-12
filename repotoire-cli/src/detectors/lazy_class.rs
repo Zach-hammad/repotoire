@@ -102,6 +102,14 @@ const EXCLUDE_PATTERNS: &[&str] = &[
     // Rust-specific (idiomatic small types)
     "phantom",  // PhantomData marker types
     "marker",   // Marker types (zero-sized, trait-only)
+    // Python data containers
+    "namedtuple",   // collections.namedtuple / typing.NamedTuple
+    "dataclass",    // @dataclass classes (backup for QN-based check)
+    // Java/C# patterns
+    "record",       // Java 16+ records, C# records (data carriers)
+    "enum",         // Java/C# enums with few methods are idiomatic
+    // C# patterns
+    "extension",    // C# extension method classes (helpers by design)
 ];
 
 /// Detects classes that do minimal work and aren't used much
@@ -139,6 +147,56 @@ impl LazyClassDetector {
     /// Check if a file path is a Rust source file.
     fn is_rust_file(path: &str) -> bool {
         path.ends_with(".rs")
+    }
+
+    /// Check if a file path is a Go source file.
+    fn is_go_file(path: &str) -> bool {
+        path.ends_with(".go")
+    }
+
+    /// Check if a file path is a Java source file.
+    #[allow(dead_code)] // Available for future Java-specific logic
+    fn is_java_file(path: &str) -> bool {
+        path.ends_with(".java")
+    }
+
+    /// Check if a file path is a C# source file.
+    fn is_cs_file(path: &str) -> bool {
+        path.ends_with(".cs")
+    }
+
+    /// Check if a file path is a Python source file.
+    fn is_python_file(path: &str) -> bool {
+        path.ends_with(".py")
+    }
+
+    /// Check if a qualified name indicates a Java/C# record (data carrier).
+    /// Parser emits `path::record::Name:line` for records.
+    fn is_record_qn(qn: &str) -> bool {
+        qn.contains("::record::")
+    }
+
+    /// Check if a qualified name indicates a Java/C# enum.
+    /// Parser emits `path::enum::Name:line` for enums.
+    fn is_enum_qn(qn: &str) -> bool {
+        qn.contains("::enum::")
+    }
+
+    /// Check if a qualified name indicates a C# struct (value type).
+    /// Parser emits `path::struct::Name:line` for C# structs.
+    fn is_cs_struct_qn(qn: &str) -> bool {
+        qn.contains("::struct::")
+    }
+
+    /// Check if a C# class name follows the interface naming convention (IFoo).
+    /// C# interfaces conventionally start with "I" followed by an uppercase letter.
+    /// The parser already emits `::interface::` for explicit interface declarations,
+    /// but some codebases define interface-like abstract classes with I-prefix names.
+    fn is_cs_interface_name(name: &str) -> bool {
+        let bytes = name.as_bytes();
+        bytes.len() >= 2
+            && bytes[0] == b'I'
+            && bytes[1].is_ascii_uppercase()
     }
 
     /// Count methods belonging to a Rust struct/enum via `impl` blocks.
@@ -262,19 +320,69 @@ impl Detector for LazyClassDetector {
             }
 
             // --- String checks (no allocation, no I/O) ---
-            if class.qn(i).contains("::interface::")
-                || class.qn(i).contains("::type::")
-            {
+            let qn = class.qn(i);
+            let file_path = class.path(i);
+
+            // Skip interfaces (Go, Java, C#), Go type aliases — all languages
+            if qn.contains("::interface::") || qn.contains("::type::") {
                 continue;
+            }
+
+            // Skip Java/C# records — data carriers by design (Java 16+, C# 9+)
+            if Self::is_record_qn(qn) {
+                continue;
+            }
+
+            // Skip Java/C# enums — enums with few methods are idiomatic
+            if Self::is_enum_qn(qn) {
+                continue;
+            }
+
+            // Skip C# structs — value types with few methods are idiomatic
+            if Self::is_cs_file(file_path) && Self::is_cs_struct_qn(qn) {
+                continue;
+            }
+
+            // C#: skip I-prefixed names (interface naming convention)
+            // The parser marks explicit `interface` declarations with ::interface::
+            // but abstract classes following the IFoo convention are interface-like.
+            if Self::is_cs_file(file_path) && Self::is_cs_interface_name(class.node_name(i)) {
+                continue;
+            }
+
+            // Go: types with 1-2 methods are idiomatic (small, focused interfaces
+            // and structs following SRP). Only skip when LOC is also small.
+            if Self::is_go_file(file_path) {
+                let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
+                if method_count <= 2 {
+                    debug!(
+                        "Skipping Go type {} - has {} methods (idiomatic small type)",
+                        class.node_name(i), method_count
+                    );
+                    continue;
+                }
+            }
+
+            // Python: classes with decorators and 0-1 methods are likely @dataclass,
+            // @attrs, or similar data containers. The `has_decorators` flag is set
+            // by the parser for any decorated class.
+            if Self::is_python_file(file_path) && class.has_decorators() {
+                let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
+                if method_count <= 1 {
+                    debug!(
+                        "Skipping Python decorated class {} - likely @dataclass/data container ({} methods)",
+                        class.node_name(i), method_count
+                    );
+                    continue;
+                }
             }
 
             // Rust: traits are already excluded by "trait" in EXCLUDE_PATTERNS via
             // the class name, but also skip by qualified name pattern (::trait::)
             // which the Rust parser uses for trait definitions.
-            // Rust enums with methods are idiomatic, not lazy — skip them.
-            if Self::is_rust_file(class.path(i)) {
+            if Self::is_rust_file(file_path) {
                 // Qualified name pattern: "path::trait::TraitName:line"
-                if class.qn(i).contains("::trait::") {
+                if qn.contains("::trait::") {
                     continue;
                 }
             }
@@ -285,7 +393,7 @@ impl Detector for LazyClassDetector {
 
             // Skip test fixture/model classes (path-based, cheap)
             {
-                let lower_path = class.path(i).to_lowercase();
+                let lower_path = file_path.to_lowercase();
                 if lower_path.contains("/test/") || lower_path.contains("/tests/")
                     || lower_path.contains("/__tests__/") || lower_path.contains("/spec/")
                     || lower_path.contains("/fixtures/")
@@ -300,18 +408,18 @@ impl Detector for LazyClassDetector {
 
             // --- Expensive: per-file bundled/minified/fixture check (cached) ---
             let excluded = *file_excluded
-                .entry(class.path(i))
+                .entry(file_path)
                 .or_insert_with(|| {
-                    if crate::detectors::content_classifier::is_likely_bundled_path(class.path(i)) {
+                    if crate::detectors::content_classifier::is_likely_bundled_path(file_path) {
                         return true;
                     }
                     if let Some(content) =
-                        crate::cache::global_cache().content(std::path::Path::new(class.path(i)))
+                        crate::cache::global_cache().content(std::path::Path::new(file_path))
                     {
                         if crate::detectors::content_classifier::is_bundled_code(&content)
                             || crate::detectors::content_classifier::is_minified_code(&content)
                             || crate::detectors::content_classifier::is_fixture_code(
-                                class.path(i),
+                                file_path,
                                 &content,
                             )
                         {
@@ -762,5 +870,571 @@ mod tests {
 
         let count_none = LazyClassDetector::count_rust_impl_methods(&file_func_refs, "Baz", i);
         assert_eq!(count_none, 0, "Should count 0 methods for non-existent type");
+    }
+
+    // --- Go-specific tests ---
+
+    #[test]
+    fn test_go_small_type_not_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Go struct with 2 methods — idiomatic, should NOT be flagged
+        graph.add_node(
+            CodeNode::class("Reader", "pkg/io/reader.go")
+                .with_qualified_name("pkg/io/reader.go::Reader:5")
+                .with_lines(5, 15)
+                .with_property("methodCount", 2i64),
+        );
+
+        graph.add_node(
+            CodeNode::function("Read", "pkg/io/reader.go")
+                .with_qualified_name("pkg/io/reader.go::Reader::Read:7")
+                .with_lines(7, 10),
+        );
+
+        graph.add_node(
+            CodeNode::function("Close", "pkg/io/reader.go")
+                .with_qualified_name("pkg/io/reader.go::Reader::Close:12")
+                .with_lines(12, 14),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Go type with 2 methods should NOT be flagged as lazy (idiomatic), got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_go_zero_method_type_not_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Go struct with 0 methods — still idiomatic in Go (data struct)
+        graph.add_node(
+            CodeNode::class("Point", "pkg/geo/point.go")
+                .with_qualified_name("pkg/geo/point.go::Point:1")
+                .with_lines(1, 8)
+                .with_property("methodCount", 0i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Go type with 0 methods should NOT be flagged (idiomatic Go data struct)"
+        );
+    }
+
+    #[test]
+    fn test_go_interface_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // Go interface: parser emits ::interface:: in qualified name
+        graph.add_node(
+            CodeNode::class("Stringer", "pkg/fmt/stringer.go")
+                .with_qualified_name("pkg/fmt/stringer.go::interface::Stringer:3")
+                .with_lines(3, 8)
+                .with_property("methodCount", 1i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Go interface should NOT be flagged as lazy class"
+        );
+    }
+
+    // --- Java-specific tests ---
+
+    #[test]
+    fn test_java_interface_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // Java interface: parser emits ::interface:: in qualified name
+        graph.add_node(
+            CodeNode::class("Comparable", "src/main/java/Comparable.java")
+                .with_qualified_name("src/main/java/Comparable.java::interface::Comparable:1")
+                .with_lines(1, 10)
+                .with_property("methodCount", 1i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Java interface should NOT be flagged as lazy class"
+        );
+    }
+
+    #[test]
+    fn test_java_record_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // Java 16+ record: parser emits ::record:: in qualified name
+        graph.add_node(
+            CodeNode::class("UserRecord", "src/main/java/UserRecord.java")
+                .with_qualified_name("src/main/java/UserRecord.java::record::UserRecord:1")
+                .with_lines(1, 8)
+                .with_property("methodCount", 0i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Java record should NOT be flagged as lazy class (data carrier)"
+        );
+    }
+
+    #[test]
+    fn test_java_enum_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // Java enum: parser emits ::enum:: in qualified name
+        graph.add_node(
+            CodeNode::class("Color", "src/main/java/Color.java")
+                .with_qualified_name("src/main/java/Color.java::enum::Color:1")
+                .with_lines(1, 12)
+                .with_property("methodCount", 1i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Java enum should NOT be flagged as lazy class"
+        );
+    }
+
+    #[test]
+    fn test_java_plain_class_still_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Regular Java class that is truly lazy — should still be flagged
+        graph.add_node(
+            CodeNode::class("TinyProcessor", "src/main/java/TinyProcessor.java")
+                .with_qualified_name("src/main/java/TinyProcessor.java::TinyProcessor:1")
+                .with_lines(1, 15)
+                .with_property("methodCount", 1i64),
+        );
+
+        graph.add_node(
+            CodeNode::function("process", "src/main/java/TinyProcessor.java")
+                .with_qualified_name("src/main/java/TinyProcessor.java::TinyProcessor.process:3")
+                .with_lines(3, 10),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert_eq!(
+            findings.len(),
+            1,
+            "Plain Java class with 1 method and no callers should still be flagged"
+        );
+        assert!(findings[0].title.contains("TinyProcessor"));
+    }
+
+    // --- C#-specific tests ---
+
+    #[test]
+    fn test_cs_interface_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // C# interface: parser emits ::interface:: in qualified name
+        graph.add_node(
+            CodeNode::class("IDisposable", "src/IDisposable.cs")
+                .with_qualified_name("src/IDisposable.cs::interface::IDisposable:1")
+                .with_lines(1, 8)
+                .with_property("methodCount", 1i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "C# interface should NOT be flagged as lazy class"
+        );
+    }
+
+    #[test]
+    fn test_cs_record_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // C# record: parser emits ::record:: in qualified name
+        graph.add_node(
+            CodeNode::class("Person", "src/Models/Person.cs")
+                .with_qualified_name("src/Models/Person.cs::record::Person:1")
+                .with_lines(1, 5)
+                .with_property("methodCount", 0i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "C# record should NOT be flagged as lazy class (data carrier)"
+        );
+    }
+
+    #[test]
+    fn test_cs_enum_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // C# enum: parser emits ::enum:: in qualified name
+        graph.add_node(
+            CodeNode::class("Status", "src/Models/Status.cs")
+                .with_qualified_name("src/Models/Status.cs::enum::Status:1")
+                .with_lines(1, 10)
+                .with_property("methodCount", 0i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "C# enum should NOT be flagged as lazy class"
+        );
+    }
+
+    #[test]
+    fn test_cs_struct_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // C# struct: parser emits ::struct:: in qualified name
+        graph.add_node(
+            CodeNode::class("Vector2", "src/Math/Vector2.cs")
+                .with_qualified_name("src/Math/Vector2.cs::struct::Vector2:1")
+                .with_lines(1, 15)
+                .with_property("methodCount", 2i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "C# struct should NOT be flagged as lazy class (value type)"
+        );
+    }
+
+    #[test]
+    fn test_cs_i_prefixed_name_skipped() {
+        let graph = GraphStore::in_memory();
+
+        // C# class with I-prefix convention (interface-like abstract class)
+        // Note: this class does NOT have ::interface:: in QN — it's a class
+        // that follows the interface naming convention.
+        graph.add_node(
+            CodeNode::class("ILogger", "src/Logging/ILogger.cs")
+                .with_qualified_name("src/Logging/ILogger.cs::ILogger:1")
+                .with_lines(1, 10)
+                .with_property("methodCount", 2i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "C# class with I-prefix naming convention should NOT be flagged"
+        );
+    }
+
+    #[test]
+    fn test_cs_i_prefix_not_applied_to_non_cs_files() {
+        let graph = GraphStore::in_memory();
+
+        // A Python class named "ILogger" should NOT get the C# I-prefix exclusion
+        graph.add_node(
+            CodeNode::class("ILogger", "src/logging.py")
+                .with_qualified_name("src/logging.py::ILogger:1")
+                .with_lines(1, 12)
+                .with_property("methodCount", 2i64),
+        );
+
+        graph.add_node(
+            CodeNode::function("log", "src/logging.py")
+                .with_qualified_name("src/logging.py::ILogger::log:3")
+                .with_lines(3, 8),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert_eq!(
+            findings.len(),
+            1,
+            "Python class named ILogger should still be flagged (C# I-prefix rule is .cs only)"
+        );
+    }
+
+    #[test]
+    fn test_cs_plain_class_still_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Regular C# class with just a regular QN — should still be flagged
+        graph.add_node(
+            CodeNode::class("TinyWorker", "src/TinyWorker.cs")
+                .with_qualified_name("src/TinyWorker.cs::TinyWorker:1")
+                .with_lines(1, 12)
+                .with_property("methodCount", 1i64),
+        );
+
+        graph.add_node(
+            CodeNode::function("DoWork", "src/TinyWorker.cs")
+                .with_qualified_name("src/TinyWorker.cs::TinyWorker.DoWork:3")
+                .with_lines(3, 8),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert_eq!(
+            findings.len(),
+            1,
+            "Plain C# class should still be flagged as lazy"
+        );
+        assert!(findings[0].title.contains("TinyWorker"));
+    }
+
+    // --- Python-specific tests ---
+
+    #[test]
+    fn test_python_decorated_class_with_few_methods_not_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Python @dataclass with 0 methods — should NOT be flagged
+        let mut node = CodeNode::class("UserData", "src/models.py")
+            .with_qualified_name("src/models.py::UserData:1")
+            .with_lines(1, 10)
+            .with_property("methodCount", 0i64);
+        // Set the has_decorators flag (as the parser would for @dataclass)
+        node.set_flag(crate::graph::store_models::FLAG_HAS_DECORATORS);
+        graph.add_node(node);
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Python decorated class (likely @dataclass) with 0 methods should NOT be flagged"
+        );
+    }
+
+    #[test]
+    fn test_python_decorated_class_with_1_method_not_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Python @dataclass with 1 method (e.g., __post_init__) — should NOT be flagged
+        let mut node = CodeNode::class("ConfigData", "src/config.py")
+            .with_qualified_name("src/config.py::ConfigData:1")
+            .with_lines(1, 15)
+            .with_property("methodCount", 1i64);
+        node.set_flag(crate::graph::store_models::FLAG_HAS_DECORATORS);
+        graph.add_node(node);
+
+        graph.add_node(
+            CodeNode::function("__post_init__", "src/config.py")
+                .with_qualified_name("src/config.py::ConfigData::__post_init__:5")
+                .with_lines(5, 10),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Python decorated class with 1 method should NOT be flagged (likely @dataclass)"
+        );
+    }
+
+    #[test]
+    fn test_python_undecorated_class_still_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Python class WITHOUT decorators, few methods — should be flagged
+        graph.add_node(
+            CodeNode::class("TinyUtil", "src/utils.py")
+                .with_qualified_name("src/utils.py::TinyUtil:1")
+                .with_lines(1, 12)
+                .with_property("methodCount", 1i64),
+        );
+
+        graph.add_node(
+            CodeNode::function("run", "src/utils.py")
+                .with_qualified_name("src/utils.py::TinyUtil::run:3")
+                .with_lines(3, 8),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert_eq!(
+            findings.len(),
+            1,
+            "Python undecorated class should still be flagged as lazy"
+        );
+        assert!(findings[0].title.contains("TinyUtil"));
+    }
+
+    #[test]
+    fn test_python_decorated_class_with_many_methods_still_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Python decorated class with 2+ methods — still a candidate
+        // (threshold is <= 1 for the decorator exemption)
+        let mut node = CodeNode::class("SmallThing", "src/things.py")
+            .with_qualified_name("src/things.py::SmallThing:1")
+            .with_lines(1, 20)
+            .with_property("methodCount", 2i64);
+        node.set_flag(crate::graph::store_models::FLAG_HAS_DECORATORS);
+        graph.add_node(node);
+
+        graph.add_node(
+            CodeNode::function("do_a", "src/things.py")
+                .with_qualified_name("src/things.py::SmallThing::do_a:3")
+                .with_lines(3, 8),
+        );
+
+        graph.add_node(
+            CodeNode::function("do_b", "src/things.py")
+                .with_qualified_name("src/things.py::SmallThing::do_b:10")
+                .with_lines(10, 15),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert_eq!(
+            findings.len(),
+            1,
+            "Python decorated class with 2 methods should still be flagged (decorator exemption is <= 1)"
+        );
+    }
+
+    #[test]
+    fn test_python_namedtuple_excluded_by_pattern() {
+        let detector = LazyClassDetector::new();
+
+        // "namedtuple" should be in EXCLUDE_PATTERNS
+        assert!(
+            detector.should_exclude("PointNamedTuple"),
+            "Class name containing 'namedtuple' should be excluded"
+        );
+        assert!(
+            detector.should_exclude("MyNamedtuple"),
+            "Class name containing 'namedtuple' (lowercase) should be excluded"
+        );
+    }
+
+    #[test]
+    fn test_python_dataclass_excluded_by_pattern() {
+        let detector = LazyClassDetector::new();
+
+        // "dataclass" should be in EXCLUDE_PATTERNS
+        assert!(
+            detector.should_exclude("UserDataclass"),
+            "Class name containing 'dataclass' should be excluded"
+        );
+    }
+
+    // --- Helper function tests ---
+
+    #[test]
+    fn test_file_type_detection() {
+        // Go
+        assert!(LazyClassDetector::is_go_file("pkg/io/reader.go"));
+        assert!(!LazyClassDetector::is_go_file("src/reader.py"));
+
+        // Java
+        assert!(LazyClassDetector::is_java_file("src/Main.java"));
+        assert!(!LazyClassDetector::is_java_file("src/main.go"));
+
+        // C#
+        assert!(LazyClassDetector::is_cs_file("src/Program.cs"));
+        assert!(!LazyClassDetector::is_cs_file("src/style.css")); // .css != .cs
+
+        // Python
+        assert!(LazyClassDetector::is_python_file("src/app.py"));
+        assert!(!LazyClassDetector::is_python_file("src/app.pyi")); // stub files
+    }
+
+    #[test]
+    fn test_cs_interface_name_detection() {
+        // Valid C# interface names
+        assert!(LazyClassDetector::is_cs_interface_name("IDisposable"));
+        assert!(LazyClassDetector::is_cs_interface_name("ILogger"));
+        assert!(LazyClassDetector::is_cs_interface_name("IRepository"));
+
+        // NOT interface names
+        assert!(!LazyClassDetector::is_cs_interface_name("Integer")); // I + lowercase
+        assert!(!LazyClassDetector::is_cs_interface_name("Item")); // I + lowercase 't'
+        assert!(!LazyClassDetector::is_cs_interface_name("I")); // Too short
+        assert!(!LazyClassDetector::is_cs_interface_name("")); // Empty
+        assert!(!LazyClassDetector::is_cs_interface_name("iLogger")); // lowercase i
+    }
+
+    #[test]
+    fn test_record_enum_qn_detection() {
+        assert!(LazyClassDetector::is_record_qn("src/User.java::record::User:1"));
+        assert!(LazyClassDetector::is_record_qn("src/Person.cs::record::Person:5"));
+        assert!(!LazyClassDetector::is_record_qn("src/User.java::User:1"));
+
+        assert!(LazyClassDetector::is_enum_qn("src/Color.java::enum::Color:1"));
+        assert!(LazyClassDetector::is_enum_qn("src/Status.cs::enum::Status:1"));
+        assert!(!LazyClassDetector::is_enum_qn("src/Color.java::Color:1"));
+
+        assert!(LazyClassDetector::is_cs_struct_qn("src/Vec2.cs::struct::Vec2:1"));
+        assert!(!LazyClassDetector::is_cs_struct_qn("src/Vec2.cs::Vec2:1"));
+    }
+
+    // --- New exclusion pattern tests ---
+
+    #[test]
+    fn test_new_exclusion_patterns() {
+        let detector = LazyClassDetector::new();
+
+        // Python data containers
+        assert!(detector.should_exclude("UserNamedtuple"));
+        assert!(detector.should_exclude("PointDataclass"));
+
+        // Java/C# patterns
+        assert!(detector.should_exclude("UserRecord"));
+        assert!(detector.should_exclude("StatusEnum"));
+
+        // C# extension methods
+        assert!(detector.should_exclude("StringExtension"));
+        assert!(detector.should_exclude("ListExtensions"));
     }
 }
