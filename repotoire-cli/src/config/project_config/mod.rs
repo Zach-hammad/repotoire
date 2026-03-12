@@ -401,6 +401,10 @@ pub struct CliDefaults {
     /// Fail-on severity threshold for CI
     #[serde(default)]
     pub fail_on: Option<String>,
+
+    /// Minimum confidence threshold (0.0–1.0) — findings below this are hidden
+    #[serde(default)]
+    pub min_confidence: Option<f64>,
 }
 
 /// Load project configuration from the repository root.

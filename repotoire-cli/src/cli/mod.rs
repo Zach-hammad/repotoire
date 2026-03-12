@@ -182,6 +182,14 @@ Examples:
         /// Print per-phase pipeline timing breakdown
         #[arg(long)]
         timings: bool,
+
+        /// Minimum confidence threshold (0.0–1.0) — hide findings below this
+        #[arg(long, value_name = "THRESHOLD")]
+        min_confidence: Option<f64>,
+
+        /// Show all findings, bypassing --min-confidence filter
+        #[arg(long)]
+        show_all: bool,
     },
 
     /// Compare findings between two analysis states (shows new, fixed, score delta)
@@ -474,6 +482,8 @@ pub fn run(cli: Cli) -> Result<()> {
             rank,
             export_training,
             timings,
+            min_confidence,
+            show_all,
         }) => {
             // Deprecation warning for --thorough
             if thorough {
@@ -499,6 +509,9 @@ pub fn run(cli: Cli) -> Result<()> {
                 (no_git, skip_graph)
             };
 
+            // Resolve min_confidence: CLI flag > config fallback > None
+            let effective_min_confidence = min_confidence;
+
             analyze::run(
                 &cli.path,
                 &format,
@@ -522,6 +535,8 @@ pub fn run(cli: Cli) -> Result<()> {
                 rank,
                 export_training.as_deref(),
                 timings,
+                effective_min_confidence,
+                show_all,
             )
         }
 
@@ -723,6 +738,8 @@ pub fn run(cli: Cli) -> Result<()> {
                 false, // rank
                 None,  // export_training
                 false, // timings
+                None,  // min_confidence
+                false, // show_all
             )
         }
     }

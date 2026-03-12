@@ -3,6 +3,7 @@
 //! Applied after detection and before scoring:
 //! 0.5. Assign default confidence by category (preserves detector-set values)
 //! 0.6. Confidence enrichment with contextual signals (bundled, non-prod, multi-detector, test)
+//! 0.7. Confidence threshold filter (--min-confidence, skipped with --show-all)
 //! 1. Incremental cache update
 //! 2. Detector overrides from project config
 //! 2.5. Path exclusion filtering
@@ -37,6 +38,8 @@ pub(super) fn postprocess_findings(
     verify: bool,
     graph: &dyn crate::graph::GraphQuery,
     rank: bool,
+    min_confidence: Option<f64>,
+    show_all: bool,
 ) {
     // Step 0: Replace random UUIDs with deterministic IDs for cache dedup (#73)
     for finding in findings.iter_mut() {
@@ -60,6 +63,11 @@ pub(super) fn postprocess_findings(
     // files, non-production paths) and multi-detector agreement.  Only fires
     // when signals match; unmatched findings are left untouched.
     crate::detectors::confidence_enrichment::enrich_all(findings);
+
+    // Step 0.7: Confidence threshold filter (--min-confidence).
+    // Removes findings whose effective confidence is below the threshold.
+    // Skipped when --show-all is set or no threshold is configured.
+    filter_by_min_confidence(findings, min_confidence, show_all);
 
     // Step 1: Update incremental cache
     update_incremental_cache(
@@ -636,6 +644,35 @@ fn detector_name_to_path_slug(name: &str) -> String {
     slug
 }
 
+/// Filter findings below a minimum confidence threshold.
+///
+/// If `show_all` is true, the filter is bypassed entirely.
+/// If `min_confidence` is `None`, no filtering is applied.
+/// The threshold is clamped to [0.0, 1.0].
+fn filter_by_min_confidence(
+    findings: &mut Vec<Finding>,
+    min_confidence: Option<f64>,
+    show_all: bool,
+) {
+    if show_all {
+        return;
+    }
+    let Some(threshold) = min_confidence else {
+        return;
+    };
+    let threshold = threshold.clamp(0.0, 1.0);
+    let before = findings.len();
+    findings.retain(|f| f.effective_confidence() >= threshold);
+    let removed = before - findings.len();
+    if removed > 0 {
+        tracing::debug!(
+            "Confidence filter (threshold={:.2}): removed {} findings below threshold",
+            threshold,
+            removed,
+        );
+    }
+}
+
 /// Check if a detector name is a security-related detector.
 fn is_security_detector(name: &str) -> bool {
     const SECURITY_DETECTORS: &[&str] = &[
@@ -910,5 +947,84 @@ mod tests {
         assert_eq!(findings[0].confidence, Some(0.99)); // preserved
         assert_eq!(findings[1].confidence, Some(0.85)); // architecture default
         assert_eq!(findings[2].confidence, Some(0.70)); // fallback default
+    }
+
+    // ── filter_by_min_confidence ────────────────────────────────────
+
+    #[test]
+    fn test_min_confidence_filters_below_threshold() {
+        let mut findings = vec![
+            Finding { confidence: Some(0.9), ..Default::default() },
+            Finding { confidence: Some(0.5), ..Default::default() },
+            Finding { confidence: Some(0.7), ..Default::default() },
+        ];
+        filter_by_min_confidence(&mut findings, Some(0.6), false);
+        assert_eq!(findings.len(), 2);
+        assert_eq!(findings[0].confidence, Some(0.9));
+        assert_eq!(findings[1].confidence, Some(0.7));
+    }
+
+    #[test]
+    fn test_min_confidence_none_does_not_filter() {
+        let mut findings = vec![
+            Finding { confidence: Some(0.1), ..Default::default() },
+            Finding { confidence: Some(0.9), ..Default::default() },
+        ];
+        filter_by_min_confidence(&mut findings, None, false);
+        assert_eq!(findings.len(), 2);
+    }
+
+    #[test]
+    fn test_min_confidence_show_all_bypasses_filter() {
+        let mut findings = vec![
+            Finding { confidence: Some(0.1), ..Default::default() },
+            Finding { confidence: Some(0.2), ..Default::default() },
+        ];
+        filter_by_min_confidence(&mut findings, Some(0.99), true);
+        assert_eq!(findings.len(), 2); // nothing removed
+    }
+
+    #[test]
+    fn test_min_confidence_exact_threshold_kept() {
+        let mut findings = vec![
+            Finding { confidence: Some(0.7), ..Default::default() },
+        ];
+        filter_by_min_confidence(&mut findings, Some(0.7), false);
+        assert_eq!(findings.len(), 1); // exactly at threshold is kept
+    }
+
+    #[test]
+    fn test_min_confidence_clamps_above_one() {
+        let mut findings = vec![
+            Finding { confidence: Some(0.99), ..Default::default() },
+        ];
+        // Threshold > 1.0 should be clamped to 1.0, filtering everything below 1.0
+        filter_by_min_confidence(&mut findings, Some(1.5), false);
+        assert_eq!(findings.len(), 0);
+    }
+
+    #[test]
+    fn test_min_confidence_clamps_below_zero() {
+        let mut findings = vec![
+            Finding { confidence: Some(0.01), ..Default::default() },
+        ];
+        // Threshold < 0.0 should be clamped to 0.0, keeping everything
+        filter_by_min_confidence(&mut findings, Some(-0.5), false);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn test_min_confidence_uses_effective_confidence_for_none() {
+        // Finding with confidence=None should use effective_confidence() which is 0.70
+        let mut findings = vec![
+            Finding { confidence: None, ..Default::default() },
+        ];
+        // 0.70 (effective default) >= 0.5 threshold => kept
+        filter_by_min_confidence(&mut findings, Some(0.5), false);
+        assert_eq!(findings.len(), 1);
+
+        // 0.70 (effective default) < 0.8 threshold => removed
+        filter_by_min_confidence(&mut findings, Some(0.8), false);
+        assert_eq!(findings.len(), 0);
     }
 }

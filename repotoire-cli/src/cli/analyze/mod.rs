@@ -77,6 +77,8 @@ pub fn run(
     rank: bool,
     export_training: Option<&Path>,
     timings: bool,
+    min_confidence: Option<f64>,
+    show_all: bool,
 ) -> Result<()> {
     // Normalize skip_detector names to kebab-case so both "TodoScanner" and "todo-scanner" work
     let skip_detector: Vec<String> = skip_detector
@@ -343,6 +345,10 @@ pub fn run(
 
     // Phase 4: Post-process findings
     let phase_start = Instant::now();
+    // Resolve min_confidence: CLI flag > project config > None
+    let effective_min_confidence = min_confidence
+        .or(env.project_config.defaults.min_confidence);
+
     postprocess_findings(
         &mut findings,
         &env.project_config,
@@ -354,6 +360,8 @@ pub fn run(
         verify,
         &graph,
         rank,
+        effective_min_confidence,
+        show_all,
     );
 
     // Phase 4b: Export training data (if --export-training)
