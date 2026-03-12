@@ -6,226 +6,36 @@
 //! - Test helpers that were never removed
 //!
 //! Uses graph analysis to find nodes with zero incoming CALLS relationships.
+//! Exemptions are driven by graph flags (is_exported, has_decorators,
+//! address_taken) and role-based gating (FunctionRole, HMM FunctionContext),
+//! replacing the previous 200+ hardcoded pattern lists.
 
+use crate::detectors::analysis_context::AnalysisContext;
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
+use crate::detectors::context_hmm;
+use crate::detectors::function_context::FunctionRole;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
-use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use tracing::{debug, info};
 
-/// Paths that indicate dynamically-dispatched code (called via tables, not direct calls)
-/// These functions have callers not visible in the static call graph.
-static DISPATCH_PATHS: &[&str] = &[
-    // FFI/language bindings
-    "/ffi/",      // FFI bindings
-    "/bindings/", // Language bindings
-    "/extern/",   // External interfaces
-    "/jni/",      // Java Native Interface
-    "/napi/",     // Node.js Native API
-    "/wasm/",     // WebAssembly exports
-    "/capi/",     // C API exports
-    "/exports/",  // Exported functions
-    // Dispatch table patterns (functions called via pointers)
-    "/jets/",       // JIT/dispatch tables (common in interpreters)
-    "/opcodes/",    // Opcode handlers
-    "/handlers/",   // Event/message handlers
-    "/callbacks/",  // Callback functions
-    "/hooks/",      // Hook functions
-    "/vtable/",     // Virtual table implementations
-    "/impls/",      // Trait/interface implementations
-    "/builtins/",   // Built-in function implementations
-    "/intrinsics/", // Compiler intrinsics
-    "/primitives/", // Primitive operations
-    "/ops/",        // Operation implementations
-    // Vendored/third-party code (shouldn't flag external code)
-    "/ext/",          // External dependencies
-    "/vendor/",       // Vendored code
-    "/third_party/",  // Third-party libraries
-    "/thirdparty/",   // Third-party libraries (alt)
-    "/external/",     // External dependencies
-    "/deps/",         // Dependencies
-    "/node_modules/", // npm packages
-    // Framework source code (exports are public API, not dead code)
-    "/packages/react",     // React monorepo packages
-    "/packages/shared",    // React shared utilities
-    "/packages/scheduler", // React scheduler
-    "/packages/use-",      // React hooks packages
-    "/reconciler/",        // React reconciler internals
-    "/scheduler/",         // Scheduler internals
-    "/forks/",             // React platform forks
-    "/fiber/",             // React Fiber internals
+/// Common Rust trait method names called via dynamic dispatch.
+/// These have callers not visible in the static call graph.
+const COMMON_TRAIT_METHODS: &[&str] = &[
+    "new", "default", "from", "into", "try_from", "try_into", "clone", "fmt", "eq", "cmp",
+    "hash", "drop", "deref", "serialize", "deserialize", "build",
 ];
 
-/// Entry points that should not be flagged as dead code
-static ENTRY_POINTS: &[&str] = &[
+/// Minimal entry point names that should never be flagged.
+/// Most entry points are now handled by FunctionRole::EntryPoint.
+const ENTRY_POINTS: &[&str] = &[
     "main",
-    "init", // Go init functions run automatically
     "__main__",
     "__init__",
     "setUp",
     "tearDown",
-    // Rust common trait methods (called via trait dispatch, not visible in call graph)
-    "run",
-    "detect",
-    "name",
-    "description",
-    "new",
-    "default",
-    "from",
-    "into",
-    "try_from",
-    "try_into",
-    "clone",
-    "fmt",
-    "eq",
-    "cmp",
-    "hash",
-    "drop",
-    "deref",
-    "serialize",
-    "deserialize",
-    // Builder pattern (called on builder instances, not tracked in graph)
-    "build",
-    "with_config",
-    "with_thresholds",
-    // React/Framework patterns (exported API, called externally)
-    "use",       // React hooks: useState, useEffect, useMemo
-    "render",    // React render functions
-    "create",    // Factory functions: createElement, createContext
-    "mount",     // Component mounting
-    "unmount",   // Component unmounting
-    "update",    // Update functions
-    "commit",    // Commit phase functions
-    "complete",  // Completion functions
-    "begin",     // Begin work functions
-    "finish",    // Finish work functions
-    "schedule",  // Scheduler functions
-    "flush",     // Flush functions
-    "reconcile", // Reconciler functions
-    "diff",      // Diffing functions
-    "hydrate",   // Hydration functions
-    "prepare",   // Preparation functions
-    "dispose",   // Cleanup functions
-    "reset",     // Reset functions
-    "get",       // Getter patterns (exported getters)
-    "set",       // Setter patterns (exported setters)
-];
-
-/// Framework-specific files where default exports are auto-loaded
-/// (Next.js, React Native Navigation, Fastify, Remix, etc.)
-/// Note: patterns without leading / also match at start of relative paths
-static FRAMEWORK_AUTO_LOAD_PATTERNS: &[&str] = &[
-    // React framework source (monorepo packages - exports are public API)
-    "/packages/react/",
-    "/packages/react-dom/",
-    "/packages/react-reconciler/",
-    "/packages/react-server/",
-    "/packages/react-client/",
-    "/packages/scheduler/",
-    "/packages/shared/",
-    "/packages/use-",
-    "packages/react", // Without leading slash
-    // Next.js App Router
-    "/page.tsx",
-    "/page.ts",
-    "/page.jsx",
-    "/page.js",
-    "/layout.tsx",
-    "/layout.ts",
-    "/layout.jsx",
-    "/layout.js",
-    "/loading.tsx",
-    "/loading.ts",
-    "/error.tsx",
-    "/error.ts",
-    "/not-found.tsx",
-    "/not-found.ts",
-    "/template.tsx",
-    "/template.ts",
-    "/route.tsx",
-    "/route.ts",
-    // Next.js Pages Router
-    "/pages/",
-    "pages/",
-    // Fastify AutoLoad
-    "/routes/",
-    "routes/",
-    "/plugins/",
-    "plugins/",
-    // Remix
-    "/routes.",
-    "routes.",
-    // Expo Router
-    "/app/",
-    "app/",
-    // React Navigation screens typically end in Screen
-    // Additional framework auto-discovery patterns (Issue #15)
-    "/handlers/",
-    "handlers/", // Event handlers directory
-    "/commands/",
-    "commands/", // CLI commands directory
-    "/migrations/",
-    "migrations/", // Database migrations
-    "/seeds/",
-    "seeds/", // Database seeds
-    "/tasks/",
-    "tasks/", // Background tasks (Celery, etc.)
-    "/jobs/",
-    "jobs/", // Job workers
-    "/controllers/",
-    "controllers/", // MVC controllers
-    "/middleware/",
-    "middleware/", // Express/Koa middleware
-    "/hooks/",
-    "hooks/", // React hooks, Git hooks
-    "/subscribers/",
-    "subscribers/", // Event subscribers
-    "/listeners/",
-    "listeners/", // Event listeners
-];
-
-/// Callback/handler function name patterns that are called dynamically
-static CALLBACK_PATTERNS: &[&str] = &[
-    "on",     // onClick, onSubmit, onLoad, etc.
-    "handle", // handleClick, handleSubmit, etc.
-    "cb",     // Common callback abbreviation
-    "callback", "listener", "handler",
-];
-
-/// Special methods that are called implicitly
-static MAGIC_METHODS: &[&str] = &[
-    "__str__",
-    "__repr__",
-    "__enter__",
-    "__exit__",
-    "__call__",
-    "__len__",
-    "__iter__",
-    "__next__",
-    "__getitem__",
-    "__setitem__",
-    "__delitem__",
-    "__eq__",
-    "__ne__",
-    "__lt__",
-    "__le__",
-    "__gt__",
-    "__ge__",
-    "__hash__",
-    "__bool__",
-    "__add__",
-    "__sub__",
-    "__mul__",
-    "__truediv__",
-    "__floordiv__",
-    "__mod__",
-    "__pow__",
-    "__post_init__",
-    "__init_subclass__",
-    "__set_name__",
+    "init", // Go init functions run automatically
 ];
 
 /// Thresholds for dead code detection
@@ -250,9 +60,6 @@ impl Default for DeadCodeThresholds {
 pub struct DeadCodeDetector {
     config: DetectorConfig,
     thresholds: DeadCodeThresholds,
-    entry_points: HashSet<String>,
-    magic_methods: HashSet<String>,
-    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl DeadCodeDetector {
@@ -263,15 +70,9 @@ impl DeadCodeDetector {
 
     /// Create with custom thresholds
     pub fn with_thresholds(thresholds: DeadCodeThresholds) -> Self {
-        let entry_points: HashSet<String> = ENTRY_POINTS.iter().map(|s| s.to_string()).collect();
-        let magic_methods: HashSet<String> = MAGIC_METHODS.iter().map(|s| s.to_string()).collect();
-
         Self {
             config: DetectorConfig::new(),
             thresholds,
-            entry_points,
-            magic_methods,
-            detector_context: OnceLock::new(),
         }
     }
 
@@ -286,120 +87,19 @@ impl DeadCodeDetector {
         Self::with_thresholds(thresholds)
     }
 
-    /// Check if a function name is an entry point
-    fn is_entry_point(&self, name: &str) -> bool {
-        self.entry_points.contains(name) || name.starts_with("test_")
-    }
+    // ── Path-based checks (minimal fallbacks) ─────────────────────────
 
-    /// Check if function name matches callback/handler patterns (Issue #15)
-    /// These are typically called dynamically via .on(), .addEventListener(), etc.
-    fn is_callback_pattern(&self, name: &str) -> bool {
-        let name_lower = name.to_lowercase();
-
-        // Check for on* patterns — camelCase (onClick) AND snake_case (on_click)
-        if name_lower.starts_with("on") && name.len() > 2 {
-            if let Some(c) = name.chars().nth(2) {
-                if c.is_uppercase() || c == '_' {
-                    return true;
-                }
-            }
-        }
-
-        // Check for handle* patterns — camelCase (handleClick) AND snake_case (handle_submit)
-        if name_lower.starts_with("handle") && name.len() > 6 {
-            if let Some(c) = name.chars().nth(6) {
-                if c.is_uppercase() || c == '_' {
-                    return true;
-                }
-            }
-        }
-
-        // Check for other callback patterns
-        for pattern in CALLBACK_PATTERNS {
-            if name_lower == *pattern || name_lower.ends_with(&format!("_{}", pattern)) {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Check if file is a CLI entry point defined in package.json bin field (Issue #15)
-    fn is_cli_entry_point(&self, file_path: &str) -> bool {
-        // Find package.json in parent directories
-        let path = std::path::Path::new(file_path);
-        let mut current = path.parent();
-
-        while let Some(dir) = current {
-            let package_json = dir.join("package.json");
-            if package_json.exists() {
-                if let Ok(content) = std::fs::read_to_string(&package_json) {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        // Check "bin" field
-                        if let Some(bin) = json.get("bin") {
-                            let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
-                            let relative_path = path
-                                .strip_prefix(dir)
-                                .ok()
-                                .and_then(|p| p.to_str())
-                                .unwrap_or("");
-
-                            // bin can be a string or object
-                            match bin {
-                                serde_json::Value::String(s) => {
-                                    if s.contains(file_name) || s.ends_with(relative_path) {
-                                        return true;
-                                    }
-                                }
-                                serde_json::Value::Object(map) => {
-                                    for (_, v) in map {
-                                        if let serde_json::Value::String(s) = v {
-                                            if s.contains(file_name) || s.ends_with(relative_path) {
-                                                return true;
-                                            }
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        // Also check "main" field for library entry points
-                        if let Some(serde_json::Value::String(main)) = json.get("main") {
-                            let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
-                            if main.contains(file_name) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-                break; // Found package.json, stop searching
-            }
-            current = dir.parent();
-        }
-
-        false
-    }
-
-    /// Check if a function belongs to a test module (cfg(test) convention).
-    ///
-    /// Exempts functions in:
-    /// - Files named `tests.rs` or `test.rs` (Rust `mod tests` convention)
-    /// - Directories named `/tests/` or `/test/`
-    /// - Qualified names containing `::tests::` or `::test::`
-    fn is_in_test_module(&self, file_path: &str, qualified_name: &str) -> bool {
-        // Rust convention: dedicated test module file
+    /// Check if file path is in a test directory.
+    /// Fallback for when FunctionContextMap doesn't have test role.
+    fn is_test_path(file_path: &str) -> bool {
         let path_lower = file_path.to_lowercase();
-        if path_lower.ends_with("/tests.rs")
+        // Rust test files
+        path_lower.ends_with("/tests.rs")
             || path_lower.ends_with("/test.rs")
             || path_lower.ends_with("\\tests.rs")
             || path_lower.ends_with("\\test.rs")
-        {
-            return true;
-        }
-
-        // Test directory (with or without leading separator)
-        if path_lower.contains("/tests/")
+            // Test directories
+            || path_lower.contains("/tests/")
             || path_lower.contains("/test/")
             || path_lower.contains("\\tests\\")
             || path_lower.contains("\\test\\")
@@ -407,22 +107,13 @@ impl DeadCodeDetector {
             || path_lower.starts_with("test/")
             || path_lower.starts_with("tests\\")
             || path_lower.starts_with("test\\")
-        {
-            return true;
-        }
-
-        // Qualified name contains test module segment
-        if qualified_name.contains("::tests::") || qualified_name.contains("::test::") {
-            return true;
-        }
-
-        false
+            // Python/JS test conventions
+            || path_lower.contains("/__tests__/")
+            || path_lower.contains("/spec/")
     }
 
-    /// Check if a function is in a benchmark file.
-    ///
-    /// Exempts functions in `/benches/` or `/benchmark/` directories.
-    fn is_in_benchmark(&self, file_path: &str) -> bool {
+    /// Check if file path is in a benchmark directory.
+    fn is_benchmark_path(file_path: &str) -> bool {
         let path_lower = file_path.to_lowercase();
         path_lower.contains("/benches/")
             || path_lower.contains("/benchmark/")
@@ -438,12 +129,22 @@ impl DeadCodeDetector {
             || path_lower.starts_with("benchmarks\\")
     }
 
+    /// Check if a function name is a common Rust trait method
+    /// (called via dynamic dispatch, not visible in call graph).
+    fn is_common_trait_method(name: &str) -> bool {
+        COMMON_TRAIT_METHODS.contains(&name)
+    }
+
+    /// Check if a function name is in the minimal entry points list.
+    fn is_entry_point(name: &str) -> bool {
+        ENTRY_POINTS.contains(&name) || name.starts_with("test_")
+    }
+
     /// Check if a function is a public API entry in a library crate.
     ///
-    /// Exempts `pub` functions in `lib.rs` or `mod.rs` with a shallow qualified name
-    /// (≤ 2 path segments after the file path, e.g. `crate::function_name`), which
+    /// Exempts `pub` functions in `lib.rs` or `mod.rs`, which
     /// indicates a top-level public API surface.
-    fn is_pub_api_surface(&self, file_path: &str, is_exported: bool) -> bool {
+    fn is_pub_api_surface(file_path: &str, is_exported: bool) -> bool {
         if !is_exported {
             return false;
         }
@@ -455,173 +156,35 @@ impl DeadCodeDetector {
             || path_lower.ends_with("\\mod.rs")
     }
 
-    /// Check if file is in a framework auto-load location
-    /// These files have their exports auto-registered by the framework
-    fn is_framework_auto_load(&self, file_path: &str) -> bool {
-        FRAMEWORK_AUTO_LOAD_PATTERNS
-            .iter()
-            .any(|pattern| file_path.contains(pattern))
-    }
-
-    /// Check if this is likely a framework-registered component/route
-    fn is_framework_export(&self, name: &str, file_path: &str) -> bool {
-        // Any export from framework auto-load files is considered used
-        // (Fastify plugins, Next.js pages, CLI commands, etc. are auto-discovered)
-        if self.is_framework_auto_load(file_path) {
-            return true;
-        }
-
-        // React Native / Expo screens
-        if name.ends_with("Screen") || name.ends_with("Page") {
-            return true;
-        }
-
-        // Next.js/Remix conventions
-        if matches!(
-            name,
-            "loader"
-                | "action"
-                | "meta"
-                | "links"
-                | "headers"
-                | "generateStaticParams"
-                | "generateMetadata"
-                | "revalidate"
-                | "GET"
-                | "POST"
-                | "PUT"
-                | "DELETE"
-                | "PATCH"
-                | "HEAD"
-                | "OPTIONS"
-        ) {
-            return true;
-        }
-
-        // Fastify route handlers - any function in /routes/ is likely auto-loaded
-        if file_path.contains("/routes/") || file_path.starts_with("routes/") {
-            // Fastify AutoLoad registers all exports from route files
-            return true;
-        }
-
-        false
-    }
-
-    /// Check if a function is exported by looking at the source file
-    /// This is a fallback when the graph doesn't have is_exported set
-    fn is_exported_in_source(&self, file_path: &str, line_start: u32) -> bool {
-        use tracing::debug;
-
-        // Only check JS/TS files
-        let is_js_ts = file_path.ends_with(".js")
-            || file_path.ends_with(".ts")
-            || file_path.ends_with(".jsx")
-            || file_path.ends_with(".tsx")
-            || file_path.ends_with(".mjs");
-
-        if !is_js_ts {
-            return false;
-        }
-
-        // Try DetectorContext file_contents first, fall back to fs::read_to_string
+    /// Check if a function is called via `self.method()` in the same file.
+    ///
+    /// This is a workaround for Rust parser limitations where self-calls
+    /// aren't tracked in the call graph.
+    fn is_called_via_self(ctx: &AnalysisContext<'_>, name: &str, file_path: &str) -> bool {
         let path = std::path::Path::new(file_path);
-        let owned_content;
-        let content: &str = if let Some(cached) = self
-            .detector_context
-            .get()
-            .and_then(|ctx| ctx.file_contents.get(path))
-        {
-            cached
-        } else {
-            match std::fs::read_to_string(file_path) {
-                Ok(c) => {
-                    owned_content = c;
-                    &owned_content
-                }
-                Err(e) => {
-                    debug!("Could not read file {}: {}", file_path, e);
-                    return false;
-                }
-            }
-        };
 
-        let lines: Vec<&str> = content.lines().collect();
-        let line_idx = (line_start as usize).saturating_sub(1);
-
-        // Check the function's line and the line before for export keyword
-        for offset in 0..=1 {
-            if line_idx >= offset {
-                if let Some(line) = lines.get(line_idx - offset) {
-                    let trimmed = line.trim();
-                    debug!(
-                        "Checking line {} for export: '{}'",
-                        line_idx - offset + 1,
-                        trimmed
-                    );
-                    // Check for various export patterns
-                    if trimmed.starts_with("export ")
-                        || trimmed.starts_with("export{")
-                        || trimmed.contains("module.exports")
-                        || trimmed.contains("exports.")
-                    {
-                        debug!("Found export pattern in {}", file_path);
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    /// Check if a function name is a magic method
-    fn is_magic_method(&self, name: &str) -> bool {
-        self.magic_methods.contains(name)
-    }
-
-    /// Check if function should be filtered out
-    fn should_filter(&self, name: &str, is_method: bool, has_decorators: bool) -> bool {
-        // Magic methods
-        if self.is_magic_method(name) {
-            return true;
-        }
-
-        // Entry points
-        if self.is_entry_point(name) {
-            return true;
-        }
-
-        // Public methods in exported modules may be called externally — skip only
-        // if they're also exported (is_exported check is elsewhere). Keeping public
-        // methods as candidates improves detection coverage (#15).
-
-        // Decorated functions with known framework decorators (route, test, etc.)
-        // are likely called dynamically — but ALL decorated is too aggressive (#15)
-        if has_decorators && is_method {
-            return true; // Decorated methods are almost always framework-invoked
-        }
-
-        // Tight list of patterns that are genuinely dynamic — trimmed from 48 (#15)
-        let filter_patterns = [
-            "callback",
-            "on_",     // event handlers
-            "handle_", // specific handler prefix, not just "handle" substring
-            "serialize",
-            "deserialize",
-            "to_dict",
-            "to_json",
-            "from_dict",
-            "from_json",
-        ];
-
-        let name_lower = name.to_lowercase();
-        for pattern in filter_patterns {
-            if name_lower.contains(pattern) {
+        // Try AnalysisContext FileIndex first
+        if let Some(entry) = ctx.files.get(path) {
+            let self_call = format!("self.{}(", name);
+            let self_call_alt = format!("self.{},", name); // Passed as closure
+            if entry.content.contains(&self_call) || entry.content.contains(&self_call_alt) {
                 return true;
             }
+        } else {
+            // Fall back to global_cache
+            if let Some(content) = crate::cache::global_cache().content(path) {
+                let self_call = format!("self.{}(", name);
+                let self_call_alt = format!("self.{},", name);
+                if content.contains(&self_call) || content.contains(&self_call_alt) {
+                    return true;
+                }
+            }
         }
 
         false
     }
+
+    // ── Severity calculations ─────────────────────────────────────────
 
     /// Calculate severity for dead function
     fn calculate_function_severity(&self, complexity: usize) -> Severity {
@@ -644,6 +207,8 @@ impl DeadCodeDetector {
             Severity::Low
         }
     }
+
+    // ── Finding creation ──────────────────────────────────────────────
 
     /// Create a finding for an unused function
     fn create_function_finding(
@@ -765,16 +330,16 @@ impl DeadCodeDetector {
         }
     }
 
-    /// Find dead functions using GraphStore API
-    fn find_dead_functions(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    // ── Core detection logic ──────────────────────────────────────────
+
+    /// Find dead functions using graph flags and role-based gating.
+    fn find_dead_functions(&self, ctx: &AnalysisContext<'_>) -> Vec<Finding> {
+        let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
 
-        // Get all functions
-        let functions = graph.get_functions();
-
-        // Sort by complexity (descending) for prioritization, then by qualified_name for determinism
-        let mut functions: Vec<_> = functions.into_iter().collect();
+        // Get all functions, sorted by complexity (descending) for prioritization
+        let mut functions: Vec<_> = graph.get_functions().into_iter().collect();
         functions.sort_by(|a, b| {
             b.complexity_opt()
                 .unwrap_or(0)
@@ -785,123 +350,104 @@ impl DeadCodeDetector {
         for func in functions {
             let name = func.node_name(i);
             let file_path = func.path(i);
-
-            // Skip test functions and entry points
-            if name.starts_with("test_") || self.is_entry_point(name) {
-                continue;
-            }
-
-            // Skip functions whose address is taken (callbacks, dispatch tables, FFI)
-            // This is the primary mechanism for detecting dynamically-called functions
-            if func.address_taken() {
-                debug!("Skipping address_taken function: {}", name);
-                continue;
-            }
-
-            // Skip functions in dispatch/FFI paths (called via tables, not direct calls)
-            let path_lower = file_path.to_lowercase();
-            if DISPATCH_PATHS.iter().any(|p| path_lower.contains(p)) {
-                debug!("Skipping dispatch path function: {} in {}", name, file_path);
-                continue;
-            }
-
-            // Skip framework auto-loaded exports (Next.js pages, Fastify routes, etc.)
-            if self.is_framework_export(name, file_path) {
-                continue;
-            }
-
-            // Skip CLI entry points defined in package.json bin field (Issue #15)
-            if self.is_cli_entry_point(file_path) {
-                debug!("Skipping CLI entry point: {} in {}", name, file_path);
-                continue;
-            }
-
-            // Skip callback/handler patterns (Issue #15)
-            // These are called dynamically via .on(), .addEventListener(), etc.
-            if self.is_callback_pattern(name) {
-                debug!("Skipping callback pattern: {}", name);
-                continue;
-            }
-
             let func_qn = func.qn(i);
 
-            // Skip functions in test modules (cfg(test), mod tests, /tests/ dir)
-            if self.is_in_test_module(file_path, func_qn) {
-                debug!("Skipping test module function: {} in {}", name, file_path);
+            // Core check: has callers -> not dead
+            if graph.call_fan_in(func_qn) > 0 {
                 continue;
             }
 
-            // Skip functions in benchmark files (/benches/, /benchmark/)
-            if self.is_in_benchmark(file_path) {
+            // === Graph flag exemptions ===
+            if func.is_exported() {
+                debug!("Skipping exported function: {}", name);
+                continue; // Public API
+            }
+            if func.has_decorators() {
+                debug!("Skipping decorated function: {}", name);
+                continue; // Runtime-registered
+            }
+            if func.address_taken() {
+                debug!("Skipping address_taken function: {}", name);
+                continue; // Used as callback
+            }
+
+            // === Role-based exemptions (from FunctionContextMap) ===
+            if ctx.is_test_function(func_qn) {
+                debug!("Skipping test function (role): {}", name);
+                continue;
+            }
+            if let Some(role) = ctx.function_role(func_qn) {
+                match role {
+                    FunctionRole::EntryPoint => {
+                        debug!("Skipping entry point (role): {}", name);
+                        continue;
+                    }
+                    FunctionRole::Hub => {
+                        debug!("Skipping hub (role): {}", name);
+                        continue; // Central infrastructure
+                    }
+                    _ => {}
+                }
+            }
+
+            // === Python dunder methods ===
+            if name.starts_with("__") && name.ends_with("__") {
+                debug!("Skipping dunder method: {}", name);
+                continue;
+            }
+
+            // === HMM context: skip handler and test functions ===
+            if let Some((hmm_ctx, conf)) = ctx.hmm_role(func_qn) {
+                if matches!(hmm_ctx, context_hmm::FunctionContext::Handler) && conf > 0.6 {
+                    debug!("Skipping HMM handler (conf={:.2}): {}", conf, name);
+                    continue;
+                }
+                if matches!(hmm_ctx, context_hmm::FunctionContext::Test) && conf > 0.6 {
+                    debug!("Skipping HMM test (conf={:.2}): {}", conf, name);
+                    continue;
+                }
+            }
+
+            // === Minimal remaining checks ===
+
+            // Minimal entry points (main, __init__, test_ prefix, etc.)
+            if Self::is_entry_point(name) {
+                continue;
+            }
+
+            // Test paths (fallback for when FunctionContextMap doesn't have test role)
+            if Self::is_test_path(file_path) {
+                debug!("Skipping test path function: {} in {}", name, file_path);
+                continue;
+            }
+
+            // Benchmark paths
+            if Self::is_benchmark_path(file_path) {
                 debug!("Skipping benchmark function: {} in {}", name, file_path);
                 continue;
             }
 
-            // Skip public API surface in library crates (lib.rs, mod.rs)
-            if self.is_pub_api_surface(file_path, func.is_exported()) {
-                debug!(
-                    "Skipping pub API surface function: {} in {}",
-                    name, file_path
-                );
+            // Public API surface in library crates (lib.rs, mod.rs)
+            if Self::is_pub_api_surface(file_path, func.is_exported()) {
+                debug!("Skipping pub API surface: {} in {}", name, file_path);
                 continue;
             }
 
-            // Check if function has any callers — use fan-in count (O(1), zero allocation)
-            // instead of get_callers() which clones Vec<CodeNode> per call
-            if graph.call_fan_in(func_qn) > 0 {
-                continue; // Function is called, not dead
-            }
-
-            // Check if method is called via self.method() in same file (Rust parser limitation)
-            let path = std::path::Path::new(file_path);
-            let ctx_content: Option<&str> = self
-                .detector_context
-                .get()
-                .and_then(|ctx| ctx.file_contents.get(path))
-                .map(|s| &**s);
-            // Fall back to global_cache if DetectorContext unavailable
-            let cached_arc;
-            let content_str: Option<&str> = if ctx_content.is_some() {
-                ctx_content
-            } else {
-                cached_arc = crate::cache::global_cache().content(path);
-                cached_arc.as_ref().map(|s| s.as_str())
-            };
-            if let Some(content) = content_str {
-                let self_call = format!("self.{}(", name);
-                let self_call_alt = format!("self.{},", name); // Passed as closure
-                if content.contains(&self_call) || content.contains(&self_call_alt) {
-                    continue; // Called via self
-                }
-            }
-
-            // Check additional properties
-            let is_method = func.is_method();
-            let has_decorators = func.has_decorators();
-            let is_exported = func.is_exported();
-
-            // Skip decorated functions - they're registered at runtime (Issue #15)
-            // Decorators like @Route, @Controller, @app.route register functions dynamically
-            if has_decorators {
-                debug!("Skipping decorated function: {}", name);
+            // Rust trait methods (common names called via dispatch)
+            if Self::is_common_trait_method(name) {
+                debug!("Skipping trait method: {}", name);
                 continue;
             }
 
-            // Skip exported functions - they're likely used by external modules
-            // Export means the author intended external use, so not "dead" even if uncalled internally
-            if is_exported {
+            // Self-call check (Rust parser limitation)
+            if Self::is_called_via_self(ctx, name, file_path) {
+                debug!("Skipping self-call: {}", name);
                 continue;
             }
 
-            // Check source for JS/TS export keyword (graph may not have is_exported set)
-            // Use qualified_name to get full path since file_path may be relative
-            let full_path_str = func_qn.split("::").next().unwrap_or(file_path);
-            if self.is_exported_in_source(full_path_str, func.line_start) {
-                continue;
-            }
-
-            // Apply filters
-            if self.should_filter(name, is_method, has_decorators) {
+            // === Qualified name test module check ===
+            if func_qn.contains("::tests::") || func_qn.contains("::test::") {
+                debug!("Skipping test module function: {}", func_qn);
                 continue;
             }
 
@@ -921,19 +467,16 @@ impl DeadCodeDetector {
             }
         }
 
-        Ok(findings)
+        findings
     }
 
-    /// Find dead classes using GraphStore API
-    fn find_dead_classes(&self, graph: &dyn crate::graph::GraphQuery) -> Result<Vec<Finding>> {
+    /// Find dead classes using graph flags and role-based gating.
+    fn find_dead_classes(&self, ctx: &AnalysisContext<'_>) -> Vec<Finding> {
+        let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
 
-        // Get all classes
-        let classes = graph.get_classes();
-
-        // Sort by complexity (descending), then by qualified_name for determinism
-        let mut classes: Vec<_> = classes.into_iter().collect();
+        let mut classes: Vec<_> = graph.get_classes().into_iter().collect();
         classes.sort_by(|a, b| {
             b.complexity_opt()
                 .unwrap_or(0)
@@ -946,8 +489,9 @@ impl DeadCodeDetector {
         for class in classes {
             let name = class.node_name(i);
             let file_path = class.path(i);
+            let class_qn = class.qn(i);
 
-            // Skip common patterns
+            // Skip common patterns (Error/Exception/Mixin/Test/ABC)
             if name.ends_with("Error")
                 || name.ends_with("Exception")
                 || name.ends_with("Mixin")
@@ -962,40 +506,13 @@ impl DeadCodeDetector {
                 continue;
             }
 
-            // Skip React/RN components (Screen, Page, Layout, etc.)
-            if name.ends_with("Screen")
-                || name.ends_with("Page")
-                || name.ends_with("Layout")
-                || name.ends_with("Component")
-                || name.ends_with("Provider")
-                || name.ends_with("Context")
-            {
+            // === Graph flag exemptions ===
+            if class.is_exported() {
+                debug!("Skipping exported class: {}", name);
                 continue;
             }
-
-            // Skip exports from framework auto-load files
-            let is_exported = class.is_exported();
-            if is_exported && self.is_framework_auto_load(file_path) {
-                continue;
-            }
-
-            let class_qn = class.qn(i);
-
-            // Skip classes in test modules (cfg(test), mod tests, /tests/ dir)
-            if self.is_in_test_module(file_path, class_qn) {
-                debug!("Skipping test module class: {} in {}", name, file_path);
-                continue;
-            }
-
-            // Skip classes in benchmark files (/benches/, /benchmark/)
-            if self.is_in_benchmark(file_path) {
-                debug!("Skipping benchmark class: {} in {}", name, file_path);
-                continue;
-            }
-
-            // Skip public API surface in library crates (lib.rs, mod.rs)
-            if self.is_pub_api_surface(file_path, is_exported) {
-                debug!("Skipping pub API surface class: {} in {}", name, file_path);
+            if class.has_decorators() {
+                debug!("Skipping decorated class: {}", name);
                 continue;
             }
 
@@ -1010,16 +527,37 @@ impl DeadCodeDetector {
                 continue;
             }
 
+            // === Test/benchmark path exemptions ===
+            if Self::is_test_path(file_path) {
+                debug!("Skipping test path class: {} in {}", name, file_path);
+                continue;
+            }
+            if Self::is_benchmark_path(file_path) {
+                debug!("Skipping benchmark class: {} in {}", name, file_path);
+                continue;
+            }
+
+            // Qualified name test module check
+            if class_qn.contains("::tests::") || class_qn.contains("::test::") {
+                continue;
+            }
+
+            // === HMM context for class methods ===
+            // If the class qualified name is classified as Handler, skip
+            if let Some((hmm_ctx, conf)) = ctx.hmm_role(class_qn) {
+                if matches!(hmm_ctx, context_hmm::FunctionContext::Handler) && conf > 0.6 {
+                    debug!("Skipping HMM handler class (conf={:.2}): {}", conf, name);
+                    continue;
+                }
+            }
+
             // Check if class's file is imported by other files
-            // This catches Python "from module import Class" patterns
             let class_file = file_path.to_lowercase();
             let file_is_imported = imports.iter().any(|(_, target)| {
                 let target_lower = i.resolve(*target).to_lowercase();
-                // Match if the import target contains the class's file path
                 class_file.ends_with(&target_lower)
                     || target_lower
                         .ends_with(&class_file.replace("/tmp/", "").replace("/home/", ""))
-                    // Also check just the filename
                     || class_file.split('/').next_back() == target_lower.split('/').next_back()
             });
             if file_is_imported {
@@ -1027,7 +565,6 @@ impl DeadCodeDetector {
             }
 
             // Skip public classes (uppercase, no underscore prefix) in non-test files
-            // These are likely exported and used elsewhere
             let is_public =
                 !name.starts_with('_') && name.chars().next().is_some_and(|c| c.is_uppercase());
             let is_test_file = class_file.contains("/test") || class_file.contains("_test.");
@@ -1035,9 +572,8 @@ impl DeadCodeDetector {
                 continue;
             }
 
-            // Skip decorated classes
-            let has_decorators = class.has_decorators();
-            if has_decorators {
+            // Public API surface
+            if Self::is_pub_api_surface(file_path, class.is_exported()) {
                 continue;
             }
 
@@ -1057,7 +593,7 @@ impl DeadCodeDetector {
             }
         }
 
-        Ok(findings)
+        findings
     }
 }
 
@@ -1084,20 +620,32 @@ impl Detector for DeadCodeDetector {
         Some(&self.config)
     }
 
-    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
-        let _ = self.detector_context.set(ctx);
+    fn set_detector_context(&self, _ctx: Arc<crate::detectors::DetectorContext>) {
+        // No-op: context is now obtained from AnalysisContext
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        debug!("Starting dead code detection");
+    fn detect(
+        &self,
+        _graph: &dyn crate::graph::GraphQuery,
+        _files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Result<Vec<Finding>> {
+        // Legacy detect() is a no-op — all logic is in detect_ctx().
+        Ok(Vec::new())
+    }
+
+    fn detect_ctx(
+        &self,
+        ctx: &AnalysisContext<'_>,
+    ) -> Result<Vec<Finding>> {
+        debug!("Starting dead code detection (graph flags + role-based)");
         let mut findings = Vec::new();
 
         // Find dead functions
-        let function_findings = self.find_dead_functions(graph)?;
+        let function_findings = self.find_dead_functions(ctx);
         findings.extend(function_findings);
 
         // Find dead classes
-        let class_findings = self.find_dead_classes(graph)?;
+        let class_findings = self.find_dead_classes(ctx);
         findings.extend(class_findings);
 
         // Sort by severity
