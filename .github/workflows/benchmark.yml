@@ -1,0 +1,54 @@
+name: Benchmark Precision
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'repotoire-cli/src/detectors/**'
+      - 'repotoire-cli/src/cli/analyze/**'
+      - 'repotoire-cli/src/scoring/**'
+      - 'repotoire-cli/src/calibrate/**'
+      - 'repotoire-cli/src/models.rs'
+      - 'benchmark/**'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  precision:
+    name: Precision Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: repotoire-cli
+
+      - name: Cache benchmark repos
+        uses: actions/cache@v4
+        with:
+          path: benchmark/*/repo
+          key: benchmark-repos-v1
+
+      - name: Clone benchmark projects
+        run: make -C benchmark setup
+
+      - name: Build repotoire
+        run: cd repotoire-cli && cargo build --release
+
+      - name: Run analysis on benchmark projects
+        run: make -C benchmark run
+
+      - name: Check precision thresholds
+        run: cd repotoire-cli && cargo test benchmark_precision -- --ignored --nocapture
+
+      - name: Precision summary
+        if: always()
+        run: |
+          echo "## Benchmark Precision Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Precision gate checks per-detector accuracy against labeled benchmark data." >> $GITHUB_STEP_SUMMARY
+          echo "Security detectors: ≥80% precision required. Quality detectors: ≥70% required." >> $GITHUB_STEP_SUMMARY
