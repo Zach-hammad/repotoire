@@ -15,6 +15,7 @@
 
 pub mod analysis_context;
 pub mod base;
+pub mod confidence_enrichment;
 pub mod content_classifier;
 pub mod detector_context;
 mod engine;

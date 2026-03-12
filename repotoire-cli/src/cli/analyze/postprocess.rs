@@ -2,6 +2,7 @@
 //!
 //! Applied after detection and before scoring:
 //! 0.5. Assign default confidence by category (preserves detector-set values)
+//! 0.6. Confidence enrichment with contextual signals (bundled, non-prod, multi-detector, test)
 //! 1. Incremental cache update
 //! 2. Detector overrides from project config
 //! 2.5. Path exclusion filtering
@@ -53,6 +54,12 @@ pub(super) fn postprocess_findings(
     // left untouched.  For the rest, we assign a category-specific default so
     // every finding flowing into scoring and reporting has a confidence value.
     assign_default_confidence(findings);
+
+    // Step 0.6: Enrich confidence with contextual signals.
+    // Adjusts confidence based on path-based heuristics (bundled code, test
+    // files, non-production paths) and multi-detector agreement.  Only fires
+    // when signals match; unmatched findings are left untouched.
+    crate::detectors::confidence_enrichment::enrich_all(findings);
 
     // Step 1: Update incremental cache
     update_incremental_cache(
