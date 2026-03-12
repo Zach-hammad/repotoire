@@ -103,7 +103,7 @@ pub fn run(
                 let quiet = std::env::var("REPOTOIRE_QUIET").is_ok();
                 if !quiet {
                     let icon = if no_emoji { "" } else { "⚡ " };
-                    println!(
+                    eprintln!(
                         "\n{}Using cached session (no changes detected)\n",
                         style(icon).bold()
                     );
@@ -152,7 +152,7 @@ pub fn run(
             let quiet = std::env::var("REPOTOIRE_QUIET").is_ok();
             if !quiet {
                 let icon = if no_emoji { "" } else { "⚡ " };
-                println!(
+                eprintln!(
                     "\n{}Incremental update: {} files changed ({:.3}s)\n",
                     style(icon).bold(),
                     changed.len(),
@@ -463,25 +463,25 @@ pub fn run(
         let session_score = score_result.overall_score;
         let session_repo = env.repo_path.clone();
         let session_workers = env.config.workers;
-        std::thread::spawn(move || {
-            match AnalysisSession::from_cold_results(
-                &session_repo,
-                session_workers,
-                session_graph,
-                session_files,
-                session_findings,
-                Some(session_score),
-            ) {
-                Ok(session) => {
-                    if let Err(e) = session.persist(&session_cache_dir) {
-                        tracing::warn!("Failed to persist session: {}", e);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to build session from pipeline results: {}", e);
+        match AnalysisSession::from_cold_results(
+            &session_repo,
+            session_workers,
+            session_graph,
+            session_files,
+            session_findings,
+            Some(session_score),
+        ) {
+            Ok(session) => {
+                if let Err(e) = session.persist(&session_cache_dir) {
+                    tracing::warn!("Failed to persist session: {}", e);
+                } else {
+                    tracing::info!("Session persisted to {:?}", session_cache_dir);
                 }
             }
-        });
+            Err(e) => {
+                eprintln!("Failed to build session from pipeline results: {}", e);
+            }
+        }
     }
 
     phase_timings.push(("output", phase_start.elapsed()));
@@ -1250,7 +1250,7 @@ fn print_final_summary(quiet_mode: bool, no_emoji: bool, start_time: Instant) {
     if !quiet_mode {
         let elapsed = start_time.elapsed();
         let icon_done = if no_emoji { "" } else { "✨ " };
-        println!(
+        eprintln!(
             "\n{}Analysis complete in {:.2}s",
             style(icon_done).bold(),
             elapsed.as_secs_f64()

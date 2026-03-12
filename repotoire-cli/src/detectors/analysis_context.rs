@@ -82,10 +82,11 @@ impl<'a> crate::detectors::file_provider::FileProvider for AnalysisContextFilePr
     }
 
     fn content(&self, path: &Path) -> Option<Arc<String>> {
-        self.ctx
-            .files
-            .get(path)
-            .map(|e| Arc::new(e.content.to_string()))
+        // Try global cache first (O(1), avoids String reallocation).
+        // Fall back to FileIndex for tests/edge cases where global cache isn't populated.
+        crate::cache::global_cache().content(path).or_else(|| {
+            self.ctx.files.get(path).map(|e| Arc::new(e.content.to_string()))
+        })
     }
 
     fn masked_content(&self, path: &Path) -> Option<Arc<String>> {

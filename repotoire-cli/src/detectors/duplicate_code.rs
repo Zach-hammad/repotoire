@@ -6,7 +6,7 @@
 //! - Suggest optimal location for extracted function based on callers
 //! - Skip duplicates in test code or generated files
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::interner::StrKey;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
@@ -158,6 +158,11 @@ impl Detector for DuplicateCodeDetector {
 
     fn requires_graph(&self) -> bool {
         false
+    }
+
+    fn detector_scope(&self) -> DetectorScope {
+        // Produces cross-file findings (compares code blocks across files).
+        DetectorScope::FileScopedGraph
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {

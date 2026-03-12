@@ -51,6 +51,8 @@ fn assert_findings_equivalent(label: &str, incremental: &[Finding], cold: &[Find
         "AIBoilerplateDetector",
         "AIDuplicateBlockDetector",
         "DuplicateCodeDetector",
+        "LazyClassDetector",
+        "UnreachableCodeDetector",
     ]
     .into_iter()
     .collect();

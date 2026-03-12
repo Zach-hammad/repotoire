@@ -79,7 +79,7 @@ impl ContentFlags {
 ///
 /// Called once per file during `DetectorContext::build()` (in parallel via rayon).
 /// Each category uses simple `str::contains()` checks -- no aho-corasick needed.
-fn compute_content_flags(content: &str) -> ContentFlags {
+pub(super) fn compute_content_flags(content: &str) -> ContentFlags {
     let mut flags = ContentFlags::default();
 
     // FILE_OPS
@@ -289,6 +289,21 @@ pub struct DetectorContext {
 }
 
 impl DetectorContext {
+    /// Create an empty DetectorContext (for FileLocal-only detection that
+    /// doesn't need graph-derived callers/callees maps).
+    pub fn empty() -> Self {
+        Self {
+            callers_by_qn: HashMap::new(),
+            callees_by_qn: HashMap::new(),
+            class_children: HashMap::new(),
+            file_contents: HashMap::new(),
+            content_flags: HashMap::new(),
+            class_contexts: None,
+            value_store: None,
+            repo_path: PathBuf::new(),
+        }
+    }
+
     /// Build the detector context from the graph and source files.
     ///
     /// Reads the call graph, inheritance edges, and file contents.

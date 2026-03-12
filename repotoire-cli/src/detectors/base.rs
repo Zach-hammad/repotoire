@@ -475,13 +475,20 @@ pub trait Detector: Send + Sync {
     /// Run detection with the unified AnalysisContext.
     ///
     /// This is the new primary detection entry point. The default implementation
-    /// delegates to the legacy detect() method for backward compatibility.
+    /// delegates to the legacy detect() or detect_with_context() method for
+    /// backward compatibility.
     fn detect_ctx(
         &self,
         ctx: &super::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
-        // Default: delegate to legacy detect() with a shim FileProvider
-        self.detect(ctx.graph, &ctx.as_file_provider())
+        // Detectors that override detect_with_context() must go through that
+        // path to get their optimized implementation (e.g., AIMissingTestsDetector
+        // uses pre-built HashSets for O(1) lookup vs O(n) in detect()).
+        if self.uses_context() {
+            self.detect_with_context(ctx.graph, &ctx.as_file_provider(), &ctx.functions)
+        } else {
+            self.detect(ctx.graph, &ctx.as_file_provider())
+        }
     }
 }
 

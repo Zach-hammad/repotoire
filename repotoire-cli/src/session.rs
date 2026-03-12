@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use crate::detectors::{DetectorEngine, DetectorScope, SourceFiles};
+use crate::detectors::{Detector, DetectorEngine, DetectorScope, GdPrecomputed, SourceFiles};
 use crate::graph::store::GraphStore;
 use crate::graph::store_models::{
     CodeEdge, CodeNode, ExtraProps, NodeKind, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS,
@@ -51,12 +51,12 @@ impl AnalysisDelta {
 // ─── Session persistence ──────────────────────────────────────────────────────
 
 /// Schema version for session cache. Bump when SessionMeta fields change.
-const SESSION_VERSION: u32 = 1;
+const SESSION_VERSION: u32 = 2;
 
 /// Serializable session metadata for persistence.
 ///
 /// This captures everything needed to reconstruct an `AnalysisSession` except:
-/// - `file_contents` — reloaded from disk on `load()` to save ~35 MB
+/// - `file_contents` — starts empty on `load()`; populated lazily by `update()`
 /// - `all_findings` — reconstructed from `findings_by_file` + `graph_wide_findings`
 /// - `graph` — persisted separately via `GraphStore::save_graph_cache()`
 #[derive(Serialize, Deserialize)]
@@ -92,6 +92,10 @@ pub struct AnalysisSession {
 
     // Graph topology fingerprint
     edge_fingerprint: u64,
+
+    // Cached detector precomputed data (taint, HMM, contexts, etc.)
+    // Avoids ~3.9s rebuild on each incremental run.
+    cached_gd: Option<GdPrecomputed>,
 
     // Config
     repo_path: PathBuf,
@@ -160,7 +164,8 @@ impl AnalysisSession {
     /// - The graph via `GraphStore::save_graph_cache()` (bincode, atomic write)
     /// - Session metadata as JSON (file hashes, findings, score, config)
     ///
-    /// Does NOT persist `file_contents` — they are reloaded from disk on `load()`.
+    /// Does NOT persist `file_contents` — starts empty on `load()` and is
+    /// populated lazily by `update()` for changed files only.
     pub fn persist(&self, cache_dir: &Path) -> Result<()> {
         std::fs::create_dir_all(cache_dir)
             .with_context(|| format!("Failed to create cache dir: {}", cache_dir.display()))?;
@@ -170,7 +175,7 @@ impl AnalysisSession {
             .save_graph_cache(&cache_dir.join("graph_cache.bin"))
             .context("Failed to save graph cache")?;
 
-        // 2. Save session metadata as JSON (debuggable, small enough)
+        // 2. Save session metadata as JSON
         let meta = SessionMeta {
             version: SESSION_VERSION,
             binary_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -190,7 +195,7 @@ impl AnalysisSession {
         // Atomic write: write to .tmp then rename
         let session_path = cache_dir.join("session.json");
         let tmp_path = cache_dir.join("session.json.tmp");
-        std::fs::write(&tmp_path, &json)
+        std::fs::write(&tmp_path, json.as_bytes())
             .context("Failed to write session metadata")?;
         std::fs::rename(&tmp_path, &session_path)
             .context("Failed to finalize session metadata")?;
@@ -210,7 +215,7 @@ impl AnalysisSession {
     /// Returns `Ok(None)` if the cache doesn't exist, is corrupt, or has a
     /// version mismatch (binary version or schema version).
     ///
-    /// File contents are reloaded from disk (not persisted).
+    /// `file_contents` starts empty (lazy — populated by `update()` for changed files).
     /// `all_findings` is reconstructed from `findings_by_file` + `graph_wide_findings`.
     pub fn load(cache_dir: &Path) -> Result<Option<Self>> {
         let graph_path = cache_dir.join("graph_cache.bin");
@@ -220,7 +225,7 @@ impl AnalysisSession {
             return Ok(None);
         }
 
-        // Load and validate session metadata
+        // Load and validate session metadata (JSON)
         let json = std::fs::read_to_string(&session_path)
             .context("Failed to read session metadata")?;
         let meta: SessionMeta = match serde_json::from_str(&json) {
@@ -259,21 +264,28 @@ impl AnalysisSession {
             }
         };
 
-        // Reload file contents from disk (not persisted — saves ~35 MB)
-        let mut file_contents = HashMap::with_capacity(meta.source_files.len());
-        for path in &meta.source_files {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                file_contents.insert(path.clone(), Arc::from(content.as_str()));
-            }
-        }
+        // file_contents starts empty — no code reads from it during incremental.
+        // detect_changed_files() re-reads from disk; update() populates for changed files only.
+        let file_contents = HashMap::new();
 
-        // Reconstruct all_findings from per-file + graph-wide
+        // Reconstruct all_findings from per-file + graph-wide, deduplicating by ID.
+        // Findings with multiple affected_files are stored once per file in
+        // findings_by_file, so we deduplicate using the finding ID.
+        let mut seen_ids: HashSet<String> = HashSet::new();
         let mut all_findings: Vec<Finding> = Vec::new();
         for findings in meta.findings_by_file.values() {
-            all_findings.extend(findings.iter().cloned());
+            for f in findings {
+                if f.id.is_empty() || seen_ids.insert(f.id.clone()) {
+                    all_findings.push(f.clone());
+                }
+            }
         }
         for findings in meta.graph_wide_findings.values() {
-            all_findings.extend(findings.iter().cloned());
+            for f in findings {
+                if f.id.is_empty() || seen_ids.insert(f.id.clone()) {
+                    all_findings.push(f.clone());
+                }
+            }
         }
 
         info!(
@@ -293,6 +305,7 @@ impl AnalysisSession {
             graph_wide_findings: meta.graph_wide_findings,
             health_score: meta.health_score,
             edge_fingerprint: meta.edge_fingerprint,
+            cached_gd: None, // rebuilt on first incremental update
             repo_path: meta.repo_path,
             workers: meta.workers,
         }))
@@ -343,6 +356,7 @@ impl AnalysisSession {
             graph_wide_findings,
             health_score,
             edge_fingerprint,
+            cached_gd: None,
             repo_path: repo_path.to_path_buf(),
             workers,
         })
@@ -384,6 +398,7 @@ impl AnalysisSession {
                 graph_wide_findings: HashMap::new(),
                 health_score: Some(100.0),
                 edge_fingerprint: 0,
+                cached_gd: None,
                 repo_path,
                 workers,
             });
@@ -412,8 +427,8 @@ impl AnalysisSession {
         // Phase 4: Hash file contents
         let (file_hashes, file_contents) = hash_all_files(&source_files);
 
-        // Phase 5: Run detectors
-        let all_findings = run_all_detectors(&graph, &repo_path, &source_files, workers)?;
+        // Phase 5: Run detectors (and extract precomputed data for caching)
+        let (all_findings, cached_gd) = run_all_detectors(&graph, &repo_path, &source_files, workers)?;
         info!("Detection complete: {} raw findings", all_findings.len());
 
         // Phase 6: Postprocess findings (deterministic IDs, compound escalation)
@@ -447,6 +462,7 @@ impl AnalysisSession {
             graph_wide_findings,
             health_score,
             edge_fingerprint,
+            cached_gd,
             repo_path,
             workers,
         })
@@ -483,12 +499,31 @@ impl AnalysisSession {
             }
         }
 
-        // Check for new files (on disk but not in our hash map)
+        // Detect new files by walking the filesystem and comparing canonical
+        // paths against the known file_hashes. Apply guardrails to avoid
+        // false positives from files the CLI would exclude (>2MB, non-UTF8,
+        // minified vendored assets, etc.).
         let current_files = walk_source_files(&self.repo_path)?;
         for path in current_files {
-            if !self.file_hashes.contains_key(&path) {
-                changed.push(path);
+            let canonical = path.canonicalize().unwrap_or(path);
+            if self.file_hashes.contains_key(&canonical) {
+                continue;
             }
+            // Skip files >2MB (same as CLI walker)
+            if let Ok(meta) = canonical.metadata() {
+                if meta.len() > 2 * 1024 * 1024 {
+                    continue;
+                }
+            }
+            // Skip non-UTF8 files (can't be parsed by tree-sitter)
+            if std::fs::read_to_string(&canonical).is_err() {
+                continue;
+            }
+            // Skip vendor/minified files (common false-positive source)
+            if is_likely_vendored(&canonical) {
+                continue;
+            }
+            changed.push(canonical);
         }
 
         Ok(changed)
@@ -545,6 +580,7 @@ impl AnalysisSession {
         self.source_files.retain(|p| !deleted_set.contains(p));
 
         // Add new files (files that exist but weren't in source_files)
+        let has_file_list_change;
         {
             let source_set: HashSet<&PathBuf> = self.source_files.iter().collect();
             let new_files: Vec<PathBuf> = existing
@@ -552,6 +588,7 @@ impl AnalysisSession {
                 .filter(|p| !source_set.contains(*p))
                 .map(|p| (*p).clone())
                 .collect();
+            has_file_list_change = !new_files.is_empty() || !deleted.is_empty();
             self.source_files.extend(new_files);
         }
         self.source_files.sort();
@@ -615,6 +652,12 @@ impl AnalysisSession {
         );
         self.edge_fingerprint = new_fingerprint;
 
+        // Note: cached_gd may be None (sessions loaded from disk don't persist it).
+        // The FileLocal path handles this via inject_minimal_for_file_local()
+        // which provides empty contexts and skips expensive graph-derived computation.
+        // The FSG/GraphWide path (file additions/deletions) lazily builds cached_gd
+        // only when actually needed.
+
         // ── Phase 7: Selective detection ─────────────────────────────────
         // Build changed set with both absolute and relative paths. Detectors
         // produce findings with mixed path styles: some use absolute paths,
@@ -625,41 +668,44 @@ impl AnalysisSession {
                 changed_set.insert(rel.to_path_buf());
             }
         }
-        let (fresh_file_local, fresh_file_scoped_graph, new_graph_wide, rerun_detector_names) =
-            self.run_selective_detection(&changed_set, topology_changed)?;
+        let (fresh_changed_findings, _unused, new_graph_wide, fsg_detector_names) =
+            self.run_selective_detection(&changed_set, has_file_list_change)?;
 
         // ── Phase 8: Compose findings ────────────────────────────────────
+        // Strategy: cached findings for unchanged files + fresh findings for
+        // changed files + graph-wide findings (cached or fresh).
         let mut composed: Vec<Finding> = Vec::new();
 
-        // Build the set of detector names whose findings are freshly re-computed.
-        // These must be excluded from cached step (a) to avoid double-counting.
-        // Includes: graph-wide detectors (handled in step (d)) and
-        //           FileScopedGraph detectors (handled in step (c)).
         let graph_wide_detector_names: HashSet<&str> = self
             .graph_wide_findings
             .keys()
             .map(|s| s.as_str())
             .collect();
 
-        // (a) Cached findings for unchanged files — exclude:
-        //     - Findings whose affected_files overlap with changed files
-        //       (these will be freshly produced in step (b)/(c))
-        //     - ALL FileScopedGraph detector findings (replaced in step (c))
-        //     - ALL GraphWide detector findings (handled in step (d))
+        // (a) Cached findings for unchanged files.
+        // Exclude:
+        //   - GraphWide detector findings (handled in step (c))
+        //   - FileScopedGraph detector findings (replaced entirely by fresh results
+        //     in step (b), since these detectors iterate graph.get_functions() and
+        //     produce findings for ALL files)
+        //   - Findings that reference any changed file (fresh detection handles those)
         for (path, findings) in &self.findings_by_file {
             if !changed_set.contains(path) {
                 composed.extend(
                     findings
                         .iter()
                         .filter(|f| {
-                            // Exclude detectors that are fully re-run
-                            if rerun_detector_names.contains(f.detector.as_str())
-                                || graph_wide_detector_names.contains(f.detector.as_str())
-                            {
+                            // Exclude graph-wide detector findings (handled in step (c))
+                            if graph_wide_detector_names.contains(f.detector.as_str()) {
+                                return false;
+                            }
+                            // Exclude FileScopedGraph detector findings (fully replaced
+                            // by fresh results in step (b))
+                            if fsg_detector_names.contains(&f.detector) {
                                 return false;
                             }
                             // Exclude findings that reference any changed file —
-                            // the fresh detection will produce an updated version
+                            // fresh detection handles those
                             !f.affected_files.iter().any(|af| changed_set.contains(af))
                         })
                         .cloned(),
@@ -667,16 +713,16 @@ impl AnalysisSession {
             }
         }
 
-        // (b) Fresh FileLocal findings (only for changed files)
-        composed.extend(fresh_file_local);
+        // (b) Fresh findings from FileLocal + FileScopedGraph detectors.
+        // FileLocal findings are only for changed files (correct by construction).
+        // FileScopedGraph findings cover ALL files (from graph iteration) — they
+        // replace the excluded cached findings from step (a).
+        composed.extend(fresh_changed_findings);
 
-        // (c) Fresh FileScopedGraph findings (ALL files — these cross-file
-        //     detectors may produce different results for unchanged files)
-        composed.extend(fresh_file_scoped_graph);
-
-        // (d) Graph-wide findings (cached or fresh depending on topology)
-        if topology_changed {
-            // Use fresh graph-wide findings
+        // (c) Graph-wide findings — always use cached (FSG/GraphWide re-runs
+        // are disabled until proper topology change detection is implemented).
+        if !new_graph_wide.is_empty() {
+            // Use fresh graph-wide findings (when FSG/GraphWide re-runs are enabled)
             for findings in new_graph_wide.values() {
                 composed.extend(findings.iter().cloned());
             }
@@ -755,7 +801,7 @@ impl AnalysisSession {
     /// 4. `rerun_detector_names` — Names of FileScopedGraph detectors whose findings
     ///    should replace cached entries
     fn run_selective_detection(
-        &self,
+        &mut self,
         changed_set: &HashSet<PathBuf>,
         topology_changed: bool,
     ) -> Result<(
@@ -768,78 +814,131 @@ impl AnalysisSession {
         let detectors =
             crate::detectors::default_detectors_with_config(&self.repo_path, &project_config);
 
-        // Build file provider with ALL files (detectors need full context for
-        // cross-file analysis like duplicate_code). Filtering happens on OUTPUT.
-        let source = SourceFiles::new(self.source_files.clone(), self.repo_path.clone());
+        // Partition detectors by scope
+        let mut file_local_detectors: Vec<Arc<dyn Detector>> = Vec::new();
+        let mut file_scoped_graph_detectors: Vec<Arc<dyn Detector>> = Vec::new();
+        let mut graph_wide_detectors: Vec<Arc<dyn Detector>> = Vec::new();
 
-        let mut file_local_findings: Vec<Finding> = Vec::new();
-        let mut file_scoped_graph_findings: Vec<Finding> = Vec::new();
-        let mut graph_wide_findings: HashMap<String, Vec<Finding>> = HashMap::new();
-
-        // We build a single engine to benefit from shared precomputation
-        // (taint analysis, function contexts, etc.)
-        let mut engine = DetectorEngine::new(self.workers);
         for detector in &detectors {
-            engine.register(Arc::clone(detector));
+            match detector.detector_scope() {
+                DetectorScope::FileLocal => file_local_detectors.push(Arc::clone(detector)),
+                DetectorScope::FileScopedGraph => {
+                    file_scoped_graph_detectors.push(Arc::clone(detector))
+                }
+                DetectorScope::GraphWide => graph_wide_detectors.push(Arc::clone(detector)),
+            }
         }
 
-        // Run full detection through the engine
-        let all_raw = engine.run(self.graph.as_ref(), &source)?;
+        let mut changed_file_findings: Vec<Finding> = Vec::new();
+        let mut graph_wide_findings: HashMap<String, Vec<Finding>> = HashMap::new();
+        let mut fsg_ran = false;
 
-        // Partition findings by detector scope
-        // Build a map of detector name -> scope
-        let scope_map: HashMap<&str, DetectorScope> = detectors
-            .iter()
-            .map(|d| (d.name(), d.detector_scope()))
-            .collect();
+        // Run ONLY FileLocal detectors on changed files.
+        // FileLocal detectors analyze file content only — they produce findings
+        // exclusively for the files in SourceFiles, making per-file incremental correct.
+        if !file_local_detectors.is_empty() {
+            let changed_files: Vec<PathBuf> = changed_set
+                .iter()
+                .filter(|p| p.is_absolute())
+                .cloned()
+                .collect();
+            let source = SourceFiles::new(changed_files.clone(), self.repo_path.clone());
+            let mut engine = DetectorEngine::new(self.workers);
+            for d in &file_local_detectors {
+                engine.register(Arc::clone(d));
+            }
+            // Inject precomputed data to skip expensive graph-derived computation.
+            // With cached_gd: inject everything (fast path, ~0ms).
+            // Without cached_gd: inject minimal data (FileIndex + empty contexts)
+            // to skip DetectorContext::build() (~3.6s on CPython).
+            if let Some(ref gd) = self.cached_gd {
+                engine.inject_for_incremental(gd, &changed_files, &self.repo_path);
+            } else {
+                engine.inject_minimal_for_file_local(&changed_files, &self.repo_path);
+            }
+            changed_file_findings = engine.run(self.graph.as_ref(), &source)?;
+            // Filter to keep only findings for changed files.
+            // Some FileLocal detectors iterate graph.get_functions() internally
+            // and produce findings for ALL files — we only want changed-file findings.
+            changed_file_findings.retain(|f| {
+                f.affected_files.iter().any(|af| changed_set.contains(af))
+            });
+        }
 
-        // Collect names of FileScopedGraph detectors so we can exclude their
-        // cached findings in the composition step
-        let rerun_detector_names: HashSet<String> = detectors
-            .iter()
-            .filter(|d| d.detector_scope() == DetectorScope::FileScopedGraph)
-            .map(|d| d.name().to_string())
-            .collect();
+        // Run FSG + GraphWide detectors only when files are added/removed.
+        // Content-only modifications don't need FSG re-runs (findings are stable
+        // for unchanged files). Edge fingerprint comparison is unreliable because
+        // delta patching loses incoming cross-file edges, so we use file list
+        // changes as the structural change signal instead.
+        if topology_changed {
+            // Always rebuild cached_gd when files are added/removed.
+            // The graph was delta-patched so the previous cached_gd is stale
+            // (callers/callees maps, function contexts, taint results don't
+            // reflect new/removed entities).
+            {
+                let project_config = crate::config::load_project_config(&self.repo_path);
+                let detectors = crate::detectors::default_detectors_with_config(
+                    &self.repo_path, &project_config,
+                );
+                self.cached_gd = Some(crate::detectors::precompute_gd_startup(
+                    self.graph.as_ref(),
+                    &self.repo_path,
+                    None,
+                    &self.source_files,
+                    None,
+                    &detectors,
+                ));
+            }
 
-        for finding in all_raw {
-            let scope = scope_map
-                .get(finding.detector.as_str())
-                .copied()
-                .unwrap_or(DetectorScope::GraphWide);
+            let source = SourceFiles::new(self.source_files.clone(), self.repo_path.clone());
 
-            match scope {
-                DetectorScope::FileLocal => {
-                    // Only keep findings that touch changed files
-                    let touches_changed = finding
-                        .affected_files
-                        .iter()
-                        .any(|af| changed_set.contains(af));
-                    if touches_changed {
-                        file_local_findings.push(finding);
-                    }
+            if !file_scoped_graph_detectors.is_empty() {
+                let mut engine = DetectorEngine::new(self.workers);
+                for d in &file_scoped_graph_detectors {
+                    engine.register(Arc::clone(d));
                 }
-                DetectorScope::FileScopedGraph => {
-                    // Keep ALL findings — these cross-file detectors may produce
-                    // different results for unchanged files when the graph changes
-                    file_scoped_graph_findings.push(finding);
+                if let Some(ref gd) = self.cached_gd {
+                    engine.inject_gd_precomputed(gd.clone());
                 }
-                DetectorScope::GraphWide => {
-                    if topology_changed {
-                        graph_wide_findings
-                            .entry(finding.detector.clone())
-                            .or_default()
-                            .push(finding);
-                    }
-                    // If topology not changed, we skip — cached graph_wide_findings are used
+                let fsg_findings = engine.run(self.graph.as_ref(), &source)?;
+                changed_file_findings.extend(fsg_findings);
+                fsg_ran = true;
+            }
+
+            if !graph_wide_detectors.is_empty() {
+                let mut engine = DetectorEngine::new(self.workers);
+                for d in &graph_wide_detectors {
+                    engine.register(Arc::clone(d));
+                }
+                if let Some(ref gd) = self.cached_gd {
+                    engine.inject_gd_precomputed(gd.clone());
+                }
+                let gw_findings = engine.run(self.graph.as_ref(), &source)?;
+                for finding in gw_findings {
+                    graph_wide_findings
+                        .entry(finding.detector.clone())
+                        .or_default()
+                        .push(finding);
                 }
             }
         }
 
+        // Return names of FSG detectors only if they actually ran (so the
+        // composition step knows to replace their cached findings).
+        let fsg_detector_names: HashSet<String> = if fsg_ran {
+            file_scoped_graph_detectors
+                .iter()
+                .map(|d| d.name().to_string())
+                .collect()
+        } else {
+            HashSet::new()
+        };
+
         Ok((
-            file_local_findings,
-            file_scoped_graph_findings,
+            changed_file_findings,
+            Vec::new(),
             graph_wide_findings,
-            rerun_detector_names,
+            fsg_detector_names,
         ))
     }
 }
@@ -889,6 +988,28 @@ fn walk_source_files(repo_path: &Path) -> Result<Vec<PathBuf>> {
         .collect();
     files.sort();
     Ok(files)
+}
+
+/// Quick heuristic to skip vendor/minified files that the CLI walker excludes
+/// but the session walker doesn't have access to the same ExcludeConfig patterns.
+fn is_likely_vendored(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    // Common vendor directories
+    if s.contains("/vendor/")
+        || s.contains("/node_modules/")
+        || s.contains("/_vendor/")
+        || s.contains("/third_party/")
+        || s.contains("/third-party/")
+    {
+        return true;
+    }
+    // Minified files
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if name.contains(".min.") {
+            return true;
+        }
+    }
+    false
 }
 
 // ─── Parsing ──────────────────────────────────────────────────────────────────
@@ -1274,7 +1395,7 @@ fn run_all_detectors(
     repo_path: &Path,
     source_files: &[PathBuf],
     workers: usize,
-) -> Result<Vec<Finding>> {
+) -> Result<(Vec<Finding>, Option<GdPrecomputed>)> {
     let project_config = crate::config::load_project_config(repo_path);
 
     // Create detectors
@@ -1292,7 +1413,10 @@ fn run_all_detectors(
     // Run all detectors
     let findings = engine.run(graph.as_ref(), &source)?;
 
-    Ok(findings)
+    // Extract precomputed data for caching in the session
+    let cached_gd = engine.extract_precomputed();
+
+    Ok((findings, cached_gd))
 }
 
 // ─── Postprocessing ───────────────────────────────────────────────────────────
@@ -1364,8 +1488,16 @@ fn postprocess_session_findings(findings: &mut Vec<Finding>) {
 fn build_findings_by_file(findings: &[Finding]) -> HashMap<PathBuf, Vec<Finding>> {
     let mut map: HashMap<PathBuf, Vec<Finding>> = HashMap::new();
     for finding in findings {
-        for file in &finding.affected_files {
-            map.entry(file.clone()).or_default().push(finding.clone());
+        if finding.affected_files.is_empty() {
+            // Findings with no affected files go into a sentinel bucket so they
+            // aren't lost during persist/load round-trip.
+            map.entry(PathBuf::from("__no_file__"))
+                .or_default()
+                .push(finding.clone());
+        } else {
+            for file in &finding.affected_files {
+                map.entry(file.clone()).or_default().push(finding.clone());
+            }
         }
     }
     map

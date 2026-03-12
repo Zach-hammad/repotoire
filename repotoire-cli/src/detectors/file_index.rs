@@ -73,6 +73,8 @@ pub struct FileIndex {
     entries: Vec<FileEntry>,
     /// Extension -> Vec<index into entries>
     by_extension: rustc_hash::FxHashMap<String, Vec<usize>>,
+    /// Path -> index into entries (O(1) lookup)
+    by_path: rustc_hash::FxHashMap<PathBuf, usize>,
 }
 
 impl FileIndex {
@@ -80,24 +82,44 @@ impl FileIndex {
     pub fn new(file_data: Vec<(PathBuf, Arc<str>, ContentFlags)>) -> Self {
         let mut by_extension: rustc_hash::FxHashMap<String, Vec<usize>> =
             rustc_hash::FxHashMap::default();
+        let mut by_path: rustc_hash::FxHashMap<PathBuf, usize> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(file_data.len(), Default::default());
 
         let mut entries = Vec::with_capacity(file_data.len());
         for (i, (path, content, flags)) in file_data.into_iter().enumerate() {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 by_extension.entry(ext.to_string()).or_default().push(i);
             }
+            by_path.insert(path.clone(), i);
             entries.push(FileEntry::new(path, content, flags));
         }
 
         Self {
             entries,
             by_extension,
+            by_path,
         }
     }
 
     /// Get all file entries.
     pub fn all(&self) -> &[FileEntry] {
         &self.entries
+    }
+
+    /// Check if ANY file matches the given extensions and content flags.
+    ///
+    /// Zero-allocation early-exit check for detector skip logic.
+    pub fn has_matching(&self, extensions: &[&str], required_flags: ContentFlags) -> bool {
+        for ext in extensions {
+            if let Some(indices) = self.by_extension.get(*ext) {
+                for &idx in indices {
+                    if required_flags.is_empty() || self.entries[idx].flags.has(required_flags) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Get file entries matching ANY of the given extensions AND having
@@ -132,9 +154,9 @@ impl FileIndex {
         result
     }
 
-    /// Get a file entry by path.
+    /// Get a file entry by path (O(1) via HashMap).
     pub fn get(&self, path: &Path) -> Option<&FileEntry> {
-        self.entries.iter().find(|e| e.path == path)
+        self.by_path.get(path).map(|&idx| &self.entries[idx])
     }
 
     /// Number of files in the index.

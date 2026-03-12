@@ -18,7 +18,7 @@
 //! - Same API call patterns with minor variations
 //! - CRUD operations that could be genericized
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -573,6 +573,12 @@ impl Detector for AIBoilerplateDetector {
 
     fn requires_graph(&self) -> bool {
         false
+    }
+
+    fn detector_scope(&self) -> DetectorScope {
+        // Produces cross-file findings (clusters similar functions across files).
+        // Must see all files to detect boilerplate patterns.
+        DetectorScope::FileScopedGraph
     }
 
     fn config(&self) -> Option<&DetectorConfig> {

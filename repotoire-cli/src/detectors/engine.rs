@@ -41,12 +41,28 @@ const MAX_FINDINGS_LIMIT: usize = 10_000;
 
 /// Pre-computed data for graph-dependent detector startup.
 /// Built by `precompute_gd_startup()` and injected via `inject_gd_precomputed()`.
+///
+/// All fields are `Arc`-wrapped, so `Clone` is a cheap reference-count bump (~ns).
+/// This allows `AnalysisSession` to cache and re-inject the data on incremental runs,
+/// avoiding the ~3.9s precomputation overhead.
 pub struct GdPrecomputed {
     pub contexts: Arc<FunctionContextMap>,
     pub hmm_contexts: Arc<HashMap<String, FunctionContext>>,
-    pub taint_results: crate::detectors::taint::centralized::CentralizedTaintResults,
+    pub taint_results: Arc<crate::detectors::taint::centralized::CentralizedTaintResults>,
     pub detector_context: Arc<super::DetectorContext>,
     pub file_index: Arc<super::FileIndex>,
+}
+
+impl Clone for GdPrecomputed {
+    fn clone(&self) -> Self {
+        Self {
+            contexts: Arc::clone(&self.contexts),
+            hmm_contexts: Arc::clone(&self.hmm_contexts),
+            taint_results: Arc::clone(&self.taint_results),
+            detector_context: Arc::clone(&self.detector_context),
+            file_index: Arc::clone(&self.file_index),
+        }
+    }
 }
 
 /// Build all GD pre-compute data (contexts + HMM + taint) as a standalone computation.
@@ -120,7 +136,7 @@ pub fn precompute_gd_startup(
     GdPrecomputed {
         contexts: Arc::new(contexts),
         hmm_contexts: Arc::new(hmm_contexts),
-        taint_results,
+        taint_results: Arc::new(taint_results),
         detector_context,
         file_index,
     }
@@ -601,9 +617,177 @@ impl DetectorEngine {
 
         // Store for AnalysisContext construction
         self.file_index = Some(pre.file_index);
-        self.taint_results = Some(Arc::new(pre.taint_results));
+        self.taint_results = Some(pre.taint_results);
         self.detector_context = Some(pre.detector_context);
         self.gd_precomputed = true;
+    }
+
+    /// Inject only the expensive-to-build precomputed data (contexts, HMM, taint).
+    ///
+    /// Unlike `inject_gd_precomputed()`, this does NOT set `gd_precomputed = true`,
+    /// so `run()` will still build `DetectorContext` and `FileIndex` from the
+    /// `SourceFiles` passed to `run()`. This is essential for incremental runs
+    /// where we want detectors to only see changed files.
+    pub fn inject_cached_precomputed(&mut self, pre: &GdPrecomputed) {
+        // Inject function contexts (saves ~1.5s rebuild)
+        self.function_contexts = Some(Arc::clone(&pre.contexts));
+
+        // Inject HMM contexts (saves ~0.4s rebuild)
+        self.hmm_contexts = Some(Arc::clone(&pre.hmm_contexts));
+
+        // Inject taint results into each security detector (saves ~1.5s rebuild)
+        for detector in &self.detectors {
+            if let Some(category) = detector.taint_category() {
+                let cross = pre.taint_results
+                    .cross_function
+                    .get(&category)
+                    .cloned()
+                    .unwrap_or_default();
+                let intra = pre.taint_results
+                    .intra_function
+                    .get(&category)
+                    .cloned()
+                    .unwrap_or_default();
+                detector.set_precomputed_taint(cross, intra);
+            }
+        }
+        // Store taint so run() sees it as already computed
+        self.taint_results = Some(Arc::clone(&pre.taint_results));
+        // NOTE: gd_precomputed stays false — run() still builds DetectorContext & FileIndex
+    }
+
+    /// Inject cached precomputed data for incremental per-file detection.
+    ///
+    /// Like `inject_gd_precomputed()` but replaces the FileIndex with one built
+    /// from only the changed files. This ensures detectors only see changed files
+    /// while reusing the expensive graph-derived data (callers/callees maps,
+    /// taint, HMM, function contexts).
+    ///
+    /// Sets `gd_precomputed = true` so `run()` skips `DetectorContext::build()`
+    /// which would otherwise iterate the entire graph (~3.6s on CPython).
+    pub fn inject_for_incremental(
+        &mut self,
+        pre: &GdPrecomputed,
+        changed_files: &[std::path::PathBuf],
+        repo_path: &std::path::Path,
+    ) {
+        // Inject function contexts (saves ~1.5s rebuild)
+        self.function_contexts = Some(Arc::clone(&pre.contexts));
+
+        // Inject HMM contexts (saves ~0.4s rebuild)
+        self.hmm_contexts = Some(Arc::clone(&pre.hmm_contexts));
+
+        // Inject taint results into each security detector (saves ~1.5s rebuild)
+        for detector in &self.detectors {
+            if let Some(category) = detector.taint_category() {
+                let cross = pre.taint_results
+                    .cross_function
+                    .get(&category)
+                    .cloned()
+                    .unwrap_or_default();
+                let intra = pre.taint_results
+                    .intra_function
+                    .get(&category)
+                    .cloned()
+                    .unwrap_or_default();
+                detector.set_precomputed_taint(cross, intra);
+            }
+        }
+        self.taint_results = Some(Arc::clone(&pre.taint_results));
+
+        // Inject the cached DetectorContext (saves ~3.6s rebuild of callers/callees
+        // maps from graph.get_functions() + graph.build_call_maps_raw())
+        for detector in &self.detectors {
+            detector.set_detector_context(Arc::clone(&pre.detector_context));
+        }
+        self.detector_context = Some(Arc::clone(&pre.detector_context));
+
+        // Build a NEW FileIndex from only the changed files so detectors only
+        // analyze those files (not the entire codebase).
+        use rayon::prelude::*;
+        let file_data: Vec<(std::path::PathBuf, Arc<str>, super::ContentFlags)> = changed_files
+            .par_iter()
+            .filter_map(|f| {
+                std::fs::read_to_string(f).ok().map(|c| {
+                    let flags = super::detector_context::compute_content_flags(&c);
+                    (f.clone(), Arc::from(c.as_str()), flags)
+                })
+            })
+            .collect();
+        self.file_index = Some(Arc::new(super::FileIndex::new(file_data)));
+
+        // Set gd_precomputed = true so run() skips DetectorContext::build()
+        self.gd_precomputed = true;
+    }
+
+    /// Inject minimal data for FileLocal-only detection without cached GdPrecomputed.
+    ///
+    /// Builds a FileIndex from only the changed files and sets empty contexts
+    /// so `run()` skips all expensive graph-derived computation (function contexts,
+    /// HMM, taint, DetectorContext). FileLocal detectors only need file content.
+    pub fn inject_minimal_for_file_local(
+        &mut self,
+        changed_files: &[std::path::PathBuf],
+        _repo_path: &std::path::Path,
+    ) {
+        use rayon::prelude::*;
+
+        // Empty function contexts (FileLocal detectors don't need graph-derived contexts)
+        self.function_contexts = Some(Arc::new(HashMap::new()));
+        self.hmm_contexts = Some(Arc::new(HashMap::new()));
+
+        // Empty taint results
+        self.taint_results = Some(Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
+            cross_function: HashMap::new(),
+            intra_function: HashMap::new(),
+        }));
+
+        // Empty DetectorContext (no callers/callees needed for FileLocal)
+        let empty_det_ctx = Arc::new(super::DetectorContext::empty());
+        for detector in &self.detectors {
+            detector.set_detector_context(Arc::clone(&empty_det_ctx));
+        }
+        self.detector_context = Some(empty_det_ctx);
+
+        // Build FileIndex from only changed files
+        let file_data: Vec<(std::path::PathBuf, Arc<str>, super::ContentFlags)> = changed_files
+            .par_iter()
+            .filter_map(|f| {
+                std::fs::read_to_string(f).ok().map(|c| {
+                    let flags = super::detector_context::compute_content_flags(&c);
+                    (f.clone(), Arc::from(c.as_str()), flags)
+                })
+            })
+            .collect();
+        self.file_index = Some(Arc::new(super::FileIndex::new(file_data)));
+
+        self.gd_precomputed = true;
+    }
+
+    /// Extract pre-computed data after `run()` completes.
+    ///
+    /// Returns `None` if `run()` hasn't been called yet (fields are empty).
+    /// The returned `GdPrecomputed` can be cached in `AnalysisSession` and
+    /// re-injected via `inject_gd_precomputed()` for subsequent incremental runs.
+    pub fn extract_precomputed(&self) -> Option<GdPrecomputed> {
+        match (
+            &self.function_contexts,
+            &self.hmm_contexts,
+            &self.taint_results,
+            &self.detector_context,
+            &self.file_index,
+        ) {
+            (Some(ctx), Some(hmm), Some(taint), Some(det_ctx), Some(fi)) => {
+                Some(GdPrecomputed {
+                    contexts: Arc::clone(ctx),
+                    hmm_contexts: Arc::clone(hmm),
+                    taint_results: Arc::clone(taint),
+                    detector_context: Arc::clone(det_ctx),
+                    file_index: Arc::clone(fi),
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Register a detector
@@ -661,10 +845,11 @@ impl DetectorEngine {
         let hmm_contexts = self.build_hmm_contexts(graph);
 
         // Pre-compute centralized taint analysis for all security detectors
-        // (only if at least one detector needs taint results)
+        // (only if at least one detector needs taint results AND not already injected)
         let needs_taint = self.detectors.iter().any(|d| d.taint_category().is_some());
+        let taint_already_set = self.taint_results.is_some();
         let repo_path = Some(files.repo_path());
-        if needs_taint {
+        if needs_taint && !taint_already_set {
             if let Some(repo_path) = repo_path {
                 let taint_results = crate::detectors::taint::centralized::run_centralized_taint(
                     graph,
@@ -690,7 +875,8 @@ impl DetectorEngine {
                 self.taint_results = Some(Arc::new(taint_results));
             }
         } else {
-            debug!("Skipping taint computation in run(): no detectors need taint");
+            debug!("Skipping taint computation in run(): needs_taint={}, already_set={}",
+                needs_taint, taint_already_set);
             // Store empty taint results so AnalysisContext can still be built
             if self.taint_results.is_none() {
                 self.taint_results = Some(Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
@@ -742,12 +928,41 @@ impl DetectorEngine {
             .stack_size(8 * 1024 * 1024) // 8MB stack for deeply nested C/C++ parsing
             .build()?;
 
+        // Pre-compute which detectors to skip based on FileIndex matching.
+        // Detectors with non-empty file_extensions() are skipped when no files match.
+        let file_index_ref = self.file_index.as_ref();
+        let skip_set: rustc_hash::FxHashSet<&str> = if let Some(fi) = file_index_ref {
+            self.detectors.iter().filter_map(|d| {
+                let exts = d.file_extensions();
+                if !exts.is_empty() && !fi.has_matching(exts, d.content_requirements()) {
+                    Some(d.name())
+                } else {
+                    None
+                }
+            }).collect()
+        } else {
+            rustc_hash::FxHashSet::default()
+        };
+
+        if !skip_set.is_empty() {
+            debug!("Skipping {} detectors with no matching files", skip_set.len());
+        }
+
         let contexts_for_parallel = Arc::clone(&contexts);
         let finding_count_parallel = Arc::clone(&finding_count);
         let independent_results: Vec<DetectorResult> = pool.install(|| {
             independent
                 .par_iter()
                 .map(|detector| {
+                    // Skip if no matching files for this detector
+                    if skip_set.contains(detector.name()) {
+                        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                        if let Some(ref callback) = self.progress_callback {
+                            callback(detector.name(), done, total);
+                        }
+                        return DetectorResult::skipped(detector.name());
+                    }
+
                     // Skip if we've already hit the finding limit
                     if finding_count_parallel.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
                         // Still update progress for skipped detectors
@@ -796,6 +1011,16 @@ impl DetectorEngine {
         // Run dependent detectors sequentially
         // Future: Build dependency graph and run in topological order
         for detector in dependent {
+            // Skip if no matching files for this detector
+            if skip_set.contains(detector.name()) {
+                let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                if let Some(ref callback) = self.progress_callback {
+                    callback(detector.name(), done, total);
+                }
+                summary.add_result(&DetectorResult::skipped(detector.name()));
+                continue;
+            }
+
             // Skip if we've already hit the finding limit
             if finding_count.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
                 // Still update progress for skipped detectors

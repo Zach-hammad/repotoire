@@ -13,7 +13,7 @@
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -361,6 +361,11 @@ impl Detector for AIDuplicateBlockDetector {
 
     fn requires_graph(&self) -> bool {
         false
+    }
+
+    fn detector_scope(&self) -> DetectorScope {
+        // Produces cross-file findings (compares code blocks across files).
+        DetectorScope::FileScopedGraph
     }
 
     fn config(&self) -> Option<&DetectorConfig> {
