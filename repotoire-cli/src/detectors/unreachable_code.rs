@@ -1,206 +1,33 @@
 //! Unreachable Code Detector
 //!
-//! Graph-aware detection of unreachable code:
-//! 1. Code after return/throw/exit (source pattern)
-//! 2. Functions with zero callers in the call graph (dead functions)
+//! Detects code after return/throw/raise/break/continue statements using
+//! scope-aware brace-depth analysis. Tracks brace depth through function
+//! bodies and only flags code at the SAME or DEEPER scope level after a
+//! terminating statement.
+//!
+//! Dead function detection (fan_in == 0) is handled by DeadCodeDetector.
 
-use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::interner::StrKey;
-use crate::graph::GraphStore;
+use crate::detectors::analysis_context::AnalysisContext;
+use crate::detectors::base::Detector;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
-use regex::Regex;
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::LazyLock;
-use tracing::{debug, info};
-
-static RETURN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"^\s*(return\b|throw\b|raise\b|exit\(|sys\.exit|process\.exit|break;|continue;)",
-        )
-        .expect("valid regex")
-    });
-
-/// Entry point patterns - these functions are called externally
-const ENTRY_POINT_PATTERNS: &[&str] = &[
-    "main",
-    "test_",
-    "setup",
-    "teardown",
-    "run",
-    "start",
-    "init",
-    "handle",
-    "on_",
-    "get_",
-    "post_",
-    "put_",
-    "delete_",
-    "patch_",
-    "__init__",
-    "__new__",
-    "__call__",
-    "__enter__",
-    "__exit__",
-    "configure",
-    "register",
-    "setup_",
-    "create_app",
-    // Rust trait methods (called via trait dispatch, not visible in call graph)
-    "detect",
-    "name",
-    "description",
-    "category",
-    "config",
-    "new",
-    "default",
-    "from",
-    "into",
-    "try_from",
-    "try_into",
-    "clone",
-    "fmt",
-    "eq",
-    "cmp",
-    "hash",
-    "drop",
-    "deref",
-    "serialize",
-    "deserialize",
-    "build",
-    "parse",
-    "validate",
-    // Builder pattern methods (called on builder instances, not tracked in graph)
-    "with_",
-    "set_",
-    "add_",
-    "find",
-    "calculate",
-    "analyze",
-    // Callback/handler patterns (called via function pointers)
-    "_cb", // callback suffix
-    "_callback",
-    "_handler",
-    "_hook",
-    "_fn",
-    // Common interpreter/runtime prefixes (called via dispatch tables)
-    // CPython: Py_, PyObject_, PyList_, etc.
-    "py_",
-    "pyobject_",
-    "pylist_",
-    "pydict_",
-    "pytuple_",
-    "pyset_",
-    "_py", // internal CPython
-    // Lua: lua_, luaL_, luaV_, etc.
-    "lua_",
-    "lual_",
-    "luav_",
-    "luac_",
-    "luad_",
-    "luag_",
-    "luah_",
-    // Ruby: rb_, RUBY_
-    "rb_",
-    "ruby_",
-    // V8/JavaScript engines
-    "v8_",
-    "js_",
-    // GLib/GTK
-    "g_",
-    "gtk_",
-    "gdk_",
-    // libuv
-    "uv_",
-    "uv__",
-    // React/UI framework patterns (exported for external use)
-    "use",       // React hooks: useEffect, useState, useCallback, useMemo
-    "render",    // React render functions
-    "component", // React components
-    "create",    // Factory functions: createElement, createContext
-    "provide",   // Provider components
-    "consume",   // Consumer components
-    "forward",   // forwardRef
-    "memo",      // React.memo
-    "lazy",      // React.lazy
-    "suspense",  // Suspense-related
-    // Compiler visitor patterns (called via dispatch)
-    "visit",     // Visitor pattern: visitNode, visitExpression
-    "enter",     // AST traversal: enterBlock
-    "exit",      // AST traversal: exitBlock
-    "transform", // AST transforms
-    "emit",      // Code emission
-    "infer",     // Type inference
-    "check",     // Type checking
-    "validate",  // Validation passes
-    "lower",     // IR lowering
-    "optimize",  // Optimization passes
-    "analyze",   // Analysis passes
-];
-
-/// Paths that indicate entry points or dispatch-table code
-const ENTRY_POINT_PATHS: &[&str] = &[
-    // Direct entry points
-    "/cli/",
-    "/cmd/",
-    "/main",
-    "/handlers/",
-    "/routes/",
-    "/views/",
-    "/api/",
-    "/endpoints/",
-    "/__main__",
-    "/tests/",
-    "_test.",
-    // Dispatch table patterns (functions called via pointers, not direct calls)
-    "/jets/",       // JIT/dispatch tables (interpreters)
-    "/opcodes/",    // Opcode handlers
-    "/callbacks/",  // Callback functions
-    "/hooks/",      // Hook functions
-    "/vtable/",     // Virtual table implementations
-    "/impls/",      // Trait/interface implementations
-    "/builtins/",   // Built-in functions
-    "/intrinsics/", // Compiler intrinsics
-    "/primitives/", // Primitive operations
-    "/ops/",        // Operation implementations
-    "/ffi/",        // FFI bindings
-    "/bindings/",   // Language bindings
-    "/wasm/",       // WebAssembly exports
-    // Vendored/third-party code (shouldn't flag external code)
-    "/ext/",          // External dependencies
-    "/vendor/",       // Vendored code
-    "/third_party/",  // Third-party libraries
-    "/thirdparty/",   // Third-party libraries (alt)
-    "/external/",     // External dependencies
-    "/deps/",         // Dependencies
-    "/node_modules/", // npm packages
-    // Framework source code (exports are API surface, not dead code)
-    "/packages/react",     // React monorepo packages
-    "/packages/shared",    // React shared utilities
-    "/packages/scheduler", // React scheduler
-    "/packages/use-",      // React hooks packages
-    "/reconciler/",        // React reconciler internals
-    "/scheduler/",         // Scheduler internals
-    "/forks/",             // React platform forks
-    "/fiber/",             // React Fiber internals
-];
 
 pub struct UnreachableCodeDetector {
-    repository_path: PathBuf,
     max_findings: usize,
 }
 
 impl UnreachableCodeDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
+    pub fn new(_repository_path: impl Into<PathBuf>) -> Self {
+        Self { max_findings: 50 }
     }
 
     /// Rust conditional compilation attributes that mean a function is only compiled
-    /// under certain conditions (cfg, test, bench, etc.) — not truly unreachable.
+    /// under certain conditions (cfg, test, bench, etc.) -- not truly unreachable.
+    ///
+    /// Used by conditional compilation exemption logic (tested, kept for future
+    /// integration with scope-aware analysis).
+    #[allow(dead_code)]
     const RUST_CONDITIONAL_ATTRS: &'static [&'static str] = &[
         "cfg(",
         "cfg_attr(",
@@ -214,6 +41,7 @@ impl UnreachableCodeDetector {
     ///
     /// Uses the `decorators` field from ExtraProps (populated by the Rust parser
     /// from `#[...]` attribute items preceding function definitions).
+    #[allow(dead_code)]
     fn is_conditionally_compiled_rust(
         graph: &dyn crate::graph::GraphQuery,
         func: &crate::graph::store_models::CodeNode,
@@ -240,11 +68,12 @@ impl UnreachableCodeDetector {
     /// the source file content around the function definition.
     ///
     /// Handles:
-    /// - **Rust**: `#[cfg(test)] mod tests { ... }` blocks — checks if function's
+    /// - **Rust**: `#[cfg(test)] mod tests { ... }` blocks -- checks if function's
     ///   qualified name contains a cfg(test) module segment.
     /// - **C/C++**: `#ifdef`, `#ifndef`, `#if` preprocessor guards surrounding
     ///   the function definition.
     /// - **Python**: `if __name__` guards that wrap function definitions.
+    #[allow(dead_code)]
     fn is_in_conditional_block(
         file_path: &str,
         func_line_start: u32,
@@ -279,6 +108,7 @@ impl UnreachableCodeDetector {
     /// Scans backward from the function's line to find `mod` declarations
     /// preceded by `#[cfg(...)]` attributes. If found and the function is
     /// within the module's brace-delimited scope, returns true.
+    #[allow(dead_code)]
     fn is_in_rust_cfg_module(func_line_start: u32, content: &str) -> bool {
         let lines: Vec<&str> = content.lines().collect();
         let func_idx = (func_line_start as usize).saturating_sub(1);
@@ -289,21 +119,7 @@ impl UnreachableCodeDetector {
 
         // Scan backward from the function to find a `mod` declaration with #[cfg(...)]
         let mut i = func_idx;
-        let mut brace_depth: i32 = 0;
 
-        // First: count the brace depth at the function's line to understand nesting
-        for line_idx in 0..=func_idx.min(lines.len() - 1) {
-            let line = lines[line_idx];
-            for ch in line.chars() {
-                match ch {
-                    '{' => brace_depth += 1,
-                    '}' => brace_depth -= 1,
-                    _ => {}
-                }
-            }
-        }
-
-        // The function is inside at least `brace_depth` levels of nesting.
         // Scan backward to find a mod with #[cfg(...)] that encloses us.
         while i > 0 {
             i -= 1;
@@ -338,6 +154,7 @@ impl UnreachableCodeDetector {
     ///
     /// Tracks `#ifdef`/`#ifndef`/`#if` and `#endif` directives to determine
     /// if the function at `func_line_start` is within a conditional region.
+    #[allow(dead_code)]
     fn is_in_preprocessor_guard(func_line_start: u32, content: &str) -> bool {
         let lines: Vec<&str> = content.lines().collect();
         let func_idx = (func_line_start as usize).saturating_sub(1);
@@ -360,7 +177,7 @@ impl UnreachableCodeDetector {
             } else if trimmed.starts_with("#endif") {
                 pp_stack.pop();
             } else if trimmed.starts_with("#else") || trimmed.starts_with("#elif") {
-                // Still inside the same conditional block — keep the stack entry
+                // Still inside the same conditional block -- keep the stack entry
             }
         }
 
@@ -374,6 +191,7 @@ impl UnreachableCodeDetector {
     /// Scans backward from the function line to find an `if __name__` block
     /// at column 0 (top-level guard) and checks that the function is indented
     /// inside it.
+    #[allow(dead_code)]
     fn is_in_python_name_guard(func_line_start: u32, content: &str) -> bool {
         let lines: Vec<&str> = content.lines().collect();
         let func_idx = (func_line_start as usize).saturating_sub(1);
@@ -399,7 +217,7 @@ impl UnreachableCodeDetector {
 
             let indent = line.len() - trimmed.len();
 
-            // Found a line at lower or equal indent — check if it's the __name__ guard
+            // Found a line at lower or equal indent -- check if it's the __name__ guard
             if indent < func_indent {
                 if trimmed.starts_with("if __name__")
                     || trimmed.starts_with("if  __name__")
@@ -414,598 +232,176 @@ impl UnreachableCodeDetector {
         false
     }
 
-    /// Check if function is likely an entry point (called externally)
-    fn is_entry_point(&self, func_name: &str, file_path: &str) -> bool {
-        let name_lower = func_name.to_lowercase();
+    // ── Scope-aware code-after-return detection ─────────────────────────
 
-        // Check name patterns
-        if ENTRY_POINT_PATTERNS
-            .iter()
-            .any(|p| name_lower.starts_with(p) || name_lower == *p || name_lower.ends_with(p))
-        {
-            return true;
-        }
-
-        // Check path patterns
-        if ENTRY_POINT_PATHS.iter().any(|p| file_path.contains(p)) {
-            return true;
-        }
-
-        // Exported functions (capitalized in Go, pub in Rust implied by graph)
-        if func_name
-            .chars()
-            .next()
-            .map(|c| c.is_uppercase())
-            .unwrap_or(false)
-        {
-            return true;
-        }
-
-        // Detect runtime/interpreter naming convention: short_prefix + underscore + name
-        // Examples: u3r_word, Py_Initialize, lua_pushnil, rb_str_new
-        // Pattern: 2-4 alphanumeric chars followed by underscore
-        if Self::has_runtime_prefix(func_name) {
-            return true;
-        }
-
-        false
+    /// Returns true if `line` is a terminating statement (return, throw, raise,
+    /// break, continue, exit).
+    fn is_terminating_statement(trimmed: &str) -> bool {
+        trimmed.starts_with("return ")
+            || trimmed.starts_with("return;")
+            || trimmed == "return"
+            || trimmed.starts_with("throw ")
+            || trimmed.starts_with("throw;")
+            || trimmed.starts_with("raise ")
+            || trimmed == "raise"
+            || trimmed.starts_with("exit(")
+            || trimmed.starts_with("sys.exit")
+            || trimmed.starts_with("process.exit")
+            || trimmed.starts_with("break;")
+            || trimmed == "break"
+            || trimmed.starts_with("continue;")
+            || trimmed == "continue"
     }
 
-    /// Detect common runtime/interpreter naming patterns
-    /// Pattern: 2-4 alphanumeric prefix + underscore (e.g., u3r_, Py_, lua_, rb_)
-    fn has_runtime_prefix(func_name: &str) -> bool {
-        // Find first underscore
-        if let Some(underscore_pos) = func_name.find('_') {
-            // Prefix must be 2-4 characters
-            if (2..=4).contains(&underscore_pos) {
-                let prefix = &func_name[..underscore_pos];
-                // Prefix must be alphanumeric (allow mixed case for Py_, Rb_, etc.)
-                if prefix.chars().all(|c| c.is_alphanumeric()) {
-                    // Additional check: avoid false positives from common words
-                    let prefix_lower = prefix.to_lowercase();
-                    const COMMON_WORDS: &[&str] = &[
-                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del", "pop",
-                        "put", "run", "try", "end", "use", "for", "the", "and", "not", "dead",
-                        "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo", "bar", "baz",
-                        "qux", "call", "read", "load", "save", "send", "recv",
-                    ];
-                    if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
+    /// Returns true if `trimmed` is a line that should be skipped when
+    /// checking for unreachable code (comments, empty, control-flow
+    /// continuations like else/catch/finally, labels, etc.).
+    fn is_skip_line(trimmed: &str) -> bool {
+        trimmed.is_empty()
+            || trimmed.starts_with("//")
+            || trimmed.starts_with('#')
+            || trimmed.starts_with("/*")
+            || trimmed.starts_with('*')
+            || trimmed.starts_with("else")
+            || trimmed.starts_with("elif")
+            || trimmed.starts_with("except")
+            || trimmed.starts_with("catch")
+            || trimmed.starts_with("finally")
+            || trimmed.starts_with("case ")
+            || trimmed.starts_with("default:")
+            || trimmed.starts_with("default ")
     }
 
-    /// Check if function is exported (has export keyword or is in module.exports).
-    /// Takes pre-fetched file content to avoid repeated cache lookups.
-    fn is_exported_function_with_content(
-        file_path: &str,
-        func_name: &str,
-        line_start: u32,
-        content: &str,
-    ) -> bool {
-        let func_pattern = func_name.split("::").last().unwrap_or(func_name);
-
-        // For Python, we can do a quick __all__ check without collecting lines
-        if file_path.ends_with(".py") {
-            for line in content.lines() {
-                if line.contains("__all__") && line.contains(func_pattern) {
-                    return true;
+    /// Compute brace-depth delta and minimum intermediate depth for a line.
+    ///
+    /// Returns `(net_delta, min_delta)` where:
+    /// - `net_delta` is the total change in brace depth after the whole line
+    /// - `min_delta` is the lowest intermediate delta (e.g., for `} else {`,
+    ///   min_delta is -1 because the `}` closes a scope before `{` opens one)
+    ///
+    /// Characters inside string literals and comments are not special-cased
+    /// for simplicity; this is a heuristic that works well in practice.
+    fn brace_delta(line: &str) -> (i32, i32) {
+        let mut delta = 0i32;
+        let mut min_delta = 0i32;
+        for ch in line.chars() {
+            match ch {
+                '{' => delta += 1,
+                '}' => {
+                    delta -= 1;
+                    min_delta = min_delta.min(delta);
                 }
-            }
-            // Python has no export/module.exports, so return early
-            return false;
-        }
-
-        // Go: Capitalized = exported
-        if file_path.ends_with(".go") {
-            if let Some(c) = func_pattern.chars().next() {
-                if c.is_uppercase() {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        let lines: Vec<&str> = content.lines().collect();
-
-        // Check the function declaration line and a few lines before
-        let start = (line_start as usize).saturating_sub(3);
-        let end = (line_start as usize + 2).min(lines.len());
-
-        for i in start..end {
-            if i < lines.len() {
-                let line = lines[i];
-
-                // JS/TS export patterns - must be on the actual function line
-                if line.contains("export ")
-                    && (line.contains("function")
-                        || line.contains("const")
-                        || line.contains("=>"))
-                {
-                    return true;
-                }
-                if line.contains("export default") {
-                    return true;
-                }
+                _ => {}
             }
         }
-
-        // Check for export statements anywhere in file (re-exports)
-        for line in lines.iter() {
-            // module.exports = { funcName } or module.exports.funcName
-            if line.contains("module.exports") && line.contains(func_pattern) {
-                return true;
-            }
-            // exports.funcName =
-            if line.contains("exports.") && line.contains(func_pattern) {
-                return true;
-            }
-            // export { funcName } or export { funcName as alias }
-            if (line.contains("export {") || line.contains("export{"))
-                && line.contains(func_pattern)
-            {
-                return true;
-            }
-            // export default funcName
-            if line.contains("export default") && line.contains(func_pattern) {
-                return true;
-            }
-        }
-
-        // Rust: Check for pub fn at the declaration
-        if file_path.ends_with(".rs") {
-            let start_idx = (line_start as usize).saturating_sub(1);
-            if start_idx < lines.len() {
-                let line = lines[start_idx];
-                if line.contains("pub fn") || line.contains("pub async fn") {
-                    return true;
-                }
-            }
-        }
-
-        false
+        (delta, min_delta)
     }
 
-    /// Find functions with zero callers using the call graph
-    fn find_dead_functions(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
-        let i = graph.interner();
+    /// Scope-aware detection of code after return/throw/raise/break/continue.
+    ///
+    /// Iterates through lines of each file, tracking brace depth. When a
+    /// terminating statement is found at scope level N, the next non-empty,
+    /// non-comment line at the SAME or DEEPER scope level is flagged as
+    /// unreachable. Lines at a LOWER scope level (closing braces, else
+    /// branches) are legitimate and are not flagged.
+    fn find_code_after_return(&self, ctx: &AnalysisContext<'_>) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let functions = graph.get_functions_shared();
+        let extensions = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rb", "php", "rs", "c", "cpp", "cs"];
 
-        // Pre-build caller/callee maps from get_calls_shared() using StrKey for O(1) lookups.
-        let calls = graph.get_calls_shared();
-        let mut callee_to_callers: HashMap<StrKey, Vec<StrKey>> = HashMap::new();
-        let mut caller_to_callees: HashMap<StrKey, Vec<StrKey>> = HashMap::new();
-        let mut called_functions: HashSet<StrKey> = HashSet::with_capacity(calls.len());
-        for (caller, callee) in calls.iter() {
-            called_functions.insert(*callee);
-            callee_to_callers
-                .entry(*callee)
-                .or_default()
-                .push(*caller);
-            caller_to_callees
-                .entry(*caller)
-                .or_default()
-                .push(*callee);
-        }
-
-        // First pass: find directly dead functions
-        let mut directly_dead: HashSet<StrKey> = HashSet::new();
-        // Per-file exclusion cache: avoids re-checking bundled/minified/fixture per file
-        let mut file_excluded: rustc_hash::FxHashMap<StrKey, bool> = rustc_hash::FxHashMap::default();
-        // Per-file content cache: avoids repeated DashMap lookups for exported/self.method checks
-        let mut file_content: rustc_hash::FxHashMap<StrKey, Option<std::sync::Arc<String>>> = rustc_hash::FxHashMap::default();
-
-        for func in functions.iter() {
-            // Skip if it's called somewhere
-            if called_functions.contains(&func.qualified_name) {
-                continue;
-            }
-
-            // Skip entry points
-            if self.is_entry_point(func.node_name(i), func.path(i)) {
-                continue;
-            }
-
-            // Skip functions whose address is taken (callbacks, dispatch tables, etc.)
-            // These are invoked indirectly via function pointers, not direct calls
-            if func.address_taken() {
-                continue;
-            }
-
-            // Skip Rust conditionally compiled functions (#[cfg(...)], #[test], #[bench], etc.)
-            // This is cheap — reads from the graph's ExtraProps, no file I/O.
-            if Self::is_conditionally_compiled_rust(graph, func) {
-                continue;
-            }
-
-            let fp = func.path(i);
-            // Per-file exclusion: test, scripts, non-production, framework, bundled (cached)
-            let excluded = *file_excluded
-                .entry(func.file_path)
-                .or_insert_with(|| {
-                    // Test files
-                    if fp.contains("/test") || fp.contains("_test.")
-                        || fp.contains("/tests/") || fp.contains("conftest")
-                        || fp.contains("type_check")
-                    {
-                        return true;
-                    }
-                    // Scripts/build tools
-                    if fp.contains("/scripts/") || fp.contains("/tools/") || fp.contains("/build/") {
-                        return true;
-                    }
-                    // Non-production paths
-                    if crate::detectors::content_classifier::is_non_production_path(fp) {
-                        return true;
-                    }
-                    // Framework internal paths
-                    if fp.contains("packages/react") || fp.contains("/react-dom/")
-                        || fp.contains("/react-server/") || fp.contains("/reconciler/")
-                        || fp.contains("/scheduler/") || fp.contains("/shared/")
-                        || fp.contains("/forks/")
-                    {
-                        return true;
-                    }
-                    // Bundled/generated/fixture code
-                    if crate::detectors::content_classifier::is_likely_bundled_path(fp) {
-                        return true;
-                    }
-                    if let Some(content) =
-                        crate::cache::global_cache().content(std::path::Path::new(fp))
-                    {
-                        if crate::detectors::content_classifier::is_bundled_code(&content)
-                            || crate::detectors::content_classifier::is_minified_code(&content)
-                            || crate::detectors::content_classifier::is_fixture_code(fp, &content)
-                        {
-                            return true;
-                        }
-                    }
-                    false
-                });
-            if excluded {
-                continue;
-            }
-
-            let func_name = func.node_name(i);
-            // Skip CLI-related functions (often entry points)
-            if fp.contains("/cli")
-                || func_name.contains("locate")
-                || func_name.contains("app")
-                || func_name.contains("create")
-            {
-                continue;
-            }
-
-            // Skip private/internal functions (underscore prefix)
-            if func_name.starts_with('_') && !func_name.starts_with("__") {
-                continue;
-            }
-
-            // Skip constructors (always called when class is instantiated)
-            if func_name == "constructor" || func_name == "__init__" || func_name == "new" {
-                continue;
-            }
-
-            // Skip dev-only functions (conditional compilation)
-            let name_lower = func_name.to_lowercase();
-            if name_lower.ends_with("dev")
-                || name_lower.contains("indev")
-                || name_lower.starts_with("warn")
-                || name_lower.starts_with("debug")
-            {
-                continue;
-            }
-
-            // Expensive checks AFTER cheap graph-based filters:
-            // Get/cache file content once per file (avoids repeated DashMap lookups)
-            let content = file_content
-                .entry(func.file_path)
-                .or_insert_with(|| {
-                    crate::cache::global_cache().content(std::path::Path::new(fp))
-                });
-
-            if let Some(ref content) = content {
-                // Skip exported functions
-                if Self::is_exported_function_with_content(
-                    fp, func.qn(i), func.line_start, content,
-                ) {
-                    continue;
-                }
-
-                // Check if method is called via self.method() in same file
-                let self_call = format!("self.{}(", func_name);
-                if content.contains(&self_call) {
-                    continue;
-                }
-
-                // Skip functions inside conditional compilation blocks:
-                // - Rust: #[cfg(test)] mod ... { fn ... }
-                // - C/C++: #ifdef / #ifndef / #if guards
-                // - Python: if __name__ == "__main__": blocks
-                if Self::is_in_conditional_block(fp, func.line_start, content) {
-                    continue;
-                }
-            }
-
-            directly_dead.insert(func.qualified_name);
-        }
-
-        // Second pass: find transitively dead functions
-        // (functions only called by dead functions)
-        let transitively_dead =
-            self.find_transitively_dead(i, &functions, &callee_to_callers, &directly_dead);
-
-        // Create findings for directly dead functions
-        for func in functions.iter() {
-            if !directly_dead.contains(&func.qualified_name) {
-                continue;
-            }
-
-            // Check how many functions this dead function calls (impact) — O(1) lookup
-            let dead_callees: Vec<StrKey> = caller_to_callees
-                .get(&func.qualified_name)
-                .map(|cs| {
-                    cs.iter()
-                        .copied()
-                        .filter(|c| transitively_dead.contains(c))
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let cascade_note = if !dead_callees.is_empty() {
-                format!(
-                    "\n\n⚠️ **Cascade**: Removing this also removes {} transitively dead function(s):\n{}",
-                    dead_callees.len(),
-                    dead_callees.iter().take(3).map(|c| format!("  - {}", i.resolve(*c))).collect::<Vec<_>>().join("\n")
-                )
-            } else {
-                String::new()
-            };
-
-            let func_name = func.node_name(i);
-            let func_path = func.path(i);
-            debug!("Dead function found: {} in {}", func_name, func_path);
-
-            findings.push(Finding {
-                id: String::new(),
-                detector: "UnreachableCodeDetector".to_string(),
-                severity: if !dead_callees.is_empty() {
-                    Severity::High
-                } else {
-                    Severity::Medium
-                },
-                title: format!("Dead function: {}", func_name),
-                description: format!(
-                    "Function '{}' has **zero callers** in the codebase.\n\n\
-                     This function is never called and may be dead code that can be removed.{}",
-                    func_name, cascade_note
-                ),
-                affected_files: vec![PathBuf::from(func_path)],
-                line_start: Some(func.line_start),
-                line_end: Some(func.line_end),
-                suggested_fix: Some(
-                    "Options:\n\
-                     1. Remove the dead function\n\
-                     2. If it's an entry point, add it to exports or ensure it's registered\n\
-                     3. If it's a callback, ensure it's passed to the caller"
-                        .to_string(),
-                ),
-                estimated_effort: Some(if !dead_callees.is_empty() {
-                    "15 minutes".to_string()
-                } else {
-                    "10 minutes".to_string()
-                }),
-                category: Some("dead-code".to_string()),
-                cwe_id: Some("CWE-561".to_string()),
-                why_it_matters: Some(
-                    "Dead functions add maintenance burden without providing value. \
-                     They can confuse developers and increase cognitive load."
-                        .to_string(),
-                ),
-                ..Default::default()
-            });
-        }
-
-        // Create separate findings for transitively dead (lower severity - removing root will fix)
-        for func in functions.iter() {
-            if !transitively_dead.contains(&func.qualified_name) {
-                continue;
-            }
-            if directly_dead.contains(&func.qualified_name) {
-                continue; // Already reported
-            }
-
-            // Find which dead function(s) call this one — O(1) lookup
-            let dead_callers: Vec<StrKey> = callee_to_callers
-                .get(&func.qualified_name)
-                .map(|callers| {
-                    callers
-                        .iter()
-                        .copied()
-                        .filter(|c| {
-                            directly_dead.contains(c)
-                                || transitively_dead.contains(c)
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let func_name = func.node_name(i);
-            findings.push(Finding {
-                id: String::new(),
-                detector: "UnreachableCodeDetector".to_string(),
-                severity: Severity::Low, // Lower - fixing root dead function will resolve this
-                title: format!("Transitively dead: {}", func_name),
-                description: format!(
-                    "Function '{}' is only called by dead function(s):\n{}\n\n\
-                     Removing the dead callers will make this removable too.",
-                    func_name,
-                    dead_callers
-                        .iter()
-                        .take(3)
-                        .map(|c| format!("  - {}", i.resolve(*c)))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                ),
-                affected_files: vec![PathBuf::from(func.path(i))],
-                line_start: Some(func.line_start),
-                line_end: Some(func.line_end),
-                suggested_fix: Some(
-                    "This function will become removable after its dead callers are removed."
-                        .to_string(),
-                ),
-                estimated_effort: Some("5 minutes".to_string()),
-                category: Some("dead-code".to_string()),
-                cwe_id: Some("CWE-561".to_string()),
-                why_it_matters: Some(
-                    "Transitively dead code is only reachable through other dead code.".to_string(),
-                ),
-                ..Default::default()
-            });
-        }
-
-        findings
-    }
-
-    /// Find functions that are transitively dead (only called by dead functions)
-    fn find_transitively_dead(
-        &self,
-        i: &crate::graph::interner::StringInterner,
-        functions: &[crate::graph::store_models::CodeNode],
-        callee_to_callers: &HashMap<StrKey, Vec<StrKey>>,
-        directly_dead: &HashSet<StrKey>,
-    ) -> HashSet<StrKey> {
-        let mut transitively_dead: HashSet<StrKey> = HashSet::new();
-        let mut changed = true;
-        let mut iterations = 0;
-
-        // Iterate until no new dead functions found
-        while changed && iterations < 10 {
-            changed = false;
-            iterations += 1;
-
-            for func in functions {
-                // Skip if already marked dead
-                if directly_dead.contains(&func.qualified_name)
-                    || transitively_dead.contains(&func.qualified_name)
-                {
-                    continue;
-                }
-
-                // Skip entry points
-                if self.is_entry_point(func.node_name(i), func.path(i)) {
-                    continue;
-                }
-
-                // Get all callers from pre-built map (O(1) lookup)
-                let callers = match callee_to_callers.get(&func.qualified_name) {
-                    Some(c) => c,
-                    None => continue, // No callers — would have been caught as directly dead
-                };
-
-                // Check if ALL callers are dead
-                let all_callers_dead = callers.iter().all(|c| {
-                    directly_dead.contains(c)
-                        || transitively_dead.contains(c)
-                });
-
-                if all_callers_dead {
-                    transitively_dead.insert(func.qualified_name);
-                    changed = true;
-                }
-            }
-        }
-
-        debug!(
-            "Found {} transitively dead functions",
-            transitively_dead.len()
-        );
-        transitively_dead
-    }
-
-    /// Find code after return/throw statements using source scanning
-    fn find_code_after_return(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rb", "php"]) {
+        for entry in ctx.files.by_extensions(extensions) {
             if findings.len() >= self.max_findings {
                 break;
             }
 
-            let rel_path = path.strip_prefix(&self.repository_path).unwrap_or(path);
+            let content: &str = &entry.content;
+            let lines: Vec<&str> = content.lines().collect();
+            let mut brace_depth: i32 = 0;
+            // State: after seeing a terminating statement, store its brace depth
+            let mut after_return: Option<i32> = None;
 
-            if let Some(content) = files.content(path) {
-                let lines: Vec<&str> = content.lines().collect();
+            for (line_idx, &line) in lines.iter().enumerate() {
+                let trimmed = line.trim();
+                let (net_delta, min_delta) = Self::brace_delta(line);
 
-                for i in 0..lines.len().saturating_sub(1) {
-                    let line = lines[i];
-                    let next = lines[i + 1].trim();
+                // If we are looking for unreachable code after a return...
+                if let Some(return_depth) = after_return {
+                    // The minimum depth this line reaches (before any re-opening)
+                    let min_depth = brace_depth + min_delta;
 
-                    // Skip if next line is empty, closing brace, or comment
-                    if next.is_empty()
-                        || next == "}"
-                        || next == "]"
-                        || next == ")"  // Closing paren (multi-line calls)
-                        || next.starts_with("//")
-                        || next.starts_with("#")
-                        || next.starts_with("else")
-                        || next.starts_with("elif")
-                        || next.starts_with("except")
-                        || next.starts_with("catch")
-                        || next.starts_with("finally")
-                        || next.starts_with("case")
-                        || next.starts_with("default")
-                        || next.starts_with(")")  // Multi-line function call closing
-                        || next.starts_with("ctx")  // Common continuation pattern
-                        || next.starts_with("param")
-                    // Common continuation pattern
-                    {
-                        continue;
-                    }
-
-                    // Skip if current line is inside a multi-line statement
-                    if line.trim().ends_with(",") || line.trim().ends_with("(") {
-                        continue;
-                    }
-
-                    if RETURN_PATTERN.is_match(line)
-                        && !line.contains("if")
-                        && !line.contains("?")
-                    {
-                        let curr_indent = line.len() - line.trim_start().len();
-                        let next_indent = lines[i + 1].len() - next.len();
-
-                        if next_indent >= curr_indent && !next.starts_with("}") {
-                            findings.push(Finding {
-                                id: String::new(),
-                                detector: "UnreachableCodeDetector".to_string(),
-                                severity: Severity::Medium,
-                                title: "Unreachable code after return".to_string(),
-                                description: format!(
-                                    "Code after return/throw/exit will never execute:\n```\n{}\n{}\n```",
-                                    line.trim(), next
-                                ),
-                                affected_files: vec![rel_path.to_path_buf()],
-                                line_start: Some((i + 2) as u32),
-                                line_end: Some((i + 2) as u32),
-                                suggested_fix: Some(
-                                    "Remove unreachable code or fix control flow logic.".to_string()
-                                ),
-                                estimated_effort: Some("10 minutes".to_string()),
-                                category: Some("dead-code".to_string()),
-                                cwe_id: Some("CWE-561".to_string()),
-                                why_it_matters: Some(
-                                    "Unreachable code indicates logic errors and adds confusion."
-                                        .to_string()
-                                ),
-                                ..Default::default()
-                            });
+                    // Skip blank/comment lines -- they don't count as unreachable
+                    if Self::is_skip_line(trimmed) {
+                        brace_depth += net_delta;
+                        // If depth drops below the return depth, we left the scope
+                        if min_depth < return_depth {
+                            after_return = None;
                         }
+                        continue;
                     }
+
+                    // If this line touches a lower scope (e.g., `}`, `} else {`, `} catch {`),
+                    // the return's scope has closed -- code on the other side is reachable.
+                    if min_depth < return_depth {
+                        brace_depth += net_delta;
+                        after_return = None;
+                        continue;
+                    }
+
+                    // If the line starts with `}` at the same depth, it's just
+                    // closing the return's scope -- not unreachable code.
+                    if trimmed.starts_with('}') {
+                        brace_depth += net_delta;
+                        if brace_depth < return_depth {
+                            after_return = None;
+                        }
+                        continue;
+                    }
+
+                    // At the same or deeper scope -- this code is unreachable
+                    findings.push(Finding {
+                        id: String::new(),
+                        detector: "UnreachableCodeDetector".to_string(),
+                        severity: Severity::Medium,
+                        title: "Unreachable code after return".to_string(),
+                        description: format!(
+                            "Code after return/throw/exit will never execute:\n```\n{}\n```",
+                            trimmed,
+                        ),
+                        affected_files: vec![entry.path.clone()],
+                        line_start: Some((line_idx + 1) as u32),
+                        line_end: Some((line_idx + 1) as u32),
+                        suggested_fix: Some(
+                            "Remove unreachable code or fix control flow logic.".to_string(),
+                        ),
+                        estimated_effort: Some("10 minutes".to_string()),
+                        category: Some("dead-code".to_string()),
+                        cwe_id: Some("CWE-561".to_string()),
+                        why_it_matters: Some(
+                            "Unreachable code indicates logic errors and adds confusion."
+                                .to_string(),
+                        ),
+                        ..Default::default()
+                    });
+
+                    // Only flag the first unreachable line per return site
+                    brace_depth += net_delta;
+                    after_return = None;
+                    continue;
+                }
+
+                // Normal flow: update depth and check for terminating statements
+                brace_depth += net_delta;
+
+                if Self::is_terminating_statement(trimmed) {
+                    // Skip conditional returns: `if (x) return;` or ternary `x ? return : ...`
+                    if trimmed.contains("if ") || trimmed.contains("if(") || trimmed.contains('?') {
+                        continue;
+                    }
+                    // Skip multi-line statements (trailing comma/paren)
+                    if trimmed.ends_with(',') || trimmed.ends_with('(') {
+                        continue;
+                    }
+                    // Record that we just saw a terminating statement at this depth
+                    after_return = Some(brace_depth);
                 }
             }
         }
@@ -1020,7 +416,7 @@ impl Detector for UnreachableCodeDetector {
     }
 
     fn description(&self) -> &'static str {
-        "Detects unreachable code and dead functions"
+        "Detects unreachable code after return/throw/raise/break/continue statements"
     }
 
     fn category(&self) -> &'static str {
@@ -1031,16 +427,20 @@ impl Detector for UnreachableCodeDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        let mut findings = Vec::new();
+    fn detect(
+        &self,
+        _graph: &dyn crate::graph::GraphQuery,
+        _files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Result<Vec<Finding>> {
+        // Legacy detect() is a no-op — all logic is in detect_ctx().
+        Ok(Vec::new())
+    }
 
-        // Graph-based: find functions with zero callers
-        findings.extend(self.find_dead_functions(graph));
-
-        // Source-based: find code after return/throw
-        findings.extend(self.find_code_after_return(files));
-
-        info!("UnreachableCodeDetector found {} findings", findings.len());
+    fn detect_ctx(
+        &self,
+        ctx: &AnalysisContext<'_>,
+    ) -> Result<Vec<Finding>> {
+        let findings = self.find_code_after_return(ctx);
         Ok(findings)
     }
 }
@@ -1051,49 +451,157 @@ mod tests {
     use crate::graph::{CodeEdge, CodeNode, GraphStore};
     use crate::graph::store_models::ExtraProps;
 
-    #[test]
-    fn test_is_entry_point() {
-        let detector = UnreachableCodeDetector::new(".");
-
-        assert!(detector.is_entry_point("main", "src/main.py"));
-        assert!(detector.is_entry_point("test_something", "tests/test_foo.py"));
-        assert!(detector.is_entry_point("handle_request", "handlers/api.py"));
-        assert!(detector.is_entry_point("GetUser", "api/user.go")); // Capitalized = exported
-        assert!(!detector.is_entry_point("helper_func", "src/utils.py"));
-    }
+    // ── Verify no dead function findings ─────────────────────────────────
 
     #[test]
-    fn test_find_dead_functions() {
+    fn test_no_dead_function_findings() {
+        // The UnreachableCodeDetector should produce NO "Dead function" findings.
+        // Dead function detection is now DeadCodeDetector's responsibility.
         let graph = GraphStore::in_memory();
 
-        // Add a dead function (no callers)
+        // Add a dead function (no callers) -- should NOT be flagged
         graph.add_node(
             CodeNode::function("dead_func", "src/utils.py")
                 .with_qualified_name("utils::dead_func")
                 .with_lines(10, 20),
         );
 
-        // Add a live function with a caller
-        graph.add_node(
-            CodeNode::function("live_func", "src/utils.py")
-                .with_qualified_name("utils::live_func")
-                .with_lines(30, 40),
-        );
-        graph.add_node(
-            CodeNode::function("caller", "src/main.py")
-                .with_qualified_name("main::caller")
-                .with_lines(1, 10),
-        );
-        graph.add_edge_by_name("main::caller", "utils::live_func", CodeEdge::calls());
-
         let detector = UnreachableCodeDetector::new(".");
-        let findings = detector.find_dead_functions(&graph);
+        let mock = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &mock).unwrap();
 
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].title.contains("dead_func"));
+        assert!(findings.is_empty(), "UnreachableCodeDetector should not produce dead function findings");
     }
 
-    // --- Conditional compilation exemption tests ---
+    // ── Scope-aware code-after-return tests ──────────────────────────────
+
+    #[test]
+    fn test_code_after_return_same_scope() {
+        // Code at the same brace depth after return should be flagged.
+        let code = "\
+function foo() {
+    return 1;
+    let x = 2;
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert_eq!(findings.len(), 1, "should flag 'let x = 2' as unreachable");
+        assert!(findings[0].description.contains("let x = 2"));
+    }
+
+    #[test]
+    fn test_code_in_different_branch_not_flagged() {
+        // Code in an else branch after a return in the if branch is fine.
+        let code = "\
+function foo(x) {
+    if (x) {
+        return 1;
+    } else {
+        let y = 2;
+    }
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(findings.is_empty(), "else branch after return is NOT unreachable, got: {:?}",
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_closing_brace_after_return_not_flagged() {
+        // Closing brace after return is normal scope closure, not unreachable.
+        let code = "\
+function foo() {
+    return 1;
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(findings.is_empty(), "closing brace after return should not be flagged");
+    }
+
+    #[test]
+    fn test_code_after_throw() {
+        let code = "\
+function bar() {
+    throw new Error('fail');
+    cleanup();
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert_eq!(findings.len(), 1, "should flag cleanup() after throw");
+    }
+
+    #[test]
+    fn test_code_after_raise_python() {
+        let code = "\
+def foo():
+    raise ValueError('bad')
+    x = 1
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.py", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert_eq!(findings.len(), 1, "should flag x = 1 after raise");
+    }
+
+    #[test]
+    fn test_nested_scope_return_does_not_flag_outer() {
+        // Return inside a nested if block should not flag code in the outer scope.
+        let code = "\
+function foo(x) {
+    if (x > 0) {
+        return x;
+    }
+    let y = x + 1;
+    return y;
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(findings.is_empty(), "code after if-return at outer scope is reachable, got: {:?}",
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_conditional_return_not_flagged() {
+        // return inside an if-condition on the same line should be skipped.
+        let code = "\
+function foo(x) {
+    if (x) return null;
+    let y = 1;
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(findings.is_empty(), "conditional return (if ... return) should not flag next line");
+    }
+
+    #[test]
+    fn test_break_in_loop_flags_code_after() {
+        let code = "\
+function foo() {
+    while (true) {
+        break;
+        doSomething();
+    }
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert_eq!(findings.len(), 1, "should flag doSomething() after break");
+    }
+
+    // ── Conditional compilation exemption tests ─────────────────────────
 
     #[test]
     fn test_rust_cfg_test_attribute_skipped() {
@@ -1223,7 +731,7 @@ mod tests {
             .with_lines(1, 10);
         graph.add_node(func);
 
-        // Only derive and inline — no conditional compilation
+        // Only derive and inline -- no conditional compilation
         let qn_key = i.intern("lib::normal_func");
         let ep = ExtraProps {
             decorators: Some(i.intern("inline,derive(Debug)")),
@@ -1352,7 +860,7 @@ void debug_helper() {
 }
 #endif
 "#;
-        // normal_func at line 4 — not guarded
+        // normal_func at line 4 -- not guarded
         assert!(
             !UnreachableCodeDetector::is_in_preprocessor_guard(4, content),
             "Function outside #ifdef should NOT be in preprocessor guard"
@@ -1456,7 +964,7 @@ if __name__ == "__main__":
     def run_main():
         public_api()
 "#;
-        // public_api at line 2 — NOT inside the guard
+        // public_api at line 2 -- NOT inside the guard
         assert!(
             !UnreachableCodeDetector::is_in_python_name_guard(2, content),
             "Function outside if __name__ guard should NOT be detected"
@@ -1540,5 +1048,47 @@ if __name__ == "__main__":
             !UnreachableCodeDetector::is_in_conditional_block("app.js", 1, content),
             "JS files should not match any conditional block pattern"
         );
+    }
+
+    // ── Helper functions ────────────────────────────────────────────────
+
+    /// Build a minimal AnalysisContext with a single file for testing.
+    fn make_test_ctx_with_file(filename: &str, content: &str) -> AnalysisContext<'static> {
+        use crate::detectors::detector_context::{ContentFlags, DetectorContext};
+        use crate::detectors::file_index::FileIndex;
+        use crate::detectors::taint::centralized::CentralizedTaintResults;
+        use std::collections::HashMap;
+        use std::path::Path;
+        use std::sync::Arc;
+
+        // Leak a GraphStore so we can return AnalysisContext<'static>
+        let graph: &'static GraphStore = Box::leak(Box::new(GraphStore::in_memory()));
+
+        let file_data = vec![(
+            PathBuf::from(filename),
+            Arc::from(content),
+            ContentFlags::empty(),
+        )];
+
+        let files = Arc::new(FileIndex::new(file_data));
+        let functions = Arc::new(HashMap::new());
+        let taint = Arc::new(CentralizedTaintResults {
+            cross_function: HashMap::new(),
+            intra_function: HashMap::new(),
+        });
+
+        let (det_ctx, _file_data) =
+            DetectorContext::build(graph, &[], None, Path::new("/repo"));
+        let detector_ctx = Arc::new(det_ctx);
+
+        AnalysisContext {
+            graph,
+            files,
+            functions,
+            taint,
+            detector_ctx,
+            hmm_classifications: Arc::new(HashMap::new()),
+            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+        }
     }
 }
