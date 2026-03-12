@@ -100,6 +100,51 @@ pub struct Finding {
     pub threshold_metadata: std::collections::HashMap<String, String>,
 }
 
+/// Default confidence value when no category-specific default applies.
+const DEFAULT_CONFIDENCE: f64 = 0.70;
+
+impl Finding {
+    /// Set a default confidence value if none has been set by a detector.
+    ///
+    /// This is a builder-style method: it returns `self` so it can be chained.
+    /// If `self.confidence` is already `Some(_)`, the value is left untouched.
+    pub fn with_default_confidence(mut self, default: f64) -> Self {
+        if self.confidence.is_none() {
+            self.confidence = Some(default);
+        }
+        self
+    }
+
+    /// Return the effective confidence for this finding.
+    ///
+    /// If a detector or the postprocess pipeline has set an explicit confidence,
+    /// that value is returned. Otherwise falls back to 0.70.
+    pub fn effective_confidence(&self) -> f64 {
+        self.confidence.unwrap_or(DEFAULT_CONFIDENCE)
+    }
+
+    /// Return the default confidence for a finding based on its category string.
+    ///
+    /// | Category          | Default | Rationale                                  |
+    /// |-------------------|---------|--------------------------------------------|
+    /// | "architecture"    | 0.85    | Structural evidence is strong              |
+    /// | "security"        | 0.75    | Taint analysis is good but not perfect     |
+    /// | "design"          | 0.65    | Code smell detection has higher FP rate     |
+    /// | "dead-code"/"dead_code" | 0.70 | Graph-based but may miss dynamic dispatch |
+    /// | "ai_watchdog"     | 0.60    | Heuristic detection                        |
+    /// | Others            | 0.70    | Reasonable default                         |
+    pub fn default_confidence_for_category(category: Option<&str>) -> f64 {
+        match category {
+            Some("architecture") => 0.85,
+            Some("security") => 0.75,
+            Some("design") => 0.65,
+            Some("dead-code") | Some("dead_code") => 0.70,
+            Some("ai_watchdog") => 0.60,
+            _ => DEFAULT_CONFIDENCE,
+        }
+    }
+}
+
 /// Summary of findings by severity
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FindingsSummary {
@@ -270,5 +315,77 @@ mod tests {
         assert_eq!(summary.medium, 1);
         assert_eq!(summary.low, 1);
         assert_eq!(summary.total, 5);
+    }
+
+    // ── with_default_confidence ────────────────────────────────────
+
+    #[test]
+    fn test_with_default_confidence_sets_when_none() {
+        let finding = Finding { confidence: None, ..Default::default() };
+        let finding = finding.with_default_confidence(0.85);
+        assert_eq!(finding.confidence, Some(0.85));
+    }
+
+    #[test]
+    fn test_with_default_confidence_preserves_existing() {
+        let finding = Finding { confidence: Some(0.90), ..Default::default() };
+        let finding = finding.with_default_confidence(0.50);
+        assert_eq!(finding.confidence, Some(0.90));
+    }
+
+    // ── effective_confidence ────────────────────────────────────────
+
+    #[test]
+    fn test_effective_confidence_returns_set_value() {
+        let finding = Finding { confidence: Some(0.42), ..Default::default() };
+        assert!((finding.effective_confidence() - 0.42).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_effective_confidence_returns_default_when_none() {
+        let finding = Finding { confidence: None, ..Default::default() };
+        assert!((finding.effective_confidence() - 0.70).abs() < f64::EPSILON);
+    }
+
+    // ── default_confidence_for_category ─────────────────────────────
+
+    #[test]
+    fn test_default_confidence_architecture() {
+        assert!((Finding::default_confidence_for_category(Some("architecture")) - 0.85).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_default_confidence_security() {
+        assert!((Finding::default_confidence_for_category(Some("security")) - 0.75).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_default_confidence_design() {
+        assert!((Finding::default_confidence_for_category(Some("design")) - 0.65).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_default_confidence_dead_code_hyphen() {
+        assert!((Finding::default_confidence_for_category(Some("dead-code")) - 0.70).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_default_confidence_dead_code_underscore() {
+        assert!((Finding::default_confidence_for_category(Some("dead_code")) - 0.70).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_default_confidence_ai_watchdog() {
+        assert!((Finding::default_confidence_for_category(Some("ai_watchdog")) - 0.60).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_default_confidence_unknown_category() {
+        assert!((Finding::default_confidence_for_category(Some("testing")) - 0.70).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_default_confidence_none_category() {
+        assert!((Finding::default_confidence_for_category(None) - 0.70).abs() < f64::EPSILON);
     }
 }

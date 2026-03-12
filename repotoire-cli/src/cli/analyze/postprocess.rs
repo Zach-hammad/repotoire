@@ -1,6 +1,7 @@
 //! Post-processing pipeline for findings.
 //!
 //! Applied after detection and before scoring:
+//! 0.5. Assign default confidence by category (preserves detector-set values)
 //! 1. Incremental cache update
 //! 2. Detector overrides from project config
 //! 2.5. Path exclusion filtering
@@ -46,6 +47,12 @@ pub(super) fn postprocess_findings(
         let line = finding.line_start.unwrap_or(0);
         finding.id = crate::detectors::base::finding_id(&finding.detector, &file, line);
     }
+
+    // Step 0.5: Assign default confidence to findings that don't have one.
+    // Detectors may set confidence explicitly (e.g. voting engine); those are
+    // left untouched.  For the rest, we assign a category-specific default so
+    // every finding flowing into scoring and reporting has a confidence value.
+    assign_default_confidence(findings);
 
     // Step 1: Update incremental cache
     update_incremental_cache(
@@ -127,6 +134,37 @@ pub(super) fn postprocess_findings(
     // Step 10: Rank by actionability score (if --rank flag)
     if rank {
         rank_findings(findings, graph);
+    }
+}
+
+/// Assign a category-based default confidence to every finding that lacks one.
+///
+/// Detectors that already set `confidence` (e.g. the voting engine) are left
+/// untouched.  For the rest a default is chosen based on the finding's category:
+///
+/// | Category            | Default | Rationale                                  |
+/// |---------------------|---------|--------------------------------------------|
+/// | "architecture"      | 0.85    | Structural evidence is strong              |
+/// | "security"          | 0.75    | Taint analysis is good but not perfect     |
+/// | "design"            | 0.65    | Code smell detection has higher FP rate     |
+/// | "dead-code"/"dead_code" | 0.70 | Graph-based but may miss dynamic dispatch |
+/// | "ai_watchdog"       | 0.60    | Heuristic detection                        |
+/// | Others / None       | 0.70    | Reasonable default                         |
+fn assign_default_confidence(findings: &mut [Finding]) {
+    let mut assigned = 0usize;
+    for finding in findings.iter_mut() {
+        if finding.confidence.is_none() {
+            let default =
+                Finding::default_confidence_for_category(finding.category.as_deref());
+            finding.confidence = Some(default);
+            assigned += 1;
+        }
+    }
+    if assigned > 0 {
+        tracing::debug!(
+            "Assigned default confidence to {} findings without explicit confidence",
+            assigned
+        );
     }
 }
 
@@ -741,5 +779,129 @@ mod tests {
         assert!(is_security_detector("CommandInjectionDetector"));
         assert!(!is_security_detector("GodClassDetector"));
         assert!(!is_security_detector("DeadCodeDetector"));
+    }
+
+    // ── assign_default_confidence ──────────────────────────────────
+
+    #[test]
+    fn test_assign_default_confidence_sets_architecture() {
+        let mut findings = vec![Finding {
+            category: Some("architecture".into()),
+            confidence: None,
+            ..Default::default()
+        }];
+        assign_default_confidence(&mut findings);
+        assert_eq!(findings[0].confidence, Some(0.85));
+    }
+
+    #[test]
+    fn test_assign_default_confidence_sets_security() {
+        let mut findings = vec![Finding {
+            category: Some("security".into()),
+            confidence: None,
+            ..Default::default()
+        }];
+        assign_default_confidence(&mut findings);
+        assert_eq!(findings[0].confidence, Some(0.75));
+    }
+
+    #[test]
+    fn test_assign_default_confidence_sets_design() {
+        let mut findings = vec![Finding {
+            category: Some("design".into()),
+            confidence: None,
+            ..Default::default()
+        }];
+        assign_default_confidence(&mut findings);
+        assert_eq!(findings[0].confidence, Some(0.65));
+    }
+
+    #[test]
+    fn test_assign_default_confidence_sets_dead_code() {
+        let mut findings = vec![
+            Finding {
+                category: Some("dead-code".into()),
+                confidence: None,
+                ..Default::default()
+            },
+            Finding {
+                category: Some("dead_code".into()),
+                confidence: None,
+                ..Default::default()
+            },
+        ];
+        assign_default_confidence(&mut findings);
+        assert_eq!(findings[0].confidence, Some(0.70));
+        assert_eq!(findings[1].confidence, Some(0.70));
+    }
+
+    #[test]
+    fn test_assign_default_confidence_sets_ai_watchdog() {
+        let mut findings = vec![Finding {
+            category: Some("ai_watchdog".into()),
+            confidence: None,
+            ..Default::default()
+        }];
+        assign_default_confidence(&mut findings);
+        assert_eq!(findings[0].confidence, Some(0.60));
+    }
+
+    #[test]
+    fn test_assign_default_confidence_sets_unknown_category() {
+        let mut findings = vec![Finding {
+            category: Some("testing".into()),
+            confidence: None,
+            ..Default::default()
+        }];
+        assign_default_confidence(&mut findings);
+        assert_eq!(findings[0].confidence, Some(0.70));
+    }
+
+    #[test]
+    fn test_assign_default_confidence_sets_none_category() {
+        let mut findings = vec![Finding {
+            category: None,
+            confidence: None,
+            ..Default::default()
+        }];
+        assign_default_confidence(&mut findings);
+        assert_eq!(findings[0].confidence, Some(0.70));
+    }
+
+    #[test]
+    fn test_assign_default_confidence_does_not_overwrite_existing() {
+        let mut findings = vec![Finding {
+            category: Some("architecture".into()),
+            confidence: Some(0.42),
+            ..Default::default()
+        }];
+        assign_default_confidence(&mut findings);
+        // Must preserve the detector-set confidence, NOT overwrite with 0.85
+        assert_eq!(findings[0].confidence, Some(0.42));
+    }
+
+    #[test]
+    fn test_assign_default_confidence_mixed_findings() {
+        let mut findings = vec![
+            Finding {
+                category: Some("security".into()),
+                confidence: Some(0.99),
+                ..Default::default()
+            },
+            Finding {
+                category: Some("architecture".into()),
+                confidence: None,
+                ..Default::default()
+            },
+            Finding {
+                category: None,
+                confidence: None,
+                ..Default::default()
+            },
+        ];
+        assign_default_confidence(&mut findings);
+        assert_eq!(findings[0].confidence, Some(0.99)); // preserved
+        assert_eq!(findings[1].confidence, Some(0.85)); // architecture default
+        assert_eq!(findings[2].confidence, Some(0.70)); // fallback default
     }
 }
