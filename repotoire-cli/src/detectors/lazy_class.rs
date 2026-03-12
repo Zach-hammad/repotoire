@@ -110,6 +110,9 @@ const EXCLUDE_PATTERNS: &[&str] = &[
     "enum",         // Java/C# enums with few methods are idiomatic
     // C# patterns
     "extension",    // C# extension method classes (helpers by design)
+    "partial",      // C# partial classes (methods split across files)
+    // Java patterns
+    "abstract",     // Java abstract classes (template methods, not lazy)
 ];
 
 /// Detects classes that do minimal work and aren't used much
@@ -1436,5 +1439,13 @@ mod tests {
         // C# extension methods
         assert!(detector.should_exclude("StringExtension"));
         assert!(detector.should_exclude("ListExtensions"));
+
+        // C# partial classes
+        assert!(detector.should_exclude("UserPartial"));
+        assert!(detector.should_exclude("PartialController"));
+
+        // Java abstract classes
+        assert!(detector.should_exclude("AbstractProcessor"));
+        assert!(detector.should_exclude("AbstractValidator"));
     }
 }
