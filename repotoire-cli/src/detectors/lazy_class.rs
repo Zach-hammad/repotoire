@@ -341,8 +341,8 @@ impl Detector for LazyClassDetector {
 
             // For Rust files, pre-collect references to file_funcs once for
             // efficient impl-block method counting across all classes in the file.
-            let file_func_refs: Vec<&crate::graph::store_models::CodeNode> =
-                file_funcs.iter().collect();
+            let file_func_refs: Option<Vec<&crate::graph::store_models::CodeNode>> =
+                if is_rust { Some(file_funcs.iter().collect()) } else { None };
 
             for class in file_classes {
                 // --- Rust-specific: count impl-block methods ---
@@ -351,9 +351,9 @@ impl Detector for LazyClassDetector {
                 // node itself because no methods live inside `struct Foo { ... }`.
                 // We must count methods from `impl Foo` and `impl Trait for Foo` blocks
                 // to get the real method count.
-                if is_rust {
+                if let Some(ref func_refs) = file_func_refs {
                     let impl_method_count =
-                        Self::count_rust_impl_methods(&file_func_refs, class.node_name(i), i);
+                        Self::count_rust_impl_methods(func_refs, class.node_name(i), i);
 
                     // Rust threshold: a struct/enum with 2+ impl-block methods is
                     // not lazy — it has real functionality spread across impl blocks.
