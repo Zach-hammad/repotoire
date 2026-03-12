@@ -110,3 +110,91 @@ fn test_framework_auto_load_patterns() {
     assert!(!detector.is_framework_auto_load("src/utils/helpers.ts"));
     assert!(!detector.is_framework_auto_load("lib/core.js"));
 }
+
+#[test]
+fn test_is_in_test_module() {
+    let detector = DeadCodeDetector::new();
+
+    // Rust test module files (tests.rs, test.rs)
+    assert!(detector.is_in_test_module(
+        "src/detectors/dead_code/tests.rs",
+        "src/detectors/dead_code/tests.rs::test_entry_points:4"
+    ));
+    assert!(detector.is_in_test_module(
+        "src/some_module/test.rs",
+        "src/some_module/test.rs::helper:10"
+    ));
+
+    // Test directories
+    assert!(detector.is_in_test_module(
+        "tests/integration/test_api.rs",
+        "tests/integration/test_api.rs::setup:5"
+    ));
+    assert!(detector.is_in_test_module(
+        "src/tests/helpers.rs",
+        "src/tests/helpers.rs::make_fixture:3"
+    ));
+
+    // Qualified name with ::tests:: segment (other languages / edge cases)
+    assert!(detector.is_in_test_module(
+        "src/lib.rs",
+        "src/lib.rs::tests::helper_fn:100"
+    ));
+    assert!(detector.is_in_test_module(
+        "src/lib.rs",
+        "src/lib.rs::test::setup:50"
+    ));
+
+    // Should NOT match regular files
+    assert!(!detector.is_in_test_module(
+        "src/detectors/dead_code/mod.rs",
+        "src/detectors/dead_code/mod.rs::detect:976"
+    ));
+    assert!(!detector.is_in_test_module(
+        "src/utils/testing_utils.rs",
+        "src/utils/testing_utils.rs::make_graph:10"
+    ));
+    // "test" as substring in filename shouldn't match (no trailing .rs boundary)
+    assert!(!detector.is_in_test_module(
+        "src/contest.rs",
+        "src/contest.rs::solve:1"
+    ));
+}
+
+#[test]
+fn test_is_in_benchmark() {
+    let detector = DeadCodeDetector::new();
+
+    // Rust benches directory
+    assert!(detector.is_in_benchmark("benches/parser_bench.rs"));
+    assert!(detector.is_in_benchmark("repotoire-cli/benches/graph.rs"));
+
+    // Benchmark directories
+    assert!(detector.is_in_benchmark("benchmark/perf_test.py"));
+    assert!(detector.is_in_benchmark("src/benchmarks/throughput.rs"));
+
+    // Should NOT match regular files
+    assert!(!detector.is_in_benchmark("src/detectors/mod.rs"));
+    assert!(!detector.is_in_benchmark("src/bench_utils.rs"));
+}
+
+#[test]
+fn test_is_pub_api_surface() {
+    let detector = DeadCodeDetector::new();
+
+    // Public functions in lib.rs
+    assert!(detector.is_pub_api_surface("src/lib.rs", true));
+    assert!(detector.is_pub_api_surface("repotoire-cli/src/lib.rs", true));
+
+    // Public functions in mod.rs
+    assert!(detector.is_pub_api_surface("src/detectors/mod.rs", true));
+    assert!(detector.is_pub_api_surface("src/graph/mod.rs", true));
+
+    // Non-exported functions in lib.rs should NOT be exempt
+    assert!(!detector.is_pub_api_surface("src/lib.rs", false));
+    assert!(!detector.is_pub_api_surface("src/detectors/mod.rs", false));
+
+    // Regular files should NOT be exempt even if exported
+    assert!(!detector.is_pub_api_surface("src/detectors/dead_code.rs", true));
+    assert!(!detector.is_pub_api_surface("src/utils.rs", true));
+}

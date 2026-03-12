@@ -381,6 +381,80 @@ impl DeadCodeDetector {
         false
     }
 
+    /// Check if a function belongs to a test module (cfg(test) convention).
+    ///
+    /// Exempts functions in:
+    /// - Files named `tests.rs` or `test.rs` (Rust `mod tests` convention)
+    /// - Directories named `/tests/` or `/test/`
+    /// - Qualified names containing `::tests::` or `::test::`
+    fn is_in_test_module(&self, file_path: &str, qualified_name: &str) -> bool {
+        // Rust convention: dedicated test module file
+        let path_lower = file_path.to_lowercase();
+        if path_lower.ends_with("/tests.rs")
+            || path_lower.ends_with("/test.rs")
+            || path_lower.ends_with("\\tests.rs")
+            || path_lower.ends_with("\\test.rs")
+        {
+            return true;
+        }
+
+        // Test directory (with or without leading separator)
+        if path_lower.contains("/tests/")
+            || path_lower.contains("/test/")
+            || path_lower.contains("\\tests\\")
+            || path_lower.contains("\\test\\")
+            || path_lower.starts_with("tests/")
+            || path_lower.starts_with("test/")
+            || path_lower.starts_with("tests\\")
+            || path_lower.starts_with("test\\")
+        {
+            return true;
+        }
+
+        // Qualified name contains test module segment
+        if qualified_name.contains("::tests::") || qualified_name.contains("::test::") {
+            return true;
+        }
+
+        false
+    }
+
+    /// Check if a function is in a benchmark file.
+    ///
+    /// Exempts functions in `/benches/` or `/benchmark/` directories.
+    fn is_in_benchmark(&self, file_path: &str) -> bool {
+        let path_lower = file_path.to_lowercase();
+        path_lower.contains("/benches/")
+            || path_lower.contains("/benchmark/")
+            || path_lower.contains("/benchmarks/")
+            || path_lower.contains("\\benches\\")
+            || path_lower.contains("\\benchmark\\")
+            || path_lower.contains("\\benchmarks\\")
+            || path_lower.starts_with("benches/")
+            || path_lower.starts_with("benchmark/")
+            || path_lower.starts_with("benchmarks/")
+            || path_lower.starts_with("benches\\")
+            || path_lower.starts_with("benchmark\\")
+            || path_lower.starts_with("benchmarks\\")
+    }
+
+    /// Check if a function is a public API entry in a library crate.
+    ///
+    /// Exempts `pub` functions in `lib.rs` or `mod.rs` with a shallow qualified name
+    /// (≤ 2 path segments after the file path, e.g. `crate::function_name`), which
+    /// indicates a top-level public API surface.
+    fn is_pub_api_surface(&self, file_path: &str, is_exported: bool) -> bool {
+        if !is_exported {
+            return false;
+        }
+
+        let path_lower = file_path.to_lowercase();
+        path_lower.ends_with("/lib.rs")
+            || path_lower.ends_with("/mod.rs")
+            || path_lower.ends_with("\\lib.rs")
+            || path_lower.ends_with("\\mod.rs")
+    }
+
     /// Check if file is in a framework auto-load location
     /// These files have their exports auto-registered by the framework
     fn is_framework_auto_load(&self, file_path: &str) -> bool {
@@ -749,9 +823,31 @@ impl DeadCodeDetector {
                 continue;
             }
 
+            let func_qn = func.qn(i);
+
+            // Skip functions in test modules (cfg(test), mod tests, /tests/ dir)
+            if self.is_in_test_module(file_path, func_qn) {
+                debug!("Skipping test module function: {} in {}", name, file_path);
+                continue;
+            }
+
+            // Skip functions in benchmark files (/benches/, /benchmark/)
+            if self.is_in_benchmark(file_path) {
+                debug!("Skipping benchmark function: {} in {}", name, file_path);
+                continue;
+            }
+
+            // Skip public API surface in library crates (lib.rs, mod.rs)
+            if self.is_pub_api_surface(file_path, func.is_exported()) {
+                debug!(
+                    "Skipping pub API surface function: {} in {}",
+                    name, file_path
+                );
+                continue;
+            }
+
             // Check if function has any callers — use fan-in count (O(1), zero allocation)
             // instead of get_callers() which clones Vec<CodeNode> per call
-            let func_qn = func.qn(i);
             if graph.call_fan_in(func_qn) > 0 {
                 continue; // Function is called, not dead
             }
@@ -884,6 +980,25 @@ impl DeadCodeDetector {
             }
 
             let class_qn = class.qn(i);
+
+            // Skip classes in test modules (cfg(test), mod tests, /tests/ dir)
+            if self.is_in_test_module(file_path, class_qn) {
+                debug!("Skipping test module class: {} in {}", name, file_path);
+                continue;
+            }
+
+            // Skip classes in benchmark files (/benches/, /benchmark/)
+            if self.is_in_benchmark(file_path) {
+                debug!("Skipping benchmark class: {} in {}", name, file_path);
+                continue;
+            }
+
+            // Skip public API surface in library crates (lib.rs, mod.rs)
+            if self.is_pub_api_surface(file_path, is_exported) {
+                debug!("Skipping pub API surface class: {} in {}", name, file_path);
+                continue;
+            }
+
             // Check if class has any callers (instantiation)
             if graph.call_fan_in(class_qn) > 0 {
                 continue;
