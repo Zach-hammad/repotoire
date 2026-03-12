@@ -91,6 +91,48 @@ impl<'g> AnalysisContext<'g> {
             .get(qn)
             .map_or(false, |fc| fc.role == FunctionRole::Hub)
     }
+
+    // ── Test constructors ────────────────────────────────────────────
+
+    /// Create a minimal `AnalysisContext` for unit tests.
+    ///
+    /// All fields are set to sensible empty/default values. Only a graph
+    /// reference is required. Use `test_with_files()` when detectors need
+    /// file content.
+    #[cfg(test)]
+    pub fn test(graph: &'g dyn GraphQuery) -> Self {
+        Self::test_with_files(graph, vec![])
+    }
+
+    /// Create an `AnalysisContext` for unit tests with pre-loaded file data.
+    ///
+    /// Accepts file content tuples `(path, content, flags)` so detectors
+    /// that scan file content can be exercised.
+    #[cfg(test)]
+    pub fn test_with_files(
+        graph: &'g dyn GraphQuery,
+        file_data: Vec<(PathBuf, Arc<str>, crate::detectors::detector_context::ContentFlags)>,
+    ) -> Self {
+        let files = Arc::new(FileIndex::new(file_data));
+        let functions = Arc::new(HashMap::new());
+        let taint = Arc::new(CentralizedTaintResults {
+            cross_function: HashMap::new(),
+            intra_function: HashMap::new(),
+        });
+        let (det_ctx, _file_data) =
+            DetectorContext::build(graph, &[], None, Path::new("/repo"));
+        let detector_ctx = Arc::new(det_ctx);
+
+        Self {
+            graph,
+            files,
+            functions,
+            taint,
+            detector_ctx,
+            hmm_classifications: Arc::new(HashMap::new()),
+            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+        }
+    }
 }
 
 /// Backward-compatible FileProvider wrapping an AnalysisContext.
@@ -150,10 +192,9 @@ mod tests {
     use crate::detectors::detector_context::ContentFlags;
     use crate::detectors::file_provider::FileProvider;
     use crate::graph::GraphStore;
-    use std::collections::HashMap;
 
-    /// Build a minimal AnalysisContext for testing.
-    fn make_test_ctx(graph: &dyn GraphQuery) -> AnalysisContext<'_> {
+    /// Build an AnalysisContext with sample files for file-provider tests.
+    fn make_ctx_with_sample_files(graph: &dyn GraphQuery) -> AnalysisContext<'_> {
         let file_data = vec![
             (
                 PathBuf::from("/repo/app.py"),
@@ -166,40 +207,51 @@ mod tests {
                 ContentFlags::empty(),
             ),
         ];
-
-        let files = Arc::new(FileIndex::new(file_data));
-        let functions = Arc::new(HashMap::new());
-        let taint = Arc::new(CentralizedTaintResults {
-            cross_function: HashMap::new(),
-            intra_function: HashMap::new(),
-        });
-
-        let (det_ctx, _file_data) =
-            DetectorContext::build(graph, &[], None, Path::new("/repo"));
-        let detector_ctx = Arc::new(det_ctx);
-
-        AnalysisContext {
-            graph,
-            files,
-            functions,
-            taint,
-            detector_ctx,
-            hmm_classifications: Arc::new(HashMap::new()),
-            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
-        }
+        AnalysisContext::test_with_files(graph, file_data)
     }
+
+    // ── test() / test_with_files() constructor tests ─────────────────
+
+    #[test]
+    fn test_constructor_creates_valid_context() {
+        let graph = GraphStore::in_memory();
+        let ctx = AnalysisContext::test(&graph);
+
+        assert_eq!(ctx.repo_path(), Path::new("/repo"));
+        assert_eq!(ctx.files.all().len(), 0);
+        assert!(ctx.functions.is_empty());
+        assert!(ctx.hmm_classifications.is_empty());
+    }
+
+    #[test]
+    fn test_constructor_with_files() {
+        let graph = GraphStore::in_memory();
+        let file_data = vec![(
+            PathBuf::from("/repo/main.rs"),
+            Arc::from("fn main() {}"),
+            ContentFlags::empty(),
+        )];
+        let ctx = AnalysisContext::test_with_files(&graph, file_data);
+
+        assert_eq!(ctx.files.all().len(), 1);
+        let entry = ctx.files.get(Path::new("/repo/main.rs"));
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().content.as_ref(), "fn main() {}");
+    }
+
+    // ── Existing file-provider shim tests ────────────────────────────
 
     #[test]
     fn test_repo_path() {
         let graph = GraphStore::in_memory();
-        let ctx = make_test_ctx(&graph);
+        let ctx = make_ctx_with_sample_files(&graph);
         assert_eq!(ctx.repo_path(), Path::new("/repo"));
     }
 
     #[test]
     fn test_file_provider_shim_files_with_extension() {
         let graph = GraphStore::in_memory();
-        let ctx = make_test_ctx(&graph);
+        let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
         let py_files = shim.files_with_extension("py");
@@ -213,7 +265,7 @@ mod tests {
     #[test]
     fn test_file_provider_shim_files_with_extensions() {
         let graph = GraphStore::in_memory();
-        let ctx = make_test_ctx(&graph);
+        let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
         let all = shim.files_with_extensions(&["py", "ts"]);
@@ -223,7 +275,7 @@ mod tests {
     #[test]
     fn test_file_provider_shim_content() {
         let graph = GraphStore::in_memory();
-        let ctx = make_test_ctx(&graph);
+        let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
         let content = shim.content(Path::new("/repo/app.py"));
@@ -237,7 +289,7 @@ mod tests {
     #[test]
     fn test_file_provider_shim_files_returns_empty() {
         let graph = GraphStore::in_memory();
-        let ctx = make_test_ctx(&graph);
+        let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
         // files() returns empty slice (by design -- callers should use FileIndex directly)
@@ -247,7 +299,7 @@ mod tests {
     #[test]
     fn test_file_provider_shim_repo_path() {
         let graph = GraphStore::in_memory();
-        let ctx = make_test_ctx(&graph);
+        let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
         assert_eq!(shim.repo_path(), Path::new("/repo"));
