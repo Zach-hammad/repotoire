@@ -99,6 +99,9 @@ const EXCLUDE_PATTERNS: &[&str] = &[
     "migration",
     "command",
     "middleware",
+    // Rust-specific (idiomatic small types)
+    "phantom",  // PhantomData marker types
+    "marker",   // Marker types (zero-sized, trait-only)
 ];
 
 /// Detects classes that do minimal work and aren't used much
@@ -131,6 +134,39 @@ impl LazyClassDetector {
     fn should_exclude(&self, class_name: &str) -> bool {
         let lower = class_name.to_lowercase();
         EXCLUDE_PATTERNS.iter().any(|p| lower.contains(p))
+    }
+
+    /// Check if a file path is a Rust source file.
+    fn is_rust_file(path: &str) -> bool {
+        path.ends_with(".rs")
+    }
+
+    /// Count methods belonging to a Rust struct/enum via `impl` blocks.
+    ///
+    /// Rust idiomatically spreads methods across multiple `impl` blocks (direct
+    /// impls, trait impls like Display, Debug, Default, Serialize, etc.). These
+    /// are separate Function nodes in the graph whose qualified names contain
+    /// `impl<TypeName>` or `impl<Trait for TypeName>`. This method counts them
+    /// so the detector can make an informed decision about whether the type is
+    /// truly "lazy" or just idiomatic Rust.
+    fn count_rust_impl_methods(
+        file_funcs: &[&crate::graph::store_models::CodeNode],
+        type_name: &str,
+        interner: &crate::graph::interner::StringInterner,
+    ) -> usize {
+        // Match patterns like:
+        //   path::impl<TypeName>::method:line
+        //   path::impl<Trait for TypeName>::method:line
+        let impl_direct = format!("impl<{}>", type_name);
+        let impl_trait_suffix = format!(" for {}>", type_name);
+
+        file_funcs
+            .iter()
+            .filter(|f| {
+                let qn = f.qn(interner);
+                qn.contains(&impl_direct) || qn.contains(&impl_trait_suffix)
+            })
+            .count()
     }
 
     /// Count unique external callers of a class's methods.
@@ -232,6 +268,17 @@ impl Detector for LazyClassDetector {
                 continue;
             }
 
+            // Rust: traits are already excluded by "trait" in EXCLUDE_PATTERNS via
+            // the class name, but also skip by qualified name pattern (::trait::)
+            // which the Rust parser uses for trait definitions.
+            // Rust enums with methods are idiomatic, not lazy — skip them.
+            if Self::is_rust_file(class.path(i)) {
+                // Qualified name pattern: "path::trait::TraitName:line"
+                if class.qn(i).contains("::trait::") {
+                    continue;
+                }
+            }
+
             if self.should_exclude(class.node_name(i)) {
                 continue;
             }
@@ -290,8 +337,38 @@ impl Detector for LazyClassDetector {
 
         for (file_path, file_classes) in &by_file {
             let file_funcs = graph.get_functions_in_file(file_path);
+            let is_rust = Self::is_rust_file(file_path);
+
+            // For Rust files, pre-collect references to file_funcs once for
+            // efficient impl-block method counting across all classes in the file.
+            let file_func_refs: Vec<&crate::graph::store_models::CodeNode> =
+                file_funcs.iter().collect();
 
             for class in file_classes {
+                // --- Rust-specific: count impl-block methods ---
+                // Rust structs/enums have methods in separate `impl` blocks outside
+                // the struct's line range. The parser sets methodCount=0 on the struct
+                // node itself because no methods live inside `struct Foo { ... }`.
+                // We must count methods from `impl Foo` and `impl Trait for Foo` blocks
+                // to get the real method count.
+                if is_rust {
+                    let impl_method_count =
+                        Self::count_rust_impl_methods(&file_func_refs, class.node_name(i), i);
+
+                    // Rust threshold: a struct/enum with 2+ impl-block methods is
+                    // not lazy — it has real functionality spread across impl blocks.
+                    // This is higher than the default max_methods=3 check because
+                    // Rust idiomatically uses many small trait impls (Display, Debug,
+                    // Default, From, etc.) that each add a method.
+                    if impl_method_count >= 2 {
+                        debug!(
+                            "Skipping Rust type {} - has {} impl-block methods",
+                            class.node_name(i), impl_method_count
+                        );
+                        continue;
+                    }
+                }
+
                 // Find methods belonging to this class from the shared file functions
                 let methods: Vec<_> = file_funcs
                     .iter()
@@ -455,5 +532,235 @@ mod tests {
         // Should flag - unused class
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("UnusedClass"));
+    }
+
+    // --- Rust-specific tests ---
+
+    #[test]
+    fn test_rust_struct_with_impl_methods_not_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Rust struct: small definition (just fields), no methods inside struct body
+        graph.add_node(
+            CodeNode::class("GraphStore", "src/graph/store.rs")
+                .with_qualified_name("src/graph/store.rs::GraphStore:10")
+                .with_lines(10, 18) // struct definition only
+                .with_property("methodCount", 0i64),
+        );
+
+        // impl GraphStore { fn new(), fn add_node(), fn get_node() }
+        // These are outside the struct's line range, in a separate impl block
+        graph.add_node(
+            CodeNode::function("new", "src/graph/store.rs")
+                .with_qualified_name("src/graph/store.rs::impl<GraphStore>::new:25")
+                .with_lines(25, 30),
+        );
+        graph.add_node(
+            CodeNode::function("add_node", "src/graph/store.rs")
+                .with_qualified_name("src/graph/store.rs::impl<GraphStore>::add_node:32")
+                .with_lines(32, 45),
+        );
+        graph.add_node(
+            CodeNode::function("get_node", "src/graph/store.rs")
+                .with_qualified_name("src/graph/store.rs::impl<GraphStore>::get_node:47")
+                .with_lines(47, 55),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Rust struct with 3 impl-block methods should NOT be flagged as lazy, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_rust_struct_with_trait_impls_not_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // Rust struct with trait implementations
+        graph.add_node(
+            CodeNode::class("Finding", "src/models.rs")
+                .with_qualified_name("src/models.rs::Finding:5")
+                .with_lines(5, 15)
+                .with_property("methodCount", 0i64),
+        );
+
+        // impl Display for Finding
+        graph.add_node(
+            CodeNode::function("fmt", "src/models.rs")
+                .with_qualified_name("src/models.rs::impl<Display for Finding>::fmt:20")
+                .with_lines(20, 30),
+        );
+
+        // impl Default for Finding
+        graph.add_node(
+            CodeNode::function("default", "src/models.rs")
+                .with_qualified_name("src/models.rs::impl<Default for Finding>::default:35")
+                .with_lines(35, 45),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Rust struct with 2 trait impl methods should NOT be flagged as lazy, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_rust_struct_truly_lazy_still_flagged() {
+        let graph = GraphStore::in_memory();
+
+        // A truly lazy Rust struct: small, only 1 impl method, no callers.
+        // Name chosen to NOT match any EXCLUDE_PATTERNS (avoid "wrapper", "config", etc.)
+        graph.add_node(
+            CodeNode::class("TinyHolder", "src/holder.rs")
+                .with_qualified_name("src/holder.rs::TinyHolder:1")
+                .with_lines(1, 10)
+                .with_property("methodCount", 0i64),
+        );
+
+        // Only 1 impl method — below the Rust threshold of 2
+        graph.add_node(
+            CodeNode::function("inner", "src/holder.rs")
+                .with_qualified_name("src/holder.rs::impl<TinyHolder>::inner:15")
+                .with_lines(15, 18),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        // Should still flag — only 1 impl method, truly underutilized
+        assert_eq!(
+            findings.len(),
+            1,
+            "Rust struct with only 1 impl method should be flagged"
+        );
+        assert!(findings[0].title.contains("TinyHolder"));
+    }
+
+    #[test]
+    fn test_rust_exclusion_patterns() {
+        let detector = LazyClassDetector::new();
+
+        // Rust-specific exclusions
+        assert!(detector.should_exclude("PhantomType"));
+        assert!(detector.should_exclude("MarkerStruct"));
+
+        // "error" was already excluded before Rust changes
+        assert!(detector.should_exclude("ParseError"));
+    }
+
+    #[test]
+    fn test_rust_trait_skipped_by_qn() {
+        let graph = GraphStore::in_memory();
+
+        // Rust trait: qualified name has ::trait:: pattern
+        graph.add_node(
+            CodeNode::class("GraphQuery", "src/graph/traits.rs")
+                .with_qualified_name("src/graph/traits.rs::trait::GraphQuery:10")
+                .with_lines(10, 20)
+                .with_property("methodCount", 0i64),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Rust trait should NOT be flagged as lazy class"
+        );
+    }
+
+    #[test]
+    fn test_python_class_unaffected_by_rust_logic() {
+        let graph = GraphStore::in_memory();
+
+        // Python class with few methods — should still be flagged normally
+        graph.add_node(
+            CodeNode::class("TinyHelper", "src/helpers.py")
+                .with_qualified_name("helpers::TinyHelper")
+                .with_lines(1, 15)
+                .with_property("methodCount", 1i64),
+        );
+
+        graph.add_node(
+            CodeNode::function("do_thing", "src/helpers.py")
+                .with_qualified_name("helpers::TinyHelper::do_thing")
+                .with_lines(3, 10),
+        );
+
+        let detector = LazyClassDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+
+        assert_eq!(
+            findings.len(),
+            1,
+            "Python class should still be flagged normally (Rust logic doesn't apply)"
+        );
+        assert!(findings[0].title.contains("TinyHelper"));
+    }
+
+    #[test]
+    fn test_is_rust_file() {
+        assert!(LazyClassDetector::is_rust_file("src/main.rs"));
+        assert!(LazyClassDetector::is_rust_file("repotoire-cli/src/detectors/lazy_class.rs"));
+        assert!(!LazyClassDetector::is_rust_file("src/helpers.py"));
+        assert!(!LazyClassDetector::is_rust_file("src/utils.ts"));
+        assert!(!LazyClassDetector::is_rust_file("src/app.rs.bak")); // not a .rs file
+    }
+
+    #[test]
+    fn test_count_rust_impl_methods() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        // Add functions with impl-block qualified names
+        let funcs = vec![
+            CodeNode::function("new", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<Foo>::new:10")
+                .with_lines(10, 15),
+            CodeNode::function("fmt", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<Display for Foo>::fmt:20")
+                .with_lines(20, 25),
+            CodeNode::function("default", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<Default for Foo>::default:30")
+                .with_lines(30, 35),
+            // Method for a DIFFERENT type — should not be counted
+            CodeNode::function("bar_method", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<Bar>::bar_method:40")
+                .with_lines(40, 45),
+            // Standalone function — should not be counted
+            CodeNode::function("standalone", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::standalone:50")
+                .with_lines(50, 55),
+        ];
+        for f in &funcs {
+            graph.add_node(f.clone());
+        }
+
+        // Retrieve them back so we have the compact CodeNode form
+        let file_funcs = graph.get_functions_in_file("src/lib.rs");
+        let file_func_refs: Vec<&crate::graph::store_models::CodeNode> =
+            file_funcs.iter().collect();
+
+        let count = LazyClassDetector::count_rust_impl_methods(&file_func_refs, "Foo", i);
+        assert_eq!(count, 3, "Should count 3 methods for Foo (new, fmt, default)");
+
+        let count_bar = LazyClassDetector::count_rust_impl_methods(&file_func_refs, "Bar", i);
+        assert_eq!(count_bar, 1, "Should count 1 method for Bar");
+
+        let count_none = LazyClassDetector::count_rust_impl_methods(&file_func_refs, "Baz", i);
+        assert_eq!(count_none, 0, "Should count 0 methods for non-existent type");
     }
 }
