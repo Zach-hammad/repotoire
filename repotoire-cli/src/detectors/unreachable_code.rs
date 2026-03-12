@@ -199,6 +199,221 @@ impl UnreachableCodeDetector {
         }
     }
 
+    /// Rust conditional compilation attributes that mean a function is only compiled
+    /// under certain conditions (cfg, test, bench, etc.) — not truly unreachable.
+    const RUST_CONDITIONAL_ATTRS: &'static [&'static str] = &[
+        "cfg(",
+        "cfg_attr(",
+        "test",
+        "bench",
+        "ignore",
+        "cfg_eval",
+    ];
+
+    /// Check if a function is conditionally compiled via Rust attributes.
+    ///
+    /// Uses the `decorators` field from ExtraProps (populated by the Rust parser
+    /// from `#[...]` attribute items preceding function definitions).
+    fn is_conditionally_compiled_rust(
+        graph: &dyn crate::graph::GraphQuery,
+        func: &crate::graph::store_models::CodeNode,
+    ) -> bool {
+        if let Some(ep) = graph.extra_props(func.qualified_name) {
+            if let Some(decorators_key) = ep.decorators {
+                let i = graph.interner();
+                let decorators = i.resolve(decorators_key);
+                // Decorators are stored as comma-separated: "cfg(test),derive(Debug)"
+                for attr in decorators.split(',') {
+                    let attr = attr.trim();
+                    for pattern in Self::RUST_CONDITIONAL_ATTRS {
+                        if attr.starts_with(pattern) || attr == *pattern {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if a function is inside a conditionally compiled block by examining
+    /// the source file content around the function definition.
+    ///
+    /// Handles:
+    /// - **Rust**: `#[cfg(test)] mod tests { ... }` blocks — checks if function's
+    ///   qualified name contains a cfg(test) module segment.
+    /// - **C/C++**: `#ifdef`, `#ifndef`, `#if` preprocessor guards surrounding
+    ///   the function definition.
+    /// - **Python**: `if __name__` guards that wrap function definitions.
+    fn is_in_conditional_block(
+        file_path: &str,
+        func_line_start: u32,
+        content: &str,
+    ) -> bool {
+        // --- Rust: check for #[cfg(test)] mod block ---
+        if file_path.ends_with(".rs") {
+            return Self::is_in_rust_cfg_module(func_line_start, content);
+        }
+
+        // --- C/C++: check for preprocessor guards ---
+        if file_path.ends_with(".c")
+            || file_path.ends_with(".cpp")
+            || file_path.ends_with(".cc")
+            || file_path.ends_with(".cxx")
+            || file_path.ends_with(".h")
+            || file_path.ends_with(".hpp")
+        {
+            return Self::is_in_preprocessor_guard(func_line_start, content);
+        }
+
+        // --- Python: check for if __name__ guard ---
+        if file_path.ends_with(".py") {
+            return Self::is_in_python_name_guard(func_line_start, content);
+        }
+
+        false
+    }
+
+    /// Check if a Rust function is inside a `#[cfg(...)]` module block.
+    ///
+    /// Scans backward from the function's line to find `mod` declarations
+    /// preceded by `#[cfg(...)]` attributes. If found and the function is
+    /// within the module's brace-delimited scope, returns true.
+    fn is_in_rust_cfg_module(func_line_start: u32, content: &str) -> bool {
+        let lines: Vec<&str> = content.lines().collect();
+        let func_idx = (func_line_start as usize).saturating_sub(1);
+
+        if func_idx >= lines.len() {
+            return false;
+        }
+
+        // Scan backward from the function to find a `mod` declaration with #[cfg(...)]
+        let mut i = func_idx;
+        let mut brace_depth: i32 = 0;
+
+        // First: count the brace depth at the function's line to understand nesting
+        for line_idx in 0..=func_idx.min(lines.len() - 1) {
+            let line = lines[line_idx];
+            for ch in line.chars() {
+                match ch {
+                    '{' => brace_depth += 1,
+                    '}' => brace_depth -= 1,
+                    _ => {}
+                }
+            }
+        }
+
+        // The function is inside at least `brace_depth` levels of nesting.
+        // Scan backward to find a mod with #[cfg(...)] that encloses us.
+        while i > 0 {
+            i -= 1;
+            let line = lines[i].trim();
+
+            // Look for `mod <name> {` pattern
+            if (line.starts_with("mod ") || line.starts_with("pub mod "))
+                && line.contains('{')
+            {
+                // Check preceding lines for #[cfg(...)] attribute
+                let mut attr_line = i;
+                while attr_line > 0 {
+                    attr_line -= 1;
+                    let prev = lines[attr_line].trim();
+                    if prev.starts_with("#[cfg(") || prev.starts_with("#[cfg_attr(") {
+                        return true;
+                    }
+                    // Skip comments and other attributes
+                    if prev.starts_with("#[") || prev.starts_with("//") || prev.is_empty()
+                    {
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if a C/C++ function is inside a preprocessor conditional block.
+    ///
+    /// Tracks `#ifdef`/`#ifndef`/`#if` and `#endif` directives to determine
+    /// if the function at `func_line_start` is within a conditional region.
+    fn is_in_preprocessor_guard(func_line_start: u32, content: &str) -> bool {
+        let lines: Vec<&str> = content.lines().collect();
+        let func_idx = (func_line_start as usize).saturating_sub(1);
+
+        // Track preprocessor nesting: stack of (#if/#ifdef/#ifndef line index)
+        let mut pp_stack: Vec<usize> = Vec::new();
+
+        for (line_idx, line) in lines.iter().enumerate() {
+            if line_idx >= func_idx {
+                break;
+            }
+
+            let trimmed = line.trim();
+            if trimmed.starts_with("#ifdef")
+                || trimmed.starts_with("#ifndef")
+                || trimmed.starts_with("#if ")
+                || trimmed == "#if"
+            {
+                pp_stack.push(line_idx);
+            } else if trimmed.starts_with("#endif") {
+                pp_stack.pop();
+            } else if trimmed.starts_with("#else") || trimmed.starts_with("#elif") {
+                // Still inside the same conditional block — keep the stack entry
+            }
+        }
+
+        // If the preprocessor stack is non-empty at the function's line,
+        // the function is inside a conditional compilation block.
+        !pp_stack.is_empty()
+    }
+
+    /// Check if a Python function is inside an `if __name__ == "__main__":` guard.
+    ///
+    /// Scans backward from the function line to find an `if __name__` block
+    /// at column 0 (top-level guard) and checks that the function is indented
+    /// inside it.
+    fn is_in_python_name_guard(func_line_start: u32, content: &str) -> bool {
+        let lines: Vec<&str> = content.lines().collect();
+        let func_idx = (func_line_start as usize).saturating_sub(1);
+
+        if func_idx >= lines.len() {
+            return false;
+        }
+
+        let func_indent = lines[func_idx].len() - lines[func_idx].trim_start().len();
+
+        // The function must be indented (inside a block)
+        if func_indent == 0 {
+            return false;
+        }
+
+        // Scan backward to find `if __name__` at a lower indent level
+        for i in (0..func_idx).rev() {
+            let line = lines[i];
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            let indent = line.len() - trimmed.len();
+
+            // Found a line at lower or equal indent — check if it's the __name__ guard
+            if indent < func_indent {
+                if trimmed.starts_with("if __name__")
+                    || trimmed.starts_with("if  __name__")
+                {
+                    return true;
+                }
+                // If we found a different block at a lower indent, stop
+                break;
+            }
+        }
+
+        false
+    }
+
     /// Check if function is likely an entry point (called externally)
     fn is_entry_point(&self, func_name: &str, file_path: &str) -> bool {
         let name_lower = func_name.to_lowercase();
@@ -401,6 +616,12 @@ impl UnreachableCodeDetector {
                 continue;
             }
 
+            // Skip Rust conditionally compiled functions (#[cfg(...)], #[test], #[bench], etc.)
+            // This is cheap — reads from the graph's ExtraProps, no file I/O.
+            if Self::is_conditionally_compiled_rust(graph, func) {
+                continue;
+            }
+
             let fp = func.path(i);
             // Per-file exclusion: test, scripts, non-production, framework, bundled (cached)
             let excluded = *file_excluded
@@ -498,6 +719,14 @@ impl UnreachableCodeDetector {
                 // Check if method is called via self.method() in same file
                 let self_call = format!("self.{}(", func_name);
                 if content.contains(&self_call) {
+                    continue;
+                }
+
+                // Skip functions inside conditional compilation blocks:
+                // - Rust: #[cfg(test)] mod ... { fn ... }
+                // - C/C++: #ifdef / #ifndef / #if guards
+                // - Python: if __name__ == "__main__": blocks
+                if Self::is_in_conditional_block(fp, func.line_start, content) {
                     continue;
                 }
             }
@@ -820,6 +1049,7 @@ impl Detector for UnreachableCodeDetector {
 mod tests {
     use super::*;
     use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::store_models::ExtraProps;
 
     #[test]
     fn test_is_entry_point() {
@@ -861,5 +1091,454 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("dead_func"));
+    }
+
+    // --- Conditional compilation exemption tests ---
+
+    #[test]
+    fn test_rust_cfg_test_attribute_skipped() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        // Function with #[cfg(test)] attribute
+        let func = CodeNode::function("helper_in_test", "src/lib.rs")
+            .with_qualified_name("lib::helper_in_test")
+            .with_lines(10, 20);
+        graph.add_node(func);
+
+        // Set the decorators extra prop (as the Rust parser would)
+        let qn_key = i.intern("lib::helper_in_test");
+        let ep = ExtraProps {
+            decorators: Some(i.intern("cfg(test)")),
+            ..Default::default()
+        };
+        graph.set_extra_props(qn_key, ep);
+
+        assert!(
+            UnreachableCodeDetector::is_conditionally_compiled_rust(&graph, &func),
+            "Function with #[cfg(test)] should be recognized as conditionally compiled"
+        );
+    }
+
+    #[test]
+    fn test_rust_cfg_feature_attribute_skipped() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        let func = CodeNode::function("optional_feature", "src/lib.rs")
+            .with_qualified_name("lib::optional_feature")
+            .with_lines(5, 15);
+        graph.add_node(func);
+
+        let qn_key = i.intern("lib::optional_feature");
+        let ep = ExtraProps {
+            decorators: Some(i.intern("cfg(feature = \"serde\")")),
+            ..Default::default()
+        };
+        graph.set_extra_props(qn_key, ep);
+
+        assert!(
+            UnreachableCodeDetector::is_conditionally_compiled_rust(&graph, &func),
+            "Function with #[cfg(feature = ...)] should be conditionally compiled"
+        );
+    }
+
+    #[test]
+    fn test_rust_test_attribute_skipped() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        let func = CodeNode::function("my_test", "src/lib.rs")
+            .with_qualified_name("lib::my_test")
+            .with_lines(50, 60);
+        graph.add_node(func);
+
+        let qn_key = i.intern("lib::my_test");
+        let ep = ExtraProps {
+            decorators: Some(i.intern("test")),
+            ..Default::default()
+        };
+        graph.set_extra_props(qn_key, ep);
+
+        assert!(
+            UnreachableCodeDetector::is_conditionally_compiled_rust(&graph, &func),
+            "#[test] functions should be conditionally compiled"
+        );
+    }
+
+    #[test]
+    fn test_rust_bench_attribute_skipped() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        let func = CodeNode::function("bench_algo", "src/bench.rs")
+            .with_qualified_name("bench::bench_algo")
+            .with_lines(10, 30);
+        graph.add_node(func);
+
+        let qn_key = i.intern("bench::bench_algo");
+        let ep = ExtraProps {
+            decorators: Some(i.intern("bench")),
+            ..Default::default()
+        };
+        graph.set_extra_props(qn_key, ep);
+
+        assert!(
+            UnreachableCodeDetector::is_conditionally_compiled_rust(&graph, &func),
+            "#[bench] functions should be conditionally compiled"
+        );
+    }
+
+    #[test]
+    fn test_rust_multiple_attrs_with_cfg() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        let func = CodeNode::function("complex_func", "src/lib.rs")
+            .with_qualified_name("lib::complex_func")
+            .with_lines(1, 10);
+        graph.add_node(func);
+
+        // Multiple attributes, one of which is cfg
+        let qn_key = i.intern("lib::complex_func");
+        let ep = ExtraProps {
+            decorators: Some(i.intern("inline,cfg(target_os = \"linux\")")),
+            ..Default::default()
+        };
+        graph.set_extra_props(qn_key, ep);
+
+        assert!(
+            UnreachableCodeDetector::is_conditionally_compiled_rust(&graph, &func),
+            "Function with cfg among multiple attrs should be conditionally compiled"
+        );
+    }
+
+    #[test]
+    fn test_rust_non_conditional_attr_not_skipped() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        let func = CodeNode::function("normal_func", "src/lib.rs")
+            .with_qualified_name("lib::normal_func")
+            .with_lines(1, 10);
+        graph.add_node(func);
+
+        // Only derive and inline — no conditional compilation
+        let qn_key = i.intern("lib::normal_func");
+        let ep = ExtraProps {
+            decorators: Some(i.intern("inline,derive(Debug)")),
+            ..Default::default()
+        };
+        graph.set_extra_props(qn_key, ep);
+
+        assert!(
+            !UnreachableCodeDetector::is_conditionally_compiled_rust(&graph, &func),
+            "Function with only #[inline] and #[derive] should NOT be conditionally compiled"
+        );
+    }
+
+    #[test]
+    fn test_rust_no_extra_props_not_skipped() {
+        let graph = GraphStore::in_memory();
+
+        let func = CodeNode::function("bare_func", "src/lib.rs")
+            .with_qualified_name("lib::bare_func")
+            .with_lines(1, 10);
+        graph.add_node(func);
+
+        assert!(
+            !UnreachableCodeDetector::is_conditionally_compiled_rust(&graph, &func),
+            "Function without extra props should NOT be conditionally compiled"
+        );
+    }
+
+    // --- Rust cfg module block tests ---
+
+    #[test]
+    fn test_rust_cfg_test_module_block() {
+        let content = r#"
+pub fn public_api() {
+    // ...
+}
+
+#[cfg(test)]
+mod tests {
+    fn helper_for_tests() {
+        // This should be exempt
+    }
+}
+"#;
+        // helper_for_tests is at line 9 (1-based)
+        assert!(
+            UnreachableCodeDetector::is_in_rust_cfg_module(9, content),
+            "Function inside #[cfg(test)] mod should be in conditional block"
+        );
+    }
+
+    #[test]
+    fn test_rust_cfg_test_module_function_outside() {
+        let content = r#"
+pub fn public_api() {
+    // ...
+}
+
+#[cfg(test)]
+mod tests {
+    fn helper_for_tests() {
+        // ...
+    }
+}
+"#;
+        // public_api is at line 2 (1-based)
+        assert!(
+            !UnreachableCodeDetector::is_in_rust_cfg_module(2, content),
+            "Function OUTSIDE #[cfg(test)] mod should not be in conditional block"
+        );
+    }
+
+    #[test]
+    fn test_rust_cfg_feature_module_block() {
+        let content = r#"
+#[cfg(feature = "serde")]
+mod serde_impl {
+    fn serialize_helper() {
+        // conditional
+    }
+}
+"#;
+        // serialize_helper at line 4
+        assert!(
+            UnreachableCodeDetector::is_in_rust_cfg_module(4, content),
+            "Function inside #[cfg(feature)] mod should be in conditional block"
+        );
+    }
+
+    // --- C/C++ preprocessor guard tests ---
+
+    #[test]
+    fn test_c_ifdef_guard() {
+        let content = r#"
+#include <stdio.h>
+
+void normal_func() {
+    // always compiled
+}
+
+#ifdef DEBUG
+void debug_helper() {
+    printf("debug\n");
+}
+#endif
+"#;
+        // debug_helper at line 9
+        assert!(
+            UnreachableCodeDetector::is_in_preprocessor_guard(9, content),
+            "Function inside #ifdef DEBUG should be in preprocessor guard"
+        );
+    }
+
+    #[test]
+    fn test_c_ifdef_guard_normal_func() {
+        let content = r#"
+#include <stdio.h>
+
+void normal_func() {
+    // always compiled
+}
+
+#ifdef DEBUG
+void debug_helper() {
+    printf("debug\n");
+}
+#endif
+"#;
+        // normal_func at line 4 — not guarded
+        assert!(
+            !UnreachableCodeDetector::is_in_preprocessor_guard(4, content),
+            "Function outside #ifdef should NOT be in preprocessor guard"
+        );
+    }
+
+    #[test]
+    fn test_c_ifndef_guard() {
+        let content = r#"
+#ifndef NDEBUG
+void assert_helper() {
+    // only in debug builds
+}
+#endif
+"#;
+        // assert_helper at line 3
+        assert!(
+            UnreachableCodeDetector::is_in_preprocessor_guard(3, content),
+            "Function inside #ifndef should be in preprocessor guard"
+        );
+    }
+
+    #[test]
+    fn test_c_nested_ifdef() {
+        let content = r#"
+#ifdef PLATFORM_LINUX
+#ifdef HAS_FEATURE_X
+void feature_x_linux() {
+    // double-guarded
+}
+#endif
+#endif
+"#;
+        // feature_x_linux at line 4
+        assert!(
+            UnreachableCodeDetector::is_in_preprocessor_guard(4, content),
+            "Function inside nested #ifdef should be in preprocessor guard"
+        );
+    }
+
+    #[test]
+    fn test_c_if_expression_guard() {
+        let content = r#"
+#if defined(WIN32) || defined(_WIN64)
+void windows_specific() {
+    // Windows only
+}
+#endif
+"#;
+        // windows_specific at line 3
+        assert!(
+            UnreachableCodeDetector::is_in_preprocessor_guard(3, content),
+            "Function inside #if should be in preprocessor guard"
+        );
+    }
+
+    #[test]
+    fn test_c_after_endif_not_guarded() {
+        let content = r#"
+#ifdef DEBUG
+void debug_only() {}
+#endif
+
+void after_endif() {
+    // This is NOT guarded
+}
+"#;
+        // after_endif at line 6
+        assert!(
+            !UnreachableCodeDetector::is_in_preprocessor_guard(6, content),
+            "Function after #endif should NOT be in preprocessor guard"
+        );
+    }
+
+    // --- Python __name__ guard tests ---
+
+    #[test]
+    fn test_python_name_guard() {
+        let content = r#"
+def public_api():
+    pass
+
+if __name__ == "__main__":
+    def run_main():
+        public_api()
+"#;
+        // run_main at line 6
+        assert!(
+            UnreachableCodeDetector::is_in_python_name_guard(6, content),
+            "Function inside if __name__ guard should be detected"
+        );
+    }
+
+    #[test]
+    fn test_python_name_guard_outside() {
+        let content = r#"
+def public_api():
+    pass
+
+if __name__ == "__main__":
+    def run_main():
+        public_api()
+"#;
+        // public_api at line 2 — NOT inside the guard
+        assert!(
+            !UnreachableCodeDetector::is_in_python_name_guard(2, content),
+            "Function outside if __name__ guard should NOT be detected"
+        );
+    }
+
+    #[test]
+    fn test_python_name_guard_single_equals() {
+        // Some code uses single quotes
+        let content = r#"
+if __name__ == '__main__':
+    def helper():
+        pass
+"#;
+        // helper at line 3
+        assert!(
+            UnreachableCodeDetector::is_in_python_name_guard(3, content),
+            "Function inside if __name__ == '__main__' should be detected"
+        );
+    }
+
+    // --- is_in_conditional_block dispatch tests ---
+
+    #[test]
+    fn test_conditional_block_dispatch_rust() {
+        let content = r#"
+#[cfg(test)]
+mod tests {
+    fn test_helper() {}
+}
+"#;
+        assert!(
+            UnreachableCodeDetector::is_in_conditional_block("src/lib.rs", 4, content),
+            "Rust dispatch should detect cfg(test) module"
+        );
+    }
+
+    #[test]
+    fn test_conditional_block_dispatch_c() {
+        let content = r#"
+#ifdef TEST
+void test_func() {}
+#endif
+"#;
+        assert!(
+            UnreachableCodeDetector::is_in_conditional_block("src/main.c", 3, content),
+            "C dispatch should detect #ifdef guard"
+        );
+    }
+
+    #[test]
+    fn test_conditional_block_dispatch_cpp() {
+        let content = r#"
+#ifdef TEST
+void test_func() {}
+#endif
+"#;
+        assert!(
+            UnreachableCodeDetector::is_in_conditional_block("src/main.cpp", 3, content),
+            "C++ dispatch should detect #ifdef guard"
+        );
+    }
+
+    #[test]
+    fn test_conditional_block_dispatch_python() {
+        let content = r#"
+if __name__ == "__main__":
+    def main():
+        pass
+"#;
+        assert!(
+            UnreachableCodeDetector::is_in_conditional_block("app.py", 3, content),
+            "Python dispatch should detect __name__ guard"
+        );
+    }
+
+    #[test]
+    fn test_conditional_block_dispatch_js_not_affected() {
+        let content = "function foo() {}\n";
+        assert!(
+            !UnreachableCodeDetector::is_in_conditional_block("app.js", 1, content),
+            "JS files should not match any conditional block pattern"
+        );
     }
 }
