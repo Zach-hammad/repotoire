@@ -865,6 +865,30 @@ impl ContextClassifier {
         context
     }
 
+    /// Classify a function and return confidence score (0.0–1.0).
+    ///
+    /// Uses the same hierarchical HMM+CRF pipeline as `classify()` but
+    /// also returns the softmax confidence of the winning class.
+    pub fn classify_with_confidence(
+        &mut self,
+        name: &str,
+        features: &FunctionFeatures,
+    ) -> (FunctionContext, f64) {
+        // Check file-level bias first (high confidence)
+        if let Some(file_bias) = features.file_context.function_bias() {
+            self.cache.insert(name.to_string(), file_bias);
+            return (file_bias, 1.0);
+        }
+
+        let (context, confidence) = if self.hmm_weight < 1.0 {
+            self.ensemble_classify_with_confidence(features)
+        } else {
+            self.hmm.classify_with_confidence(features)
+        };
+        self.cache.insert(name.to_string(), context);
+        (context, confidence)
+    }
+
     /// Ensemble classification combining HMM (generative) and CRF (discriminative)
     fn ensemble_classify(&self, features: &FunctionFeatures) -> FunctionContext {
         let vec = features.to_vector();
@@ -906,6 +930,61 @@ impl ContextClassifier {
         }
 
         FunctionContext::from_index(best_idx)
+    }
+
+    /// Ensemble classification with confidence score.
+    fn ensemble_classify_with_confidence(
+        &self,
+        features: &FunctionFeatures,
+    ) -> (FunctionContext, f64) {
+        let vec = features.to_vector();
+        let mut scores = [0.0f64; 5];
+
+        // HMM contribution
+        let mut hmm_log_probs = [0.0f64; 5];
+        for s in 0..5 {
+            let ctx = FunctionContext::from_index(s);
+            hmm_log_probs[s] = self.hmm.initial[s].ln() + self.hmm.log_emission_prob(ctx, &vec);
+        }
+        let hmm_max = hmm_log_probs
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let hmm_sum: f64 = hmm_log_probs.iter().map(|&lp| (lp - hmm_max).exp()).sum();
+
+        // CRF contribution
+        let mut crf_scores = [0.0f64; 5];
+        for s in 0..5 {
+            crf_scores[s] = self.crf.score(features, FunctionContext::from_index(s));
+        }
+        let crf_max = crf_scores
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let crf_sum: f64 = crf_scores.iter().map(|&sc| (sc - crf_max).exp()).sum();
+
+        // Combine with weighted average
+        for s in 0..5 {
+            let hmm_prob = (hmm_log_probs[s] - hmm_max).exp() / hmm_sum;
+            let crf_prob = (crf_scores[s] - crf_max).exp() / crf_sum;
+            scores[s] = self.hmm_weight * hmm_prob + (1.0 - self.hmm_weight) * crf_prob;
+        }
+
+        // Find best and compute confidence
+        let mut best_idx = 0;
+        for s in 1..5 {
+            if scores[s] > scores[best_idx] {
+                best_idx = s;
+            }
+        }
+        let total: f64 = scores.iter().sum();
+        let confidence = if total > 0.0 {
+            scores[best_idx] / total
+        } else {
+            0.2
+        };
+
+        (FunctionContext::from_index(best_idx), confidence)
     }
 
     /// Train on codebase data

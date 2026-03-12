@@ -48,6 +48,8 @@ const MAX_FINDINGS_LIMIT: usize = 10_000;
 pub struct GdPrecomputed {
     pub contexts: Arc<FunctionContextMap>,
     pub hmm_contexts: Arc<HashMap<String, FunctionContext>>,
+    /// HMM classifications with confidence scores (function QN → (context, confidence)).
+    pub hmm_with_confidence: Arc<HashMap<String, (FunctionContext, f64)>>,
     pub taint_results: Arc<crate::detectors::taint::centralized::CentralizedTaintResults>,
     pub detector_context: Arc<super::DetectorContext>,
     pub file_index: Arc<super::FileIndex>,
@@ -58,6 +60,7 @@ impl Clone for GdPrecomputed {
         Self {
             contexts: Arc::clone(&self.contexts),
             hmm_contexts: Arc::clone(&self.hmm_contexts),
+            hmm_with_confidence: Arc::clone(&self.hmm_with_confidence),
             taint_results: Arc::clone(&self.taint_results),
             detector_context: Arc::clone(&self.detector_context),
             file_index: Arc::clone(&self.file_index),
@@ -88,7 +91,7 @@ pub fn precompute_gd_startup(
     //   Thread 2: HMM (0.4s)             — Hidden Markov Model context extraction
     //   Thread 3: DetectorContext (~0.3s) — callers/callees maps, file contents, class hierarchy
     //   Main:     contexts (1.5s)         — adjacency + betweenness + context map (skipped if no context-using detectors)
-    let (contexts, hmm_contexts, taint_results, detector_context, file_index) = std::thread::scope(|s| {
+    let (contexts, hmm_contexts, hmm_with_confidence, taint_results, detector_context, file_index) = std::thread::scope(|s| {
         // Thread 1: Taint analysis (only if any detector needs taint)
         let taint_handle = if needs_taint {
             Some(s.spawn(|| {
@@ -128,14 +131,15 @@ pub fn precompute_gd_startup(
                 cross_function: HashMap::new(),
                 intra_function: HashMap::new(),
             });
-        let hmm = hmm_handle.join().expect("HMM thread panicked");
+        let (hmm, hmm_conf) = hmm_handle.join().expect("HMM thread panicked");
         let (det_ctx, file_index) = ctx_handle.join().expect("DetectorContext thread panicked");
-        (ctx, hmm, taint, det_ctx, file_index)
+        (ctx, hmm, hmm_conf, taint, det_ctx, file_index)
     });
 
     GdPrecomputed {
         contexts: Arc::new(contexts),
         hmm_contexts: Arc::new(hmm_contexts),
+        hmm_with_confidence: Arc::new(hmm_with_confidence),
         taint_results: Arc::new(taint_results),
         detector_context,
         file_index,
@@ -144,10 +148,11 @@ pub fn precompute_gd_startup(
 
 /// Standalone HMM context building (no &mut self needed).
 /// Same logic as `DetectorEngine::build_hmm_contexts` but callable from free function.
+/// Returns (contexts_map, contexts_with_confidence_map).
 fn build_hmm_contexts_standalone(
     graph: &dyn crate::graph::GraphQuery,
     hmm_cache_path: Option<&std::path::PathBuf>,
-) -> HashMap<String, FunctionContext> {
+) -> (HashMap<String, FunctionContext>, HashMap<String, (FunctionContext, f64)>) {
     let i = graph.interner();
     // Try to load cached HMM+CRF model
     let mut classifier = if let Some(path) = hmm_cache_path {
@@ -168,7 +173,7 @@ fn build_hmm_contexts_standalone(
     let mut functions = graph.get_functions();
 
     if functions.is_empty() {
-        return HashMap::new();
+        return (HashMap::new(), HashMap::new());
     }
 
     // Build call data from index-based adjacency
@@ -252,15 +257,18 @@ fn build_hmm_contexts_standalone(
         }
     }
 
-    // Classify all functions
+    // Classify all functions (with and without confidence)
     let mut contexts = HashMap::new();
+    let mut contexts_with_conf = HashMap::new();
     for (func, (features, _, _, _)) in functions.iter().zip(function_data.iter()) {
-        let context = classifier.classify(func.qn(i), features);
-        contexts.insert(func.qn(i).to_string(), context);
+        let qn = func.qn(i).to_string();
+        let (context, confidence) = classifier.classify_with_confidence(&qn, features);
+        contexts.insert(qn.clone(), context);
+        contexts_with_conf.insert(qn, (context, confidence));
     }
 
     info!("Classified {} functions using HMM (standalone)", contexts.len());
-    contexts
+    (contexts, contexts_with_conf)
 }
 
 /// Orchestrates code smell detection across all registered detectors
@@ -292,6 +300,10 @@ pub struct DetectorEngine {
     taint_results: Option<Arc<crate::detectors::taint::centralized::CentralizedTaintResults>>,
     /// Pre-computed detector context (kept for AnalysisContext construction)
     detector_context: Option<Arc<super::DetectorContext>>,
+    /// HMM classifications with confidence scores (function QN → (context, confidence))
+    hmm_with_confidence: Option<Arc<HashMap<String, (FunctionContext, f64)>>>,
+    /// Adaptive threshold resolver for codebase-specific thresholds
+    threshold_resolver: Option<Arc<crate::calibrate::ThresholdResolver>>,
 }
 
 impl DetectorEngine {
@@ -323,6 +335,8 @@ impl DetectorEngine {
             file_index: None,
             taint_results: None,
             detector_context: None,
+            hmm_with_confidence: None,
+            threshold_resolver: None,
         }
     }
 
@@ -368,6 +382,11 @@ impl DetectorEngine {
     pub fn with_skip_test_files(mut self, skip: bool) -> Self {
         self.skip_test_files = skip;
         self
+    }
+
+    /// Set the adaptive threshold resolver for AnalysisContext propagation.
+    pub fn set_threshold_resolver(&mut self, resolver: crate::calibrate::ThresholdResolver) {
+        self.threshold_resolver = Some(Arc::new(resolver));
     }
 
     /// Get function contexts (builds them from graph if not already set)
@@ -427,6 +446,7 @@ impl DetectorEngine {
         if functions.is_empty() {
             let empty = Arc::new(HashMap::new());
             self.hmm_contexts = Some(Arc::clone(&empty));
+            self.hmm_with_confidence = Some(Arc::new(HashMap::new()));
             return empty;
         }
 
@@ -547,11 +567,14 @@ impl DetectorEngine {
             }
         }
 
-        // Classify all functions
+        // Classify all functions (with and without confidence)
         let mut contexts = HashMap::new();
+        let mut contexts_with_conf = HashMap::new();
         for (func, (features, _, _, _)) in functions.iter().zip(function_data.iter()) {
-            let context = classifier.classify(func.qn(i), features);
-            contexts.insert(func.qn(i).to_string(), context);
+            let qn = func.qn(i).to_string();
+            let (context, confidence) = classifier.classify_with_confidence(&qn, features);
+            contexts.insert(qn.clone(), context);
+            contexts_with_conf.insert(qn, (context, confidence));
         }
 
         info!("Classified {} functions using HMM", contexts.len());
@@ -566,6 +589,7 @@ impl DetectorEngine {
             counts[0], counts[1], counts[2], counts[3], counts[4]
         );
 
+        self.hmm_with_confidence = Some(Arc::new(contexts_with_conf));
         let arc = Arc::new(contexts);
         self.hmm_contexts = Some(Arc::clone(&arc));
         arc
@@ -592,6 +616,7 @@ impl DetectorEngine {
     pub fn inject_gd_precomputed(&mut self, pre: GdPrecomputed) {
         self.function_contexts = Some(pre.contexts);
         self.hmm_contexts = Some(pre.hmm_contexts);
+        self.hmm_with_confidence = Some(pre.hmm_with_confidence);
 
         // Inject taint results into each security detector
         for detector in &self.detectors {
@@ -634,6 +659,7 @@ impl DetectorEngine {
 
         // Inject HMM contexts (saves ~0.4s rebuild)
         self.hmm_contexts = Some(Arc::clone(&pre.hmm_contexts));
+        self.hmm_with_confidence = Some(Arc::clone(&pre.hmm_with_confidence));
 
         // Inject taint results into each security detector (saves ~1.5s rebuild)
         for detector in &self.detectors {
@@ -676,6 +702,7 @@ impl DetectorEngine {
 
         // Inject HMM contexts (saves ~0.4s rebuild)
         self.hmm_contexts = Some(Arc::clone(&pre.hmm_contexts));
+        self.hmm_with_confidence = Some(Arc::clone(&pre.hmm_with_confidence));
 
         // Inject taint results into each security detector (saves ~1.5s rebuild)
         for detector in &self.detectors {
@@ -735,6 +762,7 @@ impl DetectorEngine {
         // Empty function contexts (FileLocal detectors don't need graph-derived contexts)
         self.function_contexts = Some(Arc::new(HashMap::new()));
         self.hmm_contexts = Some(Arc::new(HashMap::new()));
+        self.hmm_with_confidence = Some(Arc::new(HashMap::new()));
 
         // Empty taint results
         self.taint_results = Some(Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
@@ -781,6 +809,10 @@ impl DetectorEngine {
                 Some(GdPrecomputed {
                     contexts: Arc::clone(ctx),
                     hmm_contexts: Arc::clone(hmm),
+                    hmm_with_confidence: self
+                        .hmm_with_confidence
+                        .clone()
+                        .unwrap_or_else(|| Arc::new(HashMap::new())),
                     taint_results: Arc::clone(taint),
                     detector_context: Arc::clone(det_ctx),
                     file_index: Arc::clone(fi),
@@ -1665,12 +1697,27 @@ impl DetectorEngine {
         let file_index = self.file_index.as_ref()?;
         let taint = self.taint_results.as_ref()?;
         let det_ctx = self.detector_context.as_ref()?;
+
+        // Use stored HMM with confidence, or empty if not computed
+        let hmm = self
+            .hmm_with_confidence
+            .clone()
+            .unwrap_or_else(|| Arc::new(HashMap::new()));
+
+        // Use stored resolver, or default
+        let resolver = self
+            .threshold_resolver
+            .clone()
+            .unwrap_or_else(|| Arc::new(crate::calibrate::ThresholdResolver::default()));
+
         Some(super::AnalysisContext {
             graph,
             files: Arc::clone(file_index),
             functions: Arc::clone(contexts),
             taint: Arc::clone(taint),
             detector_ctx: Arc::clone(det_ctx),
+            hmm_classifications: hmm,
+            resolver,
         })
     }
 

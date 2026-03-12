@@ -139,6 +139,10 @@ pub(super) fn run_detectors(
     let mut engine = DetectorEngine::new(workers)
         .with_hmm_cache(hmm_cache_path)
         .with_timings(timings);
+
+    // Wire adaptive threshold resolver into the engine for AnalysisContext propagation
+    engine.set_threshold_resolver(crate::detectors::build_threshold_resolver(style_profile));
+
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
     // Register default detectors
@@ -198,6 +202,9 @@ pub(super) fn run_gi_detectors(
     let mut engine = DetectorEngine::new(workers)
         .with_hmm_cache(hmm_cache_path)
         .with_timings(timings);
+
+    // Wire adaptive threshold resolver into the engine
+    engine.set_threshold_resolver(crate::detectors::build_threshold_resolver(style_profile));
 
     for detector in crate::detectors::default_detectors_with_ngram(
         repo_path,
@@ -281,6 +288,10 @@ pub(super) fn run_detectors_speculative(
     let mut engine = DetectorEngine::new(workers)
         .with_hmm_cache(hmm_cache_path)
         .with_timings(timings);
+
+    // Wire adaptive threshold resolver into the engine
+    engine.set_threshold_resolver(crate::detectors::build_threshold_resolver(style_profile));
+
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
     for detector in crate::detectors::default_detectors_with_ngram(

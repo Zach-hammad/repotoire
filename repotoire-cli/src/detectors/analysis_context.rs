@@ -6,9 +6,10 @@
 
 use crate::detectors::detector_context::DetectorContext;
 use crate::detectors::file_index::FileIndex;
-use crate::detectors::function_context::FunctionContextMap;
+use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
 use crate::detectors::taint::centralized::CentralizedTaintResults;
 use crate::graph::GraphQuery;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -30,6 +31,13 @@ pub struct AnalysisContext<'g> {
 
     /// Shared detector context (callers/callees maps, class hierarchy).
     pub detector_ctx: Arc<DetectorContext>,
+
+    /// HMM-based function context classifications with confidence scores.
+    pub hmm_classifications:
+        Arc<HashMap<String, (crate::detectors::context_hmm::FunctionContext, f64)>>,
+
+    /// Adaptive threshold resolver for codebase-specific thresholds.
+    pub resolver: Arc<crate::calibrate::ThresholdResolver>,
 }
 
 impl<'g> AnalysisContext<'g> {
@@ -44,6 +52,44 @@ impl<'g> AnalysisContext<'g> {
     /// legacy detect() methods during incremental migration.
     pub fn as_file_provider(&self) -> AnalysisContextFileProvider<'_> {
         AnalysisContextFileProvider { ctx: self }
+    }
+
+    // ── HMM classification accessors ────────────────────────────────
+
+    /// Get HMM role classification for a function.
+    pub fn hmm_role(
+        &self,
+        qn: &str,
+    ) -> Option<(crate::detectors::context_hmm::FunctionContext, f64)> {
+        self.hmm_classifications.get(qn).copied()
+    }
+
+    // ── FunctionContextMap convenience accessors ────────────────────
+
+    /// Get function role from FunctionContextMap.
+    pub fn function_role(&self, qn: &str) -> Option<FunctionRole> {
+        self.functions.get(qn).map(|fc| fc.role)
+    }
+
+    /// Check if function is a test function.
+    pub fn is_test_function(&self, qn: &str) -> bool {
+        self.functions
+            .get(qn)
+            .map_or(false, |fc| fc.role == FunctionRole::Test || fc.is_test)
+    }
+
+    /// Check if function is a utility function.
+    pub fn is_utility_function(&self, qn: &str) -> bool {
+        self.functions
+            .get(qn)
+            .map_or(false, |fc| fc.role == FunctionRole::Utility)
+    }
+
+    /// Check if function is a hub function.
+    pub fn is_hub_function(&self, qn: &str) -> bool {
+        self.functions
+            .get(qn)
+            .map_or(false, |fc| fc.role == FunctionRole::Hub)
     }
 }
 
@@ -138,6 +184,8 @@ mod tests {
             functions,
             taint,
             detector_ctx,
+            hmm_classifications: Arc::new(HashMap::new()),
+            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
         }
     }
 

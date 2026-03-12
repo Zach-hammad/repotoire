@@ -553,6 +553,17 @@ fn default_detectors_full(
     detectors
 }
 
+/// Build an adaptive `ThresholdResolver` from an optional style profile.
+///
+/// This creates the same resolver used internally by `default_detectors_full()`
+/// so callers can pass it to `DetectorEngine::set_threshold_resolver()` for
+/// propagation into `AnalysisContext`.
+pub fn build_threshold_resolver(
+    style_profile: Option<&crate::calibrate::StyleProfile>,
+) -> crate::calibrate::ThresholdResolver {
+    crate::calibrate::ThresholdResolver::new(style_profile.cloned())
+}
+
 /// Create a detector engine with all default detectors
 ///
 /// Convenience function for quickly setting up detection.
