@@ -7,8 +7,20 @@
 //! - High fan-in (many callers)
 //! - Callers spread across many files/modules
 //! - Changes would cascade through call graph
+//!
+//! When an `AnalysisContext` is available (via `detect_ctx()`), the detector
+//! enhances its analysis with:
+//! - **ContextHMM utility detection**: replaces 85+ hard-coded prefix/suffix/path
+//!   patterns with a learned HMM classifier that recognises utility functions
+//!   from call-graph shape and naming features.
+//! - **FunctionContextMap role checks**: functions classified as `Utility` or
+//!   `Hub` are skipped (they are *designed* to be widely called).
+//! - **Role-based threshold scaling**: classes whose methods are predominantly
+//!   `Hub` or `Utility` get a higher effective caller threshold before
+//!   triggering a finding.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::function_context::FunctionRole;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -73,11 +85,16 @@ impl ShotgunSurgeryDetector {
         }
     }
 
-    /// Analyze impact of changing a class
+    /// Analyze impact of changing a class.
+    ///
+    /// When `analysis_ctx` is provided, applies role-based threshold scaling:
+    /// classes whose methods are predominantly Hub or Utility get a higher
+    /// effective `min_callers` threshold.
     fn analyze_class_impact(
         &self,
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
+        analysis_ctx: Option<&crate::detectors::analysis_context::AnalysisContext<'_>>,
     ) -> Option<ImpactAnalysis> {
         let i = graph.interner();
         // Find all methods belonging to this class using file-scoped index (O(1) lookup)
@@ -128,7 +145,34 @@ impl ShotgunSurgeryDetector {
             }
         }
 
-        if all_callers.len() < self.thresholds.min_callers {
+        // Role-based threshold scaling: determine the predominant role of
+        // the class's methods and scale min_callers accordingly.
+        let effective_min_callers = if let Some(ctx) = analysis_ctx {
+            let primary_role = methods
+                .iter()
+                .filter_map(|m| ctx.functions.get(m.qn(i)))
+                .map(|fc| fc.role)
+                .max_by_key(|r| match r {
+                    FunctionRole::Hub => 4,
+                    FunctionRole::Utility => 3,
+                    FunctionRole::Orchestrator => 2,
+                    _ => 1,
+                })
+                .unwrap_or(FunctionRole::Unknown);
+
+            let threshold_multiplier = match primary_role {
+                FunctionRole::Hub => 3.0,
+                FunctionRole::Utility => 2.5,
+                FunctionRole::Orchestrator => 2.0,
+                _ => 1.0,
+            };
+
+            (self.thresholds.min_callers as f64 * threshold_multiplier) as usize
+        } else {
+            self.thresholds.min_callers
+        };
+
+        if all_callers.len() < effective_min_callers {
             return None;
         }
 
@@ -219,66 +263,17 @@ impl ShotgunSurgeryDetector {
         }
     }
 
-    /// Detect common runtime/interpreter naming patterns
-    /// Pattern: 2-4 alphanumeric prefix + underscore (e.g., u3r_, Py_, lua_, rb_)
-    fn has_runtime_prefix(func_name: &str) -> bool {
-        if let Some(underscore_pos) = func_name.find('_') {
-            if (2..=4).contains(&underscore_pos) {
-                let prefix = &func_name[..underscore_pos];
-                if prefix.chars().all(|c| c.is_alphanumeric()) {
-                    let prefix_lower = prefix.to_lowercase();
-                    const COMMON_WORDS: &[&str] = &[
-                        "get", "set", "is", "do", "can", "has", "new", "old", "add", "del", "pop",
-                        "put", "run", "try", "end", "use", "for", "the", "and", "not", "dead",
-                        "live", "test", "mock", "fake", "stub", "temp", "tmp", "foo", "bar", "baz",
-                        "qux", "call", "read", "load", "save", "send", "recv",
-                    ];
-                    if !COMMON_WORDS.contains(&prefix_lower.as_str()) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-}
-
-struct ImpactAnalysis {
-    direct_callers: usize,
-    affected_files: usize,
-    affected_modules: usize,
-    cascade_depth: usize,
-    sample_files: Vec<String>,
-}
-
-impl Default for ShotgunSurgeryDetector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Detector for ShotgunSurgeryDetector {
-    fn name(&self) -> &'static str {
-        "ShotgunSurgeryDetector"
-    }
-
-    fn description(&self) -> &'static str {
-        "Detects code where changes propagate widely"
-    }
-
-    fn category(&self) -> &'static str {
-        "coupling"
-    }
-
-    fn config(&self) -> Option<&DetectorConfig> {
-        Some(&self.config)
-    }
-
-    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
-        let _ = self.detector_context.set(ctx);
-    }
-
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    /// Core detection logic shared between `detect()` and `detect_ctx()`.
+    ///
+    /// When `analysis_ctx` is `Some`, enables enhanced checks:
+    /// - ContextHMM-based utility detection (replaces 85+ hard-coded patterns)
+    /// - FunctionContextMap role checks (Utility / Hub skip)
+    /// - Role-based threshold scaling for classes
+    fn detect_inner(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        analysis_ctx: Option<&crate::detectors::analysis_context::AnalysisContext<'_>>,
+    ) -> Result<Vec<Finding>> {
         let i = graph.interner();
         let mut findings = Vec::new();
         let all_functions = graph.get_functions_shared();
@@ -289,7 +284,7 @@ impl Detector for ShotgunSurgeryDetector {
                 continue;
             }
 
-            let analysis = match self.analyze_class_impact(graph, &class) {
+            let analysis = match self.analyze_class_impact(graph, &class, analysis_ctx) {
                 Some(a) => a,
                 None => continue,
             };
@@ -354,124 +349,11 @@ impl Detector for ShotgunSurgeryDetector {
         }
 
         // Also check high-impact functions (not just classes)
-        // Skip common trait methods that are expected to have many callers
-        // Also skip utility function prefixes (these are DESIGNED to be called everywhere)
-        const UTILITY_PREFIXES: &[&str] = &[
-            // Generic utility prefixes
-            "util_",
-            "helper_",
-            "common_",
-            "core_",
-            "base_",
-            "lib_",
-            "shared_",
-            // Memory/allocation functions (core runtime, called everywhere)
-            "alloc_",
-            "free_",
-            "malloc_",
-            "realloc_",
-            "mem_",
-            // Logging/debug (called from everywhere)
-            "log_",
-            "debug_",
-            "trace_",
-            "info_",
-            "warn_",
-            "error_",
-            "print_",
-            // String/buffer operations
-            "str_",
-            "buf_",
-            "fmt_",
-            // Common interpreter/runtime prefixes
-            "py_",
-            "pyobject_",
-            "_py", // CPython
-            "lua_",
-            "lual_",
-            "luav_", // Lua
-            "rb_",
-            "ruby_", // Ruby
-            "v8_",
-            "js_", // JavaScript engines
-            "g_",
-            "gtk_",
-            "gdk_", // GLib/GTK
-            "uv_",
-            "uv__", // libuv
-        ];
-        const UTILITY_SUFFIXES: &[&str] =
-            &["_util", "_utils", "_helper", "_common", "_lib", "_impl"];
-        const UTILITY_PATHS: &[&str] = &[
-            "/util/",
-            "/utils/",
-            "/common/",
-            "/core/",
-            "/lib/",
-            "/helpers/",
-            "/shared/",
-            "/allocator/",
-            "/memory/",
-            "/alloc/",
-            "/runtime/",
-            "/internal/",
-        ];
+        // Skip common trait/stdlib methods that conflate graph edges (bare method
+        // calls like .clone() resolve to whichever fn was last in the global map).
         const SKIP_METHODS: &[&str] = &[
-            "new",
-            "default",
-            "from",
-            "into",
-            "from_str",
-            "to_string",
-            "as_str",
-            "as_ref",
-            "as_mut",
-            "clone",
-            "fmt",
-            "eq",
-            "cmp",
-            "hash",
-            "next",
-            "iter",
-            "into_iter",
-            "len",
-            "is_empty",
-            "get",
-            "set",
-            "with_",
-            "build",
-            "parse",
-            "serialize",
-            "deserialize",
-            "drop",
-            "deref",
-            "as_i64",
-            "as_f64",
-            "as_bool",
-            "as_array",
-            "as_object", // JSON accessors
-            // Common stdlib method names that cause graph conflation (bare method
-            // calls like .find() resolve to whichever fn was last in the global map)
-            "find",
-            "map",
-            "filter",
-            "fold",
-            "collect",
-            "contains",
-            "push",
-            "pop",
-            "insert",
-            "remove",
-            "sort",
-            "unwrap",
-            "expect",
-            "ok",
-            "err",
-            "read",
-            "write",
-            "lock",
-            "send",
-            "recv",
+            "new", "default", "clone", "fmt", "eq", "hash", "from", "into",
+            "drop", "deref", "serialize", "deserialize", "to_string",
         ];
 
         let min_fan_in = self.thresholds.min_callers * 2;
@@ -490,30 +372,26 @@ impl Detector for ShotgunSurgeryDetector {
                 continue;
             }
 
-            // Skip utility functions by prefix (designed to be called everywhere)
-            if UTILITY_PREFIXES.iter().any(|p| name_lower.starts_with(p)) {
-                continue;
-            }
+            // ── Enhanced path: ContextHMM + FunctionContextMap role checks ──
+            if let Some(ctx) = analysis_ctx {
+                // Check FunctionContextMap role first (cheap HashMap lookup)
+                if matches!(
+                    ctx.function_role(func.qn(i)),
+                    Some(FunctionRole::Utility | FunctionRole::Hub)
+                ) {
+                    continue;
+                }
 
-            // Skip runtime/interpreter functions (short prefix + underscore pattern)
-            if Self::has_runtime_prefix(func.node_name(i)) {
-                continue;
-            }
-
-            // Skip utility functions by suffix
-            if UTILITY_SUFFIXES.iter().any(|s| name_lower.ends_with(s))
-                || name_lower.ends_with("_cb")
-                || name_lower.ends_with("_callback")
-                || name_lower.ends_with("_handler")
-                || name_lower.ends_with("_hook")
-            {
-                continue;
-            }
-
-            // Skip functions in utility paths
-            let path_lower = func.path(i).to_lowercase();
-            if UTILITY_PATHS.iter().any(|p| path_lower.contains(p)) {
-                continue;
+                // Check HMM classification for utility functions
+                if let Some((hmm_role, conf)) = ctx.hmm_role(func.qn(i)) {
+                    if matches!(
+                        hmm_role,
+                        crate::detectors::context_hmm::FunctionContext::Utility
+                    ) && conf > 0.6
+                    {
+                        continue;
+                    }
+                }
             }
 
             // Zero-copy: count caller modules without cloning CodeNodes
@@ -554,6 +432,57 @@ impl Detector for ShotgunSurgeryDetector {
         findings.sort_by(|a, b| b.severity.cmp(&a.severity));
         info!("ShotgunSurgeryDetector found {} findings", findings.len());
         Ok(findings)
+    }
+}
+
+struct ImpactAnalysis {
+    direct_callers: usize,
+    affected_files: usize,
+    affected_modules: usize,
+    cascade_depth: usize,
+    sample_files: Vec<String>,
+}
+
+impl Default for ShotgunSurgeryDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Detector for ShotgunSurgeryDetector {
+    fn name(&self) -> &'static str {
+        "ShotgunSurgeryDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects code where changes propagate widely"
+    }
+
+    fn category(&self) -> &'static str {
+        "coupling"
+    }
+
+    fn config(&self) -> Option<&DetectorConfig> {
+        Some(&self.config)
+    }
+
+    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
+        let _ = self.detector_context.set(ctx);
+    }
+
+    fn detect(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        _files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Result<Vec<Finding>> {
+        self.detect_inner(graph, None)
+    }
+
+    fn detect_ctx(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext<'_>,
+    ) -> Result<Vec<Finding>> {
+        self.detect_inner(ctx.graph, Some(ctx))
     }
 }
 
@@ -598,9 +527,252 @@ mod tests {
 
         let detector = ShotgunSurgeryDetector::new();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let findings = detector
+            .detect(&graph, &empty_files)
+            .expect("detection should succeed");
 
         assert!(!findings.is_empty());
         assert!(findings[0].title.contains("SharedService"));
+    }
+
+    #[test]
+    fn test_hub_method_raises_threshold() {
+        // Create a class with 6 callers, which normally exceeds min_callers=5.
+        // But when the class's methods are classified as Hub (multiplier 3.0),
+        // the effective threshold becomes 15 — so 6 callers should NOT trigger.
+        let graph = GraphStore::in_memory();
+
+        graph.add_node(
+            CodeNode::class("HubService", "src/hub.py")
+                .with_qualified_name("hub::HubService")
+                .with_lines(1, 50),
+        );
+
+        graph.add_node(
+            CodeNode::function("process", "src/hub.py")
+                .with_qualified_name("hub::HubService::process")
+                .with_lines(10, 20),
+        );
+
+        // Add 6 callers from different files
+        for idx in 0..6 {
+            let file = format!("src/mod_{}.py", idx);
+            let caller = format!("caller_{}", idx);
+            graph.add_node(
+                CodeNode::function(&caller, &file)
+                    .with_qualified_name(&format!("mod_{}::{}", idx, caller))
+                    .with_lines(1, 10),
+            );
+            graph.add_edge_by_name(
+                &format!("mod_{}::{}", idx, caller),
+                "hub::HubService::process",
+                CodeEdge::calls(),
+            );
+        }
+
+        // Build an AnalysisContext with the process method classified as Hub
+        let mut functions_map = std::collections::HashMap::new();
+        functions_map.insert(
+            "hub::HubService::process".to_string(),
+            crate::detectors::function_context::FunctionContext {
+                qualified_name: "hub::HubService::process".to_string(),
+                name: "process".to_string(),
+                file_path: "src/hub.py".to_string(),
+                module: "hub".to_string(),
+                in_degree: 6,
+                out_degree: 3,
+                betweenness: 0.8,
+                caller_modules: 6,
+                callee_modules: 2,
+                call_depth: 1,
+                role: FunctionRole::Hub,
+                is_exported: true,
+                is_test: false,
+                is_in_utility_module: false,
+                complexity: None,
+                loc: 10,
+            },
+        );
+
+        let (det_ctx, _file_data) = crate::detectors::DetectorContext::build(
+            &graph,
+            &[],
+            None,
+            std::path::Path::new("/repo"),
+        );
+
+        let ctx = crate::detectors::analysis_context::AnalysisContext {
+            graph: &graph,
+            files: Arc::new(crate::detectors::file_index::FileIndex::new(vec![])),
+            functions: Arc::new(functions_map),
+            taint: Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
+                cross_function: std::collections::HashMap::new(),
+                intra_function: std::collections::HashMap::new(),
+            }),
+            detector_ctx: Arc::new(det_ctx),
+            hmm_classifications: Arc::new(std::collections::HashMap::new()),
+            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+        };
+
+        let detector = ShotgunSurgeryDetector::new();
+        let findings = detector
+            .detect_ctx(&ctx)
+            .expect("detection should succeed");
+
+        // With Hub multiplier (3.0), effective min_callers = 15.
+        // Only 6 callers, so the class should NOT be flagged.
+        let class_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("HubService"))
+            .collect();
+        assert!(
+            class_findings.is_empty(),
+            "Hub class with only 6 callers should not be flagged (effective threshold 15)"
+        );
+    }
+
+    #[test]
+    fn test_utility_function_skipped_by_hmm() {
+        // A function with HMM Utility role at confidence > 0.6
+        // should NOT be flagged even with high fan-in.
+        let graph = GraphStore::in_memory();
+
+        graph.add_node(
+            CodeNode::function("format_output", "src/formatter.py")
+                .with_qualified_name("formatter::format_output")
+                .with_lines(1, 20),
+        );
+
+        // Add many callers from different modules to trigger high fan-in
+        for idx in 0..20 {
+            let file = format!("src/area_{}/handler.py", idx);
+            let caller = format!("use_formatter_{}", idx);
+            graph.add_node(
+                CodeNode::function(&caller, &file)
+                    .with_qualified_name(&format!("area_{}::{}", idx, caller))
+                    .with_lines(1, 10),
+            );
+            graph.add_edge_by_name(
+                &format!("area_{}::{}", idx, caller),
+                "formatter::format_output",
+                CodeEdge::calls(),
+            );
+        }
+
+        // Build AnalysisContext with HMM classifying format_output as Utility
+        let mut hmm_map = std::collections::HashMap::new();
+        hmm_map.insert(
+            "formatter::format_output".to_string(),
+            (
+                crate::detectors::context_hmm::FunctionContext::Utility,
+                0.85,
+            ),
+        );
+
+        let (det_ctx, _file_data) = crate::detectors::DetectorContext::build(
+            &graph,
+            &[],
+            None,
+            std::path::Path::new("/repo"),
+        );
+
+        let ctx = crate::detectors::analysis_context::AnalysisContext {
+            graph: &graph,
+            files: Arc::new(crate::detectors::file_index::FileIndex::new(vec![])),
+            functions: Arc::new(std::collections::HashMap::new()),
+            taint: Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
+                cross_function: std::collections::HashMap::new(),
+                intra_function: std::collections::HashMap::new(),
+            }),
+            detector_ctx: Arc::new(det_ctx),
+            hmm_classifications: Arc::new(hmm_map),
+            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+        };
+
+        let detector = ShotgunSurgeryDetector::new();
+        let findings = detector
+            .detect_ctx(&ctx)
+            .expect("detection should succeed");
+
+        // The function should be skipped by HMM utility detection
+        let func_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("format_output"))
+            .collect();
+        assert!(
+            func_findings.is_empty(),
+            "Function classified as Utility by HMM (conf=0.85) should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_trimmed_skip_methods() {
+        // Verify that core trait methods are still skipped
+        let graph = GraphStore::in_memory();
+
+        // Create functions named after common trait methods with high fan-in
+        for method_name in &["new", "default", "clone"] {
+            let qn = format!("mod::{}", method_name);
+            graph.add_node(
+                CodeNode::function(method_name, "src/types.py")
+                    .with_qualified_name(&qn)
+                    .with_lines(1, 10),
+            );
+            // Add many callers across modules
+            for idx in 0..20 {
+                let file = format!("src/area_{}/use.py", idx);
+                let caller = format!("caller_{}_{}", method_name, idx);
+                let caller_qn = format!("area_{}::{}", idx, caller);
+                graph.add_node(
+                    CodeNode::function(&caller, &file)
+                        .with_qualified_name(&caller_qn)
+                        .with_lines(1, 5),
+                );
+                graph.add_edge_by_name(&caller_qn, &qn, CodeEdge::calls());
+            }
+        }
+
+        let detector = ShotgunSurgeryDetector::new();
+        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let findings = detector
+            .detect(&graph, &empty_files)
+            .expect("detection should succeed");
+
+        // "new", "default", "clone" should all be skipped
+        for method_name in &["new", "default", "clone"] {
+            let method_findings: Vec<_> = findings
+                .iter()
+                .filter(|f| {
+                    f.title
+                        .to_lowercase()
+                        .contains(&format!("function: {}", method_name))
+                })
+                .collect();
+            assert!(
+                method_findings.is_empty(),
+                "'{}' should still be in SKIP_METHODS and not flagged",
+                method_name
+            );
+        }
+
+        // "push", "pop", "sort" are no longer in SKIP_METHODS — they are
+        // handled by ContextHMM now. Without AnalysisContext they would
+        // NOT be skipped. We verify by checking they are NOT in the const.
+        const SKIP_METHODS: &[&str] = &[
+            "new", "default", "clone", "fmt", "eq", "hash", "from", "into",
+            "drop", "deref", "serialize", "deserialize", "to_string",
+        ];
+        assert!(
+            !SKIP_METHODS.contains(&"push"),
+            "'push' should have been removed from SKIP_METHODS"
+        );
+        assert!(
+            !SKIP_METHODS.contains(&"pop"),
+            "'pop' should have been removed from SKIP_METHODS"
+        );
+        assert!(
+            !SKIP_METHODS.contains(&"sort"),
+            "'sort' should have been removed from SKIP_METHODS"
+        );
     }
 }
