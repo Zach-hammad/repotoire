@@ -1,4 +1,1825 @@
 {
   "project": "flask",
-  "labels": []
+  "labels": [
+    {
+      "finding_id": "05917429a0e08ca9",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e2aa3bce936a20f8",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a24da8f6d306afb6",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d5b6a7cceeff3554",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "3b1a8c80cb7038ea",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "db4993a60d73a944",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "66e0f4aa1f01157f",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1eb38b0a77fb65c7",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6e3cd72709829cf4",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "75b64a5a25dd6285",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "93acb819ae74a3c2",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "bbf2cb85513cb834",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7ce88b4149354867",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "55ed6ef7340b659f",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "037b5f06ddd1d4c8",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ea943e1c04a7fde5",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "dca286ad94035122",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7270cd83aeaa95da",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f1129a8fb3c975d8",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b0f3a532091049ba",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "93d02b6973366282",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "fa248700e9ec3af2",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "37b464e611096890",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d8b3776bd16e8996",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6d439c12d6c96434",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e63feb9778473c86",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "80077b4022afd44d",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9399514bebe4f813",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "98c2ea4cb89ea010",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d22a5ae5c8d4472f",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d1a2cb2438909de8",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "79099ac2ba4d39dc",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6509f64e1d658a9f",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a8bc2ed34e93aec3",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "585a27018e08ea56",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "812e3c626651e4f1",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d7c22aedf6095918",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e17f9344c717c64f",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f71074055d030ff2",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d2ba727286531960",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0ba68f59eb1c3844",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6ee66434a6ea278f",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "db37a0dbb1079292",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "be2010ba64c55d01",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "bf681b0dd7c81554",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "287d10da2617002f",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "17d42ec2e79718e3",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "babeae5ad4656d86",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "aea721f664e1cb5c",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "855aa2b941aebeae",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "471a69e9b3c94b60",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7e1e9f4d84826610",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "26730a38bf22c21a",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c670309eea0a7e96",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "32225c3ea9996d7b",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ab071d5c2410597c",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5efd6710baec518a",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9331391f562ba9b3",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2d10b9bf930eaba8",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "89154aa32798bf03",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "13ed2cf0103fec3a",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "468a59f643519554",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5993162228697949",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "8d4c57976cd6991d",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d0bdba563e95b715",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "795a285526c492b2",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0df4aa1df659c647",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b043e762932f86d5",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "57dbe47c7c25a19c",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "512860c565325cc0",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "447f5d83152ff85e",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e4e5b0ae9f4ecd40",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c2a817b8f097a01b",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "66962ec67e344ce2",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c7a19487182a6205",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "17b63d023ed211c4",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "fdc79ccbe08af33d",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9c72885da2eca418",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "eb9e2b3596c60e4e",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "dd9ad9f2c981759a",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5490c1d534563a42",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0439be04fd3a668d",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "dc15873fda472a7d",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "957a2b95c9208d86",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e49ed81b37c4e7bd",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d3d3924136d728ac",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1f3b5ca055a2ce2f",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "36a97a36cb48d2f3",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "3ffb9dde888f4a0a",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "15f462b1ec64e5fe",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7e9b7c3c4a9d93b2",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "caec6b0fed99c99d",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "108ac342ebf8407c",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "3783323534f552ff",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f15016ec7c967fa4",
+      "detector": "DeadStoreDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c73b9254a61ad9cb",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2586bf43643a9b0b",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5810bc775d06e331",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a5227b8f209f494a",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9c86fe7964a4496c",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9f2ddfe8d10f7f45",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "568be2dc1edcf4fc",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "4d7daaa00103da73",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2ce87f9594ed639b",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "855291c34c4a5313",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5b456e36a5f9ff1f",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "bfa1a23c86a1ca28",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0e965991d50c0ab7",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d4651eabda5491ea",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "77215633c8221ecb",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f36feaae0b8d1e10",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "547db76164175c16",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "76b103b9e82cbc42",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "87254ac2a5040d22",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6cbc0b8d926bf409",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0ac65da2a284d3a4",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7a8d7327783bfba3",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1839da81e66c3f94",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "bcddf6bb94fdcc95",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f97dd0dea419a1f5",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a113b7c34d7ff5f0",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "4dcb616091a6d644",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a8c72c7014dc4601",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1f83360a76842058",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "8af3534e4f6d9b13",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "03ba6b661af81d4b",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6f4222fc66ba152f",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "bfe523666b120390",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0aaf58721ddd4357",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7898c9dd702d6f76",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e2e942814cbea5f5",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "454e6e20a250f148",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d1776a56a59cffec",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d74416594888c686",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a9100725310a8121",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0d7c44c8171a3a5b",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6695f85fe90041a0",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "3c95964fb0d23c80",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c7208782563e3bff",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2384ab1f6edad099",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "216bbd18c72ce09a",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9c8769c6fef3156e",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "61c302af94cca5ad",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d2eb1254a3bec136",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ac15f13311421107",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2fa576b688b9d98a",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "02367b79b6c492c8",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "179841cc939c30a7",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "40cee6fd0e6f4494",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c44f4e358108c666",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "01df80aa14091710",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c70039d1fdf9eead",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "999a70d6fd5e270f",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1861aab8ea4b5c87",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "89faf50d0c85f1d5",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0bba008661969fd1",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "008d91d139825181",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "43dcc3f68d1ff827",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "59d8d715ba3d834e",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5d3a53a555cb6445",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a08010f888a56500",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "57fcfa7073383677",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "de29ece46e373849",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b14af22683844f75",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "fff02c809654b382",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "91dea8fcfea58ec5",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5d5ea7121e188ee9",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e4882bdbb1c09083",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d1d730ee74173a06",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "94e83c793bf583e2",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7f6d1694d27f4930",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2aaf838702f85987",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "14f40f91467ee4fe",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "975e3d8d71df27a0",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ced66a4fef116947",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b487b0e7453afd2f",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "4dfaf1a146021656",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "051f395515ab3f71",
+      "detector": "DeadCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7e7dfe0d04e3aa6e",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "3cf139f091c967a5",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "4cbff540569eb520",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "69b557debf333f8e",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9a3607bef1fca6e9",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d24b6acc223353aa",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7d423278b7ae9dd7",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "673c5af50a8897b9",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2eeeaf074ed28721",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b1a64df04ac45334",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b2a5025f3e743361",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "26e32f8feb415ed3",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0dcadf5e76f387f7",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "8136c49bded018ad",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b70ce366a355282d",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "185fa929bb32e92d",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e529670d96c46355",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b033d2cee5e52cc0",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "487e2b42b85ead8f",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5e23dd5be13ab38b",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ef8ffd25d5ed6e36",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "417ff6ad1c311852",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "57703a0881764d2c",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "19374d3627055d49",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "78b2c05d6c40c905",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "dafb05cd83aeceb7",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ee2f0c000dc0810a",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "37aecd7fa3adfd8d",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c169c8d033d1d3e4",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f41c7d8836f8b818",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1cc4131a7332b2b9",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f1c7c2ab7c984b98",
+      "detector": "UnreachableCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "890f288725918914",
+      "detector": "UnreachableCodeDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "e7a00f8047c8f033",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "fa700b13791ee786",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c50a72b1629bfc2a",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b38ee63e75c7cecc",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "24470241e497df53",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9179739ac9f53416",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "70f55b98b41b71e4",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a349d163eada44d8",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "be6159954939e0b3",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2991e9d9fe745540",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e07e5b9e2b5720a3",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "38392bb2dca43884",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "76be54443a4b2988",
+      "detector": "LazyClassDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "459592aca7bd18bc",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a8cf1fe2f0537424",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b57bb40e9b273b5a",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b36612a15052c5e9",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "de55556577d10ea6",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "eb350856b6b00885",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "17601861bfadf86b",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d4e96a0e8532514e",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "46d7cae8c747ce94",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "aa22302f048b02da",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "eb0846463e205485",
+      "detector": "DuplicateCodeDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "a20648260d8d2fc4",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f841fd854d4b0e21",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "58ec0cfa08ddce21",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7e65cd1f0342288d",
+      "detector": "DuplicateCodeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ed1843dab13f3e9b",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "adcc00de96fc4e83",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e2a004be437aca1d",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c5e590edad7cd969",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "150b3f3dcf27b6cb",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a18baa259c3a577d",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "8e9a357707ea5bf9",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "fbb8aae91ba5dcd2",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "18d9e2a0770844f6",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e58f52096229b1ba",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a95946317d2585ee",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "88907c764388c251",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a2f32e08b6038ad6",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "4e536704370e96cb",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "4e4c8459b4b6af06",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "bcd91b9cf3ffeeb2",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d4ba056b13a837dc",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "800a8bfdf6f0dd6d",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "8445e124fca1a61f",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c203da6521dc9487",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "8ec1bb209544f7de",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "05c447affce8c831",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "aa4664b7faa5270b",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "11b25a84c021efd6",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7f68cbeb4fcc922e",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "56f22afa13297011",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "481576203a074e16",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "db4e2a38e4a0deb0",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6e543c59fdd644f7",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "93fb7fab5026a262",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "4e87a7461199ef6a",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "519c609275a8dee3",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2a220374efc160ed",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "02a312b50b48750f",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5c5cb9a443b7f399",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1506866f3f9e7910",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "f132ef34dc416f0d",
+      "detector": "AIMissingTestsDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ba5d9d8f65d7abde",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "3da72fb1e7e21207",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "8f05589a2ed2fefa",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "49ede7f472096eac",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a8c4b8a03167db68",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "4974d4f2a616f49c",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "b52949479c690170",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d01f7791b56268fa",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "3bda4aa72ac649a9",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "deb721a74477bf5f",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "cb51e13715760273",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0cd77a2f39e81db2",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "402f9af14de87693",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "abb03dc47ffde43b",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5503b9a0a2041186",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "0ecc073bd5be266d",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7c717aaa1d71d255",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "d80de5e2e3561af1",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "9a79aa0e0feb52c5",
+      "detector": "AIDuplicateBlockDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "14d9e0cce53cba38",
+      "detector": "InsecureCryptoDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "4fd89bb3b5adc1ec",
+      "detector": "InsecureDeserializeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "efa4ac4f9bfaa9e8",
+      "detector": "PrototypePollutionDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "946a4264fd7fb2e0",
+      "detector": "XxeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9767035e9d6400ab",
+      "detector": "UnsafeTemplateDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5805e7f7d625c109",
+      "detector": "UnsafeTemplateDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9263db5b9a9b911b",
+      "detector": "UnsafeTemplateDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "c7d46e4e4929ed1a",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "58370a9ef380b2b6",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d2f2eea1640663cd",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9e4407aeb0b18baa",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1fbe6e8d79c94d7c",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "62f5c4697f9bea69",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "ecfcdb95a0f3b986",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9ca64b26817133de",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c72853cb72b0568e",
+      "detector": "ShotgunSurgeryDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "351685e8a382ad65",
+      "detector": "AIComplexitySpikeDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "9a592d697c65cdcd",
+      "detector": "AIComplexitySpikeDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "d437a3690dfddcee",
+      "detector": "AIComplexitySpikeDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "74bffca44a31d521",
+      "detector": "AIComplexitySpikeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6fceae1a4889cf95",
+      "detector": "AIComplexitySpikeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "eff456879cc3f36d",
+      "detector": "AIComplexitySpikeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "027bc453cf295e04",
+      "detector": "AIComplexitySpikeDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "7fd6d1ae2feec123",
+      "detector": "Consensus[AIMissingTestsDetector+UnreachableCodeDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "22a66e43abe7fe1b",
+      "detector": "Consensus[AIMissingTestsDetector+UnreachableCodeDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "9061865797a6488f",
+      "detector": "Consensus[AIMissingTestsDetector+UnreachableCodeDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "a53f3f1ce1ade243",
+      "detector": "Consensus[AIMissingTestsDetector+UnreachableCodeDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "74c99959dd823645",
+      "detector": "Consensus[AIMissingTestsDetector+LongMethodsDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "c6798db1c11ff9ac",
+      "detector": "Consensus[AIMissingTestsDetector+LongMethodsDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "63262e882708bbce",
+      "detector": "Consensus[AIMissingTestsDetector+LongMethodsDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e932a91715a7f58d",
+      "detector": "Consensus[AIMissingTestsDetector+LongMethodsDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "bda58698b778511e",
+      "detector": "Consensus[AIMissingTestsDetector+LongMethodsDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1e150792d178daef",
+      "detector": "Consensus[AIMissingTestsDetector+LongMethodsDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "1fbfd9f2dcc8a8cb",
+      "detector": "Consensus[AIMissingTestsDetector+InfluentialCodeDetector+LongMethodsDetector]",
+      "label": "fp"
+    },
+    {
+      "finding_id": "d9c28de44e853231",
+      "detector": "Consensus[AIMissingTestsDetector+LongMethodsDetector+LongParameterListDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "556e58e3eaa07bdf",
+      "detector": "Consensus[LongMethodsDetector+LongParameterListDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "4581bb93b1cf325f",
+      "detector": "Consensus[LongMethodsDetector+LongParameterListDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "e92599e1326b4002",
+      "detector": "Consensus[LongMethodsDetector+LongParameterListDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "e09c3d358ae22a4f",
+      "detector": "Consensus[LongMethodsDetector+LongParameterListDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "7b61112733545d9d",
+      "detector": "Consensus[LongMethodsDetector+LongParameterListDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "1012b31380734e37",
+      "detector": "Consensus[CoreUtilityDetector+LongMethodsDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "102af29d8584c77d",
+      "detector": "Consensus[CoreUtilityDetector+LongMethodsDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "ce8fbd04e59d77d1",
+      "detector": "Consensus[CoreUtilityDetector+LongMethodsDetector]",
+      "label": "tp"
+    },
+    {
+      "finding_id": "360c43a934687e7f",
+      "detector": "LongMethodsDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "9b283d38a4ab906a",
+      "detector": "LongMethodsDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "f2f4a6afceec4fb6",
+      "detector": "LongMethodsDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "8c005a0db61a4b6f",
+      "detector": "LongMethodsDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "58037df48ec19ca1",
+      "detector": "LongMethodsDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "7274d69b0055741d",
+      "detector": "LongMethodsDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "5b964a6e5378c765",
+      "detector": "LongParameterListDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "57781721a145335b",
+      "detector": "LongParameterListDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "82032dfae5f79b99",
+      "detector": "LongParameterListDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "7c2b3457a59f0535",
+      "detector": "LongParameterListDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e337dbdbb1a05934",
+      "detector": "LongParameterListDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "14f19adf129d671f",
+      "detector": "MiddleManDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "5b8ec71594ddbda7",
+      "detector": "GlobalVariablesDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "117c0057efdaadf5",
+      "detector": "TestInProductionDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "6bd1762e9f837a29",
+      "detector": "TestInProductionDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "90b196a5194c7ca3",
+      "detector": "TestInProductionDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "2bcc6fcf48f2d0da",
+      "detector": "CircularDependencyDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "689aa9b256ce1ad0",
+      "detector": "CommentedCodeDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "42cb8bbf82e14248",
+      "detector": "LargeFilesDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "a5b1d742b5eb6d39",
+      "detector": "LargeFilesDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "b63a2265ea91f52c",
+      "detector": "LargeFilesDetector",
+      "label": "tp"
+    },
+    {
+      "finding_id": "2c1d5fa4e0bc6aca",
+      "detector": "ModuleCohesionDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "8cc531a9b608cd12",
+      "detector": "ModuleCohesionDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "99490e88224c9228",
+      "detector": "ModuleCohesionDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "e88e7148afaa3d08",
+      "detector": "AIBoilerplateDetector",
+      "label": "fp"
+    },
+    {
+      "finding_id": "035a5b6e8ba72244",
+      "detector": "AIBoilerplateDetector",
+      "label": "fp"
+    }
+  ]
 }
