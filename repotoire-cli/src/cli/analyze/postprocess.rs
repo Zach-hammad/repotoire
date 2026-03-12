@@ -3,6 +3,9 @@
 //! Applied after detection and before scoring:
 //! 1. Incremental cache update
 //! 2. Detector overrides from project config
+//! 2.5. Path exclusion filtering
+//! 2.6. File-level suppression (`repotoire:ignore-file`)
+//! 2.7. Auto-suppress detector test fixtures
 //! 3. Max-files filtering
 //! 4. De-duplicate overlapping dead-code findings
 //! 5. Compound smell escalation
@@ -68,6 +71,12 @@ pub(super) fn postprocess_findings(
             tracing::debug!("Filtered {} findings from excluded paths", removed);
         }
     }
+
+    // Step 2.6: File-level suppression — filter findings from files with repotoire:ignore-file
+    filter_file_level_suppressed(findings);
+
+    // Step 2.7: Auto-suppress detector test fixtures (e.g. SQL injection detector's own test files)
+    filter_detector_test_fixtures(findings);
 
     // Step 3: Filter findings to only include files in the analyzed set (respects --max-files)
     if max_files > 0 {
@@ -430,5 +439,307 @@ fn filter_false_positives(
                 filtered_by_category.get(&DetectorCategory::Other).unwrap_or(&0),
             );
         }
+    }
+}
+
+/// Filter out findings from files that have `repotoire:ignore-file` in the first 10 lines.
+///
+/// Reads the first 10 lines of each unique affected file. Files that contain
+/// the directive are fully suppressed. Uses a cache to avoid re-reading the
+/// same file multiple times.
+fn filter_file_level_suppressed(findings: &mut Vec<Finding>) {
+    use std::collections::HashMap;
+
+    // Build a cache of file path -> suppressed status
+    let mut suppressed_files: HashMap<PathBuf, bool> = HashMap::new();
+
+    let before = findings.len();
+    findings.retain(|f| {
+        for path in &f.affected_files {
+            let is_suppressed = suppressed_files
+                .entry(path.clone())
+                .or_insert_with(|| {
+                    // Read first ~10 lines of the file
+                    match std::fs::read_to_string(path) {
+                        Ok(content) => crate::detectors::is_file_suppressed(&content),
+                        Err(_) => false, // Can't read file — don't suppress
+                    }
+                });
+            if *is_suppressed {
+                return false;
+            }
+        }
+        true
+    });
+
+    let removed = before - findings.len();
+    if removed > 0 {
+        tracing::debug!(
+            "File-level suppression filtered {} findings",
+            removed
+        );
+    }
+}
+
+/// Auto-suppress findings from detector test fixture files.
+///
+/// When a detector reports a finding in its OWN test infrastructure, the finding
+/// is suppressed. This prevents false positives like the SQL injection detector
+/// flagging patterns in `sql_injection/tests.rs` or `taint/mod.rs`.
+///
+/// Matching logic:
+/// - The file path must contain `/detectors/` or `/tests/`
+/// - The detector name (converted from PascalCase to snake_case components) must
+///   appear as a path segment in the file path
+///
+/// For example, `SQLInjectionDetector` matches paths containing `sql_injection/`.
+fn filter_detector_test_fixtures(findings: &mut Vec<Finding>) {
+    let before = findings.len();
+    findings.retain(|f| {
+        !is_detector_test_fixture(&f.detector, &f.affected_files)
+    });
+
+    let removed = before - findings.len();
+    if removed > 0 {
+        tracing::debug!(
+            "Auto-suppressed {} findings from detector test fixtures",
+            removed
+        );
+    }
+}
+
+/// Check if a finding is from a detector's own test fixture.
+///
+/// Returns `true` if the affected file is part of the detector's own test
+/// infrastructure, meaning the finding is a false positive from self-analysis.
+fn is_detector_test_fixture(detector_name: &str, affected_files: &[PathBuf]) -> bool {
+    // Convert PascalCase detector name to snake_case path segment.
+    // E.g., "SQLInjectionDetector" -> "sql_injection"
+    let slug = detector_name_to_path_slug(detector_name);
+
+    for path in affected_files {
+        let path_str = path.to_string_lossy();
+
+        // Must be inside a detectors/ or tests/ directory
+        let in_detector_dir = path_str.contains("/detectors/") || path_str.contains("\\detectors\\");
+        let in_tests_dir = path_str.contains("/tests/") || path_str.contains("\\tests\\");
+
+        if !in_detector_dir && !in_tests_dir {
+            continue;
+        }
+
+        // Check if the detector's slug appears as a path component or file name
+        // E.g., for slug "sql_injection", match paths like:
+        //   src/detectors/sql_injection/tests.rs
+        //   src/detectors/sql_injection/mod.rs
+        //   src/detectors/sql_injection/patterns.rs
+        if path_str.contains(&format!("/{}/", &slug))
+            || path_str.contains(&format!("\\{}\\", &slug))
+            || path_str.contains(&format!("/{}.rs", &slug))
+            || path_str.contains(&format!("\\{}.rs", &slug))
+        {
+            return true;
+        }
+
+        // Also match the taint module for security detectors that use taint analysis
+        // The taint module contains test fixtures for multiple security detectors
+        if is_security_detector(detector_name)
+            && (path_str.contains("/taint/") || path_str.contains("\\taint\\")
+                || path_str.contains("/taint.rs") || path_str.contains("\\taint.rs"))
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Convert a PascalCase detector name to a snake_case path slug.
+///
+/// Examples:
+/// - `"SQLInjectionDetector"` -> `"sql_injection"`
+/// - `"XssDetector"` -> `"xss"`
+/// - `"CommandInjectionDetector"` -> `"command_injection"`
+/// - `"GodClassDetector"` -> `"god_class"`
+fn detector_name_to_path_slug(name: &str) -> String {
+    // Strip "Detector" suffix
+    let name = name.strip_suffix("Detector").unwrap_or(name);
+
+    let mut slug = String::with_capacity(name.len() + 4);
+    let chars: Vec<char> = name.chars().collect();
+
+    for (i, &ch) in chars.iter().enumerate() {
+        if ch.is_uppercase() {
+            // Insert underscore before uppercase if:
+            // - Not the first character
+            // - Previous char was lowercase (camelCase boundary)
+            // - OR next char is lowercase and previous was uppercase (end of acronym like "SQL")
+            if i > 0 {
+                let prev_upper = chars[i - 1].is_uppercase();
+                let next_lower = chars.get(i + 1).map_or(false, |c| c.is_lowercase());
+
+                if !prev_upper || next_lower {
+                    slug.push('_');
+                }
+            }
+            slug.push(ch.to_lowercase().next().unwrap());
+        } else {
+            slug.push(ch);
+        }
+    }
+
+    slug
+}
+
+/// Check if a detector name is a security-related detector.
+fn is_security_detector(name: &str) -> bool {
+    const SECURITY_DETECTORS: &[&str] = &[
+        "SQLInjectionDetector",
+        "CommandInjectionDetector",
+        "XssDetector",
+        "SsrfDetector",
+        "PathTraversalDetector",
+        "LogInjectionDetector",
+        "EvalDetector",
+        "InsecureRandomDetector",
+        "HardcodedCredentialsDetector",
+        "CleartextCredentialsDetector",
+        "NosqlInjectionDetector",
+        "XxeDetector",
+        "PrototypePollutionDetector",
+        "InsecureCryptoDetector",
+        "InsecureTlsDetector",
+        "JwtWeakDetector",
+        "CorsMisconfigDetector",
+        "SecretDetector",
+        "InsecureCookieDetector",
+        "InsecureDeserializeDetector",
+    ];
+    SECURITY_DETECTORS.contains(&name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── detector_name_to_path_slug ───────────────────────────────────
+
+    #[test]
+    fn test_slug_sql_injection() {
+        assert_eq!(
+            detector_name_to_path_slug("SQLInjectionDetector"),
+            "sql_injection"
+        );
+    }
+
+    #[test]
+    fn test_slug_xss() {
+        assert_eq!(detector_name_to_path_slug("XssDetector"), "xss");
+    }
+
+    #[test]
+    fn test_slug_command_injection() {
+        assert_eq!(
+            detector_name_to_path_slug("CommandInjectionDetector"),
+            "command_injection"
+        );
+    }
+
+    #[test]
+    fn test_slug_god_class() {
+        assert_eq!(
+            detector_name_to_path_slug("GodClassDetector"),
+            "god_class"
+        );
+    }
+
+    #[test]
+    fn test_slug_ssrf() {
+        assert_eq!(detector_name_to_path_slug("SsrfDetector"), "ssrf");
+    }
+
+    #[test]
+    fn test_slug_n_plus_one() {
+        assert_eq!(
+            detector_name_to_path_slug("NPlusOneDetector"),
+            "n_plus_one"
+        );
+    }
+
+    #[test]
+    fn test_slug_ai_boilerplate() {
+        assert_eq!(
+            detector_name_to_path_slug("AIBoilerplateDetector"),
+            "ai_boilerplate"
+        );
+    }
+
+    // ── is_detector_test_fixture ─────────────────────────────────────
+
+    #[test]
+    fn test_fixture_match_sql_injection_tests() {
+        let files = vec![PathBuf::from(
+            "src/detectors/sql_injection/tests.rs",
+        )];
+        assert!(is_detector_test_fixture("SQLInjectionDetector", &files));
+    }
+
+    #[test]
+    fn test_fixture_match_sql_injection_mod() {
+        let files = vec![PathBuf::from(
+            "src/detectors/sql_injection/mod.rs",
+        )];
+        assert!(is_detector_test_fixture("SQLInjectionDetector", &files));
+    }
+
+    #[test]
+    fn test_fixture_match_taint_for_security() {
+        let files = vec![PathBuf::from("src/detectors/taint/mod.rs")];
+        assert!(is_detector_test_fixture("SQLInjectionDetector", &files));
+    }
+
+    #[test]
+    fn test_fixture_no_match_different_detector() {
+        // XSS detector should NOT match sql_injection directory
+        let files = vec![PathBuf::from(
+            "src/detectors/sql_injection/tests.rs",
+        )];
+        assert!(!is_detector_test_fixture("XssDetector", &files));
+    }
+
+    #[test]
+    fn test_fixture_no_match_regular_source() {
+        // Regular source file should NOT be suppressed
+        let files = vec![PathBuf::from("src/main.rs")];
+        assert!(!is_detector_test_fixture("SQLInjectionDetector", &files));
+    }
+
+    #[test]
+    fn test_fixture_no_match_user_code() {
+        // User code in a tests/ directory should NOT match unless detector name matches
+        let files = vec![PathBuf::from("tests/integration_test.rs")];
+        assert!(!is_detector_test_fixture("SQLInjectionDetector", &files));
+    }
+
+    #[test]
+    fn test_fixture_match_god_class_file() {
+        let files = vec![PathBuf::from("src/detectors/god_class.rs")];
+        assert!(is_detector_test_fixture("GodClassDetector", &files));
+    }
+
+    #[test]
+    fn test_fixture_taint_not_matched_for_non_security() {
+        // Taint module should NOT be auto-suppressed for non-security detectors
+        let files = vec![PathBuf::from("src/detectors/taint/mod.rs")];
+        assert!(!is_detector_test_fixture("GodClassDetector", &files));
+    }
+
+    #[test]
+    fn test_is_security_detector() {
+        assert!(is_security_detector("SQLInjectionDetector"));
+        assert!(is_security_detector("XssDetector"));
+        assert!(is_security_detector("CommandInjectionDetector"));
+        assert!(!is_security_detector("GodClassDetector"));
+        assert!(!is_security_detector("DeadCodeDetector"));
     }
 }

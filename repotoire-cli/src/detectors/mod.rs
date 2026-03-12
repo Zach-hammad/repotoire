@@ -726,6 +726,86 @@ pub fn is_line_suppressed_for(line: &str, prev_line: Option<&str>, detector_name
     false
 }
 
+/// Check if a file has a file-level suppression directive in the first 10 lines.
+///
+/// When a file contains `repotoire:ignore-file` (or `repotoire: ignore-file`)
+/// in a comment near the top, ALL findings for that file are suppressed.
+///
+/// Supports multiple comment styles:
+/// - `# repotoire:ignore-file` (Python, Shell)
+/// - `// repotoire:ignore-file` (JS, Rust, Go, etc.)
+/// - `/* repotoire:ignore-file */` (C-style)
+/// - `-- repotoire:ignore-file` (SQL)
+///
+/// Also supports targeted file-level suppression with bracket syntax:
+/// - `repotoire:ignore-file[sql-injection]` — suppresses only the named detector
+///
+/// # Arguments
+/// * `content` - The full file content (only the first 10 lines are examined)
+///
+/// # Returns
+/// `true` if the entire file should be suppressed
+pub fn is_file_suppressed(content: &str) -> bool {
+    is_file_suppressed_for(content, None)
+}
+
+/// Check if a file has a file-level suppression directive targeting a specific detector.
+///
+/// When `detector_name` is `None`, checks for blanket file suppression.
+/// When `Some(name)`, also matches `repotoire:ignore-file[name]`.
+///
+/// # Arguments
+/// * `content` - The full file content (only the first 10 lines are examined)
+/// * `detector_name` - Optional detector slug to match against
+///
+/// # Returns
+/// `true` if the entire file should be suppressed for the given detector (or all detectors)
+pub fn is_file_suppressed_for(content: &str, detector_name: Option<&str>) -> bool {
+    let pattern = "repotoire:ignore-file";
+    let pattern_alt = "repotoire: ignore-file";
+
+    for line in content.lines().take(10) {
+        let lower = line.to_lowercase();
+
+        // Must be in a comment
+        let trimmed = lower.trim();
+        let is_comment = trimmed.starts_with('#')
+            || trimmed.starts_with("//")
+            || trimmed.starts_with("/*")
+            || trimmed.starts_with("--")
+            || trimmed.starts_with('*'); // continuation of block comment
+
+        if !is_comment {
+            continue;
+        }
+
+        for pat in &[pattern, pattern_alt] {
+            if let Some(idx) = lower.find(pat) {
+                let after = idx + pat.len();
+                let rest = &lower[after..];
+
+                if rest.starts_with('[') {
+                    // Targeted file-level suppression: repotoire:ignore-file[detector-name]
+                    if let Some(end) = rest.find(']') {
+                        let target = rest[1..end].trim();
+                        if let Some(det) = detector_name {
+                            if target == det.to_lowercase() {
+                                return true;
+                            }
+                        }
+                        // If no detector_name given, targeted suppression doesn't match blanket check
+                    }
+                } else {
+                    // Bare file-level suppression: repotoire:ignore-file — suppress all
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -892,5 +972,115 @@ mod tests {
             "Expected 2+ GraphWide detectors, got {}",
             graph_wide
         );
+    }
+
+    // ── is_file_suppressed (file-level suppression) ──────────────────
+
+    #[test]
+    fn test_file_suppressed_rust_comment() {
+        let content = "// repotoire:ignore-file\nfn main() {}";
+        assert!(is_file_suppressed(content));
+    }
+
+    #[test]
+    fn test_file_suppressed_rust_comment_with_space() {
+        let content = "// repotoire: ignore-file\nfn main() {}";
+        assert!(is_file_suppressed(content));
+    }
+
+    #[test]
+    fn test_file_suppressed_python_comment() {
+        let content = "# repotoire:ignore-file\nimport os";
+        assert!(is_file_suppressed(content));
+    }
+
+    #[test]
+    fn test_file_suppressed_c_style_comment() {
+        let content = "/* repotoire:ignore-file */\nint main() {}";
+        assert!(is_file_suppressed(content));
+    }
+
+    #[test]
+    fn test_file_suppressed_sql_comment() {
+        let content = "-- repotoire:ignore-file\nSELECT 1;";
+        assert!(is_file_suppressed(content));
+    }
+
+    #[test]
+    fn test_file_suppressed_block_comment_continuation() {
+        // Block comment with directive on continuation line
+        let content = "/*\n * repotoire:ignore-file\n */\nfn main() {}";
+        assert!(is_file_suppressed(content));
+    }
+
+    #[test]
+    fn test_file_suppressed_only_first_10_lines() {
+        // Directive on line 11 should NOT suppress
+        let mut lines: Vec<&str> = Vec::new();
+        for _ in 0..10 {
+            lines.push("// normal comment");
+        }
+        lines.push("// repotoire:ignore-file");
+        let content = lines.join("\n");
+        assert!(!is_file_suppressed(&content));
+    }
+
+    #[test]
+    fn test_file_suppressed_within_10_lines() {
+        // Directive on line 10 SHOULD suppress
+        let mut lines: Vec<&str> = Vec::new();
+        for _ in 0..9 {
+            lines.push("// normal comment");
+        }
+        lines.push("// repotoire:ignore-file");
+        let content = lines.join("\n");
+        assert!(is_file_suppressed(&content));
+    }
+
+    #[test]
+    fn test_file_not_suppressed_plain_code() {
+        let content = "fn main() {\n    println!(\"hello\");\n}";
+        assert!(!is_file_suppressed(content));
+    }
+
+    #[test]
+    fn test_file_not_suppressed_in_code_line() {
+        // Non-comment line containing the pattern should NOT suppress
+        let content = "let x = \"repotoire:ignore-file\";\nfn main() {}";
+        assert!(!is_file_suppressed(content));
+    }
+
+    #[test]
+    fn test_file_suppressed_case_insensitive() {
+        let content = "// Repotoire:Ignore-File\nfn main() {}";
+        assert!(is_file_suppressed(content));
+    }
+
+    // ── is_file_suppressed_for (targeted file-level suppression) ─────
+
+    #[test]
+    fn test_file_suppressed_for_targeted() {
+        let content = "// repotoire:ignore-file[sql-injection]\nfn main() {}";
+        assert!(is_file_suppressed_for(content, Some("sql-injection")));
+    }
+
+    #[test]
+    fn test_file_suppressed_for_targeted_no_match() {
+        let content = "// repotoire:ignore-file[sql-injection]\nfn main() {}";
+        assert!(!is_file_suppressed_for(content, Some("xss")));
+    }
+
+    #[test]
+    fn test_file_suppressed_for_blanket() {
+        // Bare ignore-file suppresses any detector
+        let content = "// repotoire:ignore-file\nfn main() {}";
+        assert!(is_file_suppressed_for(content, Some("any-detector")));
+    }
+
+    #[test]
+    fn test_file_suppressed_for_targeted_does_not_match_blanket_check() {
+        // Targeted suppression with no detector_name given should NOT match
+        let content = "// repotoire:ignore-file[sql-injection]\nfn main() {}";
+        assert!(!is_file_suppressed_for(content, None));
     }
 }
