@@ -1,34 +1,36 @@
 //! Dead Store Detector
 //!
-//! Graph-aware detection of variables that are assigned but never read:
-//! 1. Local dead stores (assigned, never read in same function)
-//! 2. Cross-function analysis (variable passed to function that doesn't use it)
+//! ValueStore-based detection of variables assigned but never read within
+//! the same function body.  Uses the graph to iterate over functions and
+//! the ValueStore for assignment data, eliminating the old regex approach.
 
-use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
+use crate::detectors::analysis_context::AnalysisContext;
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
+use crate::graph::store_models::NodeKind;
 use crate::models::{Finding, Severity};
+use crate::values::types::SymbolicValue;
 use anyhow::Result;
-use regex::Regex;
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-use std::sync::LazyLock;
-use tracing::{debug, info};
+use std::path::{Path, PathBuf};
+use tracing::info;
 
-static ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^\s*(let|var|const|int|float|string|auto|mut)?\s*(\w+)\s*[:=]")
-            .expect("valid regex")
-    });
-static VAR_READ: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\w+)\b").expect("valid regex"));
-
-/// Skip patterns for common false positives
+/// Variables that should never be flagged as dead stores.
 const SKIP_VARS: &[&str] = &[
-    "_", "self", "Self", "this", "cls", "ctx", "err", "ok", "result", "i", "j", "k", "n", "x", "y",
-    "z", // loop/math vars
-    "std", "super", "crate", "mod", "pub", "fn", "let", "mut", "use", // Rust keywords/paths
+    "_", "self", "Self", "this", "cls", "super",
+];
+
+/// Config/settings file basenames exempt from module-level dead-store detection.
+const CONFIG_FILES: &[&str] = &[
+    "__init__.py",
+    "conf.py",
+    "config.py",
+    "settings.py",
+    "constants.py",
+    "defaults.py",
+    "conftest.py",
 ];
 
 pub struct DeadStoreDetector {
-    #[allow(dead_code)] // Part of detector pattern, used for file scanning
+    #[allow(dead_code)]
     repository_path: PathBuf,
     max_findings: usize,
 }
@@ -41,263 +43,322 @@ impl DeadStoreDetector {
         }
     }
 
-    /// Check if a variable is used after a given line
-    fn is_used_after(&self, var: &str, lines: &[&str], start_line: usize) -> bool {
-        for line in lines.iter().skip(start_line + 1) {
-            let trimmed = line.trim();
-
-            // Skip comments
-            if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") {
-                continue;
-            }
-
-            // Check if var is read (not just assigned again)
-            if let Some(assign_match) = ASSIGNMENT.captures(line) {
-                if let Some(assigned_var) = assign_match.get(2) {
-                    if assigned_var.as_str() == var {
-                        // It's being reassigned - check if it's using itself (e.g., x = x + 1)
-                        let rhs = line.split('=').nth(1).unwrap_or("");
-                        if !rhs.contains(var) {
-                            continue; // Pure reassignment, doesn't count as read
-                        }
-                    }
-                }
-            }
-
-            // Check for any reference to the variable
-            if line.contains(var) {
-                // Make sure it's a word boundary match
-                for word in VAR_READ.find_iter(line) {
-                    if word.as_str() == var {
-                        return true;
-                    }
-                }
-            }
+    /// Check whether `var` appears as a word-boundary token in `line`.
+    fn word_appears_in_line(var: &str, line: &str) -> bool {
+        let var_bytes = var.as_bytes();
+        let line_bytes = line.as_bytes();
+        if var_bytes.len() > line_bytes.len() {
+            return false;
         }
-
+        let mut start = 0;
+        while let Some(pos) = line[start..].find(var) {
+            let abs = start + pos;
+            let before_ok = abs == 0 || !is_ident_char(line_bytes[abs - 1]);
+            let after_ok = abs + var.len() >= line_bytes.len()
+                || !is_ident_char(line_bytes[abs + var.len()]);
+            if before_ok && after_ok {
+                return true;
+            }
+            start = abs + 1;
+        }
         false
     }
 
-    /// Find dead stores using source analysis
-    fn find_local_dead_stores(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> Vec<Finding> {
-        let mut findings = Vec::new();
+    /// Check if `var` is read in the source lines between `from_line`
+    /// (exclusive) and `to_line` (inclusive), 0-indexed relative to the function.
+    ///
+    /// The `to_line` is included because a reassignment like `x = x + 1` still
+    /// reads `x` on the RHS.  Pure reassignments (`x = other`) on intermediate
+    /// or the final line are skipped.
+    fn is_read_in_range(var: &str, func_lines: &[&str], from_line: usize, to_line: usize) -> bool {
+        // Include to_line itself (+1 to make the range inclusive of to_line)
+        let end = (to_line + 1).min(func_lines.len());
+        for idx in (from_line + 1)..end {
+            let line = func_lines[idx];
+            let trimmed = line.trim();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "go", "rs", "java"]) {
-            if findings.len() >= self.max_findings {
-                break;
-            }
-
-            // Skip test files
-            let path_str = path.to_string_lossy();
-            if path_str.contains("/test") || path_str.contains("_test.") {
-                continue;
-            }
-
-            let rel_path = path.strip_prefix(files.repo_path()).unwrap_or(path);
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-            if let Some(content) = files.masked_content(path) {
-                let lines: Vec<&str> = content.lines().collect();
-                let mut seen_assignments: HashSet<(String, usize)> = HashSet::new();
-
-                // Track if we're inside a TS interface/type block
-                let mut in_interface = false;
-                let mut interface_depth = 0i32;
-
-                for (i, line) in lines.iter().enumerate() {
-                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
-                    if crate::detectors::is_line_suppressed(line, prev_line) {
-                        continue;
-                    }
-
-                    let trimmed = line.trim();
-
-                    // Track interface/type blocks for TypeScript
-                    if matches!(ext, "ts" | "tsx") {
-                        if !in_interface
-                            && (trimmed.starts_with("interface ")
-                                || trimmed.starts_with("export interface ")
-                                || trimmed.starts_with("type ")
-                                || trimmed.starts_with("export type "))
-                        {
-                            if trimmed.contains('{') {
-                                // Block interface/type — track with braces
-                                in_interface = true;
-                                interface_depth = trimmed.matches('{').count() as i32
-                                    - trimmed.matches('}').count() as i32;
-                                if interface_depth <= 0 {
-                                    in_interface = false; // Single-line: type Foo = { bar: string }
-                                }
-                                continue;
-                            } else {
-                                // Single-line type alias: `type Foo = string;` — skip just this line
-                                continue;
-                            }
-                        }
-                        if in_interface {
-                            interface_depth += trimmed.matches('{').count() as i32;
-                            interface_depth -= trimmed.matches('}').count() as i32;
-                            if interface_depth <= 0 {
-                                in_interface = false;
-                            }
-                            continue; // Skip all lines inside interfaces/type definitions
-                        }
-                    }
-
-                    if let Some(caps) = ASSIGNMENT.captures(line) {
-                        if let Some(var_match) = caps.get(2) {
-                            let var = var_match.as_str();
-
-                            // Skip common patterns
-                            if SKIP_VARS.contains(&var) || var.starts_with('_') {
-                                continue;
-                            }
-
-                            // Skip if we've already flagged this var at this line
-                            if seen_assignments.contains(&(var.to_string(), i)) {
-                                continue;
-                            }
-
-                            // Check if variable is used after this line
-                            if !self.is_used_after(var, &lines, i) {
-                                seen_assignments.insert((var.to_string(), i));
-
-                                findings.push(Finding {
-                                    id: String::new(),
-                                    detector: "DeadStoreDetector".to_string(),
-                                    severity: Severity::Low,
-                                    title: format!("Dead store: {}", var),
-                                    description: format!(
-                                        "Variable '{}' is assigned but never read afterward.\n\n\
-                                         ```\n{}\n```",
-                                        var,
-                                        line.trim()
-                                    ),
-                                    affected_files: vec![rel_path.to_path_buf()],
-                                    line_start: Some((i + 1) as u32),
-                                    line_end: Some((i + 1) as u32),
-                                    suggested_fix: Some(format!(
-                                        "Options:\n\
-                                         1. Remove the unused assignment\n\
-                                         2. Use the variable '{}' in subsequent code\n\
-                                         3. If intentional, prefix with underscore: _{}",
-                                        var, var
-                                    )),
-                                    estimated_effort: Some("5 minutes".to_string()),
-                                    category: Some("dead-code".to_string()),
-                                    cwe_id: Some("CWE-563".to_string()),
-                                    why_it_matters: Some(
-                                        "Dead stores indicate logic errors or leftover code. \
-                                         They add confusion and may hide bugs."
-                                            .to_string(),
-                                    ),
-                                    ..Default::default()
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        findings
-    }
-
-    /// Use graph to find functions with unused parameters
-    fn find_unused_params(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
-        let i = graph.interner();
-        let mut findings = Vec::new();
-
-        for func in graph.get_functions_shared().iter() {
-            // Skip test files
-            if func.path(i).contains("/test") || func.path(i).contains("_test.") {
-                continue;
-            }
-
-            // Skip interface implementations (check qualified name for common patterns)
-            if func.qn(i).contains("Interface.")
-                || func.qn(i).contains("Trait.")
-                || func.qn(i).contains("Protocol.")
+            // Skip blank lines and comments
+            if trimmed.is_empty()
+                || trimmed.starts_with("//")
+                || trimmed.starts_with('#')
+                || trimmed.starts_with('*')
+                || trimmed.starts_with("/*")
             {
                 continue;
             }
 
-            // Check if function has many params but few callees (simple function)
-            if let Some(param_count) = func.param_count_opt() {
-                if param_count >= 4 {
-                    let callees = graph.get_callees(func.qn(i));
-                    let callers = graph.get_callers(func.qn(i));
+            if !Self::word_appears_in_line(var, line) {
+                continue;
+            }
 
-                    // Simple function with many params = likely unused params
-                    if callees.len() <= 2 && param_count >= 5 {
-                        findings.push(Finding {
-                            id: String::new(),
-                            detector: "DeadStoreDetector".to_string(),
-                            severity: Severity::Low,
-                            title: format!("Function `{}` has {} parameters but simple body", func.node_name(i), param_count),
-                            description: format!(
-                                "Function with {} parameters only calls {} other functions.\n\
-                                 This suggests some parameters may be unused.\n\n\
-                                 **Called by:** {} functions\n\
-                                 **Suggestion:** Review if all parameters are necessary.",
-                                param_count, callees.len(), callers.len()
-                            ),
-                            affected_files: vec![PathBuf::from(func.path(i))],
-                            line_start: Some(func.line_start),
-                            line_end: Some(func.line_end),
-                            suggested_fix: Some(
-                                "Consider:\n\
-                                 1. Remove unused parameters\n\
-                                 2. Use a config/options object if many params are related\n\
-                                 3. Mark intentionally unused params with underscore prefix".to_string()
-                            ),
-                            estimated_effort: Some("10 minutes".to_string()),
-                            category: Some("dead-code".to_string()),
-                            cwe_id: None,
-                            why_it_matters: Some(
-                                "Unused parameters add noise and may indicate incomplete refactoring.".to_string()
-                            ),
-                            ..Default::default()
-                        });
+            // If the line is a pure reassignment of `var` where `var` does not
+            // appear on the RHS, it doesn't count as a read.
+            if Self::is_pure_reassignment(var, trimmed) {
+                continue;
+            }
+
+            return true;
+        }
+        false
+    }
+
+    /// Returns true if `trimmed` is a simple `var = <expr>` where `var` does
+    /// NOT appear in `<expr>`.  This is intentionally conservative: anything
+    /// that isn't clearly a pure reassignment is treated as a potential read.
+    fn is_pure_reassignment(var: &str, trimmed: &str) -> bool {
+        // Match patterns like `var = ...` or `var := ...`
+        let rest = if let Some(rest) = trimmed.strip_prefix(var) {
+            rest.trim_start()
+        } else {
+            return false;
+        };
+
+        // After stripping `var`, the next non-whitespace char should be `=` or `:=`
+        let rhs = if let Some(r) = rest.strip_prefix(":=") {
+            r
+        } else if let Some(r) = rest.strip_prefix('=') {
+            // Make sure it's not `==`
+            if r.starts_with('=') {
+                return false;
+            }
+            r
+        } else {
+            return false;
+        };
+
+        // `var` must not appear in the RHS (otherwise it's a read like `x = x + 1`)
+        !Self::word_appears_in_line(var, rhs)
+    }
+
+    /// Check whether a file path corresponds to a test file.
+    fn is_test_path(path_str: &str) -> bool {
+        path_str.contains("/test")
+            || path_str.contains("/tests/")
+            || path_str.contains("_test.")
+            || path_str.contains("/test_")
+            || path_str.contains("/conftest")
+            || path_str.ends_with("_test.py")
+            || path_str.ends_with("_test.go")
+            || path_str.ends_with("_test.rs")
+            || path_str.ends_with("_test.js")
+            || path_str.ends_with("_test.ts")
+    }
+
+    /// Check whether a file is a config/settings file.
+    fn is_config_file(path: &Path) -> bool {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        CONFIG_FILES.contains(&name)
+    }
+
+    /// Core detection logic using ValueStore and graph.
+    fn detect_with_analysis_ctx(&self, ctx: &AnalysisContext<'_>) -> Vec<Finding> {
+        let value_store = match ctx.detector_ctx.value_store.as_ref() {
+            Some(vs) => vs,
+            None => {
+                info!("DeadStoreDetector: no ValueStore available, skipping");
+                return Vec::new();
+            }
+        };
+
+        let interner = ctx.graph.interner();
+        let functions = ctx.graph.get_functions_shared();
+        let repo_path = ctx.repo_path();
+
+        let mut findings = Vec::new();
+
+        for func in functions.iter() {
+            if func.kind != NodeKind::Function {
+                continue;
+            }
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
+            let qn = func.qn(interner);
+            let file_path_str = func.path(interner);
+            let file_path = Path::new(file_path_str);
+
+            // ── Skip: test functions ────────────────────────────────
+            if ctx.is_test_function(qn) {
+                continue;
+            }
+
+            // ── Skip: test file paths ──────────────────────────────
+            if Self::is_test_path(file_path_str) {
+                continue;
+            }
+
+            // ── Skip: config/settings files ────────────────────────
+            if Self::is_config_file(file_path) {
+                continue;
+            }
+
+            // ── Get assignments from ValueStore ────────────────────
+            let assignments = value_store.assignments_in(qn);
+            if assignments.is_empty() {
+                continue;
+            }
+
+            // ── Get function source lines ──────────────────────────
+            let content = ctx
+                .files
+                .get(file_path)
+                .map(|e| e.content.clone())
+                .or_else(|| {
+                    crate::cache::global_cache()
+                        .content(file_path)
+                        .map(|s| s.as_str().into())
+                });
+            let content = match content {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let all_lines: Vec<&str> = content.lines().collect();
+
+            // Function line range (1-indexed in graph → 0-indexed for slicing)
+            let func_start = func.line_start.saturating_sub(1) as usize;
+            let func_end = if func.line_end == 0 {
+                all_lines.len()
+            } else {
+                (func.line_end as usize).min(all_lines.len())
+            };
+
+            if func_start >= all_lines.len() || func_start >= func_end {
+                continue;
+            }
+
+            let func_lines = &all_lines[func_start..func_end];
+
+            // ── Determine severity (lower for utility functions) ───
+            let severity = if ctx.is_utility_function(qn) {
+                Severity::Info
+            } else {
+                Severity::Low
+            };
+
+            // ── Determine file extension for language-specific logic
+            let ext = file_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let is_python = ext == "py";
+
+            // ── Iterate over assignments ───────────────────────────
+            for (idx, assignment) in assignments.iter().enumerate() {
+                if findings.len() >= self.max_findings {
+                    break;
+                }
+
+                let var = &assignment.variable;
+
+                // Skip underscore-prefixed and well-known skip variables
+                if var.starts_with('_') || SKIP_VARS.contains(&var.as_str()) {
+                    continue;
+                }
+
+                // Skip attribute stores: variable contains `.` (e.g., self.x)
+                if var.contains('.') {
+                    continue;
+                }
+
+                // Skip if the RHS is a FieldAccess (attribute store pattern)
+                if matches!(&assignment.value, SymbolicValue::FieldAccess(..)) {
+                    continue;
+                }
+
+                // Skip if the LHS variable looks like it's being stored as
+                // an attribute (value is a Parameter, which means `self.x = param`
+                // was captured with the variable as just `x`). Actually this is
+                // already covered by the variable containing `.` check for most
+                // parsers.
+
+                // ── Module-level scope exemption ───────────────────
+                // If the QN has no function container (module-level assignment),
+                // skip entirely for Python (public by convention, may be imported).
+                if is_python {
+                    // Module-level: QN typically looks like "module.VAR" with one dot
+                    let dot_count = qn.chars().filter(|c| *c == '.').count();
+                    if dot_count <= 1 {
+                        // Likely module-level scope
+                        continue;
                     }
+                }
+
+                // ── Find the line of the next assignment to the same variable
+                let assignment_line = assignment.line as usize;
+                // Convert to 0-indexed offset within function lines
+                if assignment_line == 0 || (assignment_line as usize) < func.line_start as usize {
+                    continue;
+                }
+                let func_relative_line = assignment_line.saturating_sub(func.line_start as usize);
+
+                let next_assignment_line = assignments[(idx + 1)..]
+                    .iter()
+                    .find(|a| a.variable == *var)
+                    .map(|a| (a.line as usize).saturating_sub(func.line_start as usize))
+                    .unwrap_or(func_lines.len());
+
+                // ── Check if variable is read between assignment and next/end
+                if !Self::is_read_in_range(var, func_lines, func_relative_line, next_assignment_line)
+                {
+                    // Extract the source line for the finding description
+                    let source_line = if func_relative_line < func_lines.len() {
+                        func_lines[func_relative_line].trim()
+                    } else {
+                        "<unavailable>"
+                    };
+
+                    let rel_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
+
+                    findings.push(Finding {
+                        id: String::new(),
+                        detector: "DeadStoreDetector".to_string(),
+                        severity,
+                        title: format!("Dead store: {}", var),
+                        description: format!(
+                            "Variable '{}' is assigned but never read afterward.\n\n\
+                             ```\n{}\n```",
+                            var, source_line
+                        ),
+                        affected_files: vec![rel_path.to_path_buf()],
+                        line_start: Some(assignment.line),
+                        line_end: Some(assignment.line),
+                        suggested_fix: Some(format!(
+                            "Options:\n\
+                             1. Remove the unused assignment\n\
+                             2. Use the variable '{}' in subsequent code\n\
+                             3. If intentional, prefix with underscore: _{}",
+                            var, var
+                        )),
+                        estimated_effort: Some("5 minutes".to_string()),
+                        category: Some("dead-code".to_string()),
+                        cwe_id: Some("CWE-563".to_string()),
+                        why_it_matters: Some(
+                            "Dead stores indicate logic errors or leftover code. \
+                             They add confusion and may hide bugs."
+                                .to_string(),
+                        ),
+                        ..Default::default()
+                    });
                 }
             }
         }
 
-        debug!("Found {} potential unused param functions", findings.len());
+        info!(
+            "DeadStoreDetector found {} findings (ValueStore-based)",
+            findings.len()
+        );
         findings
     }
+}
 
-    /// Find variables that are assigned, passed to a function, but function doesn't use them
-    fn find_cross_function_dead_stores(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-    ) -> Vec<Finding> {
-        let i = graph.interner();
-        // This requires tracking parameter usage within functions
-        // For now, identify functions that receive values but don't propagate them
-        let findings = Vec::new();
-
-        for func in graph.get_functions_shared().iter() {
-            let callees = graph.get_callees(func.qn(i));
-            let callers = graph.get_callers(func.qn(i));
-
-            // Function that's called but calls nothing and has params = potential sink
-            if !callers.is_empty() && callees.is_empty() {
-                if let Some(param_count) = func.param_count_opt() {
-                    if param_count >= 3 {
-                        debug!(
-                            "Sink function {} receives {} params from {} callers but makes no calls",
-                            func.node_name(i), param_count, callers.len()
-                        );
-                    }
-                }
-            }
-        }
-
-        findings
-    }
+/// Helper: check if a byte is a valid identifier character.
+fn is_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 impl Detector for DeadStoreDetector {
@@ -317,23 +378,25 @@ impl Detector for DeadStoreDetector {
         &["py", "js", "ts", "jsx", "tsx", "go", "rs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        let mut findings = Vec::new();
+    fn scope(&self) -> DetectorScope {
+        DetectorScope::FileScopedGraph
+    }
 
-        // Source-based local dead store detection
-        findings.extend(self.find_local_dead_stores(files));
+    fn requires_graph(&self) -> bool {
+        true
+    }
 
-        // Graph-based unused parameter detection
-        findings.extend(self.find_unused_params(graph));
+    fn detect(
+        &self,
+        _graph: &dyn crate::graph::GraphQuery,
+        _files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Result<Vec<Finding>> {
+        // Legacy detect() is a no-op — all logic is in detect_ctx().
+        Ok(Vec::new())
+    }
 
-        // Cross-function dead store detection
-        findings.extend(self.find_cross_function_dead_stores(graph));
-
-        info!(
-            "DeadStoreDetector found {} findings (graph-aware)",
-            findings.len()
-        );
-        Ok(findings)
+    fn detect_ctx(&self, ctx: &AnalysisContext<'_>) -> Result<Vec<Finding>> {
+        Ok(self.detect_with_analysis_ctx(ctx))
     }
 }
 
@@ -341,55 +404,104 @@ impl Detector for DeadStoreDetector {
 mod tests {
     use super::*;
 
+    // ── Unit tests for helper functions ──────────────────────────────────
+
     #[test]
-    fn test_is_used_after() {
-        let detector = DeadStoreDetector::new(".");
+    fn test_word_appears_in_line() {
+        assert!(DeadStoreDetector::word_appears_in_line("x", "  x = 5"));
+        assert!(DeadStoreDetector::word_appears_in_line("x", "y = x + 1"));
+        assert!(!DeadStoreDetector::word_appears_in_line("x", "fox = 1"));
+        assert!(!DeadStoreDetector::word_appears_in_line("x", "extra = 1"));
+        assert!(DeadStoreDetector::word_appears_in_line("result", "return result"));
+        assert!(!DeadStoreDetector::word_appears_in_line("result", "no_result_here = 1"));
+    }
 
-        let lines = vec!["let x = 5", "let y = x + 1", "print(y)"];
+    #[test]
+    fn test_is_pure_reassignment() {
+        // Pure reassignment — var does not appear on RHS
+        assert!(DeadStoreDetector::is_pure_reassignment("x", "x = 42"));
+        assert!(DeadStoreDetector::is_pure_reassignment(
+            "x",
+            "x = some_func()"
+        ));
+        assert!(DeadStoreDetector::is_pure_reassignment("x", "x := 42"));
 
-        assert!(detector.is_used_after("x", &lines, 0)); // x is used on line 1
-        assert!(detector.is_used_after("y", &lines, 1)); // y is used on line 2
-        assert!(!detector.is_used_after("z", &lines, 0)); // z never used
+        // Not pure — var appears on RHS (it's a read)
+        assert!(!DeadStoreDetector::is_pure_reassignment(
+            "x",
+            "x = x + 1"
+        ));
+
+        // Not an assignment at all
+        assert!(!DeadStoreDetector::is_pure_reassignment(
+            "x",
+            "print(x)"
+        ));
+        assert!(!DeadStoreDetector::is_pure_reassignment("x", "x == 5"));
+    }
+
+    #[test]
+    fn test_is_read_in_range_basic() {
+        let lines = vec!["x = 5", "y = x + 1", "print(y)"];
+        // x is read on line 1 (the range 0..3)
+        assert!(DeadStoreDetector::is_read_in_range("x", &lines, 0, 3));
+        // y is read on line 2
+        assert!(DeadStoreDetector::is_read_in_range("y", &lines, 1, 3));
+        // z is never used
+        assert!(!DeadStoreDetector::is_read_in_range("z", &lines, 0, 3));
+    }
+
+    #[test]
+    fn test_is_read_in_range_reassignment_not_a_read() {
+        let lines = vec!["x = 5", "x = 10", "print(x)"];
+        // Between line 0 and line 1 (the next assignment), x is NOT read
+        assert!(!DeadStoreDetector::is_read_in_range("x", &lines, 0, 1));
+        // Between line 1 and end, x IS read (on the print line)
+        assert!(DeadStoreDetector::is_read_in_range("x", &lines, 1, 3));
     }
 
     #[test]
     fn test_skip_patterns() {
         assert!(SKIP_VARS.contains(&"self"));
         assert!(SKIP_VARS.contains(&"_"));
-        assert!(SKIP_VARS.contains(&"err"));
+        assert!(SKIP_VARS.contains(&"cls"));
     }
 
     #[test]
-    fn test_detects_dead_store_in_file() {
-        let store = GraphStore::in_memory();
-        let detector = DeadStoreDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
-            ("unused.py", "def compute():\n    unused_var = expensive_calculation()\n    return 42\n"),
-        ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
-        assert!(
-            findings.iter().any(|f| f.title.contains("unused_var")),
-            "Should detect dead store 'unused_var'. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
-        );
+    fn test_is_test_path() {
+        assert!(DeadStoreDetector::is_test_path("src/tests/test_app.py"));
+        assert!(DeadStoreDetector::is_test_path("app_test.py"));
+        assert!(DeadStoreDetector::is_test_path("tests/conftest.py"));
+        assert!(!DeadStoreDetector::is_test_path("src/app.py"));
     }
 
     #[test]
-    fn test_no_finding_when_variable_is_used() {
-        let store = GraphStore::in_memory();
-        let detector = DeadStoreDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
-            ("used.py", "def compute():\n    value = expensive_calculation()\n    return value + 1\n"),
-        ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
-        let dead_store_findings: Vec<_> = findings
-            .iter()
-            .filter(|f| f.title.contains("value"))
-            .collect();
-        assert!(
-            dead_store_findings.is_empty(),
-            "Should not flag variable that is used. Found: {:?}",
-            dead_store_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
-        );
+    fn test_is_config_file() {
+        assert!(DeadStoreDetector::is_config_file(Path::new(
+            "src/__init__.py"
+        )));
+        assert!(DeadStoreDetector::is_config_file(Path::new(
+            "myapp/config.py"
+        )));
+        assert!(DeadStoreDetector::is_config_file(Path::new(
+            "myapp/settings.py"
+        )));
+        assert!(!DeadStoreDetector::is_config_file(Path::new(
+            "myapp/views.py"
+        )));
+    }
+
+    #[test]
+    fn test_is_read_skips_comments() {
+        let lines = vec!["x = 5", "# x is great", "return 42"];
+        assert!(!DeadStoreDetector::is_read_in_range("x", &lines, 0, 3));
+    }
+
+    #[test]
+    fn test_self_increment_is_read() {
+        let lines = vec!["x = 0", "x = x + 1", "print(x)"];
+        // Between line 0 and line 1, x IS read because line 1 is `x = x + 1`
+        // (the RHS contains x, so it's not a pure reassignment)
+        assert!(DeadStoreDetector::is_read_in_range("x", &lines, 0, 1));
     }
 }
