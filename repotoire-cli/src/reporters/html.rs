@@ -315,11 +315,42 @@ fn render_finding(finding: &Finding) -> String {
         String::new()
     };
 
+    // Confidence badge
+    let confidence_html = if let Some(conf) = finding.confidence {
+        let pct = (conf * 100.0) as u32;
+        let conf_class = if conf >= 0.9 {
+            "conf-high"
+        } else if conf >= 0.7 {
+            "conf-medium"
+        } else {
+            "conf-low"
+        };
+        let signals = finding
+            .threshold_metadata
+            .get("confidence_signals")
+            .cloned()
+            .unwrap_or_default();
+        let title_attr = if signals.is_empty() {
+            format!("Confidence: {}%", pct)
+        } else {
+            format!("Confidence: {}% — {}", pct, signals)
+        };
+        format!(
+            r#"<span class="confidence-badge {}" title="{}">{}&thinsp;%</span>"#,
+            conf_class,
+            html_escape(&title_attr),
+            pct
+        )
+    } else {
+        String::new()
+    };
+
     format!(
         r#"<div class="finding-card">
         <div class="finding-header">
             <span class="severity-badge {}">{}</span>
             <div class="finding-title">{}{}</div>
+            {}
             <span class="detector-badge">{}</span>
         </div>
         <div class="finding-body">
@@ -333,6 +364,7 @@ fn render_finding(finding: &Finding) -> String {
         sev_label,
         html_escape(&finding.title),
         html_escape(&location),
+        confidence_html,
         html_escape(&detector),
         html_escape(&finding.description),
         files_html,
@@ -541,6 +573,19 @@ body {
 .severity-info { background: #64748b; }
 
 .finding-title { flex: 1; font-weight: 600; }
+
+.confidence-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.conf-high { background: #dcfce7; color: #166534; }
+.conf-medium { background: #fef9c3; color: #854d0e; }
+.conf-low { background: #fee2e2; color: #991b1b; }
 
 .detector-badge {
     background: #e0e7ff;

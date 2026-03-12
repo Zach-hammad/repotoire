@@ -125,6 +125,27 @@ pub fn render(report: &HealthReport) -> Result<String> {
                 title,
                 file_info
             ));
+
+            // Confidence provenance line
+            if let Some(conf) = finding.confidence {
+                let pct = (conf * 100.0) as u32;
+                let signals = finding
+                    .threshold_metadata
+                    .get("confidence_signals")
+                    .cloned()
+                    .unwrap_or_default();
+                if signals.is_empty() {
+                    out.push_str(&format!(
+                        "       {DIM}[confidence: {}%]{RESET}\n",
+                        pct
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "       {DIM}[confidence: {}% \u{2014} {}]{RESET}\n",
+                        pct, signals
+                    ));
+                }
+            }
         }
 
         let remaining = report.findings.len().saturating_sub(10);

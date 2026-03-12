@@ -48,4 +48,51 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("parse JSON");
         assert_eq!(parsed["findings"].as_array().expect("findings array").len(), 0);
     }
+
+    #[test]
+    fn test_json_confidence_serialized() {
+        use crate::models::{Finding, FindingsSummary, Severity};
+
+        let findings = vec![Finding {
+            id: "conf-1".into(),
+            detector: "TestDetector".into(),
+            severity: Severity::Medium,
+            title: "Confidence test".into(),
+            description: "Has confidence".into(),
+            confidence: Some(0.82),
+            threshold_metadata: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("confidence_signals".into(), "bundled_code,multi_detector_agreement".into());
+                m
+            },
+            ..Default::default()
+        }];
+
+        let report = crate::models::HealthReport {
+            overall_score: 75.0,
+            grade: "C".into(),
+            structure_score: 70.0,
+            quality_score: 70.0,
+            architecture_score: Some(70.0),
+            findings_summary: FindingsSummary::from_findings(&findings),
+            findings,
+            total_files: 10,
+            total_functions: 20,
+            total_classes: 5,
+            total_loc: 1000,
+        };
+
+        let json_str = render(&report).expect("render JSON");
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("parse JSON");
+
+        // Verify confidence is serialized
+        let finding = &parsed["findings"][0];
+        assert_eq!(finding["confidence"], 0.82);
+
+        // Verify threshold_metadata with confidence_signals is serialized
+        assert_eq!(
+            finding["threshold_metadata"]["confidence_signals"],
+            "bundled_code,multi_detector_agreement"
+        );
+    }
 }

@@ -228,6 +228,21 @@ fn render_finding(finding: &Finding) -> String {
     md.push_str(&format!("#### {}\n\n", finding.title));
     md.push_str(&format!("`{}` ", detector));
 
+    // Confidence badge
+    if let Some(conf) = finding.confidence {
+        let pct = (conf * 100.0) as u32;
+        let signals = finding
+            .threshold_metadata
+            .get("confidence_signals")
+            .cloned()
+            .unwrap_or_default();
+        if signals.is_empty() {
+            md.push_str(&format!("**{}%**\u{00a0}conf ", pct));
+        } else {
+            md.push_str(&format!("**{}%**\u{00a0}conf ({}) ", pct, signals));
+        }
+    }
+
     // Location if available
     if let Some(line) = finding.line_start {
         if let Some(file) = finding.affected_files.first() {

@@ -182,6 +182,8 @@ struct SarifDescriptor {
 struct SarifResultProperties {
     severity: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    confidence: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     suggested_fix: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     estimated_effort: Option<String>,
@@ -368,6 +370,7 @@ fn build_result(finding: &Finding, index: usize) -> SarifResult {
         fingerprints,
         properties: SarifResultProperties {
             severity: finding.severity.to_string(),
+            confidence: finding.confidence,
             suggested_fix: finding.suggested_fix.clone(),
             estimated_effort: finding.estimated_effort.clone(),
             category: finding.category.clone(),
