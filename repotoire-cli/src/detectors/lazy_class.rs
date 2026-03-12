@@ -9,6 +9,7 @@
 //! - Low usage (methods rarely called from outside)
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::function_context::FunctionRole;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -37,16 +38,14 @@ impl Default for LazyClassThresholds {
     }
 }
 
-/// Patterns to exclude from lazy class detection (pre-lowercased for fast matching)
+/// Patterns to exclude from lazy class detection (pre-lowercased for fast matching).
+///
+/// Trimmed from 76 entries to ~30: patterns now covered by role analysis
+/// (betweenness check, FunctionRole::Hub, HMM Handler classification) have
+/// been removed. Remaining patterns are semantic/structural and not
+/// reliably detectable via graph metrics.
 const EXCLUDE_PATTERNS: &[&str] = &[
-    // Design patterns (intentionally small)
-    "adapter",
-    "wrapper",
-    "proxy",
-    "decorator",
-    "facade",
-    "bridge",
-    // Data classes (supposed to be simple)
+    // Data containers (supposed to be simple)
     "config",
     "settings",
     "options",
@@ -76,29 +75,8 @@ const EXCLUDE_PATTERNS: &[&str] = &[
     "stub",
     "fake",
     "fixture",
-    // Framework conventions
-    "serializer",
-    "validator",
-    "handler",
-    "listener",
-    "observer",
-    "factory",
-    "builder",
-    "provider",
-    "service",
-    // ORM patterns (intentionally small - Strategy pattern)
-    "lookup",
-    "transform",
-    "descriptor",
-    "attribute",
-    "field",
-    "constraint",
-    "index",
-    "expression",
-    "widget",
+    // DB migrations
     "migration",
-    "command",
-    "middleware",
     // Rust-specific (idiomatic small types)
     "phantom",  // PhantomData marker types
     "marker",   // Marker types (zero-sized, trait-only)
@@ -111,8 +89,6 @@ const EXCLUDE_PATTERNS: &[&str] = &[
     // C# patterns
     "extension",    // C# extension method classes (helpers by design)
     "partial",      // C# partial classes (methods split across files)
-    // Java patterns
-    "abstract",     // Java abstract classes (template methods, not lazy)
 ];
 
 /// Detects classes that do minimal work and aren't used much
@@ -275,35 +251,31 @@ impl LazyClassDetector {
         let callers = self.count_external_callers(graph, class, methods);
         callers as f64 / method_count as f64
     }
-}
 
-impl Default for LazyClassDetector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Detector for LazyClassDetector {
-    fn name(&self) -> &'static str {
-        "LazyClassDetector"
-    }
-
-    fn description(&self) -> &'static str {
-        "Detects classes with few methods that aren't used much"
-    }
-
-    fn category(&self) -> &'static str {
-        "design"
-    }
-
-    fn config(&self) -> Option<&DetectorConfig> {
-        Some(&self.config)
-    }
-
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    /// Core detection logic shared between `detect()` and `detect_ctx()`.
+    ///
+    /// When `analysis_ctx` is `Some`, enables enhanced checks:
+    /// - Role-based exemptions (FunctionRole::Hub, high betweenness)
+    /// - HMM-based handler classification gating
+    /// - Adaptive thresholds from ThresholdResolver
+    fn detect_inner(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        analysis_ctx: Option<&crate::detectors::analysis_context::AnalysisContext<'_>>,
+    ) -> Result<Vec<Finding>> {
         let i = graph.interner();
         let mut findings = Vec::new();
         let classes = graph.get_classes_shared();
+
+        // Adaptive threshold: adapts to codebase's class size distribution
+        let adaptive_max_methods = analysis_ctx
+            .map(|ctx| {
+                ctx.resolver.warn_usize(
+                    crate::calibrate::MetricKind::ClassMethodCount,
+                    self.thresholds.max_methods,
+                )
+            })
+            .unwrap_or(self.thresholds.max_methods);
 
         // Pre-filter: collect candidate classes that pass cheap checks.
         // Order: cheapest checks first (numeric/string), expensive checks last (content cache).
@@ -315,7 +287,7 @@ impl Detector for LazyClassDetector {
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
             let loc = class.loc() as usize;
 
-            if method_count > self.thresholds.max_methods || loc > self.thresholds.max_loc {
+            if method_count > adaptive_max_methods || loc > self.thresholds.max_loc {
                 continue;
             }
             if loc < 5 {
@@ -486,6 +458,49 @@ impl Detector for LazyClassDetector {
                     .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
                     .collect();
 
+                // --- Enhanced checks when AnalysisContext is available ---
+                if let Some(ctx) = analysis_ctx {
+                    // Role-based: skip if any method has high betweenness or is a Hub.
+                    // This covers design patterns (adapter, wrapper, proxy, facade, etc.)
+                    // that were previously matched by name patterns.
+                    let has_important_method = methods.iter().any(|m| {
+                        let mq = m.qn(i);
+                        ctx.functions.get(mq).map_or(false, |fc| {
+                            fc.betweenness > 0.05 || fc.role == FunctionRole::Hub
+                        })
+                    });
+                    if has_important_method {
+                        debug!(
+                            "Skipping {} - has method with high betweenness or Hub role",
+                            class.node_name(i)
+                        );
+                        continue;
+                    }
+
+                    // HMM: skip classes whose methods are primarily handlers.
+                    // This covers framework patterns (Flask blueprints, Express routes,
+                    // event listeners) that were previously matched by "handler",
+                    // "listener", "observer" name patterns.
+                    let handler_methods = methods
+                        .iter()
+                        .filter(|m| {
+                            ctx.hmm_role(m.qn(i)).map_or(false, |(role, conf)| {
+                                role == crate::detectors::context_hmm::FunctionContext::Handler
+                                    && conf > 0.5
+                            })
+                        })
+                        .count();
+                    if handler_methods > 0 && handler_methods >= methods.len() / 2 {
+                        debug!(
+                            "Skipping {} - {}/{} methods are HMM-classified handlers",
+                            class.node_name(i),
+                            handler_methods,
+                            methods.len()
+                        );
+                        continue;
+                    }
+                }
+
                 // Zero-copy external caller count (no CodeNode cloning)
                 let external_callers = self.count_external_callers(graph, class, &methods);
 
@@ -554,6 +569,45 @@ impl Detector for LazyClassDetector {
     }
 }
 
+impl Default for LazyClassDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Detector for LazyClassDetector {
+    fn name(&self) -> &'static str {
+        "LazyClassDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects classes with few methods that aren't used much"
+    }
+
+    fn category(&self) -> &'static str {
+        "design"
+    }
+
+    fn config(&self) -> Option<&DetectorConfig> {
+        Some(&self.config)
+    }
+
+    fn detect(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        _files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Result<Vec<Finding>> {
+        self.detect_inner(graph, None)
+    }
+
+    fn detect_ctx(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext<'_>,
+    ) -> Result<Vec<Finding>> {
+        self.detect_inner(ctx.graph, Some(ctx))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,12 +617,18 @@ mod tests {
     fn test_should_exclude() {
         let detector = LazyClassDetector::new();
 
-        assert!(detector.should_exclude("UserAdapter"));
+        // Patterns still in EXCLUDE_PATTERNS (semantic, not role-detectable)
         assert!(detector.should_exclude("DatabaseConfig"));
         assert!(detector.should_exclude("CustomException"));
         assert!(detector.should_exclude("BaseClass"));
         assert!(detector.should_exclude("TestHelper"));
 
+        // Patterns removed from EXCLUDE_PATTERNS (now handled by role analysis)
+        assert!(!detector.should_exclude("UserAdapter"));
+        assert!(!detector.should_exclude("FooHandler"));
+        assert!(!detector.should_exclude("BarFactory"));
+
+        // Never excluded
         assert!(!detector.should_exclude("OrderProcessor"));
         assert!(!detector.should_exclude("Calculator"));
     }
@@ -1447,5 +1507,163 @@ mod tests {
         // Java abstract classes
         assert!(detector.should_exclude("AbstractProcessor"));
         assert!(detector.should_exclude("AbstractValidator"));
+    }
+
+    // --- Role analysis / detect_ctx tests ---
+
+    #[test]
+    fn test_trimmed_exclude_patterns() {
+        let detector = LazyClassDetector::new();
+
+        // Kept patterns still work
+        assert!(detector.should_exclude("UserConfig"));
+        assert!(detector.should_exclude("CustomException"));
+        assert!(detector.should_exclude("TestHelper"));
+        assert!(detector.should_exclude("BaseClass"));
+
+        // Removed patterns no longer excluded (handled by role analysis)
+        assert!(!detector.should_exclude("FooAdapter"));
+        assert!(!detector.should_exclude("BarHandler"));
+        assert!(!detector.should_exclude("BazFactory"));
+    }
+
+    #[test]
+    fn test_class_with_hub_method_not_flagged() {
+        use crate::detectors::analysis_context::AnalysisContext;
+        use crate::detectors::detector_context::{ContentFlags, DetectorContext};
+        use crate::detectors::file_index::FileIndex;
+        use crate::detectors::function_context::FunctionContext as FuncCtx;
+        use crate::detectors::taint::centralized::CentralizedTaintResults;
+        use std::sync::Arc;
+
+        let graph = GraphStore::in_memory();
+
+        // Create a small class with 1 method
+        graph.add_node(
+            CodeNode::class("MyAdapter", "src/adapters.py")
+                .with_qualified_name("adapters::MyAdapter")
+                .with_lines(1, 20)
+                .with_property("methodCount", 1i64),
+        );
+        graph.add_node(
+            CodeNode::function("adapt", "src/adapters.py")
+                .with_qualified_name("adapters::MyAdapter::adapt")
+                .with_lines(3, 15),
+        );
+
+        // Build FunctionContextMap with Hub role for the method
+        let mut functions = std::collections::HashMap::new();
+        functions.insert(
+            "adapters::MyAdapter::adapt".to_string(),
+            FuncCtx {
+                qualified_name: "adapters::MyAdapter::adapt".to_string(),
+                name: "adapt".to_string(),
+                file_path: "src/adapters.py".to_string(),
+                module: "adapters".to_string(),
+                in_degree: 10,
+                out_degree: 5,
+                betweenness: 0.15,
+                caller_modules: 4,
+                callee_modules: 2,
+                call_depth: 1,
+                role: FunctionRole::Hub,
+                is_exported: true,
+                is_test: false,
+                is_in_utility_module: false,
+                complexity: None,
+                loc: 12,
+            },
+        );
+
+        let (det_ctx, _) =
+            DetectorContext::build(&graph, &[], None, std::path::Path::new("/repo"));
+
+        let ctx = AnalysisContext {
+            graph: &graph,
+            files: Arc::new(FileIndex::new(vec![])),
+            functions: Arc::new(functions),
+            taint: Arc::new(CentralizedTaintResults {
+                cross_function: std::collections::HashMap::new(),
+                intra_function: std::collections::HashMap::new(),
+            }),
+            detector_ctx: Arc::new(det_ctx),
+            hmm_classifications: Arc::new(std::collections::HashMap::new()),
+            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+        };
+
+        let detector = LazyClassDetector::new();
+        let findings = detector.detect_inner(&graph, Some(&ctx)).expect("should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Class with a Hub method should NOT be flagged as lazy, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_handler_methods_skip_class() {
+        use crate::detectors::analysis_context::AnalysisContext;
+        use crate::detectors::context_hmm::FunctionContext as HmmCtx;
+        use crate::detectors::detector_context::{ContentFlags, DetectorContext};
+        use crate::detectors::file_index::FileIndex;
+        use crate::detectors::taint::centralized::CentralizedTaintResults;
+        use std::sync::Arc;
+
+        let graph = GraphStore::in_memory();
+
+        // Create a class with 2 handler methods
+        graph.add_node(
+            CodeNode::class("LoginView", "src/views.py")
+                .with_qualified_name("views::LoginView")
+                .with_lines(1, 30)
+                .with_property("methodCount", 2i64),
+        );
+        graph.add_node(
+            CodeNode::function("get", "src/views.py")
+                .with_qualified_name("views::LoginView::get")
+                .with_lines(3, 15),
+        );
+        graph.add_node(
+            CodeNode::function("post", "src/views.py")
+                .with_qualified_name("views::LoginView::post")
+                .with_lines(17, 28),
+        );
+
+        // HMM classifies both methods as Handler with high confidence
+        let mut hmm = std::collections::HashMap::new();
+        hmm.insert(
+            "views::LoginView::get".to_string(),
+            (HmmCtx::Handler, 0.85),
+        );
+        hmm.insert(
+            "views::LoginView::post".to_string(),
+            (HmmCtx::Handler, 0.90),
+        );
+
+        let (det_ctx, _) =
+            DetectorContext::build(&graph, &[], None, std::path::Path::new("/repo"));
+
+        let ctx = AnalysisContext {
+            graph: &graph,
+            files: Arc::new(FileIndex::new(vec![])),
+            functions: Arc::new(std::collections::HashMap::new()),
+            taint: Arc::new(CentralizedTaintResults {
+                cross_function: std::collections::HashMap::new(),
+                intra_function: std::collections::HashMap::new(),
+            }),
+            detector_ctx: Arc::new(det_ctx),
+            hmm_classifications: Arc::new(hmm),
+            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+        };
+
+        let detector = LazyClassDetector::new();
+        let findings = detector.detect_inner(&graph, Some(&ctx)).expect("should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Class with all handler methods should NOT be flagged as lazy, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }
