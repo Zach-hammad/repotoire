@@ -28,6 +28,28 @@ static SQL_EVIDENCE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("valid regex")
 });
 
+/// Known SQL execution method names.
+/// A call must use one of these as its method/function name to be considered
+/// a raw SQL execution. This prevents false positives from calls like
+/// `Regex::new(r"SELECT...")` where "new" is not a SQL method.
+const SQL_EXEC_METHODS: &[&str] = &[
+    "execute",
+    "executemany",
+    "executescript",
+    "exec",
+    "query",
+    "query_row",
+    "query_as",
+    "prepare",
+    "raw",
+    "run_sql",
+    "execute_sql",
+    "fetch_one",
+    "fetch_all",
+    "fetch_optional",
+    "mogrify",
+];
+
 pub struct NPlusOneDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
@@ -197,8 +219,135 @@ impl NPlusOneDetector {
     }
 
     /// Check if text contains SQL string evidence (framework-independent).
+    /// Used by the ecosystem gate for project-level SQL detection.
+    #[cfg(test)]
     fn has_sql_evidence(text: &str) -> bool {
         SQL_EVIDENCE.is_match(text)
+    }
+
+    /// Check if a call node represents a raw SQL execution using AST structure.
+    ///
+    /// Extracts the METHOD NAME from the call expression AST node and verifies:
+    /// 1. The method name is a known SQL execution function (execute, query, etc.)
+    /// 2. A string argument contains SQL keywords (SELECT, INSERT, etc.)
+    ///
+    /// This replaces the old `has_sql_evidence(call_text)` which checked the
+    /// entire call expression text, causing false positives on calls like
+    /// `Regex::new(r"SELECT\s+.*FROM")` where "SELECT" appears in a regex pattern.
+    fn is_raw_sql_execution(node: Node, source: &str, lang: Language) -> bool {
+        let method_name = match Self::extract_callee_method(node, source, lang) {
+            Some(name) => name,
+            None => return false,
+        };
+
+        let lower = method_name.to_lowercase();
+        if !SQL_EXEC_METHODS.iter().any(|m| lower == *m) {
+            return false;
+        }
+
+        // Method name matches a SQL function — verify a string argument contains SQL
+        Self::has_sql_in_string_args(node, source)
+    }
+
+    /// Extract the terminal method/function name from a call expression AST node.
+    ///
+    /// Handles language-specific callee structures:
+    /// - Python `call` → `function` (attribute) → `attribute` field
+    /// - JS/TS `call_expression` → `function` (member_expression) → `property` field
+    /// - Java `method_invocation` → `name` field
+    /// - Rust `method_call_expression` → `name` field / `call_expression` → `function`
+    /// - Go `call_expression` → `function` (selector_expression) → `field`
+    fn extract_callee_method<'a>(
+        node: Node<'a>,
+        source: &'a str,
+        lang: Language,
+    ) -> Option<&'a str> {
+        match lang {
+            Language::Java => {
+                let name_node = node.child_by_field_name("name")?;
+                Some(&source[name_node.start_byte()..name_node.end_byte()])
+            }
+            Language::Rust => {
+                if node.kind() == "method_call_expression" {
+                    let name_node = node.child_by_field_name("name")?;
+                    Some(&source[name_node.start_byte()..name_node.end_byte()])
+                } else {
+                    let func = node.child_by_field_name("function")?;
+                    if func.kind() == "field_expression" {
+                        let field = func.child_by_field_name("field")?;
+                        Some(&source[field.start_byte()..field.end_byte()])
+                    } else {
+                        Some(&source[func.start_byte()..func.end_byte()])
+                    }
+                }
+            }
+            Language::Python => {
+                let func = node.child_by_field_name("function")?;
+                if func.kind() == "attribute" {
+                    let attr = func.child_by_field_name("attribute")?;
+                    Some(&source[attr.start_byte()..attr.end_byte()])
+                } else {
+                    Some(&source[func.start_byte()..func.end_byte()])
+                }
+            }
+            Language::Go => {
+                let func = node.child_by_field_name("function")?;
+                if func.kind() == "selector_expression" {
+                    let field = func.child_by_field_name("field")?;
+                    Some(&source[field.start_byte()..field.end_byte()])
+                } else {
+                    Some(&source[func.start_byte()..func.end_byte()])
+                }
+            }
+            _ => {
+                // JS/TS/C#: call_expression → function (member_expression) → property
+                let func = node.child_by_field_name("function")?;
+                if func.kind() == "member_expression" {
+                    let prop = func.child_by_field_name("property")?;
+                    Some(&source[prop.start_byte()..prop.end_byte()])
+                } else {
+                    Some(&source[func.start_byte()..func.end_byte()])
+                }
+            }
+        }
+    }
+
+    /// Check if a node is a string literal in any supported language.
+    fn is_string_literal(kind: &str) -> bool {
+        matches!(
+            kind,
+            "string"
+                | "string_literal"
+                | "raw_string_literal"
+                | "template_string"
+                | "concatenated_string"
+                | "interpreted_string_literal"
+                | "verbatim_string_literal"
+        )
+    }
+
+    /// Check if a call node has string arguments containing SQL patterns.
+    fn has_sql_in_string_args(node: Node, source: &str) -> bool {
+        let args = match node.child_by_field_name("arguments") {
+            Some(a) => a,
+            None => return false,
+        };
+        Self::find_sql_strings_in_subtree(args, source)
+    }
+
+    /// Recursively search a subtree for string literal nodes containing SQL.
+    fn find_sql_strings_in_subtree(node: Node, source: &str) -> bool {
+        if Self::is_string_literal(node.kind()) {
+            let text = &source[node.start_byte()..node.end_byte()];
+            return SQL_EVIDENCE.is_match(text);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::find_sql_strings_in_subtree(child, source) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Check if an AST node kind is a loop construct.
@@ -365,7 +514,7 @@ impl NPlusOneDetector {
         if in_loop && Self::is_call_node(kind, lang) {
             let call_text = &source[node.start_byte()..node.end_byte()];
             let is_query =
-                Self::is_db_query_call(call_text, frameworks) || Self::has_sql_evidence(call_text);
+                Self::is_db_query_call(call_text, frameworks) || Self::is_raw_sql_execution(node, source, lang);
 
             if is_query {
                 let line = node.start_position().row as u32 + 1;
@@ -454,7 +603,7 @@ impl NPlusOneDetector {
         if Self::is_call_node(kind, lang) {
             let call_text = &source[node.start_byte()..node.end_byte()];
             let is_query =
-                Self::is_db_query_call(call_text, frameworks) || Self::has_sql_evidence(call_text);
+                Self::is_db_query_call(call_text, frameworks) || Self::is_raw_sql_execution(node, source, lang);
 
             if is_query {
                 let line = node.start_position().row as u32 + 1;
@@ -711,6 +860,11 @@ impl Detector for NPlusOneDetector {
                 .by_extensions(sql_exts)
                 .iter()
                 .take(500)
+                .filter(|entry| {
+                    let p = entry.path.to_string_lossy();
+                    !crate::detectors::base::is_test_path(&p)
+                        && !crate::detectors::content_classifier::is_non_production_path(&p)
+                })
                 .any(|entry| SQL_EVIDENCE.is_match(&entry.content))
         } else {
             false
@@ -722,9 +876,7 @@ impl Detector for NPlusOneDetector {
         }
 
         // Phase 1+2: Per-file AST analysis
-        let extensions = &[
-            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "cs",
-        ];
+        let extensions = self.file_extensions();
         let mut findings = Vec::new();
         let mut all_query_func_qns: HashSet<String> = HashSet::new();
 
