@@ -53,7 +53,7 @@ pub struct FunctionFingerprints {
 // ---------------------------------------------------------------------------
 
 /// Get the tree-sitter language grammar for a [`Language`] enum value.
-fn get_ts_language(lang: Language) -> Option<tree_sitter::Language> {
+pub(crate) fn get_ts_language(lang: Language) -> Option<tree_sitter::Language> {
     match lang {
         Language::Python => Some(tree_sitter_python::LANGUAGE.into()),
         Language::JavaScript => Some(tree_sitter_javascript::LANGUAGE.into()),
@@ -85,7 +85,7 @@ thread_local! {
 }
 
 /// Helper: parse `content` with tree-sitter, reusing a thread-local parser.
-fn parse_root(content: &str, lang: Language) -> Option<tree_sitter::Tree> {
+pub(crate) fn parse_root(content: &str, lang: Language) -> Option<tree_sitter::Tree> {
     let lang_key = lang as u8;
     TS_PARSER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();

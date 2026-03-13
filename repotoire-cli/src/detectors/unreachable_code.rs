@@ -1,17 +1,24 @@
 //! Unreachable Code Detector
 //!
 //! Detects code after return/throw/raise/break/continue statements using
-//! scope-aware brace-depth analysis. Tracks brace depth through function
-//! bodies and only flags code at the SAME or DEEPER scope level after a
-//! terminating statement.
+//! tree-sitter AST analysis. Walks block nodes in the parse tree and flags
+//! sibling statements that appear after terminating nodes.
+//!
+//! This approach is correct by construction:
+//! - String literals are leaf nodes — never contain "sibling statements"
+//! - Multi-line expressions are single AST nodes — no false sibling detection
+//! - Method chains are part of the same expression — not separate statements
 //!
 //! Dead function detection (fan_in == 0) is handled by DeadCodeDetector.
 
 use crate::detectors::analysis_context::AnalysisContext;
+use crate::detectors::ast_fingerprint::{get_ts_language, parse_root};
 use crate::detectors::base::Detector;
 use crate::models::{Finding, Severity};
+use crate::parsers::lightweight::Language;
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tree_sitter::Node;
 
 pub struct UnreachableCodeDetector {
     max_findings: usize,
@@ -22,11 +29,10 @@ impl UnreachableCodeDetector {
         Self { max_findings: 50 }
     }
 
+    // ── Conditional compilation helpers (kept for exemptions + tests) ──
+
     /// Rust conditional compilation attributes that mean a function is only compiled
     /// under certain conditions (cfg, test, bench, etc.) -- not truly unreachable.
-    ///
-    /// Used by conditional compilation exemption logic (tested, kept for future
-    /// integration with scope-aware analysis).
     #[allow(dead_code)]
     const RUST_CONDITIONAL_ATTRS: &'static [&'static str] = &[
         "cfg(",
@@ -68,23 +74,14 @@ impl UnreachableCodeDetector {
     /// the source file content around the function definition.
     ///
     /// Handles:
-    /// - **Rust**: `#[cfg(test)] mod tests { ... }` blocks -- checks if function's
-    ///   qualified name contains a cfg(test) module segment.
-    /// - **C/C++**: `#ifdef`, `#ifndef`, `#if` preprocessor guards surrounding
-    ///   the function definition.
-    /// - **Python**: `if __name__` guards that wrap function definitions.
+    /// - **Rust**: `#[cfg(test)] mod tests { ... }` blocks
+    /// - **C/C++**: `#ifdef`, `#ifndef`, `#if` preprocessor guards
+    /// - **Python**: `if __name__` guards
     #[allow(dead_code)]
-    fn is_in_conditional_block(
-        file_path: &str,
-        func_line_start: u32,
-        content: &str,
-    ) -> bool {
-        // --- Rust: check for #[cfg(test)] mod block ---
+    fn is_in_conditional_block(file_path: &str, func_line_start: u32, content: &str) -> bool {
         if file_path.ends_with(".rs") {
             return Self::is_in_rust_cfg_module(func_line_start, content);
         }
-
-        // --- C/C++: check for preprocessor guards ---
         if file_path.ends_with(".c")
             || file_path.ends_with(".cpp")
             || file_path.ends_with(".cc")
@@ -94,20 +91,13 @@ impl UnreachableCodeDetector {
         {
             return Self::is_in_preprocessor_guard(func_line_start, content);
         }
-
-        // --- Python: check for if __name__ guard ---
         if file_path.ends_with(".py") {
             return Self::is_in_python_name_guard(func_line_start, content);
         }
-
         false
     }
 
     /// Check if a Rust function is inside a `#[cfg(...)]` module block.
-    ///
-    /// Scans backward from the function's line to find `mod` declarations
-    /// preceded by `#[cfg(...)]` attributes. If found and the function is
-    /// within the module's brace-delimited scope, returns true.
     #[allow(dead_code)]
     fn is_in_rust_cfg_module(func_line_start: u32, content: &str) -> bool {
         let lines: Vec<&str> = content.lines().collect();
@@ -117,19 +107,11 @@ impl UnreachableCodeDetector {
             return false;
         }
 
-        // Scan backward from the function to find a `mod` declaration with #[cfg(...)]
         let mut i = func_idx;
-
-        // Scan backward to find a mod with #[cfg(...)] that encloses us.
         while i > 0 {
             i -= 1;
             let line = lines[i].trim();
-
-            // Look for `mod <name> {` pattern
-            if (line.starts_with("mod ") || line.starts_with("pub mod "))
-                && line.contains('{')
-            {
-                // Check preceding lines for #[cfg(...)] attribute
+            if (line.starts_with("mod ") || line.starts_with("pub mod ")) && line.contains('{') {
                 let mut attr_line = i;
                 while attr_line > 0 {
                     attr_line -= 1;
@@ -137,36 +119,27 @@ impl UnreachableCodeDetector {
                     if prev.starts_with("#[cfg(") || prev.starts_with("#[cfg_attr(") {
                         return true;
                     }
-                    // Skip comments and other attributes
-                    if prev.starts_with("#[") || prev.starts_with("//") || prev.is_empty()
-                    {
+                    if prev.starts_with("#[") || prev.starts_with("//") || prev.is_empty() {
                         continue;
                     }
                     break;
                 }
             }
         }
-
         false
     }
 
     /// Check if a C/C++ function is inside a preprocessor conditional block.
-    ///
-    /// Tracks `#ifdef`/`#ifndef`/`#if` and `#endif` directives to determine
-    /// if the function at `func_line_start` is within a conditional region.
     #[allow(dead_code)]
     fn is_in_preprocessor_guard(func_line_start: u32, content: &str) -> bool {
         let lines: Vec<&str> = content.lines().collect();
         let func_idx = (func_line_start as usize).saturating_sub(1);
-
-        // Track preprocessor nesting: stack of (#if/#ifdef/#ifndef line index)
         let mut pp_stack: Vec<usize> = Vec::new();
 
         for (line_idx, line) in lines.iter().enumerate() {
             if line_idx >= func_idx {
                 break;
             }
-
             let trimmed = line.trim();
             if trimmed.starts_with("#ifdef")
                 || trimmed.starts_with("#ifndef")
@@ -176,21 +149,12 @@ impl UnreachableCodeDetector {
                 pp_stack.push(line_idx);
             } else if trimmed.starts_with("#endif") {
                 pp_stack.pop();
-            } else if trimmed.starts_with("#else") || trimmed.starts_with("#elif") {
-                // Still inside the same conditional block -- keep the stack entry
             }
         }
-
-        // If the preprocessor stack is non-empty at the function's line,
-        // the function is inside a conditional compilation block.
         !pp_stack.is_empty()
     }
 
     /// Check if a Python function is inside an `if __name__ == "__main__":` guard.
-    ///
-    /// Scans backward from the function line to find an `if __name__` block
-    /// at column 0 (top-level guard) and checks that the function is indented
-    /// inside it.
     #[allow(dead_code)]
     fn is_in_python_name_guard(func_line_start: u32, content: &str) -> bool {
         let lines: Vec<&str> = content.lines().collect();
@@ -201,212 +165,239 @@ impl UnreachableCodeDetector {
         }
 
         let func_indent = lines[func_idx].len() - lines[func_idx].trim_start().len();
-
-        // The function must be indented (inside a block)
         if func_indent == 0 {
             return false;
         }
 
-        // Scan backward to find `if __name__` at a lower indent level
         for i in (0..func_idx).rev() {
             let line = lines[i];
             let trimmed = line.trim();
             if trimmed.is_empty() || trimmed.starts_with('#') {
                 continue;
             }
-
             let indent = line.len() - trimmed.len();
-
-            // Found a line at lower or equal indent -- check if it's the __name__ guard
             if indent < func_indent {
-                if trimmed.starts_with("if __name__")
-                    || trimmed.starts_with("if  __name__")
-                {
+                if trimmed.starts_with("if __name__") || trimmed.starts_with("if  __name__") {
                     return true;
                 }
-                // If we found a different block at a lower indent, stop
                 break;
             }
         }
-
         false
     }
 
-    // ── Scope-aware code-after-return detection ─────────────────────────
+    // ── AST-based unreachable code detection ──────────────────────────
 
-    /// Returns true if `line` is a terminating statement (return, throw, raise,
-    /// break, continue, exit).
-    fn is_terminating_statement(trimmed: &str) -> bool {
-        trimmed.starts_with("return ")
-            || trimmed.starts_with("return;")
-            || trimmed == "return"
-            || trimmed.starts_with("throw ")
-            || trimmed.starts_with("throw;")
-            || trimmed.starts_with("raise ")
-            || trimmed == "raise"
-            || trimmed.starts_with("exit(")
-            || trimmed.starts_with("sys.exit")
-            || trimmed.starts_with("process.exit")
-            || trimmed.starts_with("break;")
-            || trimmed == "break"
-            || trimmed.starts_with("continue;")
-            || trimmed == "continue"
-    }
-
-    /// Returns true if `trimmed` is a line that should be skipped when
-    /// checking for unreachable code (comments, empty, control-flow
-    /// continuations like else/catch/finally, labels, etc.).
-    fn is_skip_line(trimmed: &str) -> bool {
-        trimmed.is_empty()
-            || trimmed.starts_with("//")
-            || trimmed.starts_with('#')
-            || trimmed.starts_with("/*")
-            || trimmed.starts_with('*')
-            || trimmed.starts_with("else")
-            || trimmed.starts_with("elif")
-            || trimmed.starts_with("except")
-            || trimmed.starts_with("catch")
-            || trimmed.starts_with("finally")
-            || trimmed.starts_with("case ")
-            || trimmed.starts_with("default:")
-            || trimmed.starts_with("default ")
-    }
-
-    /// Compute brace-depth delta and minimum intermediate depth for a line.
+    /// Detect code after return/throw/raise/break/continue using tree-sitter AST.
     ///
-    /// Returns `(net_delta, min_delta)` where:
-    /// - `net_delta` is the total change in brace depth after the whole line
-    /// - `min_delta` is the lowest intermediate delta (e.g., for `} else {`,
-    ///   min_delta is -1 because the `}` closes a scope before `{` opens one)
-    ///
-    /// Characters inside string literals and comments are not special-cased
-    /// for simplicity; this is a heuristic that works well in practice.
-    fn brace_delta(line: &str) -> (i32, i32) {
-        let mut delta = 0i32;
-        let mut min_delta = 0i32;
-        for ch in line.chars() {
-            match ch {
-                '{' => delta += 1,
-                '}' => {
-                    delta -= 1;
-                    min_delta = min_delta.min(delta);
-                }
-                _ => {}
-            }
-        }
-        (delta, min_delta)
-    }
-
-    /// Scope-aware detection of code after return/throw/raise/break/continue.
-    ///
-    /// Iterates through lines of each file, tracking brace depth. When a
-    /// terminating statement is found at scope level N, the next non-empty,
-    /// non-comment line at the SAME or DEEPER scope level is flagged as
-    /// unreachable. Lines at a LOWER scope level (closing braces, else
-    /// branches) are legitimate and are not flagged.
+    /// For each file, parses with tree-sitter and walks block nodes looking for
+    /// sibling statements after terminating nodes.
     fn find_code_after_return(&self, ctx: &AnalysisContext<'_>) -> Vec<Finding> {
+        let extensions = &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ];
         let mut findings = Vec::new();
-        let extensions = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rb", "php", "rs", "c", "cpp", "cs"];
 
         for entry in ctx.files.by_extensions(extensions) {
             if findings.len() >= self.max_findings {
                 break;
             }
 
-            let content: &str = &entry.content;
-            let lines: Vec<&str> = content.lines().collect();
-            let mut brace_depth: i32 = 0;
-            // State: after seeing a terminating statement, store its brace depth
-            let mut after_return: Option<i32> = None;
+            let ext = entry
+                .path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let lang = Language::from_extension(ext);
 
-            for (line_idx, &line) in lines.iter().enumerate() {
-                let trimmed = line.trim();
-                let (net_delta, min_delta) = Self::brace_delta(line);
+            // Skip languages without tree-sitter support
+            if get_ts_language(lang).is_none() {
+                continue;
+            }
 
-                // If we are looking for unreachable code after a return...
-                if let Some(return_depth) = after_return {
-                    // The minimum depth this line reaches (before any re-opening)
-                    let min_depth = brace_depth + min_delta;
+            let tree = match parse_root(&entry.content, lang) {
+                Some(t) => t,
+                None => continue,
+            };
 
-                    // Skip blank/comment lines -- they don't count as unreachable
-                    if Self::is_skip_line(trimmed) {
-                        brace_depth += net_delta;
-                        // If depth drops below the return depth, we left the scope
-                        if min_depth < return_depth {
-                            after_return = None;
-                        }
-                        continue;
-                    }
+            self.walk_for_unreachable(
+                tree.root_node(),
+                &entry.content,
+                &entry.path,
+                lang,
+                ctx,
+                &mut findings,
+            );
+        }
+        findings
+    }
 
-                    // If this line touches a lower scope (e.g., `}`, `} else {`, `} catch {`),
-                    // the return's scope has closed -- code on the other side is reachable.
-                    if min_depth < return_depth {
-                        brace_depth += net_delta;
-                        after_return = None;
-                        continue;
-                    }
+    /// Recursively walk AST nodes, checking block containers for post-terminator siblings.
+    fn walk_for_unreachable(
+        &self,
+        node: Node,
+        source: &str,
+        file_path: &Path,
+        lang: Language,
+        ctx: &AnalysisContext<'_>,
+        findings: &mut Vec<Finding>,
+    ) {
+        if findings.len() >= self.max_findings {
+            return;
+        }
 
-                    // If the line starts with `}` at the same depth, it's just
-                    // closing the return's scope -- not unreachable code.
-                    if trimmed.starts_with('}') {
-                        brace_depth += net_delta;
-                        if brace_depth < return_depth {
-                            after_return = None;
-                        }
-                        continue;
-                    }
+        if Self::is_block_node(node.kind(), lang) {
+            self.check_block(node, source, file_path, lang, ctx, findings);
+        }
 
-                    // At the same or deeper scope -- this code is unreachable
-                    findings.push(Finding {
-                        id: String::new(),
-                        detector: "UnreachableCodeDetector".to_string(),
-                        severity: Severity::Medium,
-                        title: "Unreachable code after return".to_string(),
-                        description: format!(
-                            "Code after return/throw/exit will never execute:\n```\n{}\n```",
-                            trimmed,
-                        ),
-                        affected_files: vec![entry.path.clone()],
-                        line_start: Some((line_idx + 1) as u32),
-                        line_end: Some((line_idx + 1) as u32),
-                        suggested_fix: Some(
-                            "Remove unreachable code or fix control flow logic.".to_string(),
-                        ),
-                        estimated_effort: Some("10 minutes".to_string()),
-                        category: Some("dead-code".to_string()),
-                        cwe_id: Some("CWE-561".to_string()),
-                        why_it_matters: Some(
-                            "Unreachable code indicates logic errors and adds confusion."
-                                .to_string(),
-                        ),
-                        ..Default::default()
-                    });
+        // Recurse into all named children
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            self.walk_for_unreachable(child, source, file_path, lang, ctx, findings);
+        }
+    }
 
-                    // Only flag the first unreachable line per return site
-                    brace_depth += net_delta;
-                    after_return = None;
+    /// Check a block node for unreachable statements after terminators.
+    ///
+    /// Iterates direct named children of a block in order. When a child IS
+    /// or CONTAINS a terminating node, the next sibling statement is flagged
+    /// as unreachable (first one only per terminator).
+    fn check_block(
+        &self,
+        block: Node,
+        source: &str,
+        file_path: &Path,
+        lang: Language,
+        ctx: &AnalysisContext<'_>,
+        findings: &mut Vec<Finding>,
+    ) {
+        let mut saw_terminator = false;
+        let mut cursor = block.walk();
+
+        for child in block.named_children(&mut cursor) {
+            if saw_terminator {
+                let line = child.start_position().row as u32 + 1;
+
+                // Apply graph-based exemptions (test functions, conditional compilation)
+                if self.should_exempt(ctx, file_path, line) {
+                    saw_terminator = false;
                     continue;
                 }
 
-                // Normal flow: update depth and check for terminating statements
-                brace_depth += net_delta;
+                let text = &source[child.start_byte()..child.end_byte()];
+                let first_line = text.lines().next().unwrap_or("").trim();
 
-                if Self::is_terminating_statement(trimmed) {
-                    // Skip conditional returns: `if (x) return;` or ternary `x ? return : ...`
-                    if trimmed.contains("if ") || trimmed.contains("if(") || trimmed.contains('?') {
-                        continue;
-                    }
-                    // Skip multi-line statements (trailing comma/paren)
-                    if trimmed.ends_with(',') || trimmed.ends_with('(') {
-                        continue;
-                    }
-                    // Record that we just saw a terminating statement at this depth
-                    after_return = Some(brace_depth);
+                findings.push(Finding {
+                    id: String::new(),
+                    detector: "UnreachableCodeDetector".to_string(),
+                    severity: Severity::Medium,
+                    title: "Unreachable code after return".to_string(),
+                    description: format!(
+                        "Code after return/throw/exit will never execute:\n```\n{}\n```",
+                        first_line,
+                    ),
+                    affected_files: vec![file_path.to_path_buf()],
+                    line_start: Some(line),
+                    line_end: Some(child.end_position().row as u32 + 1),
+                    suggested_fix: Some(
+                        "Remove unreachable code or fix control flow logic.".to_string(),
+                    ),
+                    estimated_effort: Some("10 minutes".to_string()),
+                    category: Some("dead-code".to_string()),
+                    cwe_id: Some("CWE-561".to_string()),
+                    why_it_matters: Some(
+                        "Unreachable code indicates logic errors and adds confusion.".to_string(),
+                    ),
+                    ..Default::default()
+                });
+
+                // Only flag first unreachable statement per terminator
+                saw_terminator = false;
+                continue;
+            }
+
+            if Self::is_terminating_node(child, lang) {
+                saw_terminator = true;
+            }
+        }
+    }
+
+    /// Check if a node kind represents a block container in the given language.
+    ///
+    /// Go uses `block → statement_list → statements`, so we also match
+    /// `statement_list` for Go to find the actual statement siblings.
+    fn is_block_node(kind: &str, lang: Language) -> bool {
+        match lang {
+            Language::C | Language::Cpp => kind == "compound_statement",
+            Language::JavaScript | Language::TypeScript => kind == "statement_block",
+            Language::Go => kind == "block" || kind == "statement_list",
+            _ => kind == "block",
+        }
+    }
+
+    /// Check if a node is a terminating statement (possibly wrapped in expression_statement).
+    fn is_terminating_node(node: Node, lang: Language) -> bool {
+        let kind = node.kind();
+        if Self::is_terminator_kind(kind, lang) {
+            return true;
+        }
+        // Some grammars (e.g. Rust) wrap terminators in expression_statement
+        if kind == "expression_statement" {
+            if let Some(child) = node.named_child(0) {
+                return Self::is_terminator_kind(child.kind(), lang);
+            }
+        }
+        false
+    }
+
+    /// Check if a node kind is a terminator for the given language.
+    fn is_terminator_kind(kind: &str, lang: Language) -> bool {
+        match lang {
+            Language::Rust => matches!(
+                kind,
+                "return_expression" | "break_expression" | "continue_expression"
+            ),
+            Language::Python => matches!(
+                kind,
+                "return_statement"
+                    | "raise_statement"
+                    | "break_statement"
+                    | "continue_statement"
+            ),
+            _ => matches!(
+                kind,
+                "return_statement"
+                    | "throw_statement"
+                    | "break_statement"
+                    | "continue_statement"
+            ),
+        }
+    }
+
+    /// Check if a finding should be exempt based on graph context.
+    ///
+    /// Exempts:
+    /// - Test functions (via `is_test_function`)
+    /// - Conditionally compiled functions (Rust `#[cfg(...)]`, `#[test]`, `#[bench]`)
+    fn should_exempt(&self, ctx: &AnalysisContext<'_>, file_path: &Path, line: u32) -> bool {
+        let path_str = file_path.to_string_lossy();
+        if let Some(func) = ctx.graph.find_function_at(&path_str, line) {
+            let i = ctx.graph.interner();
+            let qn = func.qn(i);
+
+            // Skip test functions
+            if ctx.is_test_function(qn) {
+                return true;
+            }
+
+            // Skip conditionally compiled (Rust #[cfg(...)], #[test], #[bench])
+            for d in ctx.decorators(qn) {
+                if d.starts_with("cfg(") || d == "test" || d == "bench" {
+                    return true;
                 }
             }
         }
-
-        findings
+        false
     }
 }
 
@@ -439,18 +430,14 @@ impl Detector for UnreachableCodeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
     use crate::graph::store_models::ExtraProps;
+    use crate::graph::{CodeEdge, CodeNode, GraphStore};
 
     // ── Verify no dead function findings ─────────────────────────────────
 
     #[test]
     fn test_no_dead_function_findings() {
-        // The UnreachableCodeDetector should produce NO "Dead function" findings.
-        // Dead function detection is now DeadCodeDetector's responsibility.
         let graph = GraphStore::in_memory();
-
-        // Add a dead function (no callers) -- should NOT be flagged
         graph.add_node(
             CodeNode::function("dead_func", "src/utils.py")
                 .with_qualified_name("utils::dead_func")
@@ -458,17 +445,19 @@ mod tests {
         );
 
         let detector = UnreachableCodeDetector::new(".");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx =
+            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
         let findings = detector.detect(&ctx).unwrap();
-
-        assert!(findings.is_empty(), "UnreachableCodeDetector should not produce dead function findings");
+        assert!(
+            findings.is_empty(),
+            "UnreachableCodeDetector should not produce dead function findings"
+        );
     }
 
-    // ── Scope-aware code-after-return tests ──────────────────────────────
+    // ── AST-based code-after-return tests ────────────────────────────────
 
     #[test]
     fn test_code_after_return_same_scope() {
-        // Code at the same brace depth after return should be flagged.
         let code = "\
 function foo() {
     return 1;
@@ -484,7 +473,6 @@ function foo() {
 
     #[test]
     fn test_code_in_different_branch_not_flagged() {
-        // Code in an else branch after a return in the if branch is fine.
         let code = "\
 function foo(x) {
     if (x) {
@@ -497,13 +485,18 @@ function foo(x) {
         let detector = UnreachableCodeDetector::new(".");
         let ctx = make_test_ctx_with_file("app.js", code);
         let findings = detector.find_code_after_return(&ctx);
-        assert!(findings.is_empty(), "else branch after return is NOT unreachable, got: {:?}",
-            findings.iter().map(|f| &f.description).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "else branch after return is NOT unreachable, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn test_closing_brace_after_return_not_flagged() {
-        // Closing brace after return is normal scope closure, not unreachable.
         let code = "\
 function foo() {
     return 1;
@@ -512,7 +505,10 @@ function foo() {
         let detector = UnreachableCodeDetector::new(".");
         let ctx = make_test_ctx_with_file("app.js", code);
         let findings = detector.find_code_after_return(&ctx);
-        assert!(findings.is_empty(), "closing brace after return should not be flagged");
+        assert!(
+            findings.is_empty(),
+            "closing brace after return should not be flagged"
+        );
     }
 
     #[test]
@@ -544,7 +540,6 @@ def foo():
 
     #[test]
     fn test_nested_scope_return_does_not_flag_outer() {
-        // Return inside a nested if block should not flag code in the outer scope.
         let code = "\
 function foo(x) {
     if (x > 0) {
@@ -557,13 +552,20 @@ function foo(x) {
         let detector = UnreachableCodeDetector::new(".");
         let ctx = make_test_ctx_with_file("app.js", code);
         let findings = detector.find_code_after_return(&ctx);
-        assert!(findings.is_empty(), "code after if-return at outer scope is reachable, got: {:?}",
-            findings.iter().map(|f| &f.description).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "code after if-return at outer scope is reachable, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn test_conditional_return_not_flagged() {
-        // return inside an if-condition on the same line should be skipped.
+        // `if (x) return null;` — the return is inside an if_statement, not a
+        // direct child of the function block, so it does not trigger unreachable.
         let code = "\
 function foo(x) {
     if (x) return null;
@@ -573,7 +575,10 @@ function foo(x) {
         let detector = UnreachableCodeDetector::new(".");
         let ctx = make_test_ctx_with_file("app.js", code);
         let findings = detector.find_code_after_return(&ctx);
-        assert!(findings.is_empty(), "conditional return (if ... return) should not flag next line");
+        assert!(
+            findings.is_empty(),
+            "conditional return (if ... return) should not flag next line"
+        );
     }
 
     #[test]
@@ -592,6 +597,193 @@ function foo() {
         assert_eq!(findings.len(), 1, "should flag doSomething() after break");
     }
 
+    // ── AST FP prevention tests (new) ───────────────────────────────────
+
+    #[test]
+    fn test_no_fp_return_in_string_literal() {
+        // String containing "return" should NOT trigger unreachable code detection.
+        // AST parsing sees this as a string_literal leaf node, not a return statement.
+        let code = r#"
+fn foo() -> String {
+    let msg = "return value is here";
+    msg.to_string()
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("lib.rs", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "return inside string literal should not be flagged, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_fp_return_in_raw_string_literal() {
+        // Rust raw string with "return" keyword — was a major FP source.
+        let code = r##"
+fn foo() -> &'static str {
+    let s = r#"
+        return something;
+        more code here;
+    "#;
+    s
+}
+"##;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("lib.rs", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "return inside raw string should not be flagged, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_fp_multiline_return_expression() {
+        // Multi-line return expression — the entire expression is a single AST node.
+        let code = r#"
+fn foo() -> Result<(), Error> {
+    return Err(MyError {
+        code: 42,
+        message: "failed",
+    });
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("lib.rs", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "multi-line return should not flag continuation lines, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_fp_method_chain_after_return() {
+        // Method chain on return value — tree-sitter sees this as one expression.
+        let code = "\
+function foo() {
+    return items
+        .filter(x => x > 0)
+        .map(x => x * 2)
+        .reduce((a, b) => a + b, 0);
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "method chain continuation should not be flagged, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_rust_return_with_match() {
+        // `return match x { ... }` is a single expression spanning multiple lines.
+        let code = r#"
+fn foo(x: i32) -> &'static str {
+    return match x {
+        0 => "zero",
+        1 => "one",
+        _ => "other",
+    };
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("lib.rs", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "return match should not flag match arms, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_python_return_in_docstring() {
+        // Python docstring containing "return" should not trigger.
+        let code = r#"
+def foo():
+    """This function will return a value.
+
+    Returns:
+        The return value.
+    """
+    return 42
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.py", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "return in docstring should not be flagged, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_true_positive_rust_code_after_return() {
+        // Genuine unreachable code in Rust.
+        let code = r#"
+fn foo() -> i32 {
+    return 42;
+    let x = 1;
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("lib.rs", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "should flag unreachable code after return in Rust"
+        );
+    }
+
+    #[test]
+    fn test_true_positive_go_code_after_return() {
+        let code = r#"
+package main
+
+func foo() int {
+    return 42
+    x := 1
+    return x
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("main.go", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            !findings.is_empty(),
+            "should flag unreachable code after return in Go"
+        );
+    }
+
     // ── Conditional compilation exemption tests ─────────────────────────
 
     #[test]
@@ -599,13 +791,11 @@ function foo() {
         let graph = GraphStore::in_memory();
         let i = graph.interner();
 
-        // Function with #[cfg(test)] attribute
         let func = CodeNode::function("helper_in_test", "src/lib.rs")
             .with_qualified_name("lib::helper_in_test")
             .with_lines(10, 20);
         graph.add_node(func);
 
-        // Set the decorators extra prop (as the Rust parser would)
         let qn_key = i.intern("lib::helper_in_test");
         let ep = ExtraProps {
             decorators: Some(i.intern("cfg(test)")),
@@ -698,7 +888,6 @@ function foo() {
             .with_lines(1, 10);
         graph.add_node(func);
 
-        // Multiple attributes, one of which is cfg
         let qn_key = i.intern("lib::complex_func");
         let ep = ExtraProps {
             decorators: Some(i.intern("inline,cfg(target_os = \"linux\")")),
@@ -722,7 +911,6 @@ function foo() {
             .with_lines(1, 10);
         graph.add_node(func);
 
-        // Only derive and inline -- no conditional compilation
         let qn_key = i.intern("lib::normal_func");
         let ep = ExtraProps {
             decorators: Some(i.intern("inline,derive(Debug)")),
@@ -767,7 +955,6 @@ mod tests {
     }
 }
 "#;
-        // helper_for_tests is at line 9 (1-based)
         assert!(
             UnreachableCodeDetector::is_in_rust_cfg_module(9, content),
             "Function inside #[cfg(test)] mod should be in conditional block"
@@ -788,7 +975,6 @@ mod tests {
     }
 }
 "#;
-        // public_api is at line 2 (1-based)
         assert!(
             !UnreachableCodeDetector::is_in_rust_cfg_module(2, content),
             "Function OUTSIDE #[cfg(test)] mod should not be in conditional block"
@@ -805,7 +991,6 @@ mod serde_impl {
     }
 }
 "#;
-        // serialize_helper at line 4
         assert!(
             UnreachableCodeDetector::is_in_rust_cfg_module(4, content),
             "Function inside #[cfg(feature)] mod should be in conditional block"
@@ -829,7 +1014,6 @@ void debug_helper() {
 }
 #endif
 "#;
-        // debug_helper at line 9
         assert!(
             UnreachableCodeDetector::is_in_preprocessor_guard(9, content),
             "Function inside #ifdef DEBUG should be in preprocessor guard"
@@ -851,7 +1035,6 @@ void debug_helper() {
 }
 #endif
 "#;
-        // normal_func at line 4 -- not guarded
         assert!(
             !UnreachableCodeDetector::is_in_preprocessor_guard(4, content),
             "Function outside #ifdef should NOT be in preprocessor guard"
@@ -867,7 +1050,6 @@ void assert_helper() {
 }
 #endif
 "#;
-        // assert_helper at line 3
         assert!(
             UnreachableCodeDetector::is_in_preprocessor_guard(3, content),
             "Function inside #ifndef should be in preprocessor guard"
@@ -885,7 +1067,6 @@ void feature_x_linux() {
 #endif
 #endif
 "#;
-        // feature_x_linux at line 4
         assert!(
             UnreachableCodeDetector::is_in_preprocessor_guard(4, content),
             "Function inside nested #ifdef should be in preprocessor guard"
@@ -901,7 +1082,6 @@ void windows_specific() {
 }
 #endif
 "#;
-        // windows_specific at line 3
         assert!(
             UnreachableCodeDetector::is_in_preprocessor_guard(3, content),
             "Function inside #if should be in preprocessor guard"
@@ -919,7 +1099,6 @@ void after_endif() {
     // This is NOT guarded
 }
 "#;
-        // after_endif at line 6
         assert!(
             !UnreachableCodeDetector::is_in_preprocessor_guard(6, content),
             "Function after #endif should NOT be in preprocessor guard"
@@ -938,7 +1117,6 @@ if __name__ == "__main__":
     def run_main():
         public_api()
 "#;
-        // run_main at line 6
         assert!(
             UnreachableCodeDetector::is_in_python_name_guard(6, content),
             "Function inside if __name__ guard should be detected"
@@ -955,7 +1133,6 @@ if __name__ == "__main__":
     def run_main():
         public_api()
 "#;
-        // public_api at line 2 -- NOT inside the guard
         assert!(
             !UnreachableCodeDetector::is_in_python_name_guard(2, content),
             "Function outside if __name__ guard should NOT be detected"
@@ -964,13 +1141,11 @@ if __name__ == "__main__":
 
     #[test]
     fn test_python_name_guard_single_equals() {
-        // Some code uses single quotes
         let content = r#"
 if __name__ == '__main__':
     def helper():
         pass
 "#;
-        // helper at line 3
         assert!(
             UnreachableCodeDetector::is_in_python_name_guard(3, content),
             "Function inside if __name__ == '__main__' should be detected"
