@@ -106,7 +106,9 @@ impl Detector for MutableDefaultArgsDetector {
         &["py"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
 
@@ -240,10 +242,10 @@ mod tests {
     fn test_detects_mutable_default_list() {
         let store = GraphStore::in_memory();
         let detector = MutableDefaultArgsDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.py", "def collect_items(items=[]):\n    items.append(\"new\")\n    return items\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect mutable default argument []. Found: {:?}",
@@ -259,10 +261,10 @@ mod tests {
     fn test_no_finding_for_immutable_default() {
         let store = GraphStore::in_memory();
         let detector = MutableDefaultArgsDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.py", "def process(count=0, name=\"default\", flag=True):\n    return count + len(name)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag immutable defaults. Found: {:?}",

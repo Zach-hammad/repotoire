@@ -503,7 +503,8 @@ impl Detector for PickleDeserializationDetector {
         super::detector_context::ContentFlags::HAS_SERIALIZE
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         debug!("Starting pickle deserialization detection");
 
         let findings = self.scan_via_file_provider(files);

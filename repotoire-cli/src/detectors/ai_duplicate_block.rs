@@ -376,7 +376,8 @@ impl Detector for AIDuplicateBlockDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         use rayon::prelude::*;
 
         let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"];
@@ -571,7 +572,7 @@ mod tests {
         // across different files — classic Type-2 clone.
         let store = crate::graph::GraphStore::in_memory();
         let detector = AIDuplicateBlockDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             (
                 "services/user_service.py",
                 "def process_user(data):\n    result = validate(data)\n    if result is None:\n        raise ValueError('invalid')\n    output = transform(result)\n    return output\n",
@@ -581,7 +582,7 @@ mod tests {
                 "def process_order(info):\n    value = validate(info)\n    if value is None:\n        raise ValueError('invalid')\n    output = transform(value)\n    return output\n",
             ),
         ]);
-        let findings = detector.detect(&store, &files).expect("should detect duplicate blocks");
+        let findings = detector.detect(&ctx).expect("should detect duplicate blocks");
         assert!(
             !findings.is_empty(),
             "Should detect near-duplicate functions with same structure but different variable names"
@@ -600,7 +601,7 @@ mod tests {
         // Two structurally different functions — should produce no duplicates.
         let store = crate::graph::GraphStore::in_memory();
         let detector = AIDuplicateBlockDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             (
                 "auth.py",
                 "def login(username, password):\n    user = authenticate(username, password)\n    if user is None:\n        raise AuthError('Invalid credentials')\n    token = create_token(user)\n    return token\n",
@@ -610,7 +611,7 @@ mod tests {
                 "def export_csv(data, output_path):\n    with open(output_path, 'w') as f:\n        writer = csv.writer(f)\n        writer.writerow(data[0].keys())\n        for row in data:\n            writer.writerow(row.values())\n",
             ),
         ]);
-        let findings = detector.detect(&store, &files).expect("should detect different functions");
+        let findings = detector.detect(&ctx).expect("should detect different functions");
         assert!(
             findings.is_empty(),
             "Should not flag structurally different functions. Found: {:?}",

@@ -132,7 +132,9 @@ impl Detector for HardcodedTimeoutDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut occurrence_counts: HashMap<u64, usize> = HashMap::new();
 
@@ -301,10 +303,10 @@ mod tests {
         // Regex requires 4+ digit number
         let store = GraphStore::in_memory();
         let detector = HardcodedTimeoutDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("client.py", "import time\n\ndef wait_for_response():\n    time.sleep(30000)\n    return get_data()\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded timeout value. Found: {:?}",
@@ -316,10 +318,10 @@ mod tests {
     fn test_no_finding_for_no_timeout() {
         let store = GraphStore::in_memory();
         let detector = HardcodedTimeoutDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("client.py", "import os\n\nTIMEOUT = int(os.environ.get('REQUEST_TIMEOUT', '5000'))\n\ndef fetch_data():\n    return request(url, timeout=TIMEOUT)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag configurable timeout. Found: {:?}",

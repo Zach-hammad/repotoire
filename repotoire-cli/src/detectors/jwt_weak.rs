@@ -227,7 +227,9 @@ impl Detector for JwtWeakDetector {
         super::detector_context::ContentFlags::HAS_CRYPTO
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php"]) {
@@ -346,10 +348,10 @@ mod tests {
     fn test_detects_none_algorithm() {
         let store = GraphStore::in_memory();
         let detector = JwtWeakDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "import jwt\n\ndef decode_token(token):\n    payload = jwt.decode(token, algorithm=\"none\")\n    return payload\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect JWT algorithm='none'"
@@ -369,10 +371,10 @@ mod tests {
     fn test_no_finding_for_secure_jwt() {
         let store = GraphStore::in_memory();
         let detector = JwtWeakDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "import jwt\n\ndef decode_token(token, public_key):\n    payload = jwt.decode(token, public_key, algorithms=[\"RS256\"])\n    return payload\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Secure JWT with RS256 should produce no findings, but got: {:?}",

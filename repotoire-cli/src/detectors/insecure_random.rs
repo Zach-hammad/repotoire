@@ -235,7 +235,9 @@ impl Detector for InsecureRandomDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let _i = graph.interner();
         let mut findings = vec![];
 
@@ -418,10 +420,10 @@ mod tests {
     fn test_detects_insecure_random_in_security_context() {
         let store = GraphStore::in_memory();
         let detector = InsecureRandomDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "import random\n\ndef generate_token():\n    token = random.random()\n    return str(token)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect random.random() used for token generation"
@@ -437,10 +439,10 @@ mod tests {
     fn test_no_finding_for_non_security_random() {
         let store = GraphStore::in_memory();
         let detector = InsecureRandomDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("simulation.py", "import random\n\ndef roll_dice():\n    return random.randint(1, 6)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag random used in non-security context, but got: {:?}",

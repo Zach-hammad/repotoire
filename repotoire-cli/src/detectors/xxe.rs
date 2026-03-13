@@ -214,7 +214,9 @@ impl Detector for XxeDetector {
         super::detector_context::ContentFlags::HAS_SERIALIZE
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "php", "cs", "rb", "go"]) {
@@ -411,10 +413,10 @@ mod tests {
     fn test_detects_xxe_without_protection() {
         let store = GraphStore::in_memory();
         let detector = XxeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser.py", "\nfrom lxml import etree\ntree = etree.parse(xml_file)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect XML parsing without XXE protection"
@@ -426,10 +428,10 @@ mod tests {
     fn test_no_finding_with_defusedxml() {
         let store = GraphStore::in_memory();
         let detector = XxeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe_parser.py", "\nimport defusedxml.ElementTree as ET\ntree = ET.parse(xml_file)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag XML parsing with defusedxml protection, but got: {:?}",
@@ -441,10 +443,10 @@ mod tests {
     fn test_no_finding_for_import_only() {
         let store = GraphStore::in_memory();
         let detector = XxeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser.py", "from xml.dom import minidom, pulldom\nimport xml.etree.ElementTree as ET\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag import-only lines. Found: {:?}",
@@ -456,10 +458,10 @@ mod tests {
     fn test_no_finding_with_custom_defused_parser() {
         let store = GraphStore::in_memory();
         let detector = XxeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("serializer.py", "class DefusedExpatParser:\n    feature_external_ges = False\n    feature_external_pes = False\n    def reset(self):\n        raise DTDForbidden()\n\ndef deserialize(stream):\n    event_stream = pulldom.parse(stream, parser)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag XML parsing when custom defused parser exists. Found: {:?}",
@@ -471,10 +473,10 @@ mod tests {
     fn test_no_finding_for_js_static_data() {
         let store = GraphStore::in_memory();
         let detector = XxeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("globals.js", "var globals = {\n    \"DOMParser\": false,\n    \"XMLHttpRequest\": false,\n};\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag JS static data. Found: {:?}",

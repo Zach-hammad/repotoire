@@ -215,7 +215,9 @@ impl Detector for GlobalVariablesDetector {
         &["py", "js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut seen_globals: HashSet<(PathBuf, String)> = HashSet::new();
 
@@ -365,10 +367,10 @@ mod tests {
         // Python: `global counter` inside a function body triggers detection
         let store = GraphStore::in_memory();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("state.py", "counter = 0\n\ndef increment():\n    global counter\n    counter += 1\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect 'global counter' inside function"
@@ -384,10 +386,10 @@ mod tests {
     fn test_no_finding_for_global_in_docstring() {
         let store = GraphStore::in_memory();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("widgets.py", "class Widget:\n    def merge(self):\n        \"\"\"\n        global or in CSS you might want to override a style.\n        \"\"\"\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag 'global' in docstring. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -396,10 +398,10 @@ mod tests {
     fn test_dedup_same_variable_across_functions() {
         let store = GraphStore::in_memory();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("trans.py", "def func_a():\n    global _default\n    _default = get_default()\n\ndef func_b():\n    global _default\n    return _default\n\ndef func_c():\n    global _default\n    _default = None\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1, "Should deduplicate same variable across functions. Found {} findings", findings.len());
     }
 
@@ -408,10 +410,10 @@ mod tests {
         // No `global` statement, no module-level mutable var
         let store = GraphStore::in_memory();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("clean.py", "def compute(x):\n    result = x * 2\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag local variables in functions, but got: {:?}",
@@ -424,10 +426,10 @@ mod tests {
         // var app = express() — assigned once, never reassigned → should NOT be flagged
         let store = GraphStore::in_memory();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("test.js", "var app = express();\napp.get('/', handler);\napp.listen(3000);"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&ctx).unwrap();
 
         assert!(
             findings.is_empty(),
@@ -441,10 +443,10 @@ mod tests {
         // var count = 0; count++ — genuinely mutable → should be flagged
         let store = GraphStore::in_memory();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("test.js", "var count = 0;\ncount++;\nconsole.log(count);"),
         ]);
-        let findings = detector.detect(&store, &files).unwrap();
+        let findings = detector.detect(&ctx).unwrap();
 
         assert!(
             !findings.is_empty(),

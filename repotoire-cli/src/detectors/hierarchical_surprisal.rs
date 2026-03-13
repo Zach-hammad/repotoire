@@ -46,23 +46,11 @@ impl Detector for HierarchicalSurprisalDetector {
 
     fn detect(
         &self,
-        _graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
-        // This detector requires function contexts; detect_with_context is used instead.
-        Ok(vec![])
-    }
-
-    fn uses_context(&self) -> bool {
-        true
-    }
-
-    fn detect_with_context(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-        files: &dyn crate::detectors::file_provider::FileProvider,
-        contexts: &Arc<FunctionContextMap>,
-    ) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
+        let contexts = &ctx.functions;
         let i = graph.interner();
         let mut engine = PredictiveCodingEngine::new();
         engine.train_and_score(graph, files, contexts);
@@ -185,7 +173,8 @@ mod tests {
         let store = GraphStore::in_memory();
         let files = MockFileProvider::new(vec![]);
         let detector = HierarchicalSurprisalDetector::new();
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&store);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 }

@@ -147,7 +147,8 @@ impl Detector for BroadExceptionDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "cs", "rb", "go"]) {
@@ -260,10 +261,10 @@ mod tests {
     fn test_detects_bare_except() {
         let store = GraphStore::in_memory();
         let detector = BroadExceptionDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process():\n    try:\n        do_work()\n    except:\n        log(\"something failed\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect bare except:"
@@ -279,10 +280,10 @@ mod tests {
     fn test_no_finding_for_specific_exception() {
         let store = GraphStore::in_memory();
         let detector = BroadExceptionDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process():\n    try:\n        do_work()\n    except ValueError as e:\n        log(f\"bad value: {e}\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag specific except ValueError, but got: {:?}",

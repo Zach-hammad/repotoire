@@ -620,22 +620,9 @@ impl Detector for DeadCodeDetector {
         Some(&self.config)
     }
 
-    fn set_detector_context(&self, _ctx: Arc<crate::detectors::DetectorContext>) {
-        // No-op: context is now obtained from AnalysisContext
-    }
-
     fn detect(
         &self,
-        _graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
-    ) -> Result<Vec<Finding>> {
-        // Legacy detect() is a no-op — all logic is in detect_ctx().
-        Ok(Vec::new())
-    }
-
-    fn detect_ctx(
-        &self,
-        ctx: &AnalysisContext<'_>,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
         debug!("Starting dead code detection (graph flags + role-based)");
         let mut findings = Vec::new();

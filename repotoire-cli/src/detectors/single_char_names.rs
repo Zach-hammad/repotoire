@@ -152,7 +152,9 @@ impl Detector for SingleCharNamesDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let func_map = self.build_function_map(graph);
 
@@ -304,11 +306,10 @@ mod tests {
     fn test_detects_single_char_variable() {
         let store = GraphStore::in_memory();
         let detector = SingleCharNamesDetector::new("/mock/repo");
-        // Use JS syntax so the regex `\b(let|var|const|...)\s+([a-zA-Z])\s*[=:]` matches
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.js", "function process() {\n    let q = getData();\n    return q;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.to_lowercase().contains("q")),
             "Should detect single-char variable 'q'. Found: {:?}",
@@ -320,10 +321,10 @@ mod tests {
     fn test_no_finding_for_loop_index() {
         let store = GraphStore::in_memory();
         let detector = SingleCharNamesDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "for i in range(10):\n    print(i)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag loop index 'i'. Found: {:?}",

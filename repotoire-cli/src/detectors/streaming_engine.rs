@@ -101,7 +101,7 @@ impl StreamingDetectorEngine {
     pub fn run(
         &self,
         graph: &dyn crate::graph::GraphQuery,
-        files: &dyn crate::detectors::file_provider::FileProvider,
+        _files: &dyn crate::detectors::file_provider::FileProvider,
         repo_path: &Path,
         project_config: &ProjectConfig,
         skip_detectors: &[String],
@@ -152,8 +152,23 @@ impl StreamingDetectorEngine {
                         cb(detector.name(), detector_idx + 1, total_detectors);
                     }
 
+                    // Build a minimal context for this detector
+                    let det_contexts: std::sync::Arc<crate::detectors::function_context::FunctionContextMap> = std::sync::Arc::new(std::collections::HashMap::new());
+                    let stream_ctx = crate::detectors::analysis_context::AnalysisContext {
+                        graph,
+                        files: std::sync::Arc::new(crate::detectors::file_index::FileIndex::new(vec![])),
+                        functions: det_contexts,
+                        taint: std::sync::Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
+                            cross_function: std::collections::HashMap::new(),
+                            intra_function: std::collections::HashMap::new(),
+                        }),
+                        detector_ctx: std::sync::Arc::new(crate::detectors::DetectorContext::empty()),
+                        hmm_classifications: std::sync::Arc::new(std::collections::HashMap::new()),
+                        resolver: std::sync::Arc::new(crate::calibrate::ThresholdResolver::default()),
+                    };
+
                     // Run detector
-                    match detector.detect(graph, files) {
+                    match detector.detect(&stream_ctx) {
                         Ok(mut findings) => {
                             // Limit findings per detector
                             if findings.len() > self.max_findings_per_detector {

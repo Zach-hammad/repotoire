@@ -160,7 +160,9 @@ impl Detector for PrototypePollutionDetector {
 
     // No content_requirements — JS-specific, extension is the primary filter
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx"]) {
@@ -377,10 +379,10 @@ mod tests {
     fn test_detects_proto_pollution_with_user_input() {
         let store = GraphStore::in_memory();
         let detector = PrototypePollutionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "\nconst data = req.body;\nObject.assign(config, data);\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect Object.assign with user input from req.body"
@@ -392,10 +394,10 @@ mod tests {
     fn test_no_finding_without_user_input() {
         let store = GraphStore::in_memory();
         let detector = PrototypePollutionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.js", "\nconst defaults = { color: \"blue\" };\nconst merged = Object.assign({}, defaults);\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag Object.assign without user input, but got: {:?}",

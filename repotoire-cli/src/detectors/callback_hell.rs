@@ -83,7 +83,9 @@ impl Detector for CallbackHellDetector {
         &["js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx"]) {
@@ -319,10 +321,10 @@ mod tests {
     fn test_detects_deeply_nested_callbacks() {
         let store = GraphStore::in_memory();
         let detector = CallbackHellDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("nested.js", "getData(function(a) {\n  process(a, function(b) {\n    transform(b, function(c) {\n      save(c, function(d) {\n        done(d);\n      });\n    });\n  });\n});\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect deeply nested callbacks (4 levels)"
@@ -337,10 +339,10 @@ mod tests {
     fn test_no_finding_for_shallow_callbacks() {
         let store = GraphStore::in_memory();
         let detector = CallbackHellDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("shallow.js", "getData(function(a) {\n  process(a);\n});\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag shallow (1 level) callbacks, got: {:?}",
@@ -352,10 +354,10 @@ mod tests {
     fn test_no_finding_for_object_methods() {
         let store = GraphStore::in_memory();
         let detector = CallbackHellDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("admin.js", "var DateTimeShortcuts = {\n    init: function() {\n        this.setup();\n    },\n    setup: function() {\n        this.render();\n    },\n    render: function() {\n        this.draw();\n    },\n    draw: function() {\n        console.log('done');\n    }\n};\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Object methods should not be counted as callback nesting. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

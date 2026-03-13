@@ -81,7 +81,9 @@ impl Detector for DebugCodeDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut debug_per_file: HashMap<String, usize> = HashMap::new();
 
@@ -279,10 +281,10 @@ mod tests {
     fn test_detects_print_statement() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "def process(data):\n    print(data)\n    return data + 1\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect print() statement. Found: {:?}",
@@ -294,10 +296,10 @@ mod tests {
     fn test_no_finding_for_clean_code() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "import logging\n\nlogger = logging.getLogger(__name__)\n\ndef process(data):\n    logger.info(\"Processing data\")\n    return data + 1\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag proper logging. Found: {:?}",
@@ -309,10 +311,10 @@ mod tests {
     fn test_no_finding_for_debug_in_docstring() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "def run_server():\n    \"\"\"\n    Start the server.\n    Use debug = True for development.\n    The debugger provides interactive tracing.\n    \"\"\"\n    app.run()\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag debug/debugger inside docstrings. Found: {:?}",
@@ -324,10 +326,10 @@ mod tests {
     fn test_no_finding_for_debug_in_string_literal() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("cli.py", "import click\n\n@click.option(\"--debug\", is_flag=True, help=\"Enable debug mode\")\ndef main(debug):\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag debug in CLI option strings. Found: {:?}",
@@ -339,10 +341,10 @@ mod tests {
     fn test_no_finding_for_pprint() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("filters.py", "def pprint(value):\n    return str(value)\n\nresult = pprint(data)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag pprint(). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -351,10 +353,10 @@ mod tests {
     fn test_no_finding_for_verbosity_guarded_print() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("mgmt.py", "def handle(self):\n    if verbosity >= 2:\n        print(\"Processing...\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag verbosity-guarded print(). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -363,10 +365,10 @@ mod tests {
     fn test_no_finding_for_management_command_path() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("management/commands/migrate.py", "def handle(self):\n    print(\"Running migrations...\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag print() in management commands. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -375,10 +377,10 @@ mod tests {
     fn test_no_finding_for_debug_kwarg() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.template import Engine\n\nDEBUG_ENGINE = Engine(\n    debug=True,\n    libraries={},\n)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag debug=True as keyword argument. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -387,10 +389,10 @@ mod tests {
     fn test_no_finding_for_info_utility() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils/ogrinfo.py", "def ogrinfo(data_source):\n    \"\"\"Walk the available layers.\"\"\"\n    print(data_source.name)\n    print(layer.num_feat)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag print() in info utilities. Found: {:?}",
@@ -402,10 +404,10 @@ mod tests {
     fn test_no_finding_for_print_in_except_block() {
         let store = GraphStore::in_memory();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils/archive.py", "def extract(self):\n    try:\n        do_something()\n    except Exception as exc:\n        print(\"Invalid member: %s\" % exc)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag print() in except blocks. Found: {:?}",

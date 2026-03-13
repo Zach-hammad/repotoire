@@ -248,7 +248,9 @@ impl Detector for InfiniteLoopDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Lazily build name→function lookup (only if needed for exit-function analysis)
@@ -476,10 +478,10 @@ mod tests {
     fn test_detects_while_true_without_break() {
         let store = GraphStore::in_memory();
         let detector = InfiniteLoopDetector::with_path("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("processor.py", "\ndef process():\n    while True:\n        do_something()\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect while True without break"
@@ -491,10 +493,10 @@ mod tests {
     fn test_no_finding_for_while_true_with_break() {
         let store = GraphStore::in_memory();
         let detector = InfiniteLoopDetector::with_path("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("processor.py", "\ndef process():\n    while True:\n        data = get_data()\n        if data is None:\n            break\n        handle(data)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag while True that has a break, but got: {:?}",

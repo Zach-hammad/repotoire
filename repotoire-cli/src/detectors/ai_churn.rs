@@ -437,7 +437,9 @@ impl Detector for AIChurnDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let i = graph.interner();
         use crate::detectors::base::is_test_path;
         use crate::git::history::GitHistory;
@@ -668,8 +670,8 @@ mod tests {
     fn test_detect_returns_empty_without_git() {
         let store = crate::graph::GraphStore::in_memory();
         let detector = AIChurnDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &files).expect("should detect without git");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("should detect without git");
         assert!(findings.is_empty(), "Should return empty when no git repo");
     }
 

@@ -161,7 +161,8 @@ impl Detector for UnusedImportsDetector {
         super::detector_context::ContentFlags::HAS_IMPORT
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut unused_per_file: HashMap<PathBuf, Vec<(String, u32)>> = HashMap::new();
 
@@ -422,8 +423,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = UnusedImportsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag imports with # noqa suppression. Found: {:?}",
@@ -443,8 +444,8 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = UnusedImportsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag imports listed in __all__. Found: {:?}",
@@ -458,11 +459,11 @@ mod tests {
         let detector = UnusedImportsDetector::new("/mock/repo");
         // UserModel is only imported inside TYPE_CHECKING and never referenced
         // outside (only in string annotation "UserModel").
-        // The detector should skip the entire block, not just the `if` line.
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let detector = UnusedImportsDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("typed.py", "from __future__ import annotations\nfrom typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from models import UserModel\n    from services import AuthService\n\ndef greet() -> str:\n    return \"hello\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let tc_findings: Vec<_> = findings.iter()
             .filter(|f| f.title.contains("UserModel") || f.title.contains("AuthService"))
             .collect();
@@ -477,10 +478,10 @@ mod tests {
     fn test_handles_multiline_import() {
         let store = GraphStore::in_memory();
         let detector = UnusedImportsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.db.models import (\n    CharField,\n    IntegerField,\n)\n\nname = CharField(max_length=100)\nage = IntegerField()\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should handle multi-line imports (CharField and IntegerField are used). Found: {:?}",
@@ -492,10 +493,10 @@ mod tests {
     fn test_still_detects_unused_import() {
         let store = GraphStore::in_memory();
         let detector = UnusedImportsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("unused.py", "import os\nimport sys\n\nprint(sys.argv)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect unused import (os)"
@@ -506,10 +507,10 @@ mod tests {
     fn test_no_finding_for_function_scoped_import() {
         let store = GraphStore::in_memory();
         let detector = UnusedImportsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("lookups.py", "def get_prep_lookup(self):\n    from django.db.models.sql.query import Query\n    if isinstance(self.rhs, Query):\n        return self.rhs\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag function-scoped imports (used to avoid circular imports). Found: {:?}",
@@ -521,10 +522,10 @@ mod tests {
     fn test_no_finding_for_deeply_indented_import() {
         let store = GraphStore::in_memory();
         let detector = UnusedImportsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("base.py", "class DatabaseWrapper:\n    def connect(self):\n        from .psycopg_any import IsolationLevel, is_psycopg3\n        if is_psycopg3:\n            conn.isolation_level = IsolationLevel.READ_COMMITTED\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag indented imports inside methods. Found: {:?}",

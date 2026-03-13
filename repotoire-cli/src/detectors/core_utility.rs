@@ -306,7 +306,8 @@ impl Detector for CoreUtilityDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         let i = graph.interner();
         use std::collections::HashSet;
 

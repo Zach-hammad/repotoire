@@ -152,7 +152,8 @@ impl Detector for ExpressSecurityDetector {
         super::detector_context::ContentFlags::HAS_EXPRESS
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses Express
         let has_express = files.files_with_extensions(&["js", "ts"]).iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("express"))
@@ -450,10 +451,10 @@ mod tests {
     fn test_detects_missing_helmet() {
         let store = GraphStore::in_memory();
         let detector = ExpressSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.js", "const express = require('express');\nconst app = express();\n\napp.get('/api/users', (req, res) => {\n  res.json({ users: [] });\n});\n\napp.post('/api/users', (req, res) => {\n  res.json({ created: true });\n});\n\napp.listen(3000);\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(!findings.is_empty(), "Should detect security issues");
         assert!(
@@ -467,10 +468,10 @@ mod tests {
     fn test_secure_express_fewer_findings() {
         let store = GraphStore::in_memory();
         let detector = ExpressSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "const express = require('express');\nconst helmet = require('helmet');\nconst cors = require('cors');\nconst rateLimit = require('express-rate-limit');\n\nconst app = express();\napp.use(helmet());\napp.use(cors());\napp.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));\napp.use(express.json({ limit: '10kb' }));\n\napp.get('/api/data', (req, res) => {\n  res.json({ ok: true });\n});\n\napp.listen(3000);\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         // Should NOT flag helmet, cors, rate-limit, or body-parser-limit
         assert!(
@@ -491,10 +492,10 @@ mod tests {
     fn test_non_express_file_no_findings() {
         let store = GraphStore::in_memory();
         let detector = ExpressSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.js", "function add(a, b) {\n  return a + b;\n}\n\nfunction multiply(a, b) {\n  return a * b;\n}\n\nmodule.exports = { add, multiply };\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -509,12 +510,12 @@ mod tests {
         // should produce findings for both.
         let store = GraphStore::in_memory();
         let detector = ExpressSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "server.js",
             "const express = require('express');\nconst app = express();\n\napp.get('/api/users', (req, res) => res.json([]));\napp.post('/api/users', (req, res) => res.json({}));\napp.get('/api/posts', (req, res) => res.json([]));\napp.put('/api/posts/:id', (req, res) => res.json({}));\napp.delete('/api/posts/:id', (req, res) => res.json({}));\napp.get('/api/comments', (req, res) => res.json([]));\n\napp.listen(3000);\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("helmet")),
@@ -533,12 +534,12 @@ mod tests {
         // An Express app with helmet() installed should NOT produce a helmet finding.
         let store = GraphStore::in_memory();
         let detector = ExpressSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "app.js",
             "const express = require('express');\nconst helmet = require('helmet');\nconst app = express();\napp.use(helmet());\n\napp.get('/api/data', (req, res) => res.json({ ok: true }));\napp.listen(3000);\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             !findings.iter().any(|f| f.title.contains("helmet")),
@@ -553,12 +554,12 @@ mod tests {
         // so the security score includes CORS points.
         let store = GraphStore::in_memory();
         let detector = ExpressSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "app.js",
             "const express = require('express');\nconst cors = require('cors');\nconst app = express();\napp.use(cors({ origin: 'https://example.com' }));\n\napp.get('/api/data', (req, res) => res.json({ ok: true }));\napp.listen(3000);\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         // CORS is detected, so it shouldn't appear in "missing" list.
         // The detector doesn't produce a specific "CORS" finding — it only tracks
@@ -575,12 +576,12 @@ mod tests {
         // An Express app with >3 routes and no error handler should be flagged.
         let store = GraphStore::in_memory();
         let detector = ExpressSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "app.js",
             "const express = require('express');\nconst app = express();\n\napp.get('/a', (req, res) => res.json({}));\napp.get('/b', (req, res) => res.json({}));\napp.get('/c', (req, res) => res.json({}));\napp.get('/d', (req, res) => res.json({}));\n\napp.listen(3000);\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             findings
@@ -596,12 +597,12 @@ mod tests {
         // An Express app with a proper error handler should not produce that finding.
         let store = GraphStore::in_memory();
         let detector = ExpressSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "app.js",
             "const express = require('express');\nconst app = express();\n\napp.get('/a', (req, res) => res.json({}));\napp.get('/b', (req, res) => res.json({}));\napp.get('/c', (req, res) => res.json({}));\napp.get('/d', (req, res) => res.json({}));\n\napp.use((err, req, res, next) => {\n  console.error(err.stack);\n  res.status(500).json({ error: 'Internal server error' });\n});\n\napp.listen(3000);\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             !findings

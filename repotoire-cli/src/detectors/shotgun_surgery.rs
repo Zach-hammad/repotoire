@@ -466,22 +466,12 @@ impl Detector for ShotgunSurgeryDetector {
         Some(&self.config)
     }
 
-    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
-        let _ = self.detector_context.set(ctx);
-    }
-
     fn detect(
         &self,
-        graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
-        self.detect_inner(graph, None)
-    }
-
-    fn detect_ctx(
-        &self,
-        ctx: &crate::detectors::analysis_context::AnalysisContext<'_>,
-    ) -> Result<Vec<Finding>> {
+        // Populate detector_context from AnalysisContext for helper methods
+        let _ = self.detector_context.set(Arc::clone(&ctx.detector_ctx));
         self.detect_inner(ctx.graph, Some(ctx))
     }
 }
@@ -526,9 +516,9 @@ mod tests {
         }
 
         let detector = ShotgunSurgeryDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
         let findings = detector
-            .detect(&graph, &empty_files)
+            .detect(&ctx)
             .expect("detection should succeed");
 
         assert!(!findings.is_empty());
@@ -616,7 +606,7 @@ mod tests {
 
         let detector = ShotgunSurgeryDetector::new();
         let findings = detector
-            .detect_ctx(&ctx)
+            .detect(&ctx)
             .expect("detection should succeed");
 
         // With Hub multiplier (3.0), effective min_callers = 15.
@@ -691,7 +681,7 @@ mod tests {
 
         let detector = ShotgunSurgeryDetector::new();
         let findings = detector
-            .detect_ctx(&ctx)
+            .detect(&ctx)
             .expect("detection should succeed");
 
         // The function should be skipped by HMM utility detection
@@ -733,9 +723,9 @@ mod tests {
         }
 
         let detector = ShotgunSurgeryDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
         let findings = detector
-            .detect(&graph, &empty_files)
+            .detect(&ctx)
             .expect("detection should succeed");
 
         // "new", "default", "clone" should all be skipped

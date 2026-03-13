@@ -429,16 +429,7 @@ impl Detector for UnreachableCodeDetector {
 
     fn detect(
         &self,
-        _graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
-    ) -> Result<Vec<Finding>> {
-        // Legacy detect() is a no-op — all logic is in detect_ctx().
-        Ok(Vec::new())
-    }
-
-    fn detect_ctx(
-        &self,
-        ctx: &AnalysisContext<'_>,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
         let findings = self.find_code_after_return(ctx);
         Ok(findings)
@@ -467,8 +458,8 @@ mod tests {
         );
 
         let detector = UnreachableCodeDetector::new(".");
-        let mock = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &mock).unwrap();
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).unwrap();
 
         assert!(findings.is_empty(), "UnreachableCodeDetector should not produce dead function findings");
     }

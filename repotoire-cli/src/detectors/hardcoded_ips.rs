@@ -86,7 +86,9 @@ impl Detector for HardcodedIpsDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs", "c", "cpp"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut ip_occurrences: HashMap<String, usize> = HashMap::new();
 
@@ -263,10 +265,10 @@ mod tests {
         // so the content is returned unchanged and the IP stays visible.
         let store = GraphStore::in_memory();
         let detector = HardcodedIpsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("database.rb", "require 'pg'\n\ndef connect\n  conn = PG.connect(host: \"192.168.1.100\", dbname: \"mydb\")\n  conn\nend\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect hardcoded IP 192.168.1.100 in database connection"
@@ -282,10 +284,10 @@ mod tests {
     fn test_no_finding_for_clean_code() {
         let store = GraphStore::in_memory();
         let detector = HardcodedIpsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("database.py", "import os\nimport psycopg2\n\ndef connect():\n    host = os.environ.get(\"DB_HOST\")\n    conn = psycopg2.connect(host=host, database=\"mydb\")\n    return conn\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Code using env vars should produce no findings, but got: {:?}",
@@ -297,10 +299,10 @@ mod tests {
     fn test_no_finding_for_ip_in_docstring() {
         let store = GraphStore::in_memory();
         let detector = HardcodedIpsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("network.py", "def connect_to_db():\n    \"\"\"\n    Connect to the database at 192.168.1.100.\n    \"\"\"\n    return create_connection()\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag IP addresses inside docstrings. Found: {:?}",
@@ -312,10 +314,10 @@ mod tests {
     fn test_no_finding_for_ip_in_comment() {
         let store = GraphStore::in_memory();
         let detector = HardcodedIpsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.py", "# Default: connect to 192.168.1.50 for staging\ndef get_host():\n    return os.environ.get('HOST')\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag IP addresses inside comments. Found: {:?}",

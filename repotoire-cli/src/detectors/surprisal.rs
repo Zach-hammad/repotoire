@@ -171,7 +171,9 @@ impl Detector for SurprisalDetector {
         "Detects statistically unusual code patterns using predictive coding"
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let i = graph.interner();
         if !self.model.is_confident() {
             info!(
@@ -332,8 +334,8 @@ def foo():
 
         let store = GraphStore::in_memory();
         let detector = SurprisalDetector::new(dir.path(), model);
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Non-confident model should produce no findings, but got: {:?}",

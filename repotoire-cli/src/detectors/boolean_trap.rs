@@ -62,7 +62,9 @@ impl Detector for BooleanTrapDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
         let mut func_call_counts: HashMap<String, usize> = HashMap::new();
@@ -248,10 +250,10 @@ mod tests {
     fn test_detects_boolean_trap() {
         let store = GraphStore::in_memory();
         let detector = BooleanTrapDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("caller.py", "def main():\n    process(data, True, False)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect boolean trap with True, False arguments"
@@ -268,10 +270,10 @@ mod tests {
         // Only one boolean argument - no trap
         let store = GraphStore::in_memory();
         let detector = BooleanTrapDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("caller.py", "def main():\n    process(data, True)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag single boolean argument, but got: {:?}",

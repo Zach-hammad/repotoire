@@ -103,7 +103,9 @@ impl Detector for CorsMisconfigDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "yaml", "yml", "json", "conf"]) {
@@ -255,10 +257,10 @@ mod tests {
     fn test_detects_wildcard_cors() {
         let store = GraphStore::in_memory();
         let detector = CorsMisconfigDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.conf", "Access-Control-Allow-Origin: *\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect wildcard CORS");
         assert!(
             findings.iter().any(|f| f.title.contains("CORS")),
@@ -271,10 +273,10 @@ mod tests {
     fn test_no_finding_for_specific_origin() {
         let store = GraphStore::in_memory();
         let detector = CorsMisconfigDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "const express = require('express');\nconst app = express();\napp.use((req, res, next) => {\n    res.setHeader('Access-Control-Allow-Origin', 'https://myapp.example.com');\n    next();\n});\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect CORS with specific origin. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

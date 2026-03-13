@@ -188,15 +188,15 @@ impl Detector for RegexInLoopDetector {
         "Detects regex compilation inside loops"
     }
 
-    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
-        let _ = self.detector_context.set(ctx);
-    }
-
     fn file_extensions(&self) -> &'static [&'static str] {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        // Populate detector_context from AnalysisContext for helper methods
+        let _ = self.detector_context.set(Arc::clone(&ctx.detector_ctx));
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
 
@@ -437,10 +437,10 @@ mod tests {
     fn test_detects_re_compile_in_loop() {
         let store = GraphStore::in_memory();
         let detector = RegexInLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser.py", "import re\n\ndef process_lines(lines):\n    for line in lines:\n        pattern = re.compile(r'\\d+')\n        match = pattern.match(line)\n        if match:\n            print(match.group())\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect re.compile() inside a for loop"
@@ -455,10 +455,10 @@ mod tests {
     fn test_no_finding_when_regex_outside_loop() {
         let store = GraphStore::in_memory();
         let detector = RegexInLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser_good.py", "import re\n\ndef process_lines(lines):\n    pattern = re.compile(r'\\d+')\n    for line in lines:\n        match = pattern.match(line)\n        if match:\n            print(match.group())\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag re.compile() outside a loop, got: {:?}",
@@ -470,10 +470,10 @@ mod tests {
     fn test_no_finding_for_python_regex_outside_loop() {
         let store = GraphStore::in_memory();
         let detector = RegexInLoopDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser.py", "import re\n\nfor item in items:\n    process(item)\n\npattern = re.compile(r'\\w+')\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "re.compile after loop exits should not be flagged. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -482,10 +482,10 @@ mod tests {
     fn test_no_finding_for_list_comprehension() {
         let store = GraphStore::in_memory();
         let detector = RegexInLoopDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("security.py", "import re\n\nREDIRECT_HOSTS = [re.compile(r) for r in settings.ALLOWED_REDIRECTS]\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "List comprehension re.compile should not be flagged. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -494,10 +494,10 @@ mod tests {
     fn test_no_finding_for_regex_in_comment() {
         let store = GraphStore::in_memory();
         let detector = RegexInLoopDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("settings.py", "LANGUAGES = [\n    ('en', 'English'),\n    ('fr', 'French'),\n]\n# LANGUAGES_BIDI = re.compile(r'...')\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Commented-out re.compile should not be flagged. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -506,10 +506,10 @@ mod tests {
     fn test_still_detects_regex_inside_python_loop() {
         let store = GraphStore::in_memory();
         let detector = RegexInLoopDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("slow.py", "import re\n\nfor pattern in patterns:\n    compiled = re.compile(pattern)\n    compiled.match(text)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect re.compile inside a for loop");
     }
 }

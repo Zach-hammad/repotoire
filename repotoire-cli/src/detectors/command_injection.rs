@@ -81,7 +81,9 @@ impl Detector for CommandInjectionDetector {
         super::detector_context::ContentFlags::HAS_EXEC
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Run taint analysis for command injection (precomputed or fallback)
@@ -471,10 +473,10 @@ mod tests {
     fn test_detects_os_system_with_user_input() {
         let store = GraphStore::in_memory();
         let detector = CommandInjectionDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("vuln.py", "import os\n\ndef run_command(user_input):\n    os.system(\"ls \" + user_input)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect os.system with user input concatenation"
@@ -494,10 +496,10 @@ mod tests {
     fn test_no_findings_for_safe_subprocess() {
         let store = GraphStore::in_memory();
         let detector = CommandInjectionDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", "import subprocess\n\ndef list_files():\n    result = subprocess.run([\"ls\", \"-la\"], capture_output=True)\n    return result.stdout\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Safe subprocess usage with list args should have no findings, but got: {:?}",
@@ -509,10 +511,10 @@ mod tests {
     fn test_detects_subprocess_shell_true_python() {
         let store = GraphStore::in_memory();
         let detector = CommandInjectionDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("run.py", "import subprocess\n\ndef execute(user_input):\n    subprocess.call(\"grep \" + user_input, shell=True)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect subprocess.call with shell=True and user input"
@@ -527,10 +529,10 @@ mod tests {
     fn test_detects_child_process_exec_with_template_js() {
         let store = GraphStore::in_memory();
         let detector = CommandInjectionDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.js", "const { exec } = require('child_process');\n\nfunction runCommand(req, res) {\n    const userId = req.params.id;\n    child_process.exec(`find /data -user ${userId}`);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect child_process.exec with template literal interpolation"
@@ -549,11 +551,11 @@ mod tests {
         // The command_injection detector uses masked_content. In masked mode,
         // comments are NOT stripped by MockFileProvider (only Python triple-quoted strings are).
         // However, os.system in a JS/TS comment line won't have user input patterns,
-        // so it should not fire the risky check.
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let detector = CommandInjectionDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.js", "// Dangerous example: os.system(user_input) - never do this\nfunction safeFunc() {\n    return 42;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "os.system in a comment should not produce findings, but got: {:?}",
@@ -565,10 +567,10 @@ mod tests {
     fn test_detects_go_exec_command() {
         let store = GraphStore::in_memory();
         let detector = CommandInjectionDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.go", "package main\n\nimport (\n\t\"os/exec\"\n\t\"net/http\"\n)\n\nfunc runCmd(w http.ResponseWriter, r *http.Request) {\n\tcmd := r.FormValue(\"command\")\n\texec.Command(cmd)\n}\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect exec.Command with user input from r.FormValue"

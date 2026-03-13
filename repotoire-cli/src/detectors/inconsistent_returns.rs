@@ -134,7 +134,8 @@ impl Detector for InconsistentReturnsDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = vec![];
 
@@ -282,8 +283,8 @@ mod tests {
         store.add_node(func);
 
         let detector = InconsistentReturnsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect function with mixed return (value + implicit None)"
@@ -314,8 +315,8 @@ mod tests {
         store.add_node(func);
 
         let detector = InconsistentReturnsDetector::new(dir.path());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag function with consistent return values, but got: {:?}",

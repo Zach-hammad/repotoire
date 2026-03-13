@@ -65,10 +65,6 @@ impl Detector for PathTraversalDetector {
         Some(TaintCategory::PathTraversal)
     }
 
-    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
-        let _ = self.detector_context.set(ctx);
-    }
-
     fn file_extensions(&self) -> &'static [&'static str] {
         &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs"]
     }
@@ -77,7 +73,11 @@ impl Detector for PathTraversalDetector {
         super::detector_context::ContentFlags::FILE_OPS.union(super::detector_context::ContentFlags::PATH_OPS)
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        // Populate detector_context from AnalysisContext for helper methods
+        let _ = self.detector_context.set(Arc::clone(&ctx.detector_ctx));
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Run taint analysis for path traversal (precomputed or fallback)
@@ -374,10 +374,10 @@ mod tests {
     fn test_detects_open_with_user_input() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("vuln.py", "def download(request):\n    filename = request.GET.get(\"file\")\n    f = open(request.GET[\"file\"], \"r\")\n    return f.read()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect open() with user-controlled path from request"
@@ -397,10 +397,10 @@ mod tests {
     fn test_no_findings_for_hardcoded_path() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", "def read_config():\n    with open(\"config/settings.json\", \"r\") as f:\n        return json.load(f)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Hardcoded path should have no path traversal findings, but got: {:?}",
@@ -412,10 +412,10 @@ mod tests {
     fn test_no_finding_for_get_full_path() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.http import HttpResponseRedirect\n\ndef my_view(request):\n    return HttpResponseRedirect(request.get_full_path())\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag request.get_full_path() as path traversal. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -424,10 +424,10 @@ mod tests {
     fn test_no_finding_for_list_remove() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("library.py", "def process(request):\n    params = list(request.GET.keys())\n    params.remove('page')\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag list.remove() as file operation. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -436,10 +436,10 @@ mod tests {
     fn test_still_detects_real_path_traversal() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("download.py", "import os\n\ndef download(request):\n    filepath = os.path.join('/uploads', request.GET.get('file'))\n    return open(filepath, 'r').read()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect real path traversal with request.GET");
     }
 
@@ -447,10 +447,10 @@ mod tests {
     fn test_detects_path_join_with_req_params_js() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("download.js", "const path = require('path');\n\nfunction getFile(req, res) {\n    const filePath = path.join('/uploads', req.params.filename);\n    res.sendFile(filePath);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect path.join with req.params user input in JS"
@@ -465,10 +465,10 @@ mod tests {
     fn test_detects_readfile_with_request_query_ts() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("serve.ts", "import fs from 'fs';\n\nfunction serveFile(req: Request, res: Response) {\n    const name = req.query.file;\n    const data = readFileSync('/data/' + req.query.file);\n    res.send(data);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect readFileSync with req.query in TypeScript"
@@ -479,10 +479,10 @@ mod tests {
     fn test_no_finding_for_path_traversal_in_comment() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", "# Vulnerable: open(request.GET['file'], 'r')\ndef read_config():\n    with open('config.json', 'r') as f:\n        return f.read()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Path traversal pattern in a comment should not produce findings, but got: {:?}",
@@ -494,10 +494,10 @@ mod tests {
     fn test_detects_sendfile_with_user_input_js() {
         let store = GraphStore::in_memory();
         let detector = PathTraversalDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "const express = require('express');\n\napp.get('/download', (req, res) => {\n    const file = req.query.file;\n    res.sendFile(req.query.file);\n});\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect sendFile with user-controlled req.query"

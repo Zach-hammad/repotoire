@@ -123,57 +123,56 @@ impl MockFileProvider {
     }
 }
 
+/// Simple Python string masking: replace content inside triple-quoted strings
+/// and single-line string literals with placeholder text.
+/// This is a rough approximation of what the real masking does via tree-sitter.
+/// Used by both MockFileProvider and AnalysisContextFileProvider in tests.
 #[cfg(test)]
-impl MockFileProvider {
-    /// Simple Python string masking: replace content inside triple-quoted strings
-    /// and single-line string literals with placeholder text.
-    /// This is a rough approximation of what the real masking does via tree-sitter.
-    fn mask_python_strings(content: &str) -> String {
-        let mut result = String::with_capacity(content.len());
-        let chars: Vec<char> = content.chars().collect();
-        let len = chars.len();
-        let mut i = 0;
+pub fn mask_python_strings(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let chars: Vec<char> = content.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
 
-        while i < len {
-            // Check for triple-quoted strings (""" or ''')
-            if i + 2 < len
-                && ((chars[i] == '"' && chars[i + 1] == '"' && chars[i + 2] == '"')
-                    || (chars[i] == '\'' && chars[i + 1] == '\'' && chars[i + 2] == '\''))
-            {
-                let quote = chars[i];
-                // Keep the opening quotes
-                result.push(quote);
-                result.push(quote);
-                result.push(quote);
-                i += 3;
-                // Replace content until closing triple-quote, preserving newlines
-                while i < len {
-                    if i + 2 < len
-                        && chars[i] == quote
-                        && chars[i + 1] == quote
-                        && chars[i + 2] == quote
-                    {
-                        result.push(quote);
-                        result.push(quote);
-                        result.push(quote);
-                        i += 3;
-                        break;
-                    }
-                    if chars[i] == '\n' {
-                        result.push('\n');
-                    } else {
-                        result.push(' ');
-                    }
-                    i += 1;
+    while i < len {
+        // Check for triple-quoted strings (""" or ''')
+        if i + 2 < len
+            && ((chars[i] == '"' && chars[i + 1] == '"' && chars[i + 2] == '"')
+                || (chars[i] == '\'' && chars[i + 1] == '\'' && chars[i + 2] == '\''))
+        {
+            let quote = chars[i];
+            // Keep the opening quotes
+            result.push(quote);
+            result.push(quote);
+            result.push(quote);
+            i += 3;
+            // Replace content until closing triple-quote, preserving newlines
+            while i < len {
+                if i + 2 < len
+                    && chars[i] == quote
+                    && chars[i + 1] == quote
+                    && chars[i + 2] == quote
+                {
+                    result.push(quote);
+                    result.push(quote);
+                    result.push(quote);
+                    i += 3;
+                    break;
                 }
-                continue;
+                if chars[i] == '\n' {
+                    result.push('\n');
+                } else {
+                    result.push(' ');
+                }
+                i += 1;
             }
-            result.push(chars[i]);
-            i += 1;
+            continue;
         }
-
-        result
+        result.push(chars[i]);
+        i += 1;
     }
+
+    result
 }
 
 #[cfg(test)]
@@ -219,7 +218,7 @@ impl FileProvider for MockFileProvider {
         self.content(path).map(|content| {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if matches!(ext, "py" | "pyi") {
-                Arc::new(Self::mask_python_strings(&content))
+                Arc::new(mask_python_strings(&content))
             } else {
                 content
             }

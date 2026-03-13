@@ -382,7 +382,8 @@ impl Detector for FeatureEnvyDetector {
         DetectorScope::GraphWide
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
 

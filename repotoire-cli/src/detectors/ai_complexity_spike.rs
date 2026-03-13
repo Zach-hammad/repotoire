@@ -368,7 +368,8 @@ impl Detector for AIComplexitySpikeDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         let i = graph.interner();
         use std::collections::HashSet;
 
@@ -582,8 +583,8 @@ mod tests {
         store.add_node(outlier);
 
         let detector = AIComplexitySpikeDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("should detect complexity outlier");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("should detect complexity outlier");
 
         assert!(
             !findings.is_empty(),
@@ -611,8 +612,8 @@ mod tests {
         }
 
         let detector = AIComplexitySpikeDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("should detect normal complexity");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("should detect normal complexity");
 
         assert!(
             findings.is_empty(),

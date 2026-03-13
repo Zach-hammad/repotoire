@@ -147,7 +147,9 @@ impl Detector for RegexDosDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "rs", "go", "rb", "php"]) {
@@ -347,10 +349,10 @@ mod tests {
     fn test_detects_redos_nested_quantifier() {
         let store = GraphStore::in_memory();
         let detector = RegexDosDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("validate.py", "\nimport re\nuser_input = input(\"Enter data: \")\npattern = re.compile(r'(a+)+$')\npattern.match(user_input)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect catastrophic backtracking regex (a+)+"
@@ -362,10 +364,10 @@ mod tests {
     fn test_no_finding_for_safe_regex() {
         let store = GraphStore::in_memory();
         let detector = RegexDosDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "\nimport re\npattern = re.compile(r'^[a-zA-Z0-9]+$')\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag safe regex without nested quantifiers, but got: {:?}",

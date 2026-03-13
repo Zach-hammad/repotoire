@@ -594,15 +594,7 @@ impl Detector for LazyClassDetector {
 
     fn detect(
         &self,
-        graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
-    ) -> Result<Vec<Finding>> {
-        self.detect_inner(graph, None)
-    }
-
-    fn detect_ctx(
-        &self,
-        ctx: &crate::detectors::analysis_context::AnalysisContext<'_>,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
         self.detect_inner(ctx.graph, Some(ctx))
     }
@@ -668,8 +660,8 @@ mod tests {
         }
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         // Should NOT flag - class has many callers
         assert!(
@@ -697,8 +689,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         // Should flag - unused class
         assert_eq!(findings.len(), 1);
@@ -738,8 +730,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -775,8 +767,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -806,8 +798,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         // Should still flag — only 1 impl method, truly underutilized
         assert_eq!(
@@ -843,8 +835,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -871,8 +863,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(
             findings.len(),
@@ -962,8 +954,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -985,8 +977,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1007,8 +999,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1031,8 +1023,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1053,8 +1045,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1075,8 +1067,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1103,8 +1095,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(
             findings.len(),
@@ -1129,8 +1121,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1151,8 +1143,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1173,8 +1165,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1195,8 +1187,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1219,8 +1211,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1247,8 +1239,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(
             findings.len(),
@@ -1276,8 +1268,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(
             findings.len(),
@@ -1303,8 +1295,8 @@ mod tests {
         graph.add_node(node);
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1331,8 +1323,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -1359,8 +1351,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(
             findings.len(),
@@ -1396,8 +1388,8 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&graph, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(
             findings.len(),

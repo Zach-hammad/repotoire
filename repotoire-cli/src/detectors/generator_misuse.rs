@@ -243,7 +243,9 @@ impl Detector for GeneratorMisuseDetector {
         &["py", "js", "ts"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Find generators that are always list()-wrapped
@@ -434,10 +436,10 @@ mod tests {
     fn test_detects_single_yield_generator() {
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "\ndef single_value():\n    yield 42\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect single-yield generator"
@@ -449,10 +451,10 @@ mod tests {
     fn test_no_finding_for_generator_with_loop() {
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "\ndef multi_yield(items):\n    for item in items:\n        yield item * 2\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag generator with yield inside a loop, but got: {:?}",
@@ -464,10 +466,10 @@ mod tests {
     fn test_no_finding_for_fastapi_dependency() {
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("deps.py", "from fastapi import Depends\n\ndef get_db():\n    db = SessionLocal()\n    try:\n        yield db\n    finally:\n        db.close()\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag FastAPI try/yield/finally dependency. Found: {:?}",
@@ -479,10 +481,10 @@ mod tests {
     fn test_no_finding_for_contextmanager() {
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "from contextlib import contextmanager\n\n@contextmanager\ndef managed_resource():\n    resource = acquire()\n    try:\n        yield resource\n    finally:\n        release(resource)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag contextmanager try/yield/finally. Found: {:?}",
@@ -494,10 +496,10 @@ mod tests {
     fn test_no_finding_for_yield_from() {
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("iterators.py", "def __iter__(self):\n    yield from self.items\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag yield from as single-yield. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -506,10 +508,10 @@ mod tests {
     fn test_no_finding_for_yield_in_string() {
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("paginator.py", "def _check(self):\n    warnings.warn(\"Pagination may yield inconsistent results\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag 'yield' inside string literal. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -518,10 +520,10 @@ mod tests {
     fn test_no_finding_for_contextmanager_without_finally() {
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("errors.py", "from contextlib import contextmanager\n\n@contextmanager\ndef wrap_errors():\n    try:\n        yield\n    except DatabaseError:\n        raise\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag @contextmanager even without finally. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -530,12 +532,12 @@ mod tests {
     fn test_no_finding_for_polymorphic_single_yield() {
         let store = GraphStore::in_memory();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("loaders/locmem.py", "class Loader(BaseLoader):\n    def get_template_sources(self, template_name):\n        yield Origin(name=template_name, loader=self)\n"),
             ("widgets.py", "class Widget:\n    def subwidgets(self, name, value):\n        yield self.get_context(name, value)\n"),
             ("files/uploadedfile.py", "class InMemoryUploadedFile(UploadedFile):\n    def chunks(self, chunk_size=None):\n        yield self.read()\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag polymorphic interface methods. Found: {:?}",

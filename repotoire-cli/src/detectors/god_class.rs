@@ -480,11 +480,10 @@ impl Detector for GodClassDetector {
         Some(&self.config)
     }
 
-    fn set_detector_context(&self, ctx: Arc<crate::detectors::DetectorContext>) {
-        let _ = self.detector_context.set(ctx);
-    }
-
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        // Populate detector_context from AnalysisContext for helper methods
+        let _ = self.detector_context.set(Arc::clone(&ctx.detector_ctx));
+        let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
 
@@ -632,8 +631,8 @@ mod tests {
         store.add_node(create_test_class("Flask", 50, 2000, 150));
 
         let detector = GodClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -647,8 +646,8 @@ mod tests {
         store.add_node(create_test_class("MyApplication", 40, 1500, 120));
 
         let detector = GodClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
@@ -662,8 +661,8 @@ mod tests {
         store.add_node(create_test_class("OrderProcessor", 35, 1200, 180));
 
         let detector = GodClassDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1, "Actual god class should be flagged");
         assert!(findings[0].title.contains("OrderProcessor"));

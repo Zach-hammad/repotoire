@@ -68,10 +68,10 @@ mod tests {
     fn test_torch_load_unsafe() {
         let graph = GraphStore::in_memory();
         let detector = TorchLoadUnsafeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "import torch\nmodel = torch.load('model.pth')\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
     }
@@ -80,10 +80,10 @@ mod tests {
     fn test_torch_load_safe() {
         let graph = GraphStore::in_memory();
         let detector = TorchLoadUnsafeDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "import torch\nmodel = torch.load('model.pth', weights_only=True)\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 
@@ -91,10 +91,10 @@ mod tests {
     fn test_nan_equality() {
         let graph = GraphStore::in_memory();
         let detector = NanEqualityDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "import numpy as np\nif x == np.nan:\n    pass\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -102,10 +102,10 @@ mod tests {
     fn test_require_grad_typo() {
         let graph = GraphStore::in_memory();
         let detector = RequireGradTypoDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "tensor.require_grad = True\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -113,10 +113,10 @@ mod tests {
     fn test_chain_indexing() {
         let graph = GraphStore::in_memory();
         let detector = ChainIndexingDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "import pandas as pd\ndf['col1']['col2'] = value\n"),
         ]);
-        let findings = detector.detect(&graph, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 }

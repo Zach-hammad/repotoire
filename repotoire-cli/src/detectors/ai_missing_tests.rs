@@ -164,14 +164,8 @@ impl Detector for AIMissingTestsDetector {
 
     fn detect(
         &self,
-        _graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
-        // Superseded by detect_ctx — requires AnalysisContext for BFS reachability.
-        Ok(Vec::new())
-    }
-
-    fn detect_ctx(&self, ctx: &AnalysisContext<'_>) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         let tested = build_tested_functions(ctx);
@@ -380,7 +374,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect_ctx(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
 
         assert!(
             findings.is_empty(),
@@ -426,7 +420,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect_ctx(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
 
         assert!(
             findings.is_empty(),
@@ -449,7 +443,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect_ctx(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
 
         assert!(
             !findings.is_empty(),
@@ -472,7 +466,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect_ctx(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
 
         assert!(
             findings.is_empty(),
@@ -494,7 +488,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect_ctx(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
 
         assert!(
             findings.is_empty(),
@@ -516,7 +510,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect_ctx(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
 
         assert!(
             findings.is_empty(),
@@ -536,9 +530,9 @@ mod tests {
         store.add_node(func);
 
         let detector = AIMissingTestsDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&store);
         let findings = detector
-            .detect(&store, &empty_files)
+            .detect(&ctx)
             .expect("detect should succeed");
         assert!(findings.is_empty(), "Legacy detect() should return empty");
     }
@@ -557,7 +551,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect_ctx(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
 
         assert!(!findings.is_empty(), "Should flag very complex function");
         assert_eq!(findings[0].severity, Severity::High);
@@ -577,7 +571,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect_ctx(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
 
         assert!(
             findings.is_empty(),

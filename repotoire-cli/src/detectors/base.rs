@@ -5,8 +5,6 @@
 //! - `DetectorResult` for capturing execution results
 //! - Helper types for detector configuration
 
-use crate::detectors::function_context::FunctionContextMap;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -23,7 +21,6 @@ pub fn finding_id(detector: &str, file: &str, line: u32) -> String {
     format!("{:016x}", hasher.finish())
 }
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Describes how much of the codebase a detector needs to produce findings.
 /// Used by AnalysisSession to decide which detectors to re-run on incremental updates.
@@ -292,7 +289,8 @@ pub fn is_test_path(path_str: &str) -> bool {
 ///         "Detects my specific code smell"
 ///     }
 ///
-///     fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn super::file_provider::FileProvider) -> Result<Vec<Finding>> {
+///     fn detect(&self, ctx: &super::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+///         let graph = ctx.graph;
 ///         // Query the graph and analyze results
 ///         Ok(vec![])
 ///     }
@@ -316,45 +314,11 @@ pub trait Detector: Send + Sync {
     /// 3. Return a list of findings with appropriate severity
     ///
     /// # Arguments
-    /// * `graph` - Graph store implementing GraphQuery trait
-    /// * `files` - File provider for accessing source files and their contents
+    /// * `ctx` - Unified analysis context containing graph, files, function contexts, taint, etc.
     ///
     /// # Returns
     /// A list of findings, or an error if detection fails
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn super::file_provider::FileProvider) -> Result<Vec<Finding>>;
-
-    /// Run detection with function context
-    ///
-    /// Enhanced version of detect() that receives pre-computed function contexts.
-    /// Detectors that benefit from knowing function roles (utility, hub, etc.)
-    /// should override this method.
-    ///
-    /// Default implementation just calls detect() and ignores contexts.
-    ///
-    /// # Arguments
-    /// * `graph` - Graph store implementing GraphQuery trait
-    /// * `files` - File provider for accessing source files and their contents
-    /// * `contexts` - Pre-computed function contexts with roles and metrics
-    ///
-    /// # Returns
-    /// A list of findings, or an error if detection fails
-    fn detect_with_context(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-        files: &dyn super::file_provider::FileProvider,
-        _contexts: &Arc<FunctionContextMap>,
-    ) -> Result<Vec<Finding>> {
-        // Default: ignore context, just call regular detect
-        self.detect(graph, files)
-    }
-
-    /// Whether this detector uses function context
-    ///
-    /// If true, the engine will call detect_with_context instead of detect.
-    /// Override this to return true if your detector benefits from context.
-    fn uses_context(&self) -> bool {
-        false
-    }
+    fn detect(&self, ctx: &super::analysis_context::AnalysisContext) -> Result<Vec<Finding>>;
 
     /// Whether this detector depends on results from other detectors
     ///
@@ -447,15 +411,6 @@ pub trait Detector: Send + Sync {
         None
     }
 
-    /// Inject shared pre-computed detector context.
-    ///
-    /// Called by the engine before `detect()` for detectors that benefit from
-    /// pre-built callers/callees maps, file content cache, or class hierarchy.
-    /// Default: no-op.
-    fn set_detector_context(&self, _ctx: Arc<super::DetectorContext>) {
-        // Default: no-op
-    }
-
     /// File extensions this detector processes.
     ///
     /// Return empty slice for graph-only detectors that don't scan files.
@@ -472,24 +427,6 @@ pub trait Detector: Send + Sync {
         super::detector_context::ContentFlags::empty()
     }
 
-    /// Run detection with the unified AnalysisContext.
-    ///
-    /// This is the new primary detection entry point. The default implementation
-    /// delegates to the legacy detect() or detect_with_context() method for
-    /// backward compatibility.
-    fn detect_ctx(
-        &self,
-        ctx: &super::analysis_context::AnalysisContext,
-    ) -> Result<Vec<Finding>> {
-        // Detectors that override detect_with_context() must go through that
-        // path to get their optimized implementation (e.g., AIMissingTestsDetector
-        // uses pre-built HashSets for O(1) lookup vs O(n) in detect()).
-        if self.uses_context() {
-            self.detect_with_context(ctx.graph, &ctx.as_file_provider(), &ctx.functions)
-        } else {
-            self.detect(ctx.graph, &ctx.as_file_provider())
-        }
-    }
 }
 
 /// Progress callback for detector execution

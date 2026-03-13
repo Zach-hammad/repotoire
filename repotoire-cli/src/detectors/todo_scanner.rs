@@ -92,7 +92,9 @@ impl Detector for TodoScanner {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
         let mut todos_per_function: HashMap<String, usize> = HashMap::new();
@@ -269,10 +271,10 @@ mod tests {
     fn test_detects_todo_fixme_hack() {
         let store = GraphStore::in_memory();
         let detector = TodoScanner::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("tasks.py", "def process():\n    # TODO: refactor this function\n    # FIXME: handle edge case\n    # HACK: workaround for upstream bug\n    return 42\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.len() >= 3,
             "Should detect TODO, FIXME, and HACK. Found {} findings: {:?}",
@@ -285,10 +287,10 @@ mod tests {
     fn test_no_finding_for_clean_comments() {
         let store = GraphStore::in_memory();
         let detector = TodoScanner::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("clean.py", "# This function processes data.\n# It handles all edge cases properly.\ndef process():\n    return 42\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag normal comments. Found: {:?}",

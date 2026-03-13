@@ -104,6 +104,32 @@ impl<'g> AnalysisContext<'g> {
         Self::test_with_files(graph, vec![])
     }
 
+    /// Create an `AnalysisContext` for unit tests from `(path, content)` pairs.
+    ///
+    /// Accepts the same format as `MockFileProvider::new()`:
+    /// `("relative/path.py", "file content")`. Paths are prefixed with
+    /// `/mock/repo/` and all `ContentFlags` are enabled so content filtering
+    /// never blocks detectors in tests.
+    #[cfg(test)]
+    pub fn test_with_mock_files(
+        graph: &'g dyn GraphQuery,
+        entries: Vec<(&str, &str)>,
+    ) -> Self {
+        let file_data: Vec<(PathBuf, Arc<str>, crate::detectors::detector_context::ContentFlags)> =
+            entries
+                .into_iter()
+                .map(|(rel, body)| {
+                    let full = PathBuf::from("/mock/repo").join(rel);
+                    (
+                        full,
+                        Arc::from(body),
+                        crate::detectors::detector_context::ContentFlags::all(),
+                    )
+                })
+                .collect();
+        Self::test_with_files(graph, file_data)
+    }
+
     /// Create an `AnalysisContext` for unit tests with pre-loaded file data.
     ///
     /// Accepts file content tuples `(path, content, flags)` so detectors
@@ -119,8 +145,16 @@ impl<'g> AnalysisContext<'g> {
             cross_function: HashMap::new(),
             intra_function: HashMap::new(),
         });
-        let (det_ctx, _file_data) =
-            DetectorContext::build(graph, &[], None, Path::new("/repo"));
+        let (mut det_ctx, _file_data) =
+            DetectorContext::build(graph, &[], None, Path::new("/mock/repo"));
+        // Pre-populate content flags from test file data so detectors that
+        // check ContentFlags (path_traversal, etc.) don't skip test files.
+        for entry in files.all() {
+            det_ctx.content_flags.insert(
+                entry.path.clone(),
+                entry.flags,
+            );
+        }
         let detector_ctx = Arc::new(det_ctx);
 
         Self {
@@ -141,6 +175,39 @@ impl<'g> AnalysisContext<'g> {
 /// to the new API still work via the default detect_ctx() implementation.
 pub struct AnalysisContextFileProvider<'a> {
     ctx: &'a AnalysisContext<'a>,
+}
+
+// Inherent methods so callers don't need `use FileProvider` in scope.
+impl<'a> AnalysisContextFileProvider<'a> {
+    /// All source files known to this provider.
+    pub fn files(&self) -> &[PathBuf] {
+        <Self as crate::detectors::file_provider::FileProvider>::files(self)
+    }
+
+    /// Files whose extension matches `ext` (without the leading dot).
+    pub fn files_with_extension(&self, ext: &str) -> Vec<&Path> {
+        <Self as crate::detectors::file_provider::FileProvider>::files_with_extension(self, ext)
+    }
+
+    /// Files whose extension matches any of `exts` (without leading dots).
+    pub fn files_with_extensions(&self, exts: &[&str]) -> Vec<&Path> {
+        <Self as crate::detectors::file_provider::FileProvider>::files_with_extensions(self, exts)
+    }
+
+    /// Read (or return cached) file content.
+    pub fn content(&self, path: &Path) -> Option<Arc<String>> {
+        <Self as crate::detectors::file_provider::FileProvider>::content(self, path)
+    }
+
+    /// Read (or return cached) masked file content (comments/strings replaced).
+    pub fn masked_content(&self, path: &Path) -> Option<Arc<String>> {
+        <Self as crate::detectors::file_provider::FileProvider>::masked_content(self, path)
+    }
+
+    /// The repository root path.
+    pub fn repo_path(&self) -> &Path {
+        <Self as crate::detectors::file_provider::FileProvider>::repo_path(self)
+    }
 }
 
 impl<'a> crate::detectors::file_provider::FileProvider for AnalysisContextFileProvider<'a> {
@@ -178,7 +245,26 @@ impl<'a> crate::detectors::file_provider::FileProvider for AnalysisContextFilePr
     }
 
     fn masked_content(&self, path: &Path) -> Option<Arc<String>> {
-        crate::cache::global_cache().masked_content(path)
+        // Try global cache first (has properly masked content via tree-sitter).
+        let cached = crate::cache::global_cache().masked_content(path);
+        if cached.is_some() {
+            return cached;
+        }
+        // Fall back to basic string masking from FileIndex for tests/edge cases
+        // where global cache isn't populated.
+        #[cfg(test)]
+        {
+            return self.ctx.files.get(path).map(|e| {
+                let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+                if matches!(ext, "py" | "pyi") {
+                    Arc::new(crate::detectors::file_provider::mask_python_strings(&e.content))
+                } else {
+                    Arc::new(e.content.to_string())
+                }
+            });
+        }
+        #[cfg(not(test))]
+        None
     }
 
     fn repo_path(&self) -> &Path {
@@ -217,7 +303,7 @@ mod tests {
         let graph = GraphStore::in_memory();
         let ctx = AnalysisContext::test(&graph);
 
-        assert_eq!(ctx.repo_path(), Path::new("/repo"));
+        assert_eq!(ctx.repo_path(), Path::new("/mock/repo"));
         assert_eq!(ctx.files.all().len(), 0);
         assert!(ctx.functions.is_empty());
         assert!(ctx.hmm_classifications.is_empty());
@@ -245,7 +331,7 @@ mod tests {
     fn test_repo_path() {
         let graph = GraphStore::in_memory();
         let ctx = make_ctx_with_sample_files(&graph);
-        assert_eq!(ctx.repo_path(), Path::new("/repo"));
+        assert_eq!(ctx.repo_path(), Path::new("/mock/repo"));
     }
 
     #[test]
@@ -302,6 +388,6 @@ mod tests {
         let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
-        assert_eq!(shim.repo_path(), Path::new("/repo"));
+        assert_eq!(shim.repo_path(), Path::new("/mock/repo"));
     }
 }

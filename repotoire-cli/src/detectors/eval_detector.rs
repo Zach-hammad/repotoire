@@ -637,7 +637,8 @@ impl Detector for EvalDetector {
         super::detector_context::ContentFlags::HAS_EVAL
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         debug!("Starting eval/exec detection");
 
         // Primary detection is via source scanning
@@ -730,8 +731,8 @@ def process(user_input):
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect eval() with variable argument"
@@ -752,8 +753,8 @@ def process(user_input):
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag exec() in management/commands/. Found: {:?}",
@@ -773,8 +774,8 @@ def process(user_input):
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let eval_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("eval")).collect();
         assert!(eval_findings.is_empty(), "Should not flag .eval() method call. Found: {:?}",
             eval_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
@@ -792,8 +793,8 @@ def process(user_input):
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let subprocess_findings: Vec<_> = findings.iter().filter(|f| {
             f.title.contains("subprocess") || f.title.contains("command") || f.title.contains("Shell") || f.title.contains("shell")
         }).collect();
@@ -816,8 +817,8 @@ data = ast.literal_eval("[1, 2, 3]")
 
         let store = GraphStore::in_memory();
         let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag ast.literal_eval (safe), but got: {:?}",

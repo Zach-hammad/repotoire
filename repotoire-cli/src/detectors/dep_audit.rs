@@ -538,8 +538,7 @@ impl Detector for DepAuditDetector {
     fn requires_graph(&self) -> bool {
         false
     }
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        let _i = _graph.interner();
+    fn detect(&self, _ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
         debug!("Starting dependency vulnerability audit");
 
         let deps = self.discover_dependencies();

@@ -58,7 +58,8 @@ impl Detector for MissingRandomSeedDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses ML libraries
         let has_ml = files.files_with_extension("py").iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("torch") || c.contains("tensorflow") || c.contains("sklearn"))
@@ -179,7 +180,8 @@ impl Detector for ChainIndexingDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses pandas
         let has_pandas = files.files_with_extension("py").iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("pandas") || c.contains("import pd"))
@@ -295,7 +297,8 @@ impl Detector for RequireGradTypoDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("torch") || c.contains("require_grad"))
@@ -419,7 +422,8 @@ impl Detector for DeprecatedTorchApiDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("torch"))

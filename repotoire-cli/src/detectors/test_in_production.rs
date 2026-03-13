@@ -97,7 +97,9 @@ impl Detector for TestInProductionDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut issues_per_file: HashMap<PathBuf, Vec<(u32, String, String)>> = HashMap::new();
 
@@ -284,10 +286,10 @@ mod tests {
     fn test_detects_mock_in_production_code() {
         let store = GraphStore::in_memory();
         let detector = TestInProductionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.py", "\nfrom unittest.mock import Mock\n\ndef get_client():\n    client = Mock()\n    return client\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect test code (Mock) in production file"
@@ -299,10 +301,10 @@ mod tests {
     fn test_no_finding_for_clean_production_code() {
         let store = GraphStore::in_memory();
         let detector = TestInProductionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.py", "\nimport os\n\ndef get_config():\n    return os.environ.get(\"APP_CONFIG\", \"default\")\n\ndef process_data(data):\n    return [item.strip() for item in data]\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag clean production code, but got: {:?}",

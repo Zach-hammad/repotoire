@@ -440,7 +440,8 @@ impl Detector for AINamingPatternDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         let mut findings = Vec::new();
 
         let func_re = &*FUNC_DEF_RE;
@@ -670,10 +671,10 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = AINamingPatternDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("generic.py", "def process_users(users):\n    result = []\n    for item in users:\n        data = item.get('name')\n        temp = data.strip()\n        value = temp.lower()\n        obj = {'name': value}\n        result.append(obj)\n    output = sorted(result)\n    return output\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("should detect generic naming");
+        let findings = detector.detect(&ctx).expect("should detect generic naming");
         assert!(
             !findings.is_empty(),
             "Should flag function with high generic naming ratio (result, item, data, temp, value, obj, output)"
@@ -686,10 +687,10 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = AINamingPatternDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("users.py", "def create_user(username, email, password):\n    hashed_password = hash_password(password)\n    user = User(username=username, email=email)\n    user.set_password(hashed_password)\n    user.save()\n    confirmation_email = build_welcome_email(user)\n    send_email(confirmation_email)\n    return user\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("should detect domain-specific naming");
+        let findings = detector.detect(&ctx).expect("should detect domain-specific naming");
         assert!(
             findings.is_empty(),
             "Should not flag function with domain-specific names. Found: {:?}",

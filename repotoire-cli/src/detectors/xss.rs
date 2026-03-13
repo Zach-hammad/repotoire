@@ -60,7 +60,9 @@ impl Detector for XssDetector {
         super::detector_context::ContentFlags::HAS_TEMPLATE
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Run taint analysis for XSS (precomputed or fallback)
@@ -252,10 +254,10 @@ mod tests {
     fn test_detects_innerhtml_with_user_input() {
         let store = GraphStore::in_memory();
         let detector = XssDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("vuln.js", "function renderContent(user_input) {\n    document.getElementById(\"output\").innerHTML = user_input;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect innerHTML assignment with user input"
@@ -275,10 +277,10 @@ mod tests {
     fn test_no_findings_for_textcontent() {
         let store = GraphStore::in_memory();
         let detector = XssDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.js", "function renderContent(data) {\n    document.getElementById(\"output\").textContent = data;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Using textContent should have no XSS findings, but got: {:?}",
@@ -290,10 +292,10 @@ mod tests {
     fn test_detects_document_write_in_js() {
         let store = GraphStore::in_memory();
         let detector = XssDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.js", "function showMessage(req) {\n    const msg = req.query.message;\n    document.write(req.query.message);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect document.write with user input from req.query"
@@ -308,10 +310,10 @@ mod tests {
     fn test_detects_dangerously_set_innerhtml_in_tsx() {
         let store = GraphStore::in_memory();
         let detector = XssDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("component.tsx", "function UserProfile(props) {\n    return <div dangerouslySetInnerHTML={{ __html: props.bio }} />;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect dangerouslySetInnerHTML with props in TSX"
@@ -326,10 +328,10 @@ mod tests {
     fn test_no_finding_for_innerhtml_in_comment() {
         let store = GraphStore::in_memory();
         let detector = XssDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.js", "function render() {\n    // Never use innerHTML with user input\n    document.getElementById(\"out\").textContent = \"safe\";\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         // The comment mentions innerHTML but has no user input pattern on that line,
         // so it should either be empty or at most Medium (no user input marker).
         // Since there's no actual user input keyword on the comment line, it won't be Critical.
@@ -344,10 +346,10 @@ mod tests {
     fn test_no_finding_for_innerhtml_in_string_literal() {
         let store = GraphStore::in_memory();
         let detector = XssDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.js", "function getDocs() {\n    const help = \"Use textContent instead of innerHTML for safety\";\n    return help;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         // innerHTML appears inside a string literal, no actual DOM API call
         let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count();
         assert_eq!(

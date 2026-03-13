@@ -38,7 +38,8 @@ impl Detector for UnwrapWithoutContextDetector {
         &["rs"]
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extension("rs") {

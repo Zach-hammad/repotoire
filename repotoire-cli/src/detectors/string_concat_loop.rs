@@ -132,7 +132,9 @@ impl Detector for StringConcatLoopDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
         let concat_funcs = self.find_concat_functions(graph);
@@ -385,10 +387,10 @@ mod tests {
     fn test_detects_string_concat_in_loop() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("builder.py", "def build_output(items):\n    result = \"\"\n    for item in items:\n        result += \"key: \"\n        result += \"value\"\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect string concatenation in loop (2+ concats to same var). Found: {:?}",
@@ -400,10 +402,10 @@ mod tests {
     fn test_no_finding_for_join() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("builder.py", "def build_output(items):\n    parts = []\n    for item in items:\n        parts.append(str(item))\n    return ''.join(parts)\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag list.append + join pattern. Found: {:?}",
@@ -415,10 +417,10 @@ mod tests {
     fn test_no_finding_for_numeric_accumulation() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("calc.py", "def total_price(items):\n    total = 0\n    for item in items:\n        total += item.price\n    return total\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag numeric accumulation (total += item.price). Found: {:?}",
@@ -430,10 +432,10 @@ mod tests {
     fn test_no_finding_for_counter_increment() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("count.py", "def count_active(users):\n    count = 0\n    for user in users:\n        count += 1\n    return count\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag counter increment (count += 1). Found: {:?}",
@@ -445,10 +447,10 @@ mod tests {
     fn test_still_detects_string_literal_concat_in_loop() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result += \"prefix_\"\n        result += \"suffix_\"\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect string literal concat in loop (2+ concats)"
@@ -459,10 +461,10 @@ mod tests {
     fn test_still_detects_string_concat_with_plus() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result = result + \"value\"\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         // Note: the = x + y pattern was removed, so this should no longer match
         // Only += with string literals is detected now
         assert!(
@@ -475,10 +477,10 @@ mod tests {
     fn test_no_finding_for_media_iadd() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("forms.py", "for fs in formsets:\n    media += fs.media\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag media += fs.media (not string concat). Found: {:?}",
@@ -490,10 +492,10 @@ mod tests {
     fn test_no_finding_for_concat_after_loop() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("builder.py", "for item in items:\n    process(item)\n\nresult += \"_suffix\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Concat after loop exits should not be flagged. Found: {:?}",
@@ -505,10 +507,10 @@ mod tests {
     fn test_still_detects_string_concat_in_loop() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("slow.py", "result = \"\"\nfor item in items:\n    result += \"item: \"\n    result += \"value\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect string concat inside loop (2+ concats)"
@@ -519,10 +521,10 @@ mod tests {
     fn test_no_finding_for_single_concat_per_iteration() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "for item in items:\n    url += \"/\"\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag single concat per iteration. Found: {:?}",
@@ -534,10 +536,10 @@ mod tests {
     fn test_still_detects_multiple_concats_in_loop() {
         let store = GraphStore::in_memory();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("builder.py", "for field in fields:\n    definition += \" \" + check\n    definition += \" \" + suffix\n    definition += \" \" + fk\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect multiple concats to same variable in loop"

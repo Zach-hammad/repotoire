@@ -134,7 +134,9 @@ impl Detector for ReactHooksDetector {
         super::detector_context::ContentFlags::HAS_REACT
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses React
         let has_react = files.files_with_extensions(&["jsx", "tsx", "js", "ts"]).iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("react") || c.contains("React") || c.contains("useState") || c.contains("useEffect"))
@@ -414,10 +416,10 @@ mod tests {
     fn test_hook_in_conditional() {
         let store = GraphStore::in_memory();
         let detector = ReactHooksDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("Component.tsx", "function MyComponent({ show }) {\n  if (show) {\n    const [val, setVal] = useState(0);\n  }\n  return <div />;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect hook in conditional");
         assert!(
             findings
@@ -432,10 +434,10 @@ mod tests {
     fn test_hook_in_loop() {
         let store = GraphStore::in_memory();
         let detector = ReactHooksDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("LoopComponent.tsx", "function ListComponent({ items }) {\n  for (let i = 0; i < items.length; i++) {\n    const [val, setVal] = useState(items[i]);\n  }\n  return <div />;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect hook in loop");
         assert!(
             findings
@@ -450,10 +452,10 @@ mod tests {
     fn test_correct_hook_usage_no_findings() {
         let store = GraphStore::in_memory();
         let detector = ReactHooksDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("GoodComponent.tsx", "function GoodComponent({ items }) {\n  const [count, setCount] = useState(0);\n  const [name, setName] = useState(\"\");\n  useEffect(() => {\n    console.log(count);\n  }, [count]);\n  return <div>{count} {name}</div>;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Correct hook usage should produce no findings, but got: {:?}",
@@ -465,10 +467,10 @@ mod tests {
     fn test_hook_in_nested_function() {
         let store = GraphStore::in_memory();
         let detector = ReactHooksDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("NestedComponent.tsx", "function ParentComponent() {\n  function helperFunc() {\n    const [state, setState] = useState(0);\n    return state;\n  }\n  return <div />;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect hook in nested function"
@@ -486,12 +488,12 @@ mod tests {
     fn test_use_effect_in_conditional() {
         let store = GraphStore::in_memory();
         let detector = ReactHooksDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "ConditionalEffect.tsx",
             "function Dashboard({ isAdmin }) {\n  if (isAdmin) {\n    useEffect(() => {\n      fetchAdminData();\n    }, []);\n  }\n  return <div />;\n}\n",
         )]);
         let findings = detector
-            .detect(&store, &mock_files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -511,13 +513,12 @@ mod tests {
         let store = GraphStore::in_memory();
         let detector = ReactHooksDetector::new("/mock/repo");
         // Custom hooks (functions starting with "use" + uppercase) are valid hook containers.
-        // Hooks called at the top level of a custom hook should not be flagged.
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "useAuth.ts",
             "function useAuth() {\n  const [user, setUser] = useState(null);\n  useEffect(() => {\n    fetchUser().then(setUser);\n  }, []);\n  return { user };\n}\n",
         )]);
         let findings = detector
-            .detect(&store, &mock_files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -531,13 +532,12 @@ mod tests {
         let store = GraphStore::in_memory();
         let detector = ReactHooksDetector::new("/mock/repo");
         // The loop_pattern regex requires .map( at the start of the line (after whitespace),
-        // so use method-chaining style where .map( begins the line.
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "ListItems.tsx",
             "function ItemList({ items }) {\n  items\n  .map((item) => {\n    const [expanded, setExpanded] = useState(false);\n    return <div key={item.id}>{expanded && item.detail}</div>;\n  });\n  return <div />;\n}\n",
         )]);
         let findings = detector
-            .detect(&store, &mock_files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -554,13 +554,12 @@ mod tests {
     fn test_hooks_in_pascal_case_component_no_findings() {
         let store = GraphStore::in_memory();
         let detector = ReactHooksDetector::new("/mock/repo");
-        // A properly named PascalCase component with hooks at the top level should be clean.
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "UserProfile.tsx",
             "function UserProfile({ userId }) {\n  const [profile, setProfile] = useState(null);\n  const [loading, setLoading] = useState(true);\n  const memoized = useMemo(() => computeExpensive(profile), [profile]);\n  useEffect(() => {\n    fetchProfile(userId).then(data => {\n      setProfile(data);\n      setLoading(false);\n    });\n  }, [userId]);\n  if (loading) return <Spinner />;\n  return <div>{profile.name}</div>;\n}\n",
         )]);
         let findings = detector
-            .detect(&store, &mock_files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             findings.is_empty(),

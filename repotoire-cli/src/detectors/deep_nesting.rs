@@ -128,7 +128,9 @@ impl Detector for DeepNestingDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
 
@@ -414,10 +416,10 @@ mod tests {
         // The detector counts { and } characters, threshold is 4, so >4 means 5+ levels.
         let store = GraphStore::in_memory();
         let detector = DeepNestingDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("nested.py", "def process(data):\n    if True {\n        if True {\n            if True {\n                if True {\n                    if True {\n                        print(\"deeply nested\")\n                    }\n                }\n            }\n        }\n    }\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect deep nesting with 5 levels of braces"
@@ -434,10 +436,10 @@ mod tests {
         // Only 2 levels of braces - well below threshold of 4
         let store = GraphStore::in_memory();
         let detector = DeepNestingDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("shallow.py", "def process(data):\n    result = {\"key\": \"value\"}\n    if True {\n        print(\"ok\")\n    }\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not detect deep nesting for shallow code, but got: {:?}",

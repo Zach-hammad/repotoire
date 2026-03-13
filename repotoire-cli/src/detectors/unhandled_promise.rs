@@ -78,7 +78,9 @@ impl Detector for UnhandledPromiseDetector {
         &["js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let async_funcs = self.find_async_functions(files);
 
@@ -331,10 +333,10 @@ mod tests {
     fn test_detects_promise_without_catch() {
         let store = GraphStore::in_memory();
         let detector = UnhandledPromiseDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.js", "async function handleRequest() {\n  const x = 1;\n  fetch(\"/api/data\").then(res => res.json());\n  return x;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect promise .then() without .catch()"
@@ -345,10 +347,10 @@ mod tests {
     fn test_no_finding_when_catch_present() {
         let store = GraphStore::in_memory();
         let detector = UnhandledPromiseDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service_good.js", "async function handleRequest() {\n  fetch(\"/api/data\")\n    .then(res => res.json())\n    .catch(err => console.error(err));\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag promise with .catch(), got: {:?}",

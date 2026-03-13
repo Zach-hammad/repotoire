@@ -388,14 +388,8 @@ impl Detector for DeadStoreDetector {
 
     fn detect(
         &self,
-        _graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
-        // Legacy detect() is a no-op — all logic is in detect_ctx().
-        Ok(Vec::new())
-    }
-
-    fn detect_ctx(&self, ctx: &AnalysisContext<'_>) -> Result<Vec<Finding>> {
         Ok(self.detect_with_analysis_ctx(ctx))
     }
 }

@@ -60,7 +60,9 @@ impl Detector for SsrfDetector {
         super::detector_context::ContentFlags::HAS_HTTP_CLIENT
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Run taint analysis for SSRF (precomputed or fallback)
@@ -243,10 +245,10 @@ mod tests {
     fn test_detects_requests_get_with_user_input() {
         let store = GraphStore::in_memory();
         let detector = SsrfDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("vuln.py", "import requests\n\ndef fetch_url(req):\n    url = req.body.get(\"url\")\n    response = requests.get(req.body[\"url\"])\n    return response.text\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect requests.get with user-controlled URL from req.body"
@@ -266,10 +268,10 @@ mod tests {
     fn test_no_findings_for_hardcoded_url() {
         let store = GraphStore::in_memory();
         let detector = SsrfDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", "import requests\n\ndef fetch_data():\n    response = requests.get(\"https://api.example.com/data\")\n    return response.json()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Hardcoded URL should have no SSRF findings, but got: {:?}",
@@ -281,10 +283,10 @@ mod tests {
     fn test_detects_fetch_with_user_input_in_js() {
         let store = GraphStore::in_memory();
         let detector = SsrfDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("proxy.js", "async function proxyRequest(req, res) {\n    const targetUrl = req.body.url;\n    const response = await fetch(req.body.url);\n    const data = await response.json();\n    res.json(data);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect fetch() with user-controlled URL from req.body"
@@ -299,10 +301,10 @@ mod tests {
     fn test_detects_urllib_with_user_input_in_python() {
         let store = GraphStore::in_memory();
         let detector = SsrfDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "from urllib.request import urlopen\n\ndef fetch(request):\n    url = request.query.get('target')\n    response = urlopen(request.query['target'])\n    return response.read()\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect urlopen with user-controlled URL from request.query"
@@ -317,10 +319,10 @@ mod tests {
     fn test_no_finding_for_env_sourced_url() {
         let store = GraphStore::in_memory();
         let detector = SsrfDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("client.py", "import os\nimport requests\n\ndef call_api():\n    base = os.environ.get('API_HOST')\n    response = requests.get(base + '/health')\n    return response.status_code\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "URL sourced from environment variable should not trigger SSRF, but got: {:?}",
@@ -332,10 +334,10 @@ mod tests {
     fn test_no_finding_for_relative_fetch() {
         let store = GraphStore::in_memory();
         let detector = SsrfDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("api.js", "async function loadData(req, res) {\n    const data = await fetch('/api/users');\n    res.json(await data.json());\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Relative URL fetch should not trigger SSRF, but got: {:?}",

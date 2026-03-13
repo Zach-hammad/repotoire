@@ -387,7 +387,9 @@ impl Detector for EmptyCatchDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Pre-build name→qualified_name map once — O(N) instead of O(N) per catch block
@@ -423,10 +425,10 @@ mod tests {
     fn test_detects_empty_except_pass_in_python() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except:\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect empty except: pass block"
@@ -442,10 +444,10 @@ mod tests {
     fn test_no_finding_for_handled_exception() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except ValueError as e:\n        logger.error(e)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag exception that is properly handled, but got: {:?}",
@@ -457,10 +459,10 @@ mod tests {
     fn test_no_finding_for_except_importerror_pass() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("optional.py", "try:\n    import yaml\nexcept ImportError:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag except ImportError: pass (optional import idiom). Found: {:?}",
@@ -472,10 +474,10 @@ mod tests {
     fn test_no_finding_for_except_keyerror_pass_single_line() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("lookup.py", "try:\n    value = cache[key]\nexcept KeyError:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag safe single-line probe with KeyError. Found: {:?}",
@@ -487,10 +489,10 @@ mod tests {
     fn test_still_detects_bare_except_pass() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("bad.py", "try:\n    do_something()\nexcept:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect bare except: pass"
@@ -506,10 +508,10 @@ mod tests {
     fn test_still_detects_except_exception_pass() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("bad.py", "try:\n    do_something()\nexcept Exception:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still detect except Exception: pass (too broad)"
@@ -525,10 +527,10 @@ mod tests {
     fn test_specific_exception_gets_low_severity() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "def get_user(pk):\n    try:\n        return User.objects.get(pk=pk)\n    except User.DoesNotExist:\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect empty catch");
         assert!(findings.iter().all(|f| f.severity == Severity::Low),
             "Specific named exception should be Low severity. Got: {:?}",
@@ -539,10 +541,10 @@ mod tests {
     fn test_broad_except_gets_higher_severity() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except Exception:\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect broad except");
         assert!(findings.iter().any(|f| f.severity != Severity::Low),
             "Broad 'except Exception:' should NOT be Low severity. Got: {:?}",
@@ -553,10 +555,10 @@ mod tests {
     fn test_no_finding_for_cleanup_method() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("response.py", "class Response:\n    def close(self):\n        for closer in self._closers:\n            try:\n                closer()\n            except Exception:\n                pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag empty catch in close() method. Found: {:?}",
@@ -568,10 +570,10 @@ mod tests {
     fn test_no_finding_for_exit_method() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("cursor.py", "class Cursor:\n    def __exit__(self, exc_type, exc_val, tb):\n        try:\n            self.close()\n        except db.Error:\n            pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag empty catch in __exit__ method. Found: {:?}",
@@ -583,10 +585,10 @@ mod tests {
     fn test_no_finding_for_import_probing_with_broad_except() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("compat.py", "try:\n    from yaml import CSafeLoader as SafeLoader\nexcept Exception:\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag import probing with broad except. Found: {:?}",
@@ -598,10 +600,10 @@ mod tests {
     fn test_no_finding_for_safe_single_line_probe() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "def get_size(f):\n    try:\n        return os.path.getsize(f.name)\n    except (OSError, TypeError):\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag safe single-line probe with specific exceptions. Found: {:?}",
@@ -613,10 +615,10 @@ mod tests {
     fn test_still_detects_broad_except_in_regular_function() {
         let store = GraphStore::in_memory();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process_data():\n    try:\n        result = complex_operation()\n        save_to_db(result)\n    except Exception:\n        pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should still flag broad except in regular function with multi-line try body"

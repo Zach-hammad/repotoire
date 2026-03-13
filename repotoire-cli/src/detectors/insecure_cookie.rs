@@ -110,7 +110,9 @@ impl Detector for InsecureCookieDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "php", "rb", "java", "go"]) {
@@ -289,10 +291,10 @@ mod tests {
     fn test_detects_insecure_cookie() {
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id)\n    return resp\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect cookie without security flags");
         assert!(
             findings.iter().any(|f| f.title.contains("HttpOnly") || f.title.contains("Secure") || f.title.contains("SameSite")),
@@ -305,10 +307,10 @@ mod tests {
     fn test_no_finding_for_secure_cookie() {
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id, httponly=True, secure=True, samesite='Lax')\n    return resp\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect anything for secure cookie. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -317,10 +319,10 @@ mod tests {
     fn test_no_finding_for_enum_cookie_value() {
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("params.py", "from enum import Enum\n\nclass ParamTypes(Enum):\n    query = \"query\"\n    header = \"header\"\n    cookie = \"cookie\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag enum values containing 'cookie'. Found: {:?}",
@@ -332,10 +334,10 @@ mod tests {
     fn test_no_finding_for_cookie_class_field() {
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("models.py", "class SecurityScheme:\n    cookie = \"apiKeyCookie\"\n    header = \"apiKeyHeader\"\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag class field assignments. Found: {:?}",
@@ -347,10 +349,10 @@ mod tests {
     fn test_no_finding_for_cookie_attribute_access() {
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("response.py", "def set_cookie(self, key, value):\n    self.cookies[key] = value\n    self.cookies[key][\"secure\"] = True\n    self.cookies[key][\"httponly\"] = True\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not flag self.cookies[] attribute access. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
@@ -359,10 +361,10 @@ mod tests {
     fn test_no_finding_for_multiline_set_cookie_with_flags() {
         let store = GraphStore::in_memory();
         let detector = InsecureCookieDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("middleware.py", "def process_response(self, request, response):\n    response.set_cookie(\n        settings.SESSION_COOKIE_NAME,\n        request.session.session_key,\n        max_age=max_age,\n        expires=expires,\n        domain=settings.SESSION_COOKIE_DOMAIN,\n        path=settings.SESSION_COOKIE_PATH,\n        secure=settings.SESSION_COOKIE_SECURE or None,\n        httponly=settings.SESSION_COOKIE_HTTPONLY or None,\n        samesite=settings.SESSION_COOKIE_SAMESITE,\n    )\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should detect flags in multi-line set_cookie() call. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

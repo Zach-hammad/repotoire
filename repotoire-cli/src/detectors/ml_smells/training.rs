@@ -44,7 +44,8 @@ impl Detector for TorchLoadUnsafeDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("torch"))
@@ -153,7 +154,8 @@ impl Detector for NanEqualityDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses ML/numeric libraries
         let has_ml = files.files_with_extensions(&["py", "js", "ts"]).iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("numpy") || c.contains("torch") || c.contains("math.nan"))
@@ -323,7 +325,8 @@ impl Detector for MissingZeroGradDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("torch"))
@@ -384,7 +387,8 @@ impl Detector for ForwardMethodDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
             files.content(p).map_or(false, |c| c.contains("torch"))

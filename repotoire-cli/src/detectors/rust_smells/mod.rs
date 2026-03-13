@@ -187,10 +187,10 @@ mod tests {
     fn test_unwrap_detection() {
         let graph = GraphStore::in_memory();
         let detector = UnwrapWithoutContextDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "fn main() {\n    let x = some_result.unwrap();\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("unwrap"));
     }
@@ -199,10 +199,10 @@ mod tests {
     fn test_unwrap_in_test_skipped() {
         let graph = GraphStore::in_memory();
         let detector = UnwrapWithoutContextDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "#[test]\nfn test_something() {\n    let x = some_result.unwrap();\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 
@@ -210,10 +210,10 @@ mod tests {
     fn test_unsafe_without_safety() {
         let graph = GraphStore::in_memory();
         let detector = UnsafeWithoutSafetyCommentDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "fn dangerous() {\n    unsafe {\n        do_something();\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -221,10 +221,10 @@ mod tests {
     fn test_unsafe_with_safety_ok() {
         let graph = GraphStore::in_memory();
         let detector = UnsafeWithoutSafetyCommentDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "fn dangerous() {\n    // SAFETY: pointer is valid and aligned\n    unsafe {\n        do_something();\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 
@@ -232,10 +232,10 @@ mod tests {
     fn test_clone_in_loop() {
         let graph = GraphStore::in_memory();
         let detector = CloneInHotPathDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "fn process(items: &[Item]) {\n    for item in items {\n        let owned = item.clone();\n        do_something(owned);\n    }\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -243,10 +243,10 @@ mod tests {
     fn test_missing_must_use() {
         let graph = GraphStore::in_memory();
         let detector = MissingMustUseDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "pub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -254,10 +254,10 @@ mod tests {
     fn test_must_use_present_ok() {
         let graph = GraphStore::in_memory();
         let detector = MissingMustUseDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "#[must_use]\npub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 
@@ -265,10 +265,10 @@ mod tests {
     fn test_mutex_poisoning_risk() {
         let graph = GraphStore::in_memory();
         let detector = MutexPoisoningRiskDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "fn get_data(mutex: &Mutex<Data>) -> Data {\n    mutex.lock().unwrap().clone()\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
 
@@ -276,10 +276,10 @@ mod tests {
     fn test_box_dyn_in_vec_ok() {
         let graph = GraphStore::in_memory();
         let detector = BoxDynTraitDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "fn get_handlers() -> Vec<Box<dyn Handler>> {\n    vec![]\n}\n"),
         ]);
-        let findings = detector.detect(&graph, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
 }

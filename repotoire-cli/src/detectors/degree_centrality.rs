@@ -414,61 +414,9 @@ impl Detector for DegreeCentralityDetector {
         Some(&self.config)
     }
 
-    /// Legacy detection without context
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        let i = graph.interner();
-        let mut findings = Vec::new();
-
-        for func in graph.get_functions_shared().iter() {
-            // Skip by name or hub file
-            if self.should_skip_by_name(func.node_name(i)) || self.is_hub_file(func.path(i)) {
-                continue;
-            }
-
-            let fan_in = graph.call_fan_in(func.qn(i));
-            let fan_out = graph.call_fan_out(func.qn(i));
-            let total_degree = fan_in + fan_out;
-
-            // Skip expected patterns
-            if fan_in > 20 && fan_out < 5 {
-                continue; // Utility pattern
-            }
-            if fan_out > 20 && fan_in < 5 {
-                continue; // Orchestrator pattern
-            }
-
-            // Only flag when BOTH are elevated
-            if total_degree >= self.min_total_degree
-                && fan_in >= self.min_elevated_fanin
-                && fan_out >= self.min_elevated_fanout
-            {
-                findings.push(self.create_finding(
-                    func.node_name(i),
-                    func.path(i),
-                    func.line_start,
-                    func.line_end,
-                    fan_in,
-                    fan_out,
-                    FunctionRole::Unknown,
-                ));
-            }
-        }
-
-        Ok(findings)
-    }
-
-    /// Whether this detector uses function context
-    fn uses_context(&self) -> bool {
-        true
-    }
-
-    /// Enhanced detection with function context
-    fn detect_with_context(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
-        contexts: &Arc<FunctionContextMap>,
-    ) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let contexts = &ctx.functions;
         let i = graph.interner();
         let mut findings = Vec::new();
         let funcs = graph.get_functions_shared();
@@ -484,10 +432,10 @@ impl Detector for DegreeCentralityDetector {
                 continue;
             }
 
-            let ctx = contexts.get(func.qn(i));
+            let fctx = contexts.get(func.qn(i));
 
             // Skip test functions
-            if let Some(c) = ctx {
+            if let Some(c) = fctx {
                 if c.is_test || c.role == FunctionRole::Test {
                     continue;
                 }
@@ -498,7 +446,7 @@ impl Detector for DegreeCentralityDetector {
                 continue;
             }
 
-            let (fan_in, fan_out, role) = if let Some(c) = ctx {
+            let (fan_in, fan_out, role) = if let Some(c) = fctx {
                 (c.in_degree, c.out_degree, c.role)
             } else {
                 let fan_in = graph.call_fan_in(func.qn(i));

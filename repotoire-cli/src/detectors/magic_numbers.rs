@@ -212,7 +212,8 @@ impl Detector for MagicNumbersDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Single pass: collect occurrence locations AND finding candidates together
@@ -395,11 +396,10 @@ mod tests {
         let store = GraphStore::in_memory();
         let detector = MagicNumbersDetector::new("/mock/repo");
         // 42 is a 2+ digit number NOT in the acceptable set.
-        // The line avoids all acceptable-context checks (no brackets, no format, etc.)
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("logic.py", "def check(x):\n    if x > 42:\n        return True\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect magic number 42"
@@ -415,11 +415,10 @@ mod tests {
     fn test_no_finding_for_acceptable_numbers() {
         let store = GraphStore::in_memory();
         let detector = MagicNumbersDetector::new("/mock/repo");
-        // 100 and 10 are in the acceptable set
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("clean.py", "def check(x):\n    if x > 100:\n        return True\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag acceptable number 100, but got: {:?}",

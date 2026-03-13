@@ -128,7 +128,9 @@ impl Detector for CleartextCredentialsDetector {
         super::detector_context::ContentFlags::HAS_SECRET_PATTERN
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "cs"]) {
@@ -270,10 +272,10 @@ mod tests {
     fn test_detects_password_in_log() {
         let store = GraphStore::in_memory();
         let detector = CleartextCredentialsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "def login(user, password):\n    logger.info(f\"Authenticating with password: {password}\")\n    return authenticate(user, password)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect password logged in cleartext");
         assert!(
             findings.iter().any(|f| f.title.contains("Password")),
@@ -286,10 +288,10 @@ mod tests {
     fn test_no_finding_for_safe_code() {
         let store = GraphStore::in_memory();
         let detector = CleartextCredentialsDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "def login(user, password):\n    result = authenticate(user, password)\n    logger.info(f\"User {user} logged in successfully\")\n    return result\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect anything in safe code. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }

@@ -259,55 +259,9 @@ impl Detector for InfluentialCodeDetector {
         Some(&self.config)
     }
 
-    /// Legacy detection without context
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
-        let i = graph.interner();
-        let mut findings = Vec::new();
-
-        for func in graph.get_functions_shared().iter() {
-            // Skip by name pattern
-            if self.should_skip_by_name(func.node_name(i)) {
-                continue;
-            }
-
-            let fan_in = graph.call_fan_in(func.qn(i));
-            let complexity = func.complexity_opt().unwrap_or(1) as usize;
-            let loc = func.loc() as usize;
-
-            // Influential: high fan-in and large
-            if fan_in >= self.min_fan_in
-                && (complexity >= self.high_complexity_threshold as usize
-                    || loc >= self.high_loc_threshold as usize)
-            {
-                findings.push(self.create_finding(
-                    func.node_name(i),
-                    func.path(i),
-                    func.line_start,
-                    func.line_end,
-                    fan_in,
-                    complexity,
-                    loc,
-                    FunctionRole::Unknown,
-                    None,
-                ));
-            }
-        }
-
-        Ok(findings)
-    }
-
-    /// Whether this detector uses function context
-    fn uses_context(&self) -> bool {
-        true
-    }
-
-    /// Enhanced detection with function context
-    fn detect_with_context(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-        _files: &dyn crate::detectors::file_provider::FileProvider,
-        contexts: &Arc<FunctionContextMap>,
-    ) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let contexts = &ctx.functions;
         let i = graph.interner();
         let mut findings = Vec::new();
         let funcs = graph.get_functions_shared();
@@ -318,16 +272,16 @@ impl Detector for InfluentialCodeDetector {
         );
 
         for func in funcs.iter() {
-            let ctx = contexts.get(func.qn(i));
+            let fctx = contexts.get(func.qn(i));
 
             // Skip test functions
-            if let Some(c) = ctx {
+            if let Some(c) = fctx {
                 if c.is_test || c.role == FunctionRole::Test {
                     continue;
                 }
             }
 
-            let (fan_in, complexity, loc, role, betweenness) = if let Some(c) = ctx {
+            let (fan_in, complexity, loc, role, betweenness) = if let Some(c) = fctx {
                 (
                     c.in_degree,
                     c.complexity.unwrap_or(1) as usize,

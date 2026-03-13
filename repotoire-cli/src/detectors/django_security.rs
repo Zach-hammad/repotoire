@@ -93,7 +93,9 @@ impl Detector for DjangoSecurityDetector {
         super::detector_context::ContentFlags::HAS_DJANGO
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses Django
         let has_django = files.files_with_extension("py").iter().any(|p| {
             files.content(p).map_or(false, |c| {
@@ -443,10 +445,10 @@ mod tests {
     fn test_detects_csrf_exempt() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.views.decorators.csrf import csrf_exempt\n\n@csrf_exempt\ndef webhook(request):\n    return JsonResponse({\"ok\": True})\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect @csrf_exempt usage");
         assert!(
             findings.iter().any(|f| f.title.contains("CSRF")),
@@ -464,10 +466,10 @@ mod tests {
         // File name must contain "settings" but not "dev" or "local"
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
             "Should detect DEBUG = True in settings.py. Titles: {:?}",
@@ -485,10 +487,10 @@ mod tests {
     fn test_detects_raw_sql() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("queries.py", "from django.db import connection\n\ndef get_users(name):\n    cursor = connection.cursor()\n    cursor.execute(\"SELECT * FROM users WHERE name = %s\", [name])\n    return cursor.fetchall()\n\ndef get_posts():\n    return Post.objects.raw(\"SELECT * FROM posts\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let raw_sql_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("Raw SQL"))
@@ -510,10 +512,10 @@ mod tests {
     fn test_detects_wildcard_allowed_hosts() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("settings.py", "import os\n\nSECRET_KEY = os.environ['SECRET_KEY']\nDEBUG = False\nALLOWED_HOSTS = ['*']\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings
                 .iter()
@@ -533,10 +535,10 @@ mod tests {
     fn test_clean_django_no_findings() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.http import JsonResponse\nfrom django.views.decorators.http import require_POST\nfrom django.contrib.auth.decorators import login_required\n\n@login_required\n@require_POST\ndef create_item(request):\n    name = request.POST.get('name')\n    item = Item.objects.create(name=name)\n    return JsonResponse({\"id\": item.id})\n\ndef list_items(request):\n    items = Item.objects.filter(active=True).values('id', 'name')\n    return JsonResponse({\"items\": list(items)})\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Clean Django view code should produce no findings, but got: {:?}",
@@ -548,10 +550,10 @@ mod tests {
     fn test_no_finding_for_debug_in_test_settings() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("tests/settings.py", "DEBUG = True\nSECRET_KEY = 'test-secret-key-for-testing'\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag DEBUG=True or SECRET_KEY in test settings. Found: {:?}",
@@ -563,10 +565,10 @@ mod tests {
     fn test_raw_sql_concat_not_critical_without_user_input() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("queries.py", "def get_table_data(table_name):\n    return Model.objects.raw(\"SELECT * FROM \" + table_name)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let raw_sql: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
         assert!(
             !raw_sql.is_empty(),
@@ -583,10 +585,10 @@ mod tests {
     fn test_no_raw_sql_finding_for_db_backend() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("db/backends/postgresql/introspection.py", "def get_table_list(self, cursor):\n    cursor.execute(\"SELECT c.relname FROM pg_catalog.pg_class c\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
         assert!(raw_sql_findings.is_empty(), "Should not flag raw SQL in db/backends/. Found: {:?}",
             raw_sql_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
@@ -596,10 +598,10 @@ mod tests {
     fn test_still_detects_debug_in_production_settings() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
             "Should still detect DEBUG = True in production settings"
@@ -610,12 +612,12 @@ mod tests {
     fn test_no_raw_sql_finding_for_orm_internals() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("db/models/constraints.py", "def as_sql(self, compiler, connection):\n    return cursor.execute(sql)\n"),
             ("db/models/query.py", "class QuerySet:\n    def raw(self, raw_query):\n        return RawSQL(raw_query)\n"),
             ("contrib/postgres/operations.py", "def database_forwards(self):\n    cursor.execute(\"CREATE EXTENSION\")\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
         assert!(
             raw_sql_findings.is_empty(),
@@ -628,10 +630,10 @@ mod tests {
     fn test_no_csrf_finding_for_decorator_definition_module() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views/decorators/csrf.py", "from functools import wraps\n\ndef csrf_exempt(view_func):\n    @wraps(view_func)\n    def wrapper(*args, **kwargs):\n        return view_func(*args, **kwargs)\n    wrapper.csrf_exempt = True\n    return wrapper\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let csrf_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("CSRF")).collect();
         assert!(
             csrf_findings.is_empty(),
@@ -644,10 +646,10 @@ mod tests {
     fn test_no_csrf_finding_for_comment() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views/base.py", "class View:\n    # Copy possible attributes set by decorators, e.g. @csrf_exempt\n    pass\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let csrf_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("CSRF")).collect();
         assert!(
             csrf_findings.is_empty(),
@@ -660,11 +662,11 @@ mod tests {
     fn test_no_raw_sql_finding_for_management_command() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("management/commands/loaddata.py", "class Command(BaseCommand):\n    def handle(self):\n        cursor.execute(line)\n"),
             ("contrib/sites/management.py", "def create_default_site(app_config):\n    cursor.execute(command)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
         assert!(
             raw_sql_findings.is_empty(),
@@ -679,12 +681,12 @@ mod tests {
         // because the f-string indicates user input interpolation.
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "views.py",
             "def search_users(request):\n    name = request.GET['name']\n    cursor.execute(f\"SELECT * FROM users WHERE name = '{name}'\")\n    return JsonResponse({'results': cursor.fetchall()})\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         let raw_sql: Vec<_> = findings
             .iter()
@@ -708,12 +710,12 @@ mod tests {
         // (no f-string/request. interpolation markers).
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "queries.py",
             "def get_user(user_id):\n    cursor = connection.cursor()\n    cursor.execute(\"SELECT * FROM users WHERE id = %s\", [user_id])\n    return cursor.fetchone()\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         let raw_sql: Vec<_> = findings
             .iter()
@@ -738,12 +740,12 @@ mod tests {
         // Standard Django ORM queries and template rendering should be clean.
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "views.py",
             "from django.shortcuts import render\nfrom .models import Article\n\ndef article_list(request):\n    articles = Article.objects.filter(published=True).order_by('-date')\n    return render(request, 'articles/list.html', {'articles': articles})\n\ndef article_detail(request, pk):\n    article = Article.objects.get(pk=pk)\n    return render(request, 'articles/detail.html', {'article': article})\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -756,12 +758,12 @@ mod tests {
     fn test_hardcoded_secret_key_in_settings() {
         let store = GraphStore::in_memory();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![(
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "settings.py",
             "SECRET_KEY = 'django-insecure-abc123xyz789def456ghi'\nDEBUG = False\nALLOWED_HOSTS = ['example.com']\n",
         )]);
         let findings = detector
-            .detect(&store, &files)
+            .detect(&ctx)
             .expect("detection should succeed");
         assert!(
             findings

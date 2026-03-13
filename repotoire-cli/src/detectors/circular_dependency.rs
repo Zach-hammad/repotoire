@@ -353,7 +353,8 @@ impl Detector for CircularDependencyDetector {
         DetectorScope::GraphWide
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         debug!("Starting circular dependency detection");
 
         // Use GraphStore's built-in cycle detection
@@ -455,8 +456,8 @@ mod tests {
         store.add_edge_by_name("c.py", "a.py", CodeEdge::imports());
 
         let detector = CircularDependencyDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Medium); // 3 files
@@ -476,8 +477,8 @@ mod tests {
         store.add_edge_by_name("b.py", "c.py", CodeEdge::imports());
 
         let detector = CircularDependencyDetector::new();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(findings.is_empty());
     }

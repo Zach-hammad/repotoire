@@ -169,7 +169,9 @@ impl Detector for DuplicateCodeDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         use rayon::prelude::*;
@@ -325,11 +327,11 @@ mod tests {
 
         let store = GraphStore::in_memory();
         let detector = DuplicateCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("billing.py", block),
             ("reporting.py", block),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect duplicate code blocks across two files"
@@ -345,11 +347,11 @@ mod tests {
     fn test_no_finding_for_unique_code() {
         let store = GraphStore::in_memory();
         let detector = DuplicateCodeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("module_a.py", "def alpha():\n    x = 1\n    y = 2\n    z = 3\n    w = 4\n    return x + y + z + w\n"),
             ("module_b.py", "def beta():\n    a = 10\n    b = 20\n    c = 30\n    d = 40\n    return a * b * c * d\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag unique code blocks, but got: {:?}",

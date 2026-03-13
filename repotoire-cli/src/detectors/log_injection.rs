@@ -60,7 +60,9 @@ impl Detector for LogInjectionDetector {
 
     // No content_requirements — logging is everywhere, don't filter
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php"]) {
@@ -172,10 +174,10 @@ mod tests {
     fn test_detects_user_input_in_log() {
         let store = GraphStore::in_memory();
         let detector = LogInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "import logging\n\ndef handle_request(request):\n    username = request.get(\"user\")\n    logging.info(f\"Login attempt for user: {username}\")\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect user input in log statement with f-string"
@@ -190,10 +192,10 @@ mod tests {
     fn test_no_finding_for_static_log() {
         let store = GraphStore::in_memory();
         let detector = LogInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "import logging\n\ndef startup():\n    logging.info(\"Application started successfully\")\n    logging.debug(\"Debug mode enabled\")\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Static log messages should produce no findings, but got: {:?}",
@@ -205,10 +207,10 @@ mod tests {
     fn test_detects_console_log_with_user_input_js() {
         let store = GraphStore::in_memory();
         let detector = LogInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "function handleLogin(req, res) {\n    const username = req.body.username;\n    console.log(`Login attempt: ${req.body.username}`);\n    res.sendStatus(200);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect console.log with user input via template literal"
@@ -223,10 +225,10 @@ mod tests {
     fn test_detects_logger_with_user_input_python() {
         let store = GraphStore::in_memory();
         let detector = LogInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "import logging\nlogger = logging.getLogger(__name__)\n\ndef process_request(request):\n    user_agent = request.headers.get('User-Agent')\n    logger.info(f\"Request from user agent: {user_agent}\")\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect logger.info with user input from request via f-string"
@@ -241,10 +243,10 @@ mod tests {
     fn test_no_finding_for_log_pattern_in_string_literal() {
         let store = GraphStore::in_memory();
         let detector = LogInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.js", "const config = {\n    message: \"Use console.log for debugging\",\n    level: \"info\"\n};\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "console.log mentioned in a string literal should not trigger, but got: {:?}",
@@ -256,10 +258,10 @@ mod tests {
     fn test_no_finding_for_log_without_interpolation() {
         let store = GraphStore::in_memory();
         let detector = LogInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.js", "function handleRequest(req) {\n    console.log(\"Received request from user\");\n    processData(req);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Log with user-related words but no interpolation should not trigger, but got: {:?}",

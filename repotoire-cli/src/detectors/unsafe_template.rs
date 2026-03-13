@@ -680,7 +680,8 @@ impl Detector for UnsafeTemplateDetector {
         super::detector_context::ContentFlags::HAS_TEMPLATE
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, _files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         debug!("Starting unsafe template detection");
 
         let mut findings = Vec::new();
@@ -843,10 +844,10 @@ mod tests {
         )
         .expect("should write test file");
 
-        let detector = UnsafeTemplateDetector::with_repository_path(dir.path().to_path_buf());
         let store = GraphStore::in_memory();
-        let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
-        let findings = detector.detect(&store, &empty_files).expect("detection should succeed");
+        let detector = UnsafeTemplateDetector::with_repository_path(dir.path().to_path_buf());
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let innerhtml_findings: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("innerHTML"))

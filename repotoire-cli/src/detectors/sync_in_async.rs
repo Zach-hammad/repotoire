@@ -150,7 +150,9 @@ impl Detector for SyncInAsyncDetector {
         &["py", "js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Lazy-compute blocking functions — only if we actually find async + blocking.
@@ -311,10 +313,10 @@ mod tests {
     fn test_detects_time_sleep_in_async_def() {
         let store = GraphStore::in_memory();
         let detector = SyncInAsyncDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.py", "import asyncio\nimport time\n\nasync def handle_request():\n    data = await fetch_data()\n    time.sleep(1)\n    return data\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect time.sleep() inside async def"
@@ -331,10 +333,10 @@ mod tests {
     fn test_no_finding_for_sync_function() {
         let store = GraphStore::in_memory();
         let detector = SyncInAsyncDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "import time\n\ndef slow_function():\n    time.sleep(1)\n    return 42\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag time.sleep() in a regular (non-async) function, got: {:?}",

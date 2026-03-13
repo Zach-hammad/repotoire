@@ -589,7 +589,8 @@ impl Detector for AIBoilerplateDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
     }
 
-    fn detect(&self, _graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let files = &ctx.as_file_provider();
         use rayon::prelude::*;
 
         let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"];
@@ -746,12 +747,12 @@ mod tests {
     fn test_detects_boilerplate_cluster() {
         let store = crate::graph::GraphStore::in_memory();
         let detector = AIBoilerplateDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handlers/user.py", "def create_user(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
             ("handlers/order.py", "def create_order(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
             ("handlers/product.py", "def create_product(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("should detect boilerplate");
+        let findings = detector.detect(&ctx).expect("should detect boilerplate");
         assert!(
             !findings.is_empty(),
             "Should detect cluster of 3 structurally identical functions"
@@ -762,12 +763,12 @@ mod tests {
     fn test_no_finding_for_diverse_functions() {
         let store = crate::graph::GraphStore::in_memory();
         let detector = AIBoilerplateDetector::new();
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "def login(username, password):\n    user = authenticate(username, password)\n    if user is None:\n        raise AuthError('Invalid credentials')\n    token = create_token(user)\n    return token\n"),
             ("search.py", "def search(query, filters):\n    results = []\n    for item in database.query(query):\n        if matches_filters(item, filters):\n            results.append(item)\n    return sorted(results, key=lambda x: x.score)\n"),
             ("export.py", "def export_csv(data, output_path):\n    with open(output_path, 'w') as f:\n        writer = csv.writer(f)\n        writer.writerow(data[0].keys())\n        for row in data:\n            writer.writerow(row.values())\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("should detect diverse functions");
+        let findings = detector.detect(&ctx).expect("should detect diverse functions");
         assert!(
             findings.is_empty(),
             "Should not flag structurally diverse functions. Found: {:?}",

@@ -118,7 +118,9 @@ impl Detector for MissingAwaitDetector {
         &["py", "js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let gi = graph.interner();
         let _i = graph.interner();
         let mut findings = vec![];
@@ -350,10 +352,10 @@ mod tests {
     fn test_detects_fetch_without_await() {
         let store = GraphStore::in_memory();
         let detector = MissingAwaitDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("api.js", "async function loadData() {\n  const config = \"default\";\n  fetch(\"/api/data\");\n  const result = await process(config);\n  return result;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect fetch() without await in async function"
@@ -364,10 +366,10 @@ mod tests {
     fn test_no_finding_when_awaited() {
         let store = GraphStore::in_memory();
         let detector = MissingAwaitDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("api_good.js", "async function loadData() {\n  const res = await fetch(\"/api/data\");\n  const data = await res.json();\n  return data;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Should not flag properly awaited calls, got: {:?}",

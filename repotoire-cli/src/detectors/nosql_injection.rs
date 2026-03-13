@@ -156,7 +156,9 @@ impl Detector for NosqlInjectionDetector {
         super::detector_context::ContentFlags::HAS_SQL
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["js", "ts", "py", "rb", "php"]) {
@@ -379,10 +381,10 @@ mod tests {
     fn test_detects_where_with_user_input() {
         let store = GraphStore::in_memory();
         let detector = NosqlInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("routes.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function findUser(req, res) {\n    const name = req.body.name;\n    const result = await User.find({ $where: `this.name == '${name}'` });\n    res.json(result);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect $where with user input from req.body"
@@ -398,10 +400,10 @@ mod tests {
     fn test_no_finding_for_safe_query() {
         let store = GraphStore::in_memory();
         let detector = NosqlInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("routes.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function findUser() {\n    const result = await User.find({ active: true });\n    return result;\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Safe MongoDB query without user input should produce no findings, but got: {:?}",
@@ -413,10 +415,10 @@ mod tests {
     fn test_detects_find_with_req_body_in_js() {
         let store = GraphStore::in_memory();
         let detector = NosqlInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("controller.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function login(req, res) {\n    const user = await User.findOne(req.body);\n    if (user) res.json(user);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect MongoDB findOne with unsanitized req.body"
@@ -431,10 +433,10 @@ mod tests {
     fn test_detects_aggregate_with_user_input_ts() {
         let store = GraphStore::in_memory();
         let detector = NosqlInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("analytics.ts", "import mongoose from 'mongoose';\nconst Order = mongoose.model('Order');\n\nasync function getStats(req: Request, res: Response) {\n    const pipeline = req.body.pipeline;\n    const results = await Order.aggregate(req.body.pipeline);\n    res.json(results);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect MongoDB aggregate with user-controlled pipeline from req.body"
@@ -445,10 +447,10 @@ mod tests {
     fn test_no_finding_for_sanitized_query() {
         let store = GraphStore::in_memory();
         let detector = NosqlInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe_controller.js", "const mongoose = require('mongoose');\nconst sanitize = require('mongo-sanitize');\nconst User = mongoose.model('User');\n\nasync function login(req, res) {\n    const clean = sanitize(req.body);\n    const user = await User.findOne(clean);\n    res.json(user);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Sanitized MongoDB query should not produce findings, but got: {:?}",
@@ -460,10 +462,10 @@ mod tests {
     fn test_no_finding_for_array_find() {
         let store = GraphStore::in_memory();
         let detector = NosqlInjectionDetector::new("/mock/repo");
-        let mock_files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.js", "const mongoose = require('mongoose');\n\nfunction findItem(items, id) {\n    return items.find(item => item.id === id);\n}\n"),
         ]);
-        let findings = detector.detect(&store, &mock_files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Array.find() should not be flagged as NoSQL injection, but got: {:?}",

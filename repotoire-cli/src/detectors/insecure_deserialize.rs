@@ -153,7 +153,9 @@ impl Detector for InsecureDeserializeDetector {
         super::detector_context::ContentFlags::HAS_SERIALIZE
     }
 
-    fn detect(&self, graph: &dyn crate::graph::GraphQuery, files: &dyn crate::detectors::file_provider::FileProvider) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "php", "rb"]) {
@@ -366,10 +368,10 @@ mod tests {
     fn test_detects_unsafe_yaml_load() {
         let store = GraphStore::in_memory();
         let detector = InsecureDeserializeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config_loader.py", "import yaml\n\ndef load_config(data):\n    config = yaml.load(data)\n    return config\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect yaml.load without SafeLoader");
         assert!(
             findings.iter().any(|f| f.title.contains("YAML") || f.title.contains("yaml")),
@@ -382,10 +384,10 @@ mod tests {
     fn test_no_finding_for_json_dumps() {
         let store = GraphStore::in_memory();
         let detector = InsecureDeserializeDetector::new("/mock/repo");
-        let files = crate::detectors::file_provider::MockFileProvider::new(vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config_loader.py", "import json\n\ndef save_config(config):\n    output = json.dumps(config, indent=2)\n    with open(\"config.json\", \"w\") as f:\n        f.write(output)\n"),
         ]);
-        let findings = detector.detect(&store, &files).expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Should not detect json.dumps (serialization, not deserialization). Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>());
     }
