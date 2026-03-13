@@ -97,24 +97,41 @@ pub struct FunctionFeatures {
     pub file_context: FileContext,
 }
 
+/// Metrics needed to extract function features for HMM classification.
+pub struct FunctionMetrics<'a> {
+    pub name: &'a str,
+    pub file_path: &'a str,
+    pub fan_in: usize,
+    pub fan_out: usize,
+    pub max_fan_in: usize,
+    pub max_fan_out: usize,
+    pub caller_files: usize,
+    pub complexity: Option<i64>,
+    pub avg_complexity: f64,
+    pub loc: u32,
+    pub avg_loc: f64,
+    pub param_count: usize,
+    pub avg_params: f64,
+    pub address_taken: bool,
+}
+
 impl FunctionFeatures {
     /// Extract features from function metadata
-    pub fn extract(
-        name: &str,
-        file_path: &str,
-        fan_in: usize,
-        fan_out: usize,
-        max_fan_in: usize,
-        max_fan_out: usize,
-        caller_files: usize,
-        complexity: Option<i64>,
-        avg_complexity: f64,
-        loc: u32,
-        avg_loc: f64,
-        param_count: usize,
-        avg_params: f64,
-        address_taken: bool,
-    ) -> Self {
+    pub fn extract(m: &FunctionMetrics<'_>) -> Self {
+        let name = m.name;
+        let file_path = m.file_path;
+        let fan_in = m.fan_in;
+        let fan_out = m.fan_out;
+        let max_fan_in = m.max_fan_in;
+        let max_fan_out = m.max_fan_out;
+        let caller_files = m.caller_files;
+        let complexity = m.complexity;
+        let avg_complexity = m.avg_complexity;
+        let loc = m.loc;
+        let avg_loc = m.avg_loc;
+        let param_count = m.param_count;
+        let avg_params = m.avg_params;
+        let address_taken = m.address_taken;
         let name_lower = name.to_lowercase();
         let path_lower = file_path.to_lowercase();
 

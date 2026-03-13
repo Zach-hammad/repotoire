@@ -2,22 +2,22 @@ use super::*;
 
 #[test]
 fn test_feature_extraction() {
-    let features = FunctionFeatures::extract(
-        "u3r_word",
-        "pkg/noun/retrieve.c",
-        50,
-        10,
-        100,
-        50,
-        20,
-        Some(15),
-        10.0,
-        30,
-        25.0,
-        2,
-        2.5,
-        false,
-    );
+    let features = FunctionFeatures::extract(&FunctionMetrics {
+        name: "u3r_word",
+        file_path: "pkg/noun/retrieve.c",
+        fan_in: 50,
+        fan_out: 10,
+        max_fan_in: 100,
+        max_fan_out: 50,
+        caller_files: 20,
+        complexity: Some(15),
+        avg_complexity: 10.0,
+        loc: 30,
+        avg_loc: 25.0,
+        param_count: 2,
+        avg_params: 2.5,
+        address_taken: false,
+    });
 
     assert!(features.has_short_prefix);
     assert!(!features.has_test_prefix);

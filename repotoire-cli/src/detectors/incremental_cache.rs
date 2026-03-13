@@ -563,7 +563,7 @@ impl IncrementalCache {
         self.dirty = true;
     }
 
-    /// Cache the score result
+    /// Cache the score result (without sub-scores)
     #[allow(dead_code)] // Public API
     pub fn cache_score(
         &mut self,
@@ -574,35 +574,22 @@ impl IncrementalCache {
         classes: usize,
         total_loc: usize,
     ) {
-        self.cache_score_with_subscores(
-            score, grade, files, functions, classes, None, None, None, total_loc,
-        );
-    }
-
-    /// Cache the score result with sub-scores
-    pub fn cache_score_with_subscores(
-        &mut self,
-        score: f64,
-        grade: &str,
-        files: usize,
-        functions: usize,
-        classes: usize,
-        structure_score: Option<f64>,
-        quality_score: Option<f64>,
-        architecture_score: Option<f64>,
-        total_loc: usize,
-    ) {
-        self.cache.graph.score = Some(CachedScoreResult {
+        self.cache_score_with_subscores(CachedScoreResult {
             score,
             grade: grade.to_string(),
             total_files: files,
             total_functions: functions,
             total_classes: classes,
-            structure_score,
-            quality_score,
-            architecture_score,
+            structure_score: None,
+            quality_score: None,
+            architecture_score: None,
             total_loc: Some(total_loc),
         });
+    }
+
+    /// Cache the score result with sub-scores
+    pub fn cache_score_with_subscores(&mut self, result: CachedScoreResult) {
+        self.cache.graph.score = Some(result);
         self.dirty = true;
     }
 

@@ -23,7 +23,7 @@
 use crate::detectors::base::{
     is_test_file, DetectionSummary, Detector, DetectorResult, ProgressCallback,
 };
-use crate::detectors::context_hmm::{ContextClassifier, FunctionContext, FunctionFeatures};
+use crate::detectors::context_hmm::{ContextClassifier, FunctionContext, FunctionFeatures, FunctionMetrics};
 use crate::detectors::function_context::{FunctionContextBuilder, FunctionContextMap};
 use crate::graph::CachedGraphQuery;
 use crate::graph::GraphStore;
@@ -282,11 +282,22 @@ fn build_hmm_contexts_standalone(
         });
         let loc = func.line_end.saturating_sub(func.line_start) + 1;
         let address_taken = func.address_taken();
-        let features = FunctionFeatures::extract(
-            func.node_name(i), func.path(i), fan_in, fan_out, max_fan_in, max_fan_out,
-            caller_files_count, func.complexity_opt(), avg_complexity, loc, avg_loc,
-            3, avg_params, address_taken,
-        );
+        let features = FunctionFeatures::extract(&FunctionMetrics {
+            name: func.node_name(i),
+            file_path: func.path(i),
+            fan_in,
+            fan_out,
+            max_fan_in,
+            max_fan_out,
+            caller_files: caller_files_count,
+            complexity: func.complexity_opt(),
+            avg_complexity,
+            loc,
+            avg_loc,
+            param_count: 3,
+            avg_params,
+            address_taken,
+        });
         function_data.push((features, fan_in, fan_out, address_taken));
     }
 
@@ -592,22 +603,22 @@ impl DetectorEngine {
             let loc = func.line_end.saturating_sub(func.line_start) + 1;
             let address_taken = func.address_taken();
 
-            let features = FunctionFeatures::extract(
-                func.node_name(i),
-                func.path(i),
+            let features = FunctionFeatures::extract(&FunctionMetrics {
+                name: func.node_name(i),
+                file_path: func.path(i),
                 fan_in,
                 fan_out,
                 max_fan_in,
                 max_fan_out,
-                caller_files_count,
-                func.complexity_opt(),
+                caller_files: caller_files_count,
+                complexity: func.complexity_opt(),
                 avg_complexity,
                 loc,
                 avg_loc,
-                3, // Default param count
+                param_count: 3, // Default param count
                 avg_params,
                 address_taken,
-            );
+            });
 
             function_data.push((features, fan_in, fan_out, address_taken));
         }

@@ -398,15 +398,17 @@ pub fn run(
 
     // Cache scores for fast path on next run (use env.incremental_cache, not a new instance)
     env.incremental_cache.cache_score_with_subscores(
-        score_result.overall_score,
-        &score_result.grade,
-        file_result.all_files.len(),
-        parse_result.total_functions,
-        parse_result.total_classes,
-        Some(score_result.structure_score),
-        Some(score_result.quality_score),
-        Some(score_result.architecture_score),
-        score_result.total_loc,
+        crate::detectors::CachedScoreResult {
+            score: score_result.overall_score,
+            grade: score_result.grade.clone(),
+            total_files: file_result.all_files.len(),
+            total_functions: parse_result.total_functions,
+            total_classes: parse_result.total_classes,
+            structure_score: Some(score_result.structure_score),
+            quality_score: Some(score_result.quality_score),
+            architecture_score: Some(score_result.architecture_score),
+            total_loc: Some(score_result.total_loc),
+        },
     );
     phase_timings.push(("scoring", phase_start.elapsed()));
 
