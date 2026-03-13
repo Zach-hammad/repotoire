@@ -84,6 +84,8 @@ pub struct LightweightClassInfo {
     pub line_end: u32,
     /// Number of methods (not the full list)
     pub method_count: u16,
+    /// Number of fields/attributes
+    pub field_count: u16,
     /// Number of base classes
     pub base_count: u8,
 }
@@ -310,6 +312,7 @@ impl LightweightFileInfo {
                 line_start: c.line_start,
                 line_end: c.line_end,
                 method_count: c.methods.len().min(65535) as u16,
+                field_count: c.field_count.min(65535) as u16,
                 base_count: c.bases.len().min(255) as u8,
             })
             .collect();

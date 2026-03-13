@@ -283,6 +283,7 @@ fn extract_classes(
                 line_end,
                 bases,
                 methods: methods.iter().map(|m| m.name.clone()).collect(),
+                field_count: 0,
                 doc_comment: None,
                 annotations: vec![],
             });
@@ -478,6 +479,7 @@ fn extract_structs(
                 line_end,
                 bases,
                 methods: methods.iter().map(|m| m.name.clone()).collect(),
+                field_count: 0,
                 doc_comment: None,
                 annotations: vec![],
             });

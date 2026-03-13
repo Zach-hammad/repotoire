@@ -292,6 +292,7 @@ fn extract_structs(
                     line_start,
                     line_end,
                     methods: vec![],
+                    field_count: 0,
                     bases: vec![],
                     doc_comment: None,
                     annotations: vec![],

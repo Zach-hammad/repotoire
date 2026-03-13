@@ -253,6 +253,9 @@ fn parse_struct_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         annotations.push("exported".to_string());
     }
 
+    // Count struct fields: named fields (field_declaration) or tuple fields (ordered_field_declaration)
+    let field_count = count_struct_fields(node);
+
     Some(Class {
         name,
         qualified_name,
@@ -260,10 +263,36 @@ fn parse_struct_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         line_start,
         line_end,
         methods: vec![],
+        field_count,
         bases: vec![],
         doc_comment: None,
         annotations,
     })
+}
+
+/// Count fields in a struct node (named fields or tuple fields)
+fn count_struct_fields(node: &Node) -> usize {
+    if let Some(body) = node.child_by_field_name("body") {
+        match body.kind() {
+            // Named struct: struct Foo { field1: T, field2: T }
+            "field_declaration_list" => {
+                let mut count = 0;
+                let mut cursor = body.walk();
+                for child in body.children(&mut cursor) {
+                    if child.kind() == "field_declaration" {
+                        count += 1;
+                    }
+                }
+                count
+            }
+            // Tuple struct: struct Foo(T1, T2)
+            // Fields are named children (type nodes) directly inside the list
+            "ordered_field_declaration_list" => body.named_child_count(),
+            _ => 0,
+        }
+    } else {
+        0 // Unit struct
+    }
 }
 
 /// Parse an enum into a Class struct
@@ -280,6 +309,21 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         annotations.push("exported".to_string());
     }
 
+    // Count enum variants
+    let field_count = node
+        .child_by_field_name("body")
+        .map(|body| {
+            let mut count = 0;
+            let mut cursor = body.walk();
+            for child in body.children(&mut cursor) {
+                if child.kind() == "enum_variant" {
+                    count += 1;
+                }
+            }
+            count
+        })
+        .unwrap_or(0);
+
     Some(Class {
         name,
         qualified_name,
@@ -287,6 +331,7 @@ fn parse_enum_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         line_start,
         line_end,
         methods: vec![],
+        field_count,
         bases: vec![],
         doc_comment: None,
         annotations,
@@ -320,6 +365,7 @@ fn parse_trait_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         line_start,
         line_end,
         methods,
+        field_count: 0,
         bases,
         doc_comment: None,
         annotations,
@@ -939,4 +985,40 @@ impl MyStruct {
             private.annotations
         );
     }
+
+    #[test]
+    fn test_struct_field_count() {
+        let source = r#"
+pub struct Config {
+    pub name: String,
+    pub value: i32,
+    pub enabled: bool,
+}
+
+struct Pair(i32, String);
+
+struct Unit;
+
+pub enum Color {
+    Red,
+    Green,
+    Blue,
+    Custom(u8, u8, u8),
+}
+"#;
+        let result = parse_source(source, Path::new("test.rs")).unwrap();
+
+        let config = result.classes.iter().find(|c| c.name == "Config").unwrap();
+        assert_eq!(config.field_count, 3, "Config has 3 named fields");
+
+        let pair = result.classes.iter().find(|c| c.name == "Pair").unwrap();
+        assert_eq!(pair.field_count, 2, "Pair tuple struct has 2 fields");
+
+        let unit = result.classes.iter().find(|c| c.name == "Unit").unwrap();
+        assert_eq!(unit.field_count, 0, "Unit struct has 0 fields");
+
+        let color = result.classes.iter().find(|c| c.name == "Color").unwrap();
+        assert_eq!(color.field_count, 4, "Color enum has 4 variants");
+    }
+
 }

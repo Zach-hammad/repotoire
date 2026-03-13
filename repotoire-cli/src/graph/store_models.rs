@@ -34,6 +34,7 @@ pub struct CodeNode {
     pub complexity: u16,
     pub param_count: u8,
     pub method_count: u16,
+    pub field_count: u16,
     pub max_nesting: u8,
     pub return_count: u8,
     pub commit_count: u16,
@@ -64,6 +65,7 @@ impl CodeNode {
             complexity: 0,
             param_count: 0,
             method_count: 0,
+            field_count: 0,
             max_nesting: 0,
             return_count: 0,
             commit_count: 0,
@@ -92,6 +94,7 @@ impl CodeNode {
             complexity: 0,
             param_count: 0,
             method_count: 0,
+            field_count: 0,
             max_nesting: 0,
             return_count: 0,
             commit_count: 0,
@@ -119,6 +122,7 @@ impl CodeNode {
             complexity: 0,
             param_count: 0,
             method_count: 0,
+            field_count: 0,
             max_nesting: 0,
             return_count: 0,
             commit_count: 0,
@@ -158,6 +162,9 @@ impl CodeNode {
             }
             "methodCount" | "method_count" => {
                 self.method_count = val.as_i64().unwrap_or(0) as u16;
+            }
+            "fieldCount" | "field_count" => {
+                self.field_count = val.as_i64().unwrap_or(0) as u16;
             }
             "param_count" => {
                 self.param_count = val.as_i64().unwrap_or(0) as u8;
@@ -287,6 +294,13 @@ impl CodeNode {
             "methodCount" => {
                 if self.method_count > 0 {
                     Some(self.method_count as i64)
+                } else {
+                    None
+                }
+            }
+            "fieldCount" => {
+                if self.field_count > 0 {
+                    Some(self.field_count as i64)
                 } else {
                     None
                 }

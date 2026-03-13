@@ -100,6 +100,7 @@ pub struct ClassInfo {
     pub line_end: u32,
     pub method_count: usize,
     pub methods: Vec<String>,
+    pub field_count: usize,
     pub bases: Vec<String>,
 }
 
@@ -151,6 +152,7 @@ impl ParsedFileInfo {
                 line_end: c.line_end,
                 method_count: c.methods.len(),
                 methods: c.methods,
+                field_count: c.field_count,
                 bases: c.bases,
             })
             .collect();
@@ -211,6 +213,7 @@ impl ParsedFileInfo {
                     line_start: c.line_start,
                     line_end: c.line_end,
                     methods: c.methods.clone(),
+                    field_count: c.field_count,
                     bases: c.bases.clone(),
                     doc_comment: None,
                     annotations: vec![],

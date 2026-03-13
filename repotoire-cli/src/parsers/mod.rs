@@ -656,6 +656,7 @@ mod tests {
                 line_start: 20,
                 line_end: 30,
                 methods: vec![],
+                field_count: 0,
                 bases: vec![],
                 doc_comment: None,
                 annotations: vec![],

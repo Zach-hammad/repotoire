@@ -289,6 +289,7 @@ impl<'a> GitEnricher<'a> {
             complexity: 0,
             param_count: 0,
             method_count: 0,
+            field_count: 0,
             max_nesting: 0,
             return_count: 0,
             commit_count: 0,

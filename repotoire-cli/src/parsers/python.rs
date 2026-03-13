@@ -490,6 +490,7 @@ fn parse_class_node(node: &Node, source: &[u8], path: &Path) -> Option<Class> {
         line_start,
         line_end,
         methods,
+        field_count: 0,
         bases,
         doc_comment: None,
         annotations,

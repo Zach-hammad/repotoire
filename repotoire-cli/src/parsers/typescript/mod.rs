@@ -522,6 +522,7 @@ fn extract_classes(
                 line_start,
                 line_end,
                 methods,
+                field_count: 0,
                 bases,
                 doc_comment,
                 annotations,

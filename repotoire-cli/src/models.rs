@@ -233,6 +233,9 @@ pub struct Class {
     pub line_start: u32,
     pub line_end: u32,
     pub methods: Vec<String>,
+    /// Number of struct fields (Rust named/tuple) or enum variants.
+    #[serde(default)]
+    pub field_count: usize,
     pub bases: Vec<String>,
     /// Doc comment (Javadoc, JSDoc, Go doc, etc.)
     #[serde(default, skip_serializing_if = "Option::is_none")]

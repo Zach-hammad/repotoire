@@ -186,24 +186,73 @@ impl LazyClassDetector {
     /// `impl<TypeName>` or `impl<Trait for TypeName>`. This method counts them
     /// so the detector can make an informed decision about whether the type is
     /// truly "lazy" or just idiomatic Rust.
+    ///
+    /// Handles generic types correctly: `impl<Foo<'g>>` matches type name `Foo`
+    /// by checking that the character after the type name is `>` (end of impl)
+    /// or `<` (start of generic parameters).
     fn count_rust_impl_methods(
         file_funcs: &[&crate::graph::store_models::CodeNode],
         type_name: &str,
         interner: &crate::graph::interner::StringInterner,
     ) -> usize {
-        // Match patterns like:
-        //   path::impl<TypeName>::method:line
-        //   path::impl<Trait for TypeName>::method:line
-        let impl_direct = format!("impl<{}>", type_name);
-        let impl_trait_suffix = format!(" for {}>", type_name);
+        let impl_prefix = format!("impl<{}", type_name);
+        let trait_infix = format!(" for {}", type_name);
 
         file_funcs
             .iter()
             .filter(|f| {
                 let qn = f.qn(interner);
-                qn.contains(&impl_direct) || qn.contains(&impl_trait_suffix)
+                Self::qn_matches_type(qn, &impl_prefix, type_name.len())
+                    || Self::qn_matches_type(qn, &trait_infix, type_name.len())
             })
             .count()
+    }
+
+    /// Count distinct trait implementations for a Rust type.
+    ///
+    /// Counts unique `impl<Trait for TypeName>` patterns in qualified names.
+    /// This measures the type's "contract fulfillment" — how many traits it
+    /// manually implements.
+    fn count_rust_trait_impls(
+        file_funcs: &[&crate::graph::store_models::CodeNode],
+        type_name: &str,
+        interner: &crate::graph::interner::StringInterner,
+    ) -> usize {
+        let trait_infix = format!(" for {}", type_name);
+
+        let mut trait_names: HashSet<&str> = HashSet::new();
+
+        for f in file_funcs {
+            let qn = f.qn(interner);
+            if let Some(pos) = qn.find(&trait_infix) {
+                let after = pos + trait_infix.len();
+                if let Some(&ch) = qn.as_bytes().get(after) {
+                    if ch == b'>' || ch == b'<' {
+                        // Extract trait name: "impl<TraitName for TypeName>"
+                        if let Some(impl_start) = qn[..pos].rfind("impl<") {
+                            let trait_start = impl_start + 5; // len("impl<")
+                            let trait_name = &qn[trait_start..pos];
+                            trait_names.insert(trait_name);
+                        }
+                    }
+                }
+            }
+        }
+
+        trait_names.len()
+    }
+
+    /// Check if a QN contains a pattern followed by `>` or `<` at the right position.
+    /// This correctly handles generic types like `Foo<'g>` where the type name
+    /// is followed by `<` (generic params) instead of `>` (end of impl block).
+    fn qn_matches_type(qn: &str, pattern: &str, _type_name_len: usize) -> bool {
+        if let Some(pos) = qn.find(pattern) {
+            let after = pos + pattern.len();
+            if let Some(&ch) = qn.as_bytes().get(after) {
+                return ch == b'>' || ch == b'<';
+            }
+        }
+        false
     }
 
     /// Count unique external callers of a class's methods.
@@ -428,25 +477,24 @@ impl LazyClassDetector {
                 if is_rust { Some(file_funcs.iter().collect()) } else { None };
 
             for class in file_classes {
-                // --- Rust-specific: count impl-block methods ---
-                // Rust structs/enums have methods in separate `impl` blocks outside
-                // the struct's line range. The parser sets methodCount=0 on the struct
-                // node itself because no methods live inside `struct Foo { ... }`.
-                // We must count methods from `impl Foo` and `impl Trait for Foo` blocks
-                // to get the real method count.
+                // --- Rust-specific: multi-dimensional type evaluation ---
+                // Rust structs/enums provide value through multiple dimensions:
+                // 1. Data structuring (fields) — what the type IS
+                // 2. Behavior (impl methods) — what the type DOES
+                // 3. Type contracts (trait impls) — what obligations it FULFILLS
+                // A type is only lazy if ALL dimensions show no substance.
                 if let Some(ref func_refs) = file_func_refs {
-                    let impl_method_count =
-                        Self::count_rust_impl_methods(func_refs, class.node_name(i), i);
+                    let type_name = class.node_name(i);
+                    let field_count = class.field_count as usize;
+                    let impl_methods =
+                        Self::count_rust_impl_methods(func_refs, type_name, i);
+                    let trait_impls =
+                        Self::count_rust_trait_impls(func_refs, type_name, i);
 
-                    // Rust threshold: a struct/enum with 2+ impl-block methods is
-                    // not lazy — it has real functionality spread across impl blocks.
-                    // This is higher than the default max_methods=3 check because
-                    // Rust idiomatically uses many small trait impls (Display, Debug,
-                    // Default, From, etc.) that each add a method.
-                    if impl_method_count >= 2 {
+                    if field_count >= 2 || impl_methods >= 2 || trait_impls >= 2 {
                         debug!(
-                            "Skipping Rust type {} - has {} impl-block methods",
-                            class.node_name(i), impl_method_count
+                            "Skipping Rust type {} - fields={}, impl_methods={}, trait_impls={} (provides value)",
+                            type_name, field_count, impl_methods, trait_impls
                         );
                         continue;
                     }
@@ -925,6 +973,64 @@ mod tests {
 
         let count_none = LazyClassDetector::count_rust_impl_methods(&file_func_refs, "Baz", i);
         assert_eq!(count_none, 0, "Should count 0 methods for non-existent type");
+    }
+
+    #[test]
+    fn test_count_rust_impl_methods_generic() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        // Generic type: AnalysisContext<'g> — the QN contains the lifetime param
+        let funcs = vec![
+            CodeNode::function("new", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<AnalysisContext<'g>>::new:10")
+                .with_lines(10, 15),
+            CodeNode::function("graph", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<AnalysisContext<'g>>::graph:20")
+                .with_lines(20, 22),
+            CodeNode::function("fmt", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<Debug for AnalysisContext<'g>>::fmt:30")
+                .with_lines(30, 35),
+        ];
+        for f in &funcs {
+            graph.add_node(f.clone());
+        }
+
+        let file_funcs = graph.get_functions_in_file("src/lib.rs");
+        let refs: Vec<&crate::graph::store_models::CodeNode> = file_funcs.iter().collect();
+
+        let count = LazyClassDetector::count_rust_impl_methods(&refs, "AnalysisContext", i);
+        assert_eq!(count, 3, "Should count all 3 methods for generic AnalysisContext<'g>");
+    }
+
+    #[test]
+    fn test_count_rust_trait_impls() {
+        let graph = GraphStore::in_memory();
+        let i = graph.interner();
+
+        let funcs = vec![
+            CodeNode::function("new", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<Foo>::new:10")
+                .with_lines(10, 15),
+            CodeNode::function("fmt", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<Display for Foo>::fmt:20")
+                .with_lines(20, 25),
+            CodeNode::function("default", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<Default for Foo>::default:30")
+                .with_lines(30, 35),
+            CodeNode::function("from", "src/lib.rs")
+                .with_qualified_name("src/lib.rs::impl<From<i32> for Foo>::from:40")
+                .with_lines(40, 45),
+        ];
+        for f in &funcs {
+            graph.add_node(f.clone());
+        }
+
+        let file_funcs = graph.get_functions_in_file("src/lib.rs");
+        let refs: Vec<&crate::graph::store_models::CodeNode> = file_funcs.iter().collect();
+
+        let count = LazyClassDetector::count_rust_trait_impls(&refs, "Foo", i);
+        assert_eq!(count, 3, "Should count 3 distinct trait impls: Display, Default, From<i32>");
     }
 
     // --- Go-specific tests ---

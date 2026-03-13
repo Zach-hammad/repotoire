@@ -408,6 +408,7 @@ fn extract_structs_and_interfaces(
                 line_start,
                 line_end,
                 methods,
+                field_count: 0,
                 bases: vec![],
                 doc_comment,
                 annotations,
