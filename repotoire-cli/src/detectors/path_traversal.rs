@@ -8,7 +8,7 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{LazyLock, OnceLock};
 
 static FILE_OP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|[^.\w])(open|unlink|unlinkSync|rmdir|mkdir|copyFile|rename)\s*\(|(?:os\.remove|os\.unlink|shutil\.copy|shutil\.move|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|statSync|accessSync)\s*\(").expect("valid regex"));
 static PATH_JOIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"os\.path\.join|(?:^|[^.\w])path\.join|(?:^|[^.\w])path\.resolve|filepath\.Join|filepath\.Clean|(?:pathlib\.)?Path\s*\(").expect("valid regex"));
@@ -28,7 +28,6 @@ pub struct PathTraversalDetector {
     taint_analyzer: TaintAnalyzer,
     precomputed_cross: OnceLock<Vec<crate::detectors::taint::TaintPath>>,
     precomputed_intra: OnceLock<Vec<crate::detectors::taint::TaintPath>>,
-    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl PathTraversalDetector {
@@ -39,7 +38,6 @@ impl PathTraversalDetector {
             taint_analyzer: TaintAnalyzer::new(),
             precomputed_cross: OnceLock::new(),
             precomputed_intra: OnceLock::new(),
-            detector_context: OnceLock::new(),
         }
     }
 }
@@ -74,9 +72,8 @@ impl Detector for PathTraversalDetector {
     }
 
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
-        // Populate detector_context from AnalysisContext for helper methods
-        let _ = self.detector_context.set(Arc::clone(&ctx.detector_ctx));
         let graph = ctx.graph;
+        let det_ctx = &ctx.detector_ctx;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
@@ -105,13 +102,10 @@ impl Detector for PathTraversalDetector {
             }
 
             // Pre-filter: skip files without file-operation or path-operation keywords
-            let should_check = if let Some(ctx) = self.detector_context.get() {
-                let flags = ctx.content_flags.get(path).copied().unwrap_or_default();
-                flags.has(ContentFlags::FILE_OPS) || flags.has(ContentFlags::PATH_OPS)
-            } else {
-                // No DetectorContext (tests / standalone) — defer to inline check below
-                true
-            };
+            let flags = det_ctx.content_flags.get(path).copied().unwrap_or_default();
+            let should_check = flags.has(ContentFlags::FILE_OPS) || flags.has(ContentFlags::PATH_OPS)
+                // If no content flags at all (tests / empty context), defer to inline check below
+                || det_ctx.content_flags.is_empty();
 
             if !should_check {
                 continue;
@@ -122,9 +116,9 @@ impl Detector for PathTraversalDetector {
                 None => continue,
             };
 
-            // Inline fallback pre-filter when no DetectorContext is available.
+            // Inline fallback pre-filter when content flags are empty (tests).
             // Must cover the same keywords as ContentFlags FILE_OPS + PATH_OPS.
-            if self.detector_context.get().is_none() {
+            if det_ctx.content_flags.is_empty() {
                 let has_relevant = raw.contains("open(")
                     || raw.contains("readFile")
                     || raw.contains("writeFile")

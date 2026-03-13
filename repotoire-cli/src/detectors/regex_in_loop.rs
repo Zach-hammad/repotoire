@@ -12,7 +12,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::LazyLock;
 use tracing::info;
 
 static LOOP: LazyLock<Regex> = LazyLock::new(|| {
@@ -61,7 +61,6 @@ pub struct RegexInLoopDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
-    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl RegexInLoopDetector {
@@ -69,17 +68,16 @@ impl RegexInLoopDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 50,
-            detector_context: OnceLock::new(),
         }
     }
 
     /// Find functions that compile regexes.
     /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).
-    fn find_regex_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
+    fn find_regex_functions(&self, graph: &dyn crate::graph::GraphQuery, det_ctx: &crate::detectors::DetectorContext) -> HashSet<String> {
         let i = graph.interner();
         let mut regex_funcs = HashSet::new();
         let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-        let ctx = self.detector_context.get();
+        let ctx = Some(det_ctx);
 
         for func in graph.get_functions_shared().iter() {
             let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
@@ -127,6 +125,7 @@ impl RegexInLoopDetector {
     fn calls_regex_transitively(
         &self,
         graph: &dyn crate::graph::GraphQuery,
+        det_ctx: &crate::detectors::DetectorContext,
         func_qn: &str,
         regex_funcs: &HashSet<String>,
         visited: &mut HashSet<String>,
@@ -138,35 +137,35 @@ impl RegexInLoopDetector {
         }
         visited.insert(func_qn.to_string());
 
-        if let Some(ctx) = self.detector_context.get() {
-            // Fast path: use pre-built callees map
-            if let Some(callee_qn_list) = ctx.callees_by_qn.get(func_qn) {
-                for callee_qn in callee_qn_list {
-                    let callee_name = graph.get_node(callee_qn)
-                        .map(|n| n.node_name(i).to_string())
-                        .unwrap_or_else(|| callee_qn.clone());
-                    if regex_funcs.contains(callee_qn) {
-                        return Some(callee_name);
-                    }
-                    if let Some(chain) = self.calls_regex_transitively(
-                        graph,
-                        callee_qn,
-                        regex_funcs,
-                        visited,
-                        depth + 1,
-                    ) {
-                        return Some(format!("{} \u{2192} {}", callee_name, chain));
-                    }
+        // Use pre-built callees map
+        if let Some(callee_qn_list) = det_ctx.callees_by_qn.get(func_qn) {
+            for callee_qn in callee_qn_list {
+                let callee_name = graph.get_node(callee_qn)
+                    .map(|n| n.node_name(i).to_string())
+                    .unwrap_or_else(|| callee_qn.clone());
+                if regex_funcs.contains(callee_qn) {
+                    return Some(callee_name);
+                }
+                if let Some(chain) = self.calls_regex_transitively(
+                    graph,
+                    det_ctx,
+                    callee_qn,
+                    regex_funcs,
+                    visited,
+                    depth + 1,
+                ) {
+                    return Some(format!("{} \u{2192} {}", callee_name, chain));
                 }
             }
         } else {
-            // Fallback: use graph.get_callees()
+            // Fallback: use graph.get_callees() (empty callees map)
             for callee in graph.get_callees(func_qn) {
                 if regex_funcs.contains(callee.qn(i)) {
                     return Some(callee.node_name(i).to_string());
                 }
                 if let Some(chain) = self.calls_regex_transitively(
                     graph,
+                    det_ctx,
                     callee.qn(i),
                     regex_funcs,
                     visited,
@@ -193,15 +192,14 @@ impl Detector for RegexInLoopDetector {
     }
 
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
-        // Populate detector_context from AnalysisContext for helper methods
-        let _ = self.detector_context.set(Arc::clone(&ctx.detector_ctx));
         let graph = ctx.graph;
+        let det_ctx = &ctx.detector_ctx;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
 
         // Find all functions that compile regex
-        let regex_funcs = self.find_regex_functions(graph);
+        let regex_funcs = self.find_regex_functions(graph, det_ctx);
 
         for path in files.files_with_extensions(&["py", "js", "ts", "java", "rs", "go"]) {
             if findings.len() >= self.max_findings {
@@ -321,7 +319,6 @@ impl Detector for RegexInLoopDetector {
         // the call graph can't distinguish cached from uncached compilation
         if !regex_funcs.is_empty() {
             let mut graph_file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-            let ctx = self.detector_context.get();
 
             for func in graph.get_functions_shared().iter() {
                 if findings.len() >= self.max_findings {
@@ -336,7 +333,7 @@ impl Detector for RegexInLoopDetector {
                 let lines = graph_file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
                     let path = std::path::Path::new(func.path(i));
                     // Try DetectorContext first, fall back to global_cache
-                    if let Some(content) = ctx.and_then(|c| c.file_contents.get(path)).map(|s| &**s) {
+                    if let Some(content) = det_ctx.file_contents.get(path).map(|s| &**s) {
                         content.lines().map(String::from).collect()
                     } else {
                         crate::cache::global_cache()
@@ -359,27 +356,27 @@ impl Detector for RegexInLoopDetector {
                 }
 
                 // Check callees for regex compilation
-                // Collect callee (qn, name) pairs from context or graph fallback
-                let callee_pairs: Vec<(String, String)> = if let Some(c) = ctx {
-                    c.callees_by_qn.get(func.qn(i))
-                        .map(|v| v.iter().map(|qn| {
-                            let name = graph.get_node(qn)
-                                .map(|n| n.node_name(i).to_string())
-                                .unwrap_or_else(|| qn.clone());
-                            (qn.clone(), name)
-                        }).collect())
-                        .unwrap_or_default()
-                } else {
-                    graph.get_callees(func.qn(i))
-                        .into_iter()
-                        .map(|c| (c.qn(i).to_string(), c.node_name(i).to_string()))
-                        .collect()
-                };
+                // Collect callee (qn, name) pairs from pre-built callees map or graph fallback
+                let callee_pairs: Vec<(String, String)> = det_ctx.callees_by_qn.get(func.qn(i))
+                    .map(|v| v.iter().map(|qn| {
+                        let name = graph.get_node(qn)
+                            .map(|n| n.node_name(i).to_string())
+                            .unwrap_or_else(|| qn.clone());
+                        (qn.clone(), name)
+                    }).collect())
+                    .unwrap_or_else(|| {
+                        // Fallback: use graph.get_callees() (empty callees map)
+                        graph.get_callees(func.qn(i))
+                            .into_iter()
+                            .map(|c| (c.qn(i).to_string(), c.node_name(i).to_string()))
+                            .collect()
+                    });
 
                 for (callee_qn, callee_name) in &callee_pairs {
                     let mut visited = HashSet::new();
                     if let Some(chain) = self.calls_regex_transitively(
                         graph,
+                        det_ctx,
                         callee_qn,
                         &regex_funcs,
                         &mut visited,

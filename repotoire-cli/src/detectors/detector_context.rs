@@ -1,8 +1,7 @@
 //! Shared pre-computed data for detector execution.
 //!
-//! Built once during `precompute_gd_startup()` and injected into detectors
-//! that override `set_detector_context()`. Avoids redundant graph queries
-//! and Vec<CodeNode> cloning across 99 detectors.
+//! Built once during `precompute_gd_startup()` and shared via `AnalysisContext`.
+//! Avoids redundant graph queries and Vec<CodeNode> cloning across detectors.
 
 use crate::detectors::class_context::ClassContextMap;
 use std::collections::HashMap;
@@ -11,7 +10,7 @@ use std::sync::Arc;
 
 /// Per-file content presence flags, pre-computed during `DetectorContext::build()`.
 ///
-/// Detectors query these via `set_detector_context()` to skip files that lack
+/// Detectors query these via `AnalysisContext` to skip files that lack
 /// relevant keywords, avoiding expensive per-line regex scans on irrelevant files.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct ContentFlags(u32);

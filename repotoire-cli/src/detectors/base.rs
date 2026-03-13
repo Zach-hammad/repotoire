@@ -414,7 +414,7 @@ pub trait Detector: Send + Sync {
     /// File extensions this detector processes.
     ///
     /// Return empty slice for graph-only detectors that don't scan files.
-    /// Engine uses this to pre-filter files before calling detect_ctx().
+    /// Engine uses this to pre-filter files before calling detect().
     fn file_extensions(&self) -> &'static [&'static str] {
         &[]
     }

@@ -374,7 +374,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
 
         assert!(
             findings.is_empty(),
@@ -420,7 +420,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
 
         assert!(
             findings.is_empty(),
@@ -443,7 +443,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
 
         assert!(
             !findings.is_empty(),
@@ -466,7 +466,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
 
         assert!(
             findings.is_empty(),
@@ -488,7 +488,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
 
         assert!(
             findings.is_empty(),
@@ -510,7 +510,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
 
         assert!(
             findings.is_empty(),
@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn test_detect_returns_empty() {
-        // Legacy detect() always returns empty — logic is in detect_ctx()
+        // detect() with empty graph returns no findings
         let store = GraphStore::in_memory();
         let func = CodeNode::function("complex_fn", "src/core.py")
             .with_qualified_name("core.complex_fn")
@@ -551,7 +551,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
 
         assert!(!findings.is_empty(), "Should flag very complex function");
         assert_eq!(findings[0].severity, Severity::High);
@@ -571,7 +571,7 @@ mod tests {
 
         let ctx = make_ctx(&store);
         let detector = AIMissingTestsDetector::new();
-        let findings = detector.detect(&ctx).expect("detect_ctx should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
 
         assert!(
             findings.is_empty(),

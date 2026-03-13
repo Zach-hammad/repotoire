@@ -252,7 +252,7 @@ impl LazyClassDetector {
         callers as f64 / method_count as f64
     }
 
-    /// Core detection logic shared between `detect()` and `detect_ctx()`.
+    /// Core detection logic.
     ///
     /// When `analysis_ctx` is `Some`, enables enhanced checks:
     /// - Role-based exemptions (FunctionRole::Hub, high betweenness)
@@ -1501,7 +1501,7 @@ mod tests {
         assert!(detector.should_exclude("AbstractValidator"));
     }
 
-    // --- Role analysis / detect_ctx tests ---
+    // --- Role analysis tests ---
 
     #[test]
     fn test_trimmed_exclude_patterns() {

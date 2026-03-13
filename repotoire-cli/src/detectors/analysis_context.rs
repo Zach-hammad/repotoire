@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Unified analysis context passed to every detector's `detect_ctx()` method.
+/// Unified analysis context passed to every detector's `detect()` method.
 ///
 /// All fields are `Arc`-wrapped for zero-cost sharing across parallel detectors.
 pub struct AnalysisContext<'g> {
@@ -48,8 +48,8 @@ impl<'g> AnalysisContext<'g> {
 
     /// Create a backward-compatible FileProvider shim.
     ///
-    /// Used by the default detect_ctx() implementation to delegate to
-    /// legacy detect() methods during incremental migration.
+    /// Wraps the AnalysisContext's FileIndex as a FileProvider for
+    /// detectors that use the FileProvider API for file access.
     pub fn as_file_provider(&self) -> AnalysisContextFileProvider<'_> {
         AnalysisContextFileProvider { ctx: self }
     }
@@ -169,10 +169,10 @@ impl<'g> AnalysisContext<'g> {
     }
 }
 
-/// Backward-compatible FileProvider wrapping an AnalysisContext.
+/// FileProvider wrapping an AnalysisContext.
 ///
-/// Enables incremental migration: detectors that haven't been updated
-/// to the new API still work via the default detect_ctx() implementation.
+/// Provides file access through the FileProvider trait interface,
+/// backed by the AnalysisContext's FileIndex and global cache.
 pub struct AnalysisContextFileProvider<'a> {
     ctx: &'a AnalysisContext<'a>,
 }

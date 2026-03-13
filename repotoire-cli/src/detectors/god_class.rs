@@ -18,7 +18,7 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use tracing::{debug, info};
 
 /// Thresholds for god class detection
@@ -85,8 +85,6 @@ pub struct GodClassDetector {
     use_pattern_exclusions: bool,
     /// Whether to use graph-based class context analysis
     use_graph_context: bool,
-    /// Pre-built detector context (injected via set_detector_context)
-    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl GodClassDetector {
@@ -108,7 +106,6 @@ impl GodClassDetector {
             excluded_patterns,
             use_pattern_exclusions: true,
             use_graph_context: true, // Enable by default
-            detector_context: OnceLock::new(),
         }
     }
 
@@ -153,7 +150,6 @@ impl GodClassDetector {
             excluded_patterns,
             use_pattern_exclusions,
             use_graph_context,
-            detector_context: OnceLock::new(),
         }
     }
 
@@ -481,8 +477,6 @@ impl Detector for GodClassDetector {
     }
 
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
-        // Populate detector_context from AnalysisContext for helper methods
-        let _ = self.detector_context.set(Arc::clone(&ctx.detector_ctx));
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
@@ -490,17 +484,12 @@ impl Detector for GodClassDetector {
         // Use pre-built class contexts from DetectorContext if available, else build from scratch
         let fallback_contexts: Option<ClassContextMap>;
         let class_contexts: Option<&ClassContextMap> = if self.use_graph_context {
-            if let Some(det_ctx) = self.detector_context.get() {
-                if let Some(ref prebuilt) = det_ctx.class_contexts {
-                    debug!("ClassContext using pre-built {} entries", prebuilt.len());
-                    if prebuilt.is_empty() {
-                        None
-                    } else {
-                        Some(prebuilt.as_ref())
-                    }
+            if let Some(ref prebuilt) = ctx.detector_ctx.class_contexts {
+                debug!("ClassContext using pre-built {} entries", prebuilt.len());
+                if prebuilt.is_empty() {
+                    None
                 } else {
-                    fallback_contexts = self.build_class_contexts_fallback(graph);
-                    fallback_contexts.as_ref()
+                    Some(prebuilt.as_ref())
                 }
             } else {
                 fallback_contexts = self.build_class_contexts_fallback(graph);

@@ -8,8 +8,8 @@
 //! - Callers spread across many files/modules
 //! - Changes would cascade through call graph
 //!
-//! When an `AnalysisContext` is available (via `detect_ctx()`), the detector
-//! enhances its analysis with:
+//! When an `AnalysisContext` is available, the detector enhances its
+//! analysis with:
 //! - **ContextHMM utility detection**: replaces 85+ hard-coded prefix/suffix/path
 //!   patterns with a learned HMM classifier that recognises utility functions
 //!   from call-graph shape and naming features.
@@ -26,7 +26,6 @@ use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
 use tracing::{debug, info};
 
 /// Thresholds for shotgun surgery detection
@@ -56,7 +55,6 @@ impl Default for ShotgunSurgeryThresholds {
 pub struct ShotgunSurgeryDetector {
     config: DetectorConfig,
     thresholds: ShotgunSurgeryThresholds,
-    detector_context: OnceLock<Arc<crate::detectors::DetectorContext>>,
 }
 
 impl ShotgunSurgeryDetector {
@@ -64,7 +62,6 @@ impl ShotgunSurgeryDetector {
         Self {
             config: DetectorConfig::new(),
             thresholds: ShotgunSurgeryThresholds::default(),
-            detector_context: OnceLock::new(),
         }
     }
 
@@ -81,7 +78,6 @@ impl ShotgunSurgeryDetector {
         Self {
             config,
             thresholds,
-            detector_context: OnceLock::new(),
         }
     }
 
@@ -94,6 +90,7 @@ impl ShotgunSurgeryDetector {
         &self,
         graph: &dyn crate::graph::GraphQuery,
         class: &crate::graph::CodeNode,
+        det_ctx: &crate::detectors::DetectorContext,
         analysis_ctx: Option<&crate::detectors::analysis_context::AnalysisContext<'_>>,
     ) -> Option<ImpactAnalysis> {
         let i = graph.interner();
@@ -111,26 +108,24 @@ impl ShotgunSurgeryDetector {
         let mut caller_modules: HashSet<String> = HashSet::new();
 
         for method in &methods {
-            if let Some(ctx) = self.detector_context.get() {
-                // Fast path: use pre-built callers map (avoids Vec<CodeNode> clone)
-                if let Some(caller_qn_list) = ctx.callers_by_qn.get(method.qn(i)) {
-                    for caller_qn in caller_qn_list {
-                        if let Some(caller_node) = graph.get_node(caller_qn) {
-                            // Skip internal callers (same class)
-                            if caller_node.file_path == class.file_path
-                                && caller_node.line_start >= class.line_start
-                                && caller_node.line_end <= class.line_end
-                            {
-                                continue;
-                            }
-                            all_callers.insert(caller_qn.clone());
-                            caller_files.insert(caller_node.path(i).to_string());
-                            caller_modules.insert(Self::extract_module(caller_node.path(i)));
+            // Use pre-built callers map (avoids Vec<CodeNode> clone)
+            if let Some(caller_qn_list) = det_ctx.callers_by_qn.get(method.qn(i)) {
+                for caller_qn in caller_qn_list {
+                    if let Some(caller_node) = graph.get_node(caller_qn) {
+                        // Skip internal callers (same class)
+                        if caller_node.file_path == class.file_path
+                            && caller_node.line_start >= class.line_start
+                            && caller_node.line_end <= class.line_end
+                        {
+                            continue;
                         }
+                        all_callers.insert(caller_qn.clone());
+                        caller_files.insert(caller_node.path(i).to_string());
+                        caller_modules.insert(Self::extract_module(caller_node.path(i)));
                     }
                 }
             } else {
-                // Fallback: use graph.get_callers() (test path / no context)
+                // Fallback: use graph.get_callers() (test path / empty callers map)
                 for caller in graph.get_callers(method.qn(i)) {
                     if caller.file_path == class.file_path
                         && caller.line_start >= class.line_start
@@ -177,7 +172,7 @@ impl ShotgunSurgeryDetector {
         }
 
         // Trace cascading impact (callers of callers)
-        let cascade_depth = self.trace_cascade_depth(graph, &all_callers, 0);
+        let cascade_depth = self.trace_cascade_depth(graph, det_ctx, &all_callers, 0);
 
         Some(ImpactAnalysis {
             direct_callers: all_callers.len(),
@@ -194,6 +189,7 @@ impl ShotgunSurgeryDetector {
     fn trace_cascade_depth(
         &self,
         graph: &dyn crate::graph::GraphQuery,
+        det_ctx: &crate::detectors::DetectorContext,
         callers: &HashSet<String>,
         depth: usize,
     ) -> usize {
@@ -210,26 +206,24 @@ impl ShotgunSurgeryDetector {
             if graph.call_fan_in(caller_qn) == 0 {
                 continue;
             }
-            if let Some(ctx) = self.detector_context.get() {
-                // Fast path: pre-built callers map
-                if let Some(upstream_list) = ctx.callers_by_qn.get(caller_qn) {
-                    for upstream_qn in upstream_list {
-                        if !callers.contains(upstream_qn) {
-                            next_level.insert(upstream_qn.clone());
-                            if next_level.len() >= MAX_PER_LEVEL {
-                                return self.trace_cascade_depth(graph, &next_level, depth + 1);
-                            }
+            // Use pre-built callers map
+            if let Some(upstream_list) = det_ctx.callers_by_qn.get(caller_qn) {
+                for upstream_qn in upstream_list {
+                    if !callers.contains(upstream_qn) {
+                        next_level.insert(upstream_qn.clone());
+                        if next_level.len() >= MAX_PER_LEVEL {
+                            return self.trace_cascade_depth(graph, det_ctx, &next_level, depth + 1);
                         }
                     }
                 }
             } else {
-                // Fallback: use graph.get_callers()
+                // Fallback: use graph.get_callers() (empty callers map)
                 for upstream in graph.get_callers(caller_qn) {
                     let uqn = upstream.qn(i).to_string();
                     if !callers.contains(&uqn) {
                         next_level.insert(uqn);
                         if next_level.len() >= MAX_PER_LEVEL {
-                            return self.trace_cascade_depth(graph, &next_level, depth + 1);
+                            return self.trace_cascade_depth(graph, det_ctx, &next_level, depth + 1);
                         }
                     }
                 }
@@ -239,7 +233,7 @@ impl ShotgunSurgeryDetector {
         if next_level.is_empty() {
             depth
         } else {
-            self.trace_cascade_depth(graph, &next_level, depth + 1)
+            self.trace_cascade_depth(graph, det_ctx, &next_level, depth + 1)
         }
     }
 
@@ -263,7 +257,7 @@ impl ShotgunSurgeryDetector {
         }
     }
 
-    /// Core detection logic shared between `detect()` and `detect_ctx()`.
+    /// Core detection logic.
     ///
     /// When `analysis_ctx` is `Some`, enables enhanced checks:
     /// - ContextHMM-based utility detection (replaces 85+ hard-coded patterns)
@@ -272,6 +266,7 @@ impl ShotgunSurgeryDetector {
     fn detect_inner(
         &self,
         graph: &dyn crate::graph::GraphQuery,
+        det_ctx: &crate::detectors::DetectorContext,
         analysis_ctx: Option<&crate::detectors::analysis_context::AnalysisContext<'_>>,
     ) -> Result<Vec<Finding>> {
         let i = graph.interner();
@@ -284,7 +279,7 @@ impl ShotgunSurgeryDetector {
                 continue;
             }
 
-            let analysis = match self.analyze_class_impact(graph, &class, analysis_ctx) {
+            let analysis = match self.analyze_class_impact(graph, &class, det_ctx, analysis_ctx) {
                 Some(a) => a,
                 None => continue,
             };
@@ -470,9 +465,7 @@ impl Detector for ShotgunSurgeryDetector {
         &self,
         ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
-        // Populate detector_context from AnalysisContext for helper methods
-        let _ = self.detector_context.set(Arc::clone(&ctx.detector_ctx));
-        self.detect_inner(ctx.graph, Some(ctx))
+        self.detect_inner(ctx.graph, &ctx.detector_ctx, Some(ctx))
     }
 }
 
@@ -480,6 +473,7 @@ impl Detector for ShotgunSurgeryDetector {
 mod tests {
     use super::*;
     use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use std::sync::Arc;
 
     #[test]
     fn test_detect_shotgun_surgery() {
