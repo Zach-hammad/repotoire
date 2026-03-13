@@ -485,6 +485,33 @@ impl Detector for AIDuplicateBlockDetector {
             })
             .collect();
 
+        // Filter out test functions BEFORE building parallel arrays.
+        // Inline #[cfg(test)] modules live in production source files, so the
+        // file-level is_test_path filter doesn't catch them. Use graph context
+        // when available, fall back to name heuristic.
+        let func_sigs: Vec<FuncWithSig> = func_sigs
+            .into_iter()
+            .filter(|fs| {
+                if let Some(graph_func) =
+                    ctx.graph.find_function_at(&fs.file_path, fs.line_start)
+                {
+                    let i = ctx.graph.interner();
+                    let qn = graph_func.qn(i);
+                    if ctx.is_test_function(qn) {
+                        return false;
+                    }
+                    for d in ctx.decorators(qn) {
+                        if d == "test" || d.starts_with("cfg(test") {
+                            return false;
+                        }
+                    }
+                    true
+                } else {
+                    !fs.name.starts_with("test_")
+                }
+            })
+            .collect();
+
         // Assign sig_idx sequentially (signatures must be contiguous)
         for fs in func_sigs {
             let sig_idx = all_signatures.len();

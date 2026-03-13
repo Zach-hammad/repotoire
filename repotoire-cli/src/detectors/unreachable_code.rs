@@ -275,6 +275,14 @@ impl UnreachableCodeDetector {
         let mut cursor = block.walk();
 
         for child in block.named_children(&mut cursor) {
+            // Skip tree-sitter "extras" (comments, shebangs, etc.).
+            // Extras are injected nodes that aren't real statements — they
+            // appear as named children of any block but should never be
+            // flagged as unreachable. Using is_extra() is language-agnostic.
+            if child.is_extra() {
+                continue;
+            }
+
             if saw_terminator {
                 let line = child.start_position().row as u32 + 1;
 
@@ -781,6 +789,92 @@ func foo() int {
         assert!(
             !findings.is_empty(),
             "should flag unreachable code after return in Go"
+        );
+    }
+
+    // ── Comment-after-terminator tests ────────────────────────────────
+
+    #[test]
+    fn test_no_fp_comment_after_return_js() {
+        let code = "\
+function foo() {
+    return 1;
+    // This is a comment explaining the early return
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "comment after return should not be flagged, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_fp_comment_after_return_rust() {
+        let code = r#"
+fn foo() -> i32 {
+    return 42;
+    // TODO: handle edge case later
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("lib.rs", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "comment after return in Rust should not be flagged, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_fp_block_comment_after_return() {
+        let code = "\
+function foo() {
+    return 1;
+    /* This block comment should not be flagged */
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "block comment after return should not be flagged, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_real_code_after_comment_after_return_still_flagged() {
+        // Comment after return is fine, but real code after that comment
+        // should still be flagged.
+        let code = "\
+function foo() {
+    return 1;
+    // This comment is fine
+    let x = 2;
+}
+";
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("app.js", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "real code after comment-after-return should be flagged"
         );
     }
 
