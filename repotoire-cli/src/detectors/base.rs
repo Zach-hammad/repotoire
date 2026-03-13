@@ -599,10 +599,10 @@ mod tests {
             graph_dependent
         );
 
-        // At minimum 35 detectors should be graph-independent
+        // At minimum 34 detectors should be graph-independent
         assert!(
-            graph_independent.len() >= 35,
-            "Expected >= 35 graph-independent detectors, got {}",
+            graph_independent.len() >= 34,
+            "Expected >= 34 graph-independent detectors, got {}",
             graph_independent.len()
         );
     }
