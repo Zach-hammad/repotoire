@@ -177,6 +177,22 @@ impl AIDuplicateBlockDetector {
         }
     }
 
+    /// Compute similarity threshold based on average function size.
+    /// Small functions need higher thresholds because they have fewer
+    /// distinguishing bigrams (higher chance of coincidental similarity).
+    fn size_adaptive_threshold(&self, loc1: usize, loc2: usize) -> f64 {
+        let avg_loc = (loc1 + loc2) / 2;
+        if avg_loc <= 10 {
+            0.90
+        } else if avg_loc <= 20 {
+            // Linear interpolation: 0.90 at 10 LOC → base threshold at 21+ LOC
+            let base = self.similarity_threshold;
+            0.90 - (avg_loc as f64 - 10.0) * (0.90 - base) / 10.0
+        } else {
+            self.similarity_threshold
+        }
+    }
+
     /// Find duplicate pairs using MinHash/LSH + MinHash-estimated Jaccard.
     ///
     /// Uses LSH banding on pre-computed MinHash signatures for candidate generation,
@@ -231,7 +247,10 @@ impl AIDuplicateBlockDetector {
                     &signatures[func1.sig_idx],
                     &signatures[func2.sig_idx],
                 );
-                if similarity >= threshold {
+                // Size-adaptive threshold: small functions need higher similarity
+                let adaptive_threshold =
+                    self.size_adaptive_threshold(func1.loc, func2.loc);
+                if similarity >= adaptive_threshold {
                     Some((func1.clone(), func2.clone(), similarity))
                 } else {
                     None
