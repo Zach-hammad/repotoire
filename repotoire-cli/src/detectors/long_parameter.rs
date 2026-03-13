@@ -381,22 +381,32 @@ impl Detector for LongParameterListDetector {
         // Builder pattern methods (acceptable)
         let builder_patterns = ["with_", "set_", "add_", "build"];
 
+        // Use adaptive threshold from context resolver
+        let adaptive_max_params = ctx.threshold(crate::calibrate::MetricKind::ParameterCount, self.thresholds.max_params as f64) as usize;
+
+        // Additional constructor/setup patterns for threshold doubling
+        let setup_patterns = ["setup", "configure", "register", "install"];
+
         for func in graph.get_functions_shared().iter() {
             let param_count = func.param_count_opt().unwrap_or(0) as usize;
 
-            // Use configured thresholds
-            if param_count <= self.thresholds.max_params {
+            // Use adaptive thresholds
+            if param_count <= adaptive_max_params {
                 continue;
             }
 
             let name_lower = func.node_name(i).to_lowercase();
 
+            // Skip test functions: cap severity at Low (handled below)
+            let is_test = ctx.is_test_function(func.qn(i));
+
             // === Graph-aware pattern detection ===
 
-            // 1. Check if this is a constructor/factory
+            // 1. Check if this is a constructor/factory (includes setup/configure)
             let is_constructor = constructor_patterns
                 .iter()
-                .any(|p| name_lower.starts_with(p) || name_lower == *p);
+                .any(|p| name_lower.starts_with(p) || name_lower == *p)
+                || setup_patterns.iter().any(|p| name_lower.starts_with(p) || name_lower == *p);
 
             // 2. Check if this is a builder pattern method
             let is_builder = builder_patterns.iter().any(|p| name_lower.starts_with(p));
@@ -451,6 +461,26 @@ impl Detector for LongParameterListDetector {
                     _ => Severity::Low,
                 };
                 notes.push("🚪 Entry point/handler (reduced severity)".to_string());
+            }
+
+            // 5. Hub functions: increase effective threshold by 50%
+            if ctx.is_hub_function(func.qn(i)) {
+                let hub_threshold = (adaptive_max_params as f64 * 1.5) as usize;
+                if param_count <= hub_threshold {
+                    continue; // Under the Hub-adjusted threshold
+                }
+                severity = match severity {
+                    Severity::Critical => Severity::High,
+                    Severity::High => Severity::Medium,
+                    _ => Severity::Low,
+                };
+                notes.push("🔀 Hub function (increased threshold)".to_string());
+            }
+
+            // 6. Test functions: cap severity at Low
+            if is_test {
+                severity = Severity::Low;
+                notes.push("🧪 Test function (capped severity)".to_string());
             }
 
             let pattern_notes = if notes.is_empty() {

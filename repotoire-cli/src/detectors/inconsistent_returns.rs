@@ -144,9 +144,20 @@ impl Detector for InconsistentReturnsDetector {
                 break;
             }
 
-            // Skip test functions
-            if func.node_name(i).starts_with("test_") || func.path(i).contains("/test") {
+            // Skip test functions (use context-based check + name pattern)
+            if ctx.is_test_function(func.qn(i))
+                || func.node_name(i).starts_with("test_")
+                || func.path(i).contains("/test") {
                 continue;
+            }
+
+            // Skip constructors/init functions (expected mixed return patterns)
+            {
+                let name_lower = func.node_name(i).to_lowercase();
+                if name_lower == "new" || name_lower == "init" || name_lower == "__init__"
+                    || name_lower.starts_with("new_") || name_lower.starts_with("init_") {
+                    continue;
+                }
             }
 
             // Skip very small functions
@@ -169,15 +180,31 @@ impl Detector for InconsistentReturnsDetector {
                         || (analysis.has_implicit_return && analysis.return_count > 0));
 
                 if is_inconsistent {
+                    // Use graph-based caller analysis from DetectorContext
+                    let graph_callers = ctx.detector_ctx.callers_by_qn
+                        .get(func.qn(i))
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+
                     // Check if callers use the return value
                     let (value_is_used, caller_count) = Self::return_value_is_used(graph, &func);
 
                     // Calculate severity
-                    let severity = if value_is_used {
+                    let mut severity = if value_is_used {
                         Severity::High // Callers expect a value!
                     } else {
                         Severity::Medium
                     };
+
+                    // If no callers in graph AND not exported, reduce severity
+                    // (nobody uses the return value)
+                    if graph_callers == 0 && !ctx.is_public_api(func.qn(i)) {
+                        severity = match severity {
+                            Severity::High => Severity::Medium,
+                            Severity::Medium => Severity::Low,
+                            _ => severity,
+                        };
+                    }
 
                     // Build context notes
                     let mut notes = Vec::new();

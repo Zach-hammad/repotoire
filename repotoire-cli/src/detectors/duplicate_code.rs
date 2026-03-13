@@ -59,6 +59,18 @@ impl DuplicateCodeDetector {
             || path_str.contains(".spec.")
     }
 
+    /// Check if a file is a fixture or generated file
+    fn is_fixture_or_generated(path: &std::path::Path) -> bool {
+        let path_str = path.to_string_lossy();
+        path_str.contains("fixture")
+            || path_str.contains("conftest")
+            || path_str.contains("__generated__")
+            || path_str.contains("_pb2.py")
+            || path_str.contains(".generated.")
+            || path_str.contains("/generated/")
+            || path_str.contains("/fixtures/")
+    }
+
     /// Find functions containing the duplicate at each location
     fn find_containing_functions(
         &self,
@@ -222,19 +234,44 @@ impl Detector for DuplicateCodeDetector {
                 let files: Vec<_> = locations.iter().map(|(p, _)| p.clone()).collect();
                 let first_line = locations[0].1;
 
+                // Skip if ALL duplicate files are test files
+                if files.iter().all(|p| Self::is_test_file(p)) {
+                    continue;
+                }
+
+                // Skip if any file is a fixture/generated file
+                if files.iter().any(|p| Self::is_fixture_or_generated(p)) {
+                    continue;
+                }
+
                 // === Graph-enhanced analysis ===
                 let containing_funcs = self.find_containing_functions(graph, &locations);
                 let (common_callers, suggested_module) =
                     self.analyze_caller_similarity(graph, &containing_funcs);
 
                 // Boost severity if duplicates have common callers (stronger refactor signal)
-                let severity = if common_callers >= 2 {
+                let mut severity = if common_callers >= 2 {
                     Severity::High // Same code called by same functions = definite refactor
                 } else if locations.len() > 3 {
                     Severity::Medium
                 } else {
                     Severity::Low
                 };
+
+                // If all containing functions are infrastructure, reduce severity to Low
+                {
+                    let interner = graph.interner();
+                    let all_infra = containing_funcs.iter().all(|f| {
+                        f.map_or(false, |qn_key| {
+                            let qn = interner.resolve(qn_key);
+                            ctx.is_infrastructure(qn)
+                        })
+                    });
+                    if all_infra && !containing_funcs.is_empty()
+                        && containing_funcs.iter().any(|f| f.is_some()) {
+                        severity = Severity::Low;
+                    }
+                }
 
                 // Build graph-aware description
                 let caller_note = if common_callers > 0 {

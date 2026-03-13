@@ -181,6 +181,22 @@ impl Detector for DeepNestingDetector {
                     let containing_func =
                         self.find_containing_function(graph, &path_str, max_line as u32);
 
+                    // Context-based FP reduction: check containing function
+                    if let Some(func) = &containing_func {
+                        let qn = func.qn(i);
+
+                        // Skip test functions entirely
+                        if ctx.is_test_function(qn) {
+                            continue;
+                        }
+
+                        // HMM handlers: increase effective threshold to 6
+                        // (handlers have dispatch logic, match statements)
+                        if ctx.is_handler(qn) && max_depth <= 6 {
+                            continue;
+                        }
+                    }
+
                     let (func_name, is_entry, complexity, extraction_candidates) =
                         if let Some(func) = &containing_func {
                             let is_entry = Self::is_entry_point(func.node_name(i), func.path(i));

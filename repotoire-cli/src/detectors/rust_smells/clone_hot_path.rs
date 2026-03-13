@@ -57,12 +57,20 @@ impl Detector for CloneInHotPathDetector {
     }
 
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         for path in files.files_with_extension("rs") {
             if findings.len() >= self.max_findings {
                 break;
+            }
+
+            // Skip test files entirely
+            let path_str_check = path.to_string_lossy();
+            if path_str_check.contains("/tests/") || path_str_check.contains("_test.")
+                || path_str_check.contains(".test.") || path_str_check.contains("/test/") {
+                continue;
             }
 
             let Some(content) = files.content(path) else {
@@ -83,10 +91,40 @@ impl Detector for CloneInHotPathDetector {
                 if CLONE_CALL.is_match(line) && Self::is_hot_path_context(&content, i, line) {
                     let file_str = path.to_string_lossy();
                     let line_num = (i + 1) as u32;
+
+                    // Context-based FP reduction: check containing function
+                    if let Some(containing_func) = graph.find_function_at(&file_str, line_num) {
+                        let interner = graph.interner();
+                        let qn = containing_func.qn(interner);
+
+                        // Skip test functions
+                        if ctx.is_test_function(qn) {
+                            continue;
+                        }
+
+                        // Skip unreachable code (dead code)
+                        if !ctx.is_reachable(qn) && !ctx.is_public_api(qn) {
+                            continue;
+                        }
+                    }
+
+                    // Determine severity: reduce for utility/infrastructure functions
+                    let severity = if let Some(containing_func) = graph.find_function_at(&file_str, line_num) {
+                        let interner = graph.interner();
+                        let qn = containing_func.qn(interner);
+                        if ctx.is_infrastructure(qn) {
+                            Severity::Info // Cloning in utilities is often necessary for ergonomics
+                        } else {
+                            Severity::Low
+                        }
+                    } else {
+                        Severity::Low
+                    };
+
                     findings.push(Finding {
                         id: deterministic_finding_id("CloneInHotPathDetector", &file_str, line_num, "clone in hot path"),
                         detector: "CloneInHotPathDetector".to_string(),
-                        severity: Severity::Low,
+                        severity,
                         title: ".clone() in loop/iterator (performance)".to_string(),
                         description: "Cloning in a hot path can cause performance issues. Consider references, Cow, or Arc.".to_string(),
                         affected_files: vec![path.to_path_buf()],

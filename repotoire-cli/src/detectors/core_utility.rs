@@ -346,6 +346,9 @@ impl Detector for CoreUtilityDetector {
 
         let mut findings = Vec::new();
 
+        // Adaptive fan-in threshold (default 10)
+        let fan_in_threshold = ctx.threshold(crate::calibrate::MetricKind::FanIn, 10.0) as usize;
+
         for func in all_functions.iter() {
             if skip_files.contains(func.path(i)) {
                 continue;
@@ -353,13 +356,46 @@ impl Detector for CoreUtilityDetector {
 
             // fan_in check first (cheap O(1) lookup) — skip 99%+ of functions early
             let fan_in = graph.call_fan_in(func.qn(i));
-            if fan_in < 10 {
+            if fan_in < fan_in_threshold {
                 continue;
             }
 
             let fan_out = graph.call_fan_out(func.qn(i));
             if fan_out > 2 {
                 continue;
+            }
+
+            // --- Context-based FP reduction ---
+
+            // Skip Hub and Orchestrator roles — these are infrastructure, not utilities
+            if let Some(role) = ctx.function_role(func.qn(i)) {
+                if matches!(role, crate::detectors::function_context::FunctionRole::Hub
+                    | crate::detectors::function_context::FunctionRole::Orchestrator) {
+                    continue;
+                }
+            }
+
+            // Skip unreachable code (dead code)
+            if !ctx.is_reachable(func.qn(i)) && !ctx.is_public_api(func.qn(i)) {
+                continue;
+            }
+
+            // Check caller diversity: if mostly called within one module, it's a local
+            // utility, not a cross-module concern worth flagging
+            if let Some(callers) = ctx.detector_ctx.callers_by_qn.get(func.qn(i)) {
+                if callers.len() >= 2 {
+                    let mut caller_modules: HashSet<&str> = HashSet::new();
+                    for caller_qn in callers {
+                        // Extract module from qualified name (e.g., "module.Class.method" -> "module")
+                        if let Some(module) = caller_qn.split('.').next() {
+                            caller_modules.insert(module);
+                        }
+                    }
+                    // If all callers are from the same module, skip — it's a local utility
+                    if caller_modules.len() <= 1 {
+                        continue;
+                    }
+                }
             }
 
             // Per-function AST manipulation check (needs func name — can't pre-compute)

@@ -121,6 +121,9 @@ impl Detector for LongMethodsDetector {
         let i = graph.interner();
         let mut findings = vec![];
 
+        // Use adaptive threshold from AnalysisContext resolver
+        let adaptive_threshold = ctx.threshold(crate::calibrate::MetricKind::FunctionLength, self.threshold as f64) as u32;
+
         for func in graph.get_functions_shared().iter() {
             if findings.len() >= self.max_findings {
                 break;
@@ -132,9 +135,20 @@ impl Detector for LongMethodsDetector {
             }
 
             let lines = func.line_end.saturating_sub(func.line_start);
-            if lines <= self.threshold {
+
+            // Determine effective threshold: double for HMM handlers (dispatch logic, match stmts)
+            let effective_threshold = if ctx.is_handler(func.qn(i)) {
+                adaptive_threshold * 2
+            } else {
+                adaptive_threshold
+            };
+
+            if lines <= effective_threshold {
                 continue;
             }
+
+            // Skip test functions with low severity cap
+            let is_test = ctx.is_test_function(func.qn(i));
 
             // Get complexity for analysis
             let complexity = func.complexity_opt().unwrap_or(1);
@@ -169,6 +183,20 @@ impl Detector for LongMethodsDetector {
                 severity = match severity {
                     Severity::Low => Severity::Medium,
                     Severity::Medium => Severity::High,
+                    _ => severity,
+                };
+            }
+
+            // Test functions: cap severity at Low
+            if is_test {
+                severity = Severity::Low;
+            }
+
+            // Unreachable code: reduce severity one level
+            if !ctx.is_reachable(func.qn(i)) && !ctx.is_public_api(func.qn(i)) {
+                severity = match severity {
+                    Severity::High => Severity::Medium,
+                    Severity::Medium => Severity::Low,
                     _ => severity,
                 };
             }

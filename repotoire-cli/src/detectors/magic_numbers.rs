@@ -213,6 +213,7 @@ impl Detector for MagicNumbersDetector {
     }
 
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
@@ -229,6 +230,16 @@ impl Detector for MagicNumbersDetector {
 
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c", "rb", "php"]) {
             let path_str = path.to_string_lossy();
+
+            // Skip test files entirely
+            {
+                let p = path_str.as_ref();
+                if p.contains("/tests/") || p.contains("/test_") || p.contains("_test.")
+                    || p.contains(".test.") || p.contains("/spec/") || p.contains(".spec.") {
+                    continue;
+                }
+            }
+
             let is_constants = Self::is_constants_file(&path_str);
             let is_skipped = path_str.contains("/scripts/")
                 || path_str.contains("/bench/")
@@ -316,14 +327,38 @@ impl Detector for MagicNumbersDetector {
                 break;
             }
 
+            // Context-based FP reduction: check containing function
+            let path_str = m.path.to_string_lossy();
+            if let Some(containing_func) = graph.find_function_at(&path_str, m.line_num) {
+                let i = graph.interner();
+                let qn = containing_func.qn(i);
+
+                // Skip magic numbers inside test functions entirely
+                if ctx.is_test_function(qn) {
+                    continue;
+                }
+
+                // Reduce severity for infrastructure functions (utility/hub/handler)
+                // — handled below via severity_override
+            }
+
             let in_multiple_files = multi_file_numbers.contains(&m.number);
             let total_occurrences = occurrences.get(&m.number).map(|v| v.len()).unwrap_or(1);
 
-            let severity = if in_multiple_files {
+            let mut severity = if in_multiple_files {
                 Severity::Medium
             } else {
                 Severity::Low
             };
+
+            // If containing function is infrastructure, cap severity at Info
+            if let Some(containing_func) = graph.find_function_at(&path_str, m.line_num) {
+                let i = graph.interner();
+                let qn = containing_func.qn(i);
+                if ctx.is_infrastructure(qn) {
+                    severity = Severity::Info;
+                }
+            }
 
             let mut notes = Vec::new();
             if in_multiple_files {
