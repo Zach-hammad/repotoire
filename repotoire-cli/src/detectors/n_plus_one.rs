@@ -1,33 +1,45 @@
 //! N+1 Query Detector
 //!
-//! Graph-enhanced detection of N+1 query patterns.
-//! Uses call graph to:
-//! - Trace query functions called transitively in loops
-//! - Detect when loop variable flows to query parameters
-//! - Find hidden N+1 patterns across function boundaries
+//! AST-based detection of N+1 query patterns using tree-sitter.
+//!
+//! Three-phase pipeline:
+//! - Phase 0: Ecosystem gate — skip if no DB framework detected
+//! - Phase 1+2: Per-file AST walk — find DB queries inside loop constructs
+//! - Phase 3: Graph BFS — find hidden N+1 across function boundaries
 
-use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
-use crate::models::{deterministic_finding_id, Finding, Severity};
+use crate::detectors::analysis_context::AnalysisContext;
+use crate::detectors::ast_fingerprint::{get_ts_language, parse_root};
+use crate::detectors::base::Detector;
+use crate::detectors::framework_detection::{detect_frameworks, Framework};
+use crate::models::{Finding, Severity};
+use crate::parsers::lightweight::Language;
 use anyhow::Result;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tracing::{debug, info};
+use tree_sitter::Node;
 
-static LOOP: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each)").expect("valid regex")
-    });
-static QUERY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(\.get\(|\.find\(|\.filter\(|\.first\(|\.where\(|\.query\(|SELECT\s|Model\.\w+\.get|await\s+\w+\.findOne)").expect("valid regex"));
-static QUERY_FUNC: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(get_|find_|fetch_|load_|query_|select_)").expect("valid regex")
-    });
+/// Regex for detecting SQL keywords in string literals.
+/// Requires SQL keyword + table/column context to avoid matching prose.
+static SQL_EVIDENCE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(SELECT\s+.{1,60}\s+FROM\s|INSERT\s+INTO\s|UPDATE\s+\S+\s+SET\s|DELETE\s+FROM\s)")
+        .expect("valid regex")
+});
 
 pub struct NPlusOneDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     max_findings: usize,
+}
+
+/// Result of analyzing a single file.
+struct FileAnalysis {
+    /// Functions that contain direct DB query evidence (for BFS seeding).
+    query_functions: Vec<String>,
+    /// Direct N+1 findings (query inside loop).
+    findings: Vec<Finding>,
 }
 
 impl NPlusOneDetector {
@@ -38,165 +50,640 @@ impl NPlusOneDetector {
         }
     }
 
-    /// Find functions that contain database queries.
-    ///
-    /// Name-based detection only — O(n) with zero I/O.
-    /// The QUERY_FUNC regex catches `get_`, `find_`, `fetch_`, `load_`, `query_`, `select_`.
-    /// This is sufficient for hidden N+1 detection because:
-    /// 1. Database-accessing functions almost always have descriptive names
-    /// 2. False positives are filtered by the loop + callee check downstream
-    fn find_query_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
-        let i = graph.interner();
-        let mut query_funcs = HashSet::new();
+    /// Phase 0: Check if the project has any database/ORM ecosystem.
+    fn detect_db_ecosystem(&self, ctx: &AnalysisContext<'_>) -> HashSet<Framework> {
+        let frameworks = detect_frameworks(ctx.repo_path());
+        if !frameworks.is_empty() {
+            debug!("NPlusOne: detected DB frameworks: {:?}", frameworks);
+            return frameworks;
+        }
 
-        for func in graph.get_functions_shared().iter() {
-            if QUERY_FUNC.is_match(func.node_name(i)) {
-                query_funcs.insert(func.qn(i).to_string());
+        debug!("NPlusOne: no ORM detected via manifests");
+        frameworks // empty
+    }
+
+    /// Check if a call expression text represents a database query.
+    ///
+    /// Uses curated per-framework patterns that are UNAMBIGUOUS — they require
+    /// receiver-chain context so `.objects.filter(` matches but `list.filter(` doesn't.
+    fn is_db_query_call(call_text: &str, frameworks: &HashSet<Framework>) -> bool {
+        let lower = call_text.to_lowercase();
+
+        for fw in frameworks {
+            let matched = match fw {
+                Framework::Django => {
+                    lower.contains(".objects.")
+                        || lower.contains(".raw(")
+                        || lower.contains("connection.cursor(")
+                }
+                Framework::SQLAlchemy => {
+                    lower.contains("session.query(")
+                        || lower.contains("session.execute(")
+                        || lower.contains("engine.execute(")
+                }
+                Framework::Prisma => lower.contains("prisma."),
+                Framework::Drizzle => {
+                    lower.contains("db.select(")
+                        || lower.contains("db.insert(")
+                        || lower.contains("db.update(")
+                        || lower.contains("db.delete(")
+                }
+                Framework::TypeORM => {
+                    lower.contains("repository.find")
+                        || lower.contains("repository.save(")
+                        || lower.contains("repository.insert(")
+                        || lower.contains("repository.update(")
+                        || lower.contains("repository.delete(")
+                        || lower.contains("repository.count(")
+                        || lower.contains("createquerybuilder(")
+                        || lower.contains("getrepository(")
+                }
+                Framework::Sequelize => {
+                    lower.contains(".findall(")
+                        || lower.contains(".findone(")
+                        || lower.contains(".findbypk(")
+                        || lower.contains(".findorcreate(")
+                        || lower.contains(".findandcountall(")
+                        || lower.contains(".bulkcreate(")
+                }
+                Framework::Knex => lower.contains("knex(") || lower.contains(".raw("),
+                Framework::BetterSQLite3 => lower.contains(".prepare("),
+                Framework::Peewee => {
+                    lower.contains(".select(")
+                        || lower.contains(".get(")
+                        || lower.contains(".get_or_none(")
+                        || lower.contains(".get_or_create(")
+                }
+                Framework::TortoiseORM => {
+                    lower.contains(".all(")
+                        || lower.contains(".filter(")
+                        || lower.contains(".get(")
+                        || lower.contains(".get_or_none(")
+                }
+                Framework::Diesel => {
+                    lower.contains(".load(")
+                        || lower.contains(".get_result(")
+                        || lower.contains(".get_results(")
+                        || lower.contains("insert_into(")
+                        || lower.contains("diesel::")
+                }
+                Framework::SeaORM => {
+                    lower.contains("entity::find(")
+                        || lower.contains("entity::insert(")
+                        || lower.contains("entity::update(")
+                        || lower.contains("entity::delete(")
+                }
+                Framework::SQLx => {
+                    lower.contains("sqlx::query")
+                        || lower.contains("query!(")
+                        || lower.contains("query_as!(")
+                        || lower.contains(".fetch_one(")
+                        || lower.contains(".fetch_all(")
+                        || lower.contains(".fetch_optional(")
+                }
+                Framework::GORM => {
+                    lower.contains("db.find(")
+                        || lower.contains("db.first(")
+                        || lower.contains("db.last(")
+                        || lower.contains("db.take(")
+                        || lower.contains("db.create(")
+                        || lower.contains("db.where(")
+                        || lower.contains("db.raw(")
+                        || lower.contains("db.exec(")
+                }
+                Framework::Ent => {
+                    lower.contains(".query(") || lower.contains("client.")
+                }
+                Framework::ActiveRecord => {
+                    lower.contains(".find(")
+                        || lower.contains(".find_by(")
+                        || lower.contains(".where(")
+                        || lower.contains(".find_by_sql(")
+                        || lower.contains(".includes(")
+                }
+                Framework::Hibernate | Framework::JPA => {
+                    lower.contains("session.get(")
+                        || lower.contains("session.find(")
+                        || lower.contains("session.createquery(")
+                        || lower.contains("entitymanager.find(")
+                        || lower.contains("entitymanager.createquery(")
+                }
+                Framework::SpringData => {
+                    lower.contains("repository.find")
+                        || lower.contains("repository.save(")
+                        || lower.contains("repository.delete(")
+                }
+                Framework::MyBatis => {
+                    lower.contains("mapper.select")
+                        || lower.contains("mapper.insert")
+                        || lower.contains("mapper.update")
+                        || lower.contains("mapper.delete")
+                }
+                Framework::JOOQ => {
+                    lower.contains("dsl.select(")
+                        || lower.contains("dsl.insertinto(")
+                        || lower.contains("dsl.update(")
+                        || lower.contains("dsl.delete(")
+                }
+                _ => false,
+            };
+
+            if matched {
+                return true;
             }
         }
 
-        debug!("Found {} potential query functions (name-based)", query_funcs.len());
-        query_funcs
+        false
     }
 
-    /// Pre-compute which functions transitively reach a query function (depth ≤ 5).
-    /// Single reverse-BFS from query functions through callers — O(V+E) instead of
-    /// per-function DFS that was O(functions_with_loops × branching_factor^5).
-    fn build_transitive_query_callers(
+    /// Check if text contains SQL string evidence (framework-independent).
+    fn has_sql_evidence(text: &str) -> bool {
+        SQL_EVIDENCE.is_match(text)
+    }
+
+    /// Check if an AST node kind is a loop construct.
+    fn is_loop_node(kind: &str, lang: Language) -> bool {
+        match lang {
+            Language::Python => matches!(
+                kind,
+                "for_statement"
+                    | "while_statement"
+                    | "list_comprehension"
+                    | "set_comprehension"
+                    | "dictionary_comprehension"
+                    | "generator_expression"
+            ),
+            Language::JavaScript | Language::TypeScript => matches!(
+                kind,
+                "for_statement"
+                    | "for_in_statement"
+                    | "for_of_statement"
+                    | "while_statement"
+                    | "do_statement"
+            ),
+            Language::Rust => matches!(
+                kind,
+                "for_expression" | "while_expression" | "loop_expression"
+            ),
+            Language::Go => kind == "for_statement",
+            Language::Java => matches!(
+                kind,
+                "for_statement" | "enhanced_for_statement" | "while_statement"
+            ),
+            Language::CSharp => matches!(
+                kind,
+                "for_statement"
+                    | "foreach_statement"
+                    | "while_statement"
+                    | "do_statement"
+            ),
+            Language::C | Language::Cpp => matches!(
+                kind,
+                "for_statement" | "while_statement" | "do_statement"
+            ),
+            _ => false,
+        }
+    }
+
+    /// Check if an AST node kind is a call expression.
+    fn is_call_node(kind: &str, lang: Language) -> bool {
+        match lang {
+            Language::Python => kind == "call",
+            Language::Java => kind == "method_invocation",
+            Language::Rust => {
+                kind == "call_expression" || kind == "method_call_expression"
+            }
+            _ => kind == "call_expression",
+        }
+    }
+
+    /// Analyze a single file for N+1 patterns via AST walk.
+    /// Returns direct N+1 findings only (for tests that don't need BFS).
+    #[cfg(test)]
+    fn analyze_file(
         &self,
-        graph: &dyn crate::graph::GraphQuery,
-        query_funcs: &HashSet<String>,
-    ) -> HashMap<String, String> {
+        content: &str,
+        file_path: &Path,
+        lang: Language,
+        frameworks: &HashSet<Framework>,
+    ) -> Vec<Finding> {
+        let tree = match parse_root(content, lang) {
+            Some(t) => t,
+            None => return Vec::new(),
+        };
+
+        let mut findings = Vec::new();
+        self.walk_for_n_plus_one(
+            tree.root_node(),
+            content,
+            file_path,
+            lang,
+            frameworks,
+            false,
+            &mut findings,
+        );
+        findings
+    }
+
+    /// Analyze a file and return both findings and query function evidence.
+    fn analyze_file_full(
+        &self,
+        content: &str,
+        file_path: &Path,
+        lang: Language,
+        frameworks: &HashSet<Framework>,
+        ctx: &AnalysisContext<'_>,
+    ) -> FileAnalysis {
+        let tree = match parse_root(content, lang) {
+            Some(t) => t,
+            None => {
+                return FileAnalysis {
+                    query_functions: Vec::new(),
+                    findings: Vec::new(),
+                }
+            }
+        };
+
+        let mut findings = Vec::new();
+        let mut query_lines: Vec<u32> = Vec::new();
+
+        self.walk_for_n_plus_one_full(
+            tree.root_node(),
+            content,
+            file_path,
+            lang,
+            frameworks,
+            false,
+            &mut findings,
+            &mut query_lines,
+        );
+
+        // Map query lines to containing function QNs
+        let path_str = file_path.to_string_lossy();
+        let mut query_functions = Vec::new();
+        for line in query_lines {
+            if let Some(func) = ctx.graph.find_function_at(&path_str, line) {
+                let qn = func.qn(ctx.graph.interner()).to_string();
+                query_functions.push(qn);
+            }
+        }
+
+        FileAnalysis {
+            query_functions,
+            findings,
+        }
+    }
+
+    /// Recursive AST walk. When inside a loop, checks call expressions for DB query patterns.
+    #[cfg(test)]
+    fn walk_for_n_plus_one(
+        &self,
+        node: Node,
+        source: &str,
+        file_path: &Path,
+        lang: Language,
+        frameworks: &HashSet<Framework>,
+        in_loop: bool,
+        findings: &mut Vec<Finding>,
+    ) {
+        if findings.len() >= self.max_findings {
+            return;
+        }
+
+        let kind = node.kind();
+
+        if Self::is_loop_node(kind, lang) {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                self.walk_for_n_plus_one(
+                    child, source, file_path, lang, frameworks, true, findings,
+                );
+            }
+            return;
+        }
+
+        if in_loop && Self::is_call_node(kind, lang) {
+            let call_text = &source[node.start_byte()..node.end_byte()];
+            let is_query =
+                Self::is_db_query_call(call_text, frameworks) || Self::has_sql_evidence(call_text);
+
+            if is_query {
+                let line = node.start_position().row as u32 + 1;
+                let first_line = call_text.lines().next().unwrap_or("").trim();
+                let truncated = if first_line.len() > 80 {
+                    format!("{}...", &first_line[..77])
+                } else {
+                    first_line.to_string()
+                };
+
+                findings.push(Finding {
+                    id: String::new(),
+                    detector: "NPlusOneDetector".to_string(),
+                    severity: Severity::High,
+                    title: "N+1 query inside loop".to_string(),
+                    description: format!(
+                        "Database query inside loop:\n```\n{}\n```\n\n\
+                         This causes N database calls instead of 1.",
+                        truncated,
+                    ),
+                    affected_files: vec![file_path.to_path_buf()],
+                    line_start: Some(line),
+                    line_end: Some(node.end_position().row as u32 + 1),
+                    suggested_fix: Some(
+                        "Consider:\n\
+                         1. Batch the query before the loop (e.g., `filter(id__in=ids)`)\n\
+                         2. Use eager loading (select_related, prefetch_related, includes)\n\
+                         3. Cache results if the same query repeats"
+                            .to_string(),
+                    ),
+                    estimated_effort: Some("45 minutes".to_string()),
+                    category: Some("performance".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some(
+                        "N+1 queries cause N database roundtrips instead of 1, \
+                         degrading performance linearly with data size."
+                            .to_string(),
+                    ),
+                    ..Default::default()
+                });
+                return;
+            }
+        }
+
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            self.walk_for_n_plus_one(child, source, file_path, lang, frameworks, in_loop, findings);
+        }
+    }
+
+    /// Full walk that also collects query evidence lines (for BFS seeding).
+    fn walk_for_n_plus_one_full(
+        &self,
+        node: Node,
+        source: &str,
+        file_path: &Path,
+        lang: Language,
+        frameworks: &HashSet<Framework>,
+        in_loop: bool,
+        findings: &mut Vec<Finding>,
+        query_lines: &mut Vec<u32>,
+    ) {
+        if findings.len() >= self.max_findings {
+            return;
+        }
+
+        let kind = node.kind();
+
+        if Self::is_loop_node(kind, lang) {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                self.walk_for_n_plus_one_full(
+                    child,
+                    source,
+                    file_path,
+                    lang,
+                    frameworks,
+                    true,
+                    findings,
+                    query_lines,
+                );
+            }
+            return;
+        }
+
+        if Self::is_call_node(kind, lang) {
+            let call_text = &source[node.start_byte()..node.end_byte()];
+            let is_query =
+                Self::is_db_query_call(call_text, frameworks) || Self::has_sql_evidence(call_text);
+
+            if is_query {
+                let line = node.start_position().row as u32 + 1;
+                query_lines.push(line);
+
+                if in_loop {
+                    let first_line = call_text.lines().next().unwrap_or("").trim();
+                    let truncated = if first_line.len() > 80 {
+                        format!("{}...", &first_line[..77])
+                    } else {
+                        first_line.to_string()
+                    };
+
+                    findings.push(Finding {
+                        id: String::new(),
+                        detector: "NPlusOneDetector".to_string(),
+                        severity: Severity::High,
+                        title: "N+1 query inside loop".to_string(),
+                        description: format!(
+                            "Database query inside loop:\n```\n{}\n```\n\n\
+                             This causes N database calls instead of 1.",
+                            truncated,
+                        ),
+                        affected_files: vec![file_path.to_path_buf()],
+                        line_start: Some(line),
+                        line_end: Some(node.end_position().row as u32 + 1),
+                        suggested_fix: Some(
+                            "Consider:\n\
+                             1. Batch the query before the loop\n\
+                             2. Use eager loading/prefetching\n\
+                             3. Cache results if the same query repeats"
+                                .to_string(),
+                        ),
+                        estimated_effort: Some("45 minutes".to_string()),
+                        category: Some("performance".to_string()),
+                        cwe_id: None,
+                        why_it_matters: Some(
+                            "N+1 queries cause N database roundtrips instead of 1.".to_string(),
+                        ),
+                        ..Default::default()
+                    });
+                    return;
+                }
+            }
+        }
+
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            self.walk_for_n_plus_one_full(
+                child,
+                source,
+                file_path,
+                lang,
+                frameworks,
+                in_loop,
+                findings,
+                query_lines,
+            );
+        }
+    }
+
+    /// Phase 3: Find hidden N+1 patterns across function boundaries.
+    fn find_hidden_n_plus_one(
+        &self,
+        ctx: &AnalysisContext<'_>,
+        query_func_qns: &HashSet<String>,
+        _frameworks: &HashSet<Framework>,
+    ) -> Vec<Finding> {
+        let graph = ctx.graph;
         let i = graph.interner();
-        use std::collections::VecDeque;
+        let mut findings = Vec::new();
+
+        if query_func_qns.is_empty() {
+            return findings;
+        }
 
         let mut reaches_query: HashMap<String, String> = HashMap::new();
         let mut queue: VecDeque<(String, String, usize)> = VecDeque::new();
 
-        // Seed: direct query functions
-        for qf in query_funcs {
+        for qf in query_func_qns {
             let short = qf.rsplit("::").next().unwrap_or(qf).to_string();
             reaches_query.insert(qf.clone(), short.clone());
             queue.push_back((qf.clone(), short, 0));
         }
 
-        // BFS backwards through callers (max depth 5 to match old behavior)
         while let Some((qn, query_chain, depth)) = queue.pop_front() {
-            if depth >= 5 {
+            if depth >= 3 {
                 continue;
             }
             for caller in graph.get_callers(&qn) {
-                if !reaches_query.contains_key(caller.qn(i)) {
-                    let chain = format!("{} → {}", caller.node_name(i), query_chain);
-                    reaches_query.insert(caller.qn(i).to_string(), chain.clone());
-                    queue.push_back((caller.qn(i).to_string(), chain, depth + 1));
+                let caller_qn = caller.qn(i).to_string();
+                if !reaches_query.contains_key(&caller_qn) {
+                    let chain = format!("{} -> {}", caller.node_name(i), query_chain);
+                    reaches_query.insert(caller_qn.clone(), chain.clone());
+                    queue.push_back((caller_qn, chain, depth + 1));
                 }
             }
         }
-
-        reaches_query
-    }
-
-    /// Find N+1 patterns using graph traversal
-    fn find_graph_n_plus_one(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<Finding> {
-        let i = graph.interner();
-        let mut findings = Vec::new();
-        let query_funcs = self.find_query_functions(graph);
-
-        if query_funcs.is_empty() {
-            return findings;
-        }
-
-        // Single reverse-BFS: pre-compute which functions transitively reach a query
-        let reaches_query = self.build_transitive_query_callers(graph, &query_funcs);
-
-        // Pre-build set of skippable path prefixes for fast filtering
-        let skip_prefixes: &[&str] = &[
-            "/test", "/detectors/", "/cli/", "/parsers/", "/mcp/",
-            "/git/", "/ai/", "/reporters/", "/scoring/", "/graph/",
-            "/packages/react", "/packages/shared", "/packages/scheduler",
-            "/reconciler/", "/fiber/", "/forks/",
-        ];
-
-        // Cache per-file line splits to avoid redundant allocations
-        let mut file_lines: HashMap<String, Vec<String>> = HashMap::new();
 
         for func in graph.get_functions_shared().iter() {
             if findings.len() >= self.max_findings {
                 break;
             }
 
-            // Fast path exclusions — single pass over skip prefixes
+            let func_qn = func.qn(i).to_string();
+
+            if query_func_qns.contains(&func_qn) {
+                continue;
+            }
+
             let fp = func.path(i);
-            if fp.contains("_test.")
-                || skip_prefixes.iter().any(|p| fp.contains(p))
+            if crate::detectors::base::is_test_path(fp)
                 || crate::detectors::content_classifier::is_likely_bundled_path(fp)
+                || crate::detectors::content_classifier::is_non_production_path(fp)
             {
                 continue;
             }
 
-            // Check if this function contains a loop (cached per-file lines)
-            let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
-                crate::cache::global_cache()
-                    .masked_content(std::path::Path::new(func.path(i)))
-                    .map(|c| c.lines().map(String::from).collect())
-                    .unwrap_or_default()
-            });
+            let mut callee_chain = None;
+            for callee in graph.get_callees(func.qn(i)) {
+                if let Some(chain) = reaches_query.get(callee.qn(i)) {
+                    callee_chain = Some((callee.node_name(i).to_string(), chain.clone()));
+                    break;
+                }
+            }
 
-            let start = func.line_start.saturating_sub(1) as usize;
-            let end = (func.line_end as usize).min(lines.len());
+            let (callee_name, chain) = match callee_chain {
+                Some(c) => c,
+                None => continue,
+            };
 
-            let has_loop = lines
-                .get(start..end)
-                .map(|slice| slice.iter().any(|line| LOOP.is_match(line)))
-                .unwrap_or(false);
+            let ext = Path::new(fp)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let lang = Language::from_extension(ext);
+
+            if get_ts_language(lang).is_none() {
+                continue;
+            }
+
+            let content = match ctx.files.get(Path::new(fp)) {
+                Some(entry) => &entry.content,
+                None => continue,
+            };
+
+            let tree = match parse_root(content, lang) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            let has_loop = Self::function_contains_loop(
+                tree.root_node(),
+                lang,
+                func.line_start,
+                func.line_end,
+            );
 
             if !has_loop {
                 continue;
             }
 
-            // Check if any callee transitively reaches a query function
-            // (pre-computed via reverse BFS — O(1) lookup)
-            for callee in graph.get_callees(func.qn(i)) {
-                if let Some(query_chain) = reaches_query.get(callee.qn(i)) {
-                    findings.push(Finding {
-                        id: String::new(),
-                        detector: "NPlusOneDetector".to_string(),
-                        severity: Severity::High,
-                        title: format!("Hidden N+1: {} calls query in loop", func.node_name(i)),
-                        description: format!(
-                            "Function '{}' contains a loop and calls '{}' which leads to a database query.\n\n\
-                             **Call chain:** {} → {}\n\n\
-                             This may cause N database queries instead of 1.",
-                            func.node_name(i),
-                            callee.node_name(i),
-                            callee.node_name(i),
-                            query_chain
-                        ),
-                        affected_files: vec![PathBuf::from(func.path(i))],
-                        line_start: Some(func.line_start),
-                        line_end: Some(func.line_end),
-                        suggested_fix: Some(
-                            "Consider:\n\
-                             1. Batch the query before the loop\n\
-                             2. Use eager loading/prefetching\n\
-                             3. Cache results if the same query is repeated".to_string()
-                        ),
-                        estimated_effort: Some("1 hour".to_string()),
-                        category: Some("performance".to_string()),
-                        cwe_id: None,
-                        why_it_matters: Some(
-                            "Hidden N+1 queries across function boundaries are harder to detect \
-                             but cause the same performance issues.".to_string()
-                        ),
-                        ..Default::default()
-                    });
-                    break; // One finding per function
-                }
-            }
+            findings.push(Finding {
+                id: String::new(),
+                detector: "NPlusOneDetector".to_string(),
+                severity: Severity::High,
+                title: format!(
+                    "Hidden N+1: {} calls query in loop",
+                    func.node_name(i)
+                ),
+                description: format!(
+                    "Function '{}' contains a loop and calls '{}' which leads to a database query.\n\n\
+                     **Call chain:** {} -> {}\n\n\
+                     This may cause N database queries instead of 1.",
+                    func.node_name(i),
+                    callee_name,
+                    callee_name,
+                    chain,
+                ),
+                affected_files: vec![PathBuf::from(fp)],
+                line_start: Some(func.line_start),
+                line_end: Some(func.line_end),
+                suggested_fix: Some(
+                    "Consider:\n\
+                     1. Batch the query before the loop\n\
+                     2. Use eager loading/prefetching\n\
+                     3. Cache results if the same query is repeated"
+                        .to_string(),
+                ),
+                estimated_effort: Some("1 hour".to_string()),
+                category: Some("performance".to_string()),
+                cwe_id: None,
+                why_it_matters: Some(
+                    "Hidden N+1 queries across function boundaries are harder to detect \
+                     but cause the same performance issues."
+                        .to_string(),
+                ),
+                ..Default::default()
+            });
         }
 
         findings
+    }
+
+    /// Check if a function's AST subtree contains a loop node.
+    fn function_contains_loop(
+        node: Node,
+        lang: Language,
+        func_start: u32,
+        func_end: u32,
+    ) -> bool {
+        let node_line = node.start_position().row as u32 + 1;
+
+        if node_line > func_end {
+            return false;
+        }
+
+        if node_line >= func_start && Self::is_loop_node(node.kind(), lang) {
+            return true;
+        }
+
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if Self::function_contains_loop(child, lang, func_start, func_end) {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
@@ -204,119 +691,87 @@ impl Detector for NPlusOneDetector {
     fn name(&self) -> &'static str {
         "n-plus-one"
     }
+
     fn description(&self) -> &'static str {
-        "Detects N+1 query patterns"
+        "Detects N+1 query patterns using AST analysis"
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
-        let graph = ctx.graph;
-        let files = &ctx.as_file_provider();
-        let mut findings = vec![];
+    fn detect(&self, ctx: &AnalysisContext) -> Result<Vec<Finding>> {
+        // Phase 0: Ecosystem gate
+        let frameworks = self.detect_db_ecosystem(ctx);
+        let has_sql_fallback = if frameworks.is_empty() {
+            let sql_exts = &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"];
+            ctx.files
+                .by_extensions(sql_exts)
+                .iter()
+                .take(500)
+                .any(|entry| SQL_EVIDENCE.is_match(&entry.content))
+        } else {
+            false
+        };
 
-        // === Source-based detection (direct queries in loops) ===
-        for path in files.files_with_extensions(&["py", "js", "ts", "rb", "java", "go"]) {
+        if frameworks.is_empty() && !has_sql_fallback {
+            info!("NPlusOneDetector: no DB ecosystem detected, skipping");
+            return Ok(Vec::new());
+        }
+
+        // Phase 1+2: Per-file AST analysis
+        let extensions = &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "cs",
+        ];
+        let mut findings = Vec::new();
+        let mut all_query_func_qns: HashSet<String> = HashSet::new();
+
+        for entry in ctx.files.by_extensions(extensions) {
             if findings.len() >= self.max_findings {
                 break;
             }
 
-            let path_str = path.to_string_lossy();
-            if crate::detectors::base::is_test_path(&path_str) {
-                continue;
-            }
-
-            // Skip framework source code
-            if path_str.contains("/packages/react")
-                || path_str.contains("/packages/shared")
-                || path_str.contains("/packages/scheduler")
-                || path_str.contains("/reconciler/")
-                || path_str.contains("/fiber/")
-                || path_str.contains("/forks/")
+            let path_str = entry.path.to_string_lossy();
+            if crate::detectors::base::is_test_path(&path_str)
+                || crate::detectors::content_classifier::is_likely_bundled_path(&path_str)
+                || crate::detectors::content_classifier::is_non_production_path(&path_str)
             {
                 continue;
             }
 
-            // Skip bundled/generated code
-            if crate::detectors::content_classifier::is_likely_bundled_path(&path_str) {
+            let ext = entry
+                .path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let lang = Language::from_extension(ext);
+
+            if get_ts_language(lang).is_none() {
                 continue;
             }
 
-            // Skip non-production paths
-            if crate::detectors::content_classifier::is_non_production_path(&path_str) {
-                continue;
-            }
+            let analysis =
+                self.analyze_file_full(&entry.content, &entry.path, lang, &frameworks, ctx);
 
-            if let Some(content) = files.masked_content(path) {
-                let mut in_loop = false;
-                let mut loop_line = 0;
-                let mut brace_depth = 0;
-                let all_lines: Vec<&str> = content.lines().collect();
-
-                for (i, line) in all_lines.iter().enumerate() {
-                    if LOOP.is_match(line) {
-                        in_loop = true;
-                        loop_line = i + 1;
-                        brace_depth = 0;
-                    }
-
-                    if in_loop {
-                        brace_depth += line.matches('{').count() as i32;
-                        brace_depth -= line.matches('}').count() as i32;
-                        if brace_depth < 0 {
-                            in_loop = false;
-                            continue;
-                        }
-
-                        if QUERY.is_match(line) {
-                            let prev_line = if i > 0 { Some(all_lines[i - 1]) } else { None };
-                            if crate::detectors::is_line_suppressed(line, prev_line) {
-                                continue;
-                            }
-
-                            findings.push(Finding {
-                                id: String::new(),
-                                detector: "NPlusOneDetector".to_string(),
-                                severity: Severity::High,
-                                title: "Potential N+1 query".to_string(),
-                                description: format!(
-                                    "Database query inside loop (loop started at line {}).\n\n\
-                                     This pattern causes N database calls instead of 1.",
-                                    loop_line
-                                ),
-                                affected_files: vec![path.to_path_buf()],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
-                                suggested_fix: Some(
-                                    "Use bulk fetch before loop or eager loading.".to_string(),
-                                ),
-                                estimated_effort: Some("45 minutes".to_string()),
-                                category: Some("performance".to_string()),
-                                cwe_id: None,
-                                why_it_matters: Some(
-                                    "Causes N database calls instead of 1.".to_string(),
-                                ),
-                                ..Default::default()
-                            });
-                            in_loop = false;
-                        }
-                    }
-                }
-            }
+            findings.extend(analysis.findings);
+            all_query_func_qns.extend(analysis.query_functions);
         }
 
-        // === Graph-based detection (hidden N+1 across function boundaries) ===
-        let graph_findings = self.find_graph_n_plus_one(graph);
+        // Phase 3: Graph-based hidden N+1
+        let graph_findings = self.find_hidden_n_plus_one(ctx, &all_query_func_qns, &frameworks);
 
         // Deduplicate: skip graph findings that overlap with source findings
         let existing_locations: HashSet<(String, u32)> = findings
             .iter()
             .flat_map(|f| {
-                f.affected_files
-                    .iter()
-                    .map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0)))
+                f.affected_files.iter().map(|p| {
+                    (
+                        p.to_string_lossy().to_string(),
+                        f.line_start.unwrap_or(0),
+                    )
+                })
             })
             .collect();
 
@@ -335,7 +790,7 @@ impl Detector for NPlusOneDetector {
         }
 
         info!(
-            "NPlusOneDetector found {} findings (source + graph)",
+            "NPlusOneDetector found {} findings (AST + graph)",
             findings.len()
         );
         Ok(findings)
@@ -345,38 +800,288 @@ impl Detector for NPlusOneDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detectors::analysis_context::AnalysisContext;
     use crate::graph::GraphStore;
 
     #[test]
-    fn test_detects_query_in_loop() {
+    fn test_ecosystem_gate_no_db_project() {
         let store = GraphStore::in_memory();
         let detector = NPlusOneDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("views.py", "def list_orders(user_ids):\n    results = []\n    for uid in user_ids:\n        order = Order.objects.filter(user_id=uid)\n        results.append(order)\n    return results\n"),
-        ]);
+        let ctx = AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "src/main.rs",
+                "fn main() {\n    let items = vec![1,2,3];\n    for x in items.iter() {\n        let v = map.get(&x);\n        println!(\"{:?}\", v);\n    }\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
-            !findings.is_empty(),
-            "Should detect database query (.filter) inside a for loop"
-        );
-        assert!(
-            findings.iter().any(|f| f.title.contains("N+1")),
-            "Finding title should mention N+1"
+            findings.is_empty(),
+            "No DB framework -> zero findings, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 
     #[test]
-    fn test_no_finding_for_bulk_query() {
-        let store = GraphStore::in_memory();
+    fn test_django_objects_filter_is_query() {
+        let frameworks: HashSet<Framework> = [Framework::Django].into();
+        assert!(
+            NPlusOneDetector::is_db_query_call("Order.objects.filter(user_id=uid)", &frameworks),
+            "Django .objects.filter should be identified as a DB query"
+        );
+    }
+
+    #[test]
+    fn test_python_list_filter_is_not_query() {
+        let frameworks: HashSet<Framework> = [Framework::Django].into();
+        assert!(
+            !NPlusOneDetector::is_db_query_call("items.filter(lambda x: x > 0)", &frameworks),
+            "Python list.filter should NOT be identified as a DB query"
+        );
+    }
+
+    #[test]
+    fn test_rust_iter_filter_is_not_query() {
+        let frameworks: HashSet<Framework> = HashSet::new();
+        assert!(
+            !NPlusOneDetector::is_db_query_call("items.iter().filter(|x| x > 0)", &frameworks),
+            "Rust iterator .filter should NOT be a DB query"
+        );
+    }
+
+    #[test]
+    fn test_prisma_find_many_is_query() {
+        let frameworks: HashSet<Framework> = [Framework::Prisma].into();
+        assert!(
+            NPlusOneDetector::is_db_query_call(
+                "prisma.user.findMany({ where: {} })",
+                &frameworks
+            ),
+            "Prisma findMany should be identified as a DB query"
+        );
+    }
+
+    #[test]
+    fn test_sql_string_evidence() {
+        assert!(
+            NPlusOneDetector::has_sql_evidence(
+                "cursor.execute(\"SELECT * FROM users WHERE id = %s\")"
+            ),
+            "Raw SQL SELECT should be detected"
+        );
+        assert!(
+            !NPlusOneDetector::has_sql_evidence("println!(\"Hello world\")"),
+            "Non-SQL string should not match"
+        );
+    }
+
+    #[test]
+    fn test_sqlalchemy_session_query_is_query() {
+        let frameworks: HashSet<Framework> = [Framework::SQLAlchemy].into();
+        assert!(
+            NPlusOneDetector::is_db_query_call(
+                "session.query(User).filter_by(active=True)",
+                &frameworks
+            ),
+            "SQLAlchemy session.query should be a DB query"
+        );
+    }
+
+    #[test]
+    fn test_hashmap_get_is_not_query() {
+        let frameworks: HashSet<Framework> = [Framework::Django].into();
+        assert!(
+            !NPlusOneDetector::is_db_query_call("cache.get(key)", &frameworks),
+            "HashMap/cache .get should NOT be a DB query"
+        );
+    }
+
+    #[test]
+    fn test_gorm_db_find_is_query() {
+        let frameworks: HashSet<Framework> = [Framework::GORM].into();
+        assert!(
+            NPlusOneDetector::is_db_query_call("db.Find(&users)", &frameworks),
+            "GORM db.Find should be a DB query"
+        );
+    }
+
+    #[test]
+    fn test_typeorm_repository_find_is_query() {
+        let frameworks: HashSet<Framework> = [Framework::TypeORM].into();
+        assert!(
+            NPlusOneDetector::is_db_query_call(
+                "repository.findOne({ where: { id } })",
+                &frameworks
+            ),
+            "TypeORM repository.findOne should be a DB query"
+        );
+    }
+
+    #[test]
+    fn test_js_map_is_not_a_loop() {
+        let code = "const items = [1,2,3];\nconst doubled = items.map(x => x * 2);\n";
+        let tree = parse_root(code, Language::JavaScript).unwrap();
+        let mut has_loop = false;
+        check_for_loops(tree.root_node(), Language::JavaScript, &mut has_loop);
+        assert!(!has_loop, ".map() should NOT be detected as a loop");
+    }
+
+    #[test]
+    fn test_js_for_of_is_a_loop() {
+        let code = "for (const x of items) {\n    console.log(x);\n}\n";
+        let tree = parse_root(code, Language::JavaScript).unwrap();
+        let mut has_loop = false;
+        check_for_loops(tree.root_node(), Language::JavaScript, &mut has_loop);
+        assert!(has_loop, "for...of should be detected as a loop");
+    }
+
+    #[test]
+    fn test_python_for_is_a_loop() {
+        let code = "for x in items:\n    print(x)\n";
+        let tree = parse_root(code, Language::Python).unwrap();
+        let mut has_loop = false;
+        check_for_loops(tree.root_node(), Language::Python, &mut has_loop);
+        assert!(has_loop, "Python for should be detected as a loop");
+    }
+
+    #[test]
+    fn test_python_list_comprehension_is_a_loop() {
+        let code = "results = [f(x) for x in items]\n";
+        let tree = parse_root(code, Language::Python).unwrap();
+        let mut has_loop = false;
+        check_for_loops(tree.root_node(), Language::Python, &mut has_loop);
+        assert!(
+            has_loop,
+            "List comprehension should be detected as a loop"
+        );
+    }
+
+    #[test]
+    fn test_rust_for_is_a_loop() {
+        let code = "fn main() {\n    for x in items.iter() {\n        println!(\"{}\", x);\n    }\n}\n";
+        let tree = parse_root(code, Language::Rust).unwrap();
+        let mut has_loop = false;
+        check_for_loops(tree.root_node(), Language::Rust, &mut has_loop);
+        assert!(has_loop, "Rust for should be detected as a loop");
+    }
+
+    fn check_for_loops(node: Node, lang: Language, found: &mut bool) {
+        if NPlusOneDetector::is_loop_node(node.kind(), lang) {
+            *found = true;
+            return;
+        }
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            check_for_loops(child, lang, found);
+        }
+    }
+
+    #[test]
+    fn test_django_query_in_for_loop() {
         let detector = NPlusOneDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("views_good.py", "def list_orders(user_ids):\n    orders = Order.objects.filter(user_id__in=user_ids)\n    for order in orders:\n        print(order.total)\n    return orders\n"),
-        ]);
-        let findings = detector.detect(&ctx).expect("detection should succeed");
+        let code = "def list_orders(user_ids):\n    results = []\n    for uid in user_ids:\n        order = Order.objects.filter(user_id=uid)\n        results.append(order)\n    return results\n";
+        let frameworks: HashSet<Framework> = [Framework::Django].into();
+        let findings =
+            detector.analyze_file(code, Path::new("views.py"), Language::Python, &frameworks);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Should detect .objects.filter inside for loop"
+        );
+    }
+
+    #[test]
+    fn test_django_query_before_loop_no_finding() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "def list_orders(user_ids):\n    orders = Order.objects.filter(user_id__in=user_ids)\n    for order in orders:\n        print(order.total)\n    return orders\n";
+        let frameworks: HashSet<Framework> = [Framework::Django].into();
+        let findings =
+            detector.analyze_file(code, Path::new("views.py"), Language::Python, &frameworks);
         assert!(
             findings.is_empty(),
-            "Should not flag bulk query before loop (no query inside the loop), got: {:?}",
-            findings
+            "Query before loop should NOT be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_js_prisma_in_for_of_loop() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "async function getPostsForUsers(users) {\n  for (const user of users) {\n    const posts = await prisma.post.findMany({ where: { authorId: user.id } });\n    console.log(posts);\n  }\n}\n";
+        let frameworks: HashSet<Framework> = [Framework::Prisma].into();
+        let findings =
+            detector.analyze_file(code, Path::new("api.ts"), Language::TypeScript, &frameworks);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Should detect prisma.post.findMany inside for...of"
+        );
+    }
+
+    #[test]
+    fn test_js_map_with_query_not_flagged() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code =
+            "const results = users.map(u => prisma.user.findUnique({ where: { id: u.id } }));\n";
+        let frameworks: HashSet<Framework> = [Framework::Prisma].into();
+        let findings =
+            detector.analyze_file(code, Path::new("api.ts"), Language::TypeScript, &frameworks);
+        assert!(
+            findings.is_empty(),
+            ".map() is not a loop -- should not flag, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_raw_sql_in_loop() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "def fetch_profiles(user_ids):\n    for uid in user_ids:\n        cursor.execute(\"SELECT * FROM profiles WHERE user_id = %s\", (uid,))\n";
+        let frameworks: HashSet<Framework> = HashSet::new();
+        let findings =
+            detector.analyze_file(code, Path::new("db.py"), Language::Python, &frameworks);
+        assert_eq!(findings.len(), 1, "Raw SQL in loop should be detected");
+    }
+
+    #[test]
+    fn test_rust_iter_filter_not_flagged() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "fn process(items: &[Item]) {\n    for item in items {\n        let filtered = other_items.iter().filter(|x| x.id == item.id).collect::<Vec<_>>();\n    }\n}\n";
+        let frameworks: HashSet<Framework> = HashSet::new();
+        let findings =
+            detector.analyze_file(code, Path::new("lib.rs"), Language::Rust, &frameworks);
+        assert!(
+            findings.is_empty(),
+            "Rust iterator .filter() should NOT be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_python_list_comprehension_with_query() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "names = [Order.objects.get(id=oid).name for oid in order_ids]\n";
+        let frameworks: HashSet<Framework> = [Framework::Django].into();
+        let findings =
+            detector.analyze_file(code, Path::new("views.py"), Language::Python, &frameworks);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Django query in list comprehension should be flagged"
+        );
+    }
+
+    #[test]
+    fn test_go_gorm_in_for_range() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "package main\n\nfunc getProfiles(ids []int) {\n\tfor _, id := range ids {\n\t\tvar p Profile\n\t\tdb.First(&p, id)\n\t}\n}\n";
+        let frameworks: HashSet<Framework> = [Framework::GORM].into();
+        let findings =
+            detector.analyze_file(code, Path::new("main.go"), Language::Go, &frameworks);
+        assert_eq!(
+            findings.len(),
+            1,
+            "GORM db.First in for range should be flagged"
         );
     }
 }
