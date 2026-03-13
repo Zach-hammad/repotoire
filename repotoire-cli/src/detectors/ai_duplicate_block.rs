@@ -245,6 +245,94 @@ impl AIDuplicateBlockDetector {
         duplicates
     }
 
+    /// Check if a qualified name represents a trait implementation.
+    fn is_trait_impl(qn: &str) -> bool {
+        qn.contains("impl<") && qn.contains(" for ")
+    }
+
+    /// Extract the trait name from a trait impl qualified name.
+    /// "src/foo.rs::impl<Display for MyStruct>::fmt:30" -> Some("Display")
+    fn extract_trait_name(qn: &str) -> Option<&str> {
+        let impl_start = qn.find("impl<")? + 5;
+        let for_pos = qn[impl_start..].find(" for ")?;
+        Some(&qn[impl_start..impl_start + for_pos])
+    }
+
+    /// Extract the implementing type from a qualified name.
+    /// "src/foo.rs::impl<Display for MyStruct>::fmt:30" -> Some("MyStruct")
+    /// "src/foo.rs::impl<MyStruct>::new:10" -> Some("MyStruct")
+    fn extract_impl_type(qn: &str) -> Option<&str> {
+        let impl_start = qn.find("impl<")? + 5;
+        let close = qn[impl_start..].find('>')?;
+        let inner = &qn[impl_start..impl_start + close];
+        if let Some(for_pos) = inner.find(" for ") {
+            Some(&inner[for_pos + 5..])
+        } else {
+            Some(inner)
+        }
+    }
+
+    /// Verify that a candidate duplicate pair is semantically real, not coincidental.
+    /// Returns false if the pair should be rejected as a false positive.
+    fn verify_semantic_overlap(
+        func1: &FunctionData,
+        func2: &FunctionData,
+        similarity: f64,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> bool {
+        // Tier 1: Trait impl filter
+        // Same trait on different types -> not a real clone (idiomatic pattern)
+        if Self::is_trait_impl(&func1.qualified_name)
+            && Self::is_trait_impl(&func2.qualified_name)
+        {
+            let trait1 = Self::extract_trait_name(&func1.qualified_name);
+            let trait2 = Self::extract_trait_name(&func2.qualified_name);
+            let type1 = Self::extract_impl_type(&func1.qualified_name);
+            let type2 = Self::extract_impl_type(&func2.qualified_name);
+            if trait1 == trait2 && type1 != type2 {
+                return false;
+            }
+        }
+
+        // Tier 2: Callee overlap check (for functions with callees)
+        let i = graph.interner();
+        let callees1: HashSet<String> = graph
+            .get_callees(&func1.qualified_name)
+            .into_iter()
+            .map(|n| n.qn(i).to_string())
+            .collect();
+        let callees2: HashSet<String> = graph
+            .get_callees(&func2.qualified_name)
+            .into_iter()
+            .map(|n| n.qn(i).to_string())
+            .collect();
+
+        if !callees1.is_empty() || !callees2.is_empty() {
+            let intersection = callees1.intersection(&callees2).count();
+            let union = callees1.union(&callees2).count();
+            let overlap = if union > 0 {
+                intersection as f64 / union as f64
+            } else {
+                0.0
+            };
+            if overlap < 0.3 {
+                return false;
+            }
+        }
+
+        // Tier 3: Leaf function context (no callees on either side)
+        // Leaf functions in different impl blocks / types are likely coincidental
+        if callees1.is_empty() && callees2.is_empty() {
+            let type1 = Self::extract_impl_type(&func1.qualified_name);
+            let type2 = Self::extract_impl_type(&func2.qualified_name);
+            if type1 != type2 && similarity < 0.95 {
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// Create a finding from a duplicate pair
     fn create_finding(
         &self,
@@ -360,7 +448,7 @@ impl Detector for AIDuplicateBlockDetector {
     }
 
     fn requires_graph(&self) -> bool {
-        false
+        true
     }
 
     fn detector_scope(&self) -> DetectorScope {
@@ -530,6 +618,14 @@ impl Detector for AIDuplicateBlockDetector {
         }
 
         let duplicates = self.find_duplicates(&all_functions, &all_signatures);
+
+        // Graph-verified semantic overlap: reject coincidental matches
+        let duplicates: Vec<_> = duplicates
+            .into_iter()
+            .filter(|(func1, func2, similarity)| {
+                Self::verify_semantic_overlap(func1, func2, *similarity, ctx.graph)
+            })
+            .collect();
 
         let mut findings = Vec::new();
         for (func1, func2, similarity) in &duplicates {
