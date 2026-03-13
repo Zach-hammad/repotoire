@@ -326,6 +326,11 @@ mod tests {
             detector_ctx: Arc::new(det_ctx),
             hmm_classifications: Arc::new(HashMap::new()),
             resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+            reachability: Arc::new(crate::detectors::reachability::ReachabilityIndex::empty()),
+            public_api: Arc::new(std::collections::HashSet::new()),
+            module_metrics: Arc::new(HashMap::new()),
+            class_cohesion: Arc::new(HashMap::new()),
+            decorator_index: Arc::new(HashMap::new()),
         }
     }
 

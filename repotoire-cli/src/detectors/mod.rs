@@ -86,6 +86,10 @@ pub mod framework_detection;
 // API surface detection for reducing false positives on public API definitions
 pub mod api_surface;
 
+// Pre-computed context enrichment for AnalysisContext
+pub mod module_metrics;
+pub mod reachability;
+
 // Misc detectors
 mod generator_misuse;
 mod infinite_loop;

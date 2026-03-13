@@ -53,6 +53,16 @@ pub struct GdPrecomputed {
     pub taint_results: Arc<crate::detectors::taint::centralized::CentralizedTaintResults>,
     pub detector_context: Arc<super::DetectorContext>,
     pub file_index: Arc<super::FileIndex>,
+    /// Pre-computed reachability index (functions reachable from entry points).
+    pub reachability: Arc<super::reachability::ReachabilityIndex>,
+    /// Pre-computed public API set (exported/public function and class QNs).
+    pub public_api: Arc<std::collections::HashSet<String>>,
+    /// Pre-computed per-module coupling/cohesion metrics.
+    pub module_metrics: Arc<HashMap<String, super::module_metrics::ModuleMetrics>>,
+    /// Pre-computed per-class cohesion (LCOM4 approximation).
+    pub class_cohesion: Arc<HashMap<String, f64>>,
+    /// Pre-parsed decorator/annotation lists per function.
+    pub decorator_index: Arc<HashMap<String, Vec<String>>>,
 }
 
 impl Clone for GdPrecomputed {
@@ -64,6 +74,11 @@ impl Clone for GdPrecomputed {
             taint_results: Arc::clone(&self.taint_results),
             detector_context: Arc::clone(&self.detector_context),
             file_index: Arc::clone(&self.file_index),
+            reachability: Arc::clone(&self.reachability),
+            public_api: Arc::clone(&self.public_api),
+            module_metrics: Arc::clone(&self.module_metrics),
+            class_cohesion: Arc::clone(&self.class_cohesion),
+            decorator_index: Arc::clone(&self.decorator_index),
         }
     }
 }
@@ -91,8 +106,14 @@ pub fn precompute_gd_startup(
     //   Thread 1: taint (1.5s)           — cross-function + intra-function taint (skipped if no security detectors)
     //   Thread 2: HMM (0.4s)             — Hidden Markov Model context extraction
     //   Thread 3: DetectorContext (~0.3s) — callers/callees maps, file contents, class hierarchy
+    //   Thread 4: ReachabilityIndex       — BFS from entry points
+    //   Thread 5: PublicApiSet + ModuleMetrics + ClassCohesion + DecoratorIndex
     //   Main:     contexts (1.5s)         — adjacency + betweenness + context map (skipped if no context-using detectors)
-    let (contexts, hmm_contexts, hmm_with_confidence, taint_results, detector_context, file_index) = std::thread::scope(|s| {
+    let (
+        contexts, hmm_contexts, hmm_with_confidence, taint_results,
+        detector_context, file_index,
+        reachability, public_api, module_metrics_map, class_cohesion_map, decorator_index_map,
+    ) = std::thread::scope(|s| {
         // Thread 1: Taint analysis (only if any detector needs taint)
         let taint_handle = if needs_taint {
             Some(s.spawn(|| {
@@ -118,6 +139,20 @@ pub fn precompute_gd_startup(
             (Arc::new(det_ctx), file_index)
         });
 
+        // Thread 4: Reachability index (BFS from entry points)
+        let reachability_handle = s.spawn(|| {
+            super::reachability::ReachabilityIndex::build(graph)
+        });
+
+        // Thread 5: Public API + Module metrics + Class cohesion + Decorator index
+        let enrichment_handle = s.spawn(|| {
+            let public_api = super::reachability::build_public_api(graph);
+            let module_metrics = super::module_metrics::build_module_metrics(graph);
+            let class_cohesion = super::module_metrics::build_class_cohesion(graph);
+            let decorator_index = super::reachability::build_decorator_index(graph);
+            (public_api, module_metrics, class_cohesion, decorator_index)
+        });
+
         // Main thread: Function contexts (only if any detector uses context)
         let ctx = if needs_func_ctx {
             FunctionContextBuilder::new(graph).build()
@@ -134,7 +169,13 @@ pub fn precompute_gd_startup(
             });
         let (hmm, hmm_conf) = hmm_handle.join().expect("HMM thread panicked");
         let (det_ctx, file_index) = ctx_handle.join().expect("DetectorContext thread panicked");
-        (ctx, hmm, hmm_conf, taint, det_ctx, file_index)
+        let reachability = reachability_handle.join().expect("reachability thread panicked");
+        let (public_api, module_metrics, class_cohesion, decorator_index) =
+            enrichment_handle.join().expect("enrichment thread panicked");
+        (
+            ctx, hmm, hmm_conf, taint, det_ctx, file_index,
+            reachability, public_api, module_metrics, class_cohesion, decorator_index,
+        )
     });
 
     GdPrecomputed {
@@ -144,6 +185,11 @@ pub fn precompute_gd_startup(
         taint_results: Arc::new(taint_results),
         detector_context,
         file_index,
+        reachability: Arc::new(reachability),
+        public_api: Arc::new(public_api),
+        module_metrics: Arc::new(module_metrics_map),
+        class_cohesion: Arc::new(class_cohesion_map),
+        decorator_index: Arc::new(decorator_index_map),
     }
 }
 
@@ -305,6 +351,16 @@ pub struct DetectorEngine {
     hmm_with_confidence: Option<Arc<HashMap<String, (FunctionContext, f64)>>>,
     /// Adaptive threshold resolver for codebase-specific thresholds
     threshold_resolver: Option<Arc<crate::calibrate::ThresholdResolver>>,
+    /// Pre-computed reachability index (functions reachable from entry points)
+    reachability: Option<Arc<super::reachability::ReachabilityIndex>>,
+    /// Pre-computed public API set (exported/public function and class QNs)
+    public_api: Option<Arc<std::collections::HashSet<String>>>,
+    /// Pre-computed per-module coupling/cohesion metrics
+    module_metrics: Option<Arc<HashMap<String, super::module_metrics::ModuleMetrics>>>,
+    /// Pre-computed per-class cohesion (LCOM4 approximation)
+    class_cohesion: Option<Arc<HashMap<String, f64>>>,
+    /// Pre-parsed decorator/annotation lists per function
+    decorator_index: Option<Arc<HashMap<String, Vec<String>>>>,
 }
 
 impl DetectorEngine {
@@ -338,6 +394,11 @@ impl DetectorEngine {
             detector_context: None,
             hmm_with_confidence: None,
             threshold_resolver: None,
+            reachability: None,
+            public_api: None,
+            module_metrics: None,
+            class_cohesion: None,
+            decorator_index: None,
         }
     }
 
@@ -640,6 +701,11 @@ impl DetectorEngine {
         self.file_index = Some(pre.file_index);
         self.taint_results = Some(pre.taint_results);
         self.detector_context = Some(pre.detector_context);
+        self.reachability = Some(pre.reachability);
+        self.public_api = Some(pre.public_api);
+        self.module_metrics = Some(pre.module_metrics);
+        self.class_cohesion = Some(pre.class_cohesion);
+        self.decorator_index = Some(pre.decorator_index);
         self.gd_precomputed = true;
     }
 
@@ -675,6 +741,12 @@ impl DetectorEngine {
         }
         // Store taint so run() sees it as already computed
         self.taint_results = Some(Arc::clone(&pre.taint_results));
+        // Store enrichment data
+        self.reachability = Some(Arc::clone(&pre.reachability));
+        self.public_api = Some(Arc::clone(&pre.public_api));
+        self.module_metrics = Some(Arc::clone(&pre.module_metrics));
+        self.class_cohesion = Some(Arc::clone(&pre.class_cohesion));
+        self.decorator_index = Some(Arc::clone(&pre.decorator_index));
         // NOTE: gd_precomputed stays false — run() still builds DetectorContext & FileIndex
     }
 
@@ -735,6 +807,13 @@ impl DetectorEngine {
             })
             .collect();
         self.file_index = Some(Arc::new(super::FileIndex::new(file_data)));
+
+        // Store enrichment data
+        self.reachability = Some(Arc::clone(&pre.reachability));
+        self.public_api = Some(Arc::clone(&pre.public_api));
+        self.module_metrics = Some(Arc::clone(&pre.module_metrics));
+        self.class_cohesion = Some(Arc::clone(&pre.class_cohesion));
+        self.decorator_index = Some(Arc::clone(&pre.decorator_index));
 
         // Set gd_precomputed = true so run() skips DetectorContext::build()
         self.gd_precomputed = true;
@@ -806,6 +885,26 @@ impl DetectorEngine {
                     taint_results: Arc::clone(taint),
                     detector_context: Arc::clone(det_ctx),
                     file_index: Arc::clone(fi),
+                    reachability: self
+                        .reachability
+                        .clone()
+                        .unwrap_or_else(|| Arc::new(super::reachability::ReachabilityIndex::empty())),
+                    public_api: self
+                        .public_api
+                        .clone()
+                        .unwrap_or_else(|| Arc::new(std::collections::HashSet::new())),
+                    module_metrics: self
+                        .module_metrics
+                        .clone()
+                        .unwrap_or_else(|| Arc::new(HashMap::new())),
+                    class_cohesion: self
+                        .class_cohesion
+                        .clone()
+                        .unwrap_or_else(|| Arc::new(HashMap::new())),
+                    decorator_index: self
+                        .decorator_index
+                        .clone()
+                        .unwrap_or_else(|| Arc::new(HashMap::new())),
                 })
             }
             _ => None,
@@ -1219,6 +1318,11 @@ impl DetectorEngine {
                 detector_ctx: Arc::new(det_ctx),
                 hmm_classifications: hmm,
                 resolver,
+                reachability: Arc::new(super::reachability::ReachabilityIndex::empty()),
+                public_api: Arc::new(std::collections::HashSet::new()),
+                module_metrics: Arc::new(HashMap::new()),
+                class_cohesion: Arc::new(HashMap::new()),
+                decorator_index: Arc::new(HashMap::new()),
             }
         };
 
@@ -1741,6 +1845,26 @@ impl DetectorEngine {
             detector_ctx: Arc::clone(det_ctx),
             hmm_classifications: hmm,
             resolver,
+            reachability: self
+                .reachability
+                .clone()
+                .unwrap_or_else(|| Arc::new(super::reachability::ReachabilityIndex::empty())),
+            public_api: self
+                .public_api
+                .clone()
+                .unwrap_or_else(|| Arc::new(std::collections::HashSet::new())),
+            module_metrics: self
+                .module_metrics
+                .clone()
+                .unwrap_or_else(|| Arc::new(HashMap::new())),
+            class_cohesion: self
+                .class_cohesion
+                .clone()
+                .unwrap_or_else(|| Arc::new(HashMap::new())),
+            decorator_index: self
+                .decorator_index
+                .clone()
+                .unwrap_or_else(|| Arc::new(HashMap::new())),
         }
     }
 

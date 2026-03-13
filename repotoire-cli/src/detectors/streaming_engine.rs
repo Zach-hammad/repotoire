@@ -165,6 +165,11 @@ impl StreamingDetectorEngine {
                         detector_ctx: std::sync::Arc::new(crate::detectors::DetectorContext::empty()),
                         hmm_classifications: std::sync::Arc::new(std::collections::HashMap::new()),
                         resolver: std::sync::Arc::new(crate::calibrate::ThresholdResolver::default()),
+                        reachability: std::sync::Arc::new(crate::detectors::reachability::ReachabilityIndex::empty()),
+                        public_api: std::sync::Arc::new(std::collections::HashSet::new()),
+                        module_metrics: std::sync::Arc::new(std::collections::HashMap::new()),
+                        class_cohesion: std::sync::Arc::new(std::collections::HashMap::new()),
+                        decorator_index: std::sync::Arc::new(std::collections::HashMap::new()),
                     };
 
                     // Run detector

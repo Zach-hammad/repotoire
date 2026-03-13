@@ -7,9 +7,11 @@
 use crate::detectors::detector_context::DetectorContext;
 use crate::detectors::file_index::FileIndex;
 use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
+use crate::detectors::module_metrics::ModuleMetrics;
+use crate::detectors::reachability::ReachabilityIndex;
 use crate::detectors::taint::centralized::CentralizedTaintResults;
 use crate::graph::GraphQuery;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -38,6 +40,21 @@ pub struct AnalysisContext<'g> {
 
     /// Adaptive threshold resolver for codebase-specific thresholds.
     pub resolver: Arc<crate::calibrate::ThresholdResolver>,
+
+    /// Functions reachable from entry points via call graph BFS.
+    pub reachability: Arc<ReachabilityIndex>,
+
+    /// Exported/public function and class qualified names.
+    pub public_api: Arc<HashSet<String>>,
+
+    /// Per-module coupling and cohesion metrics.
+    pub module_metrics: Arc<HashMap<String, ModuleMetrics>>,
+
+    /// Per-class cohesion (LCOM4 approximation).
+    pub class_cohesion: Arc<HashMap<String, f64>>,
+
+    /// Pre-parsed decorator/annotation lists per function.
+    pub decorator_index: Arc<HashMap<String, Vec<String>>>,
 }
 
 impl<'g> AnalysisContext<'g> {
@@ -90,6 +107,67 @@ impl<'g> AnalysisContext<'g> {
         self.functions
             .get(qn)
             .map_or(false, |fc| fc.role == FunctionRole::Hub)
+    }
+
+    // ── Reachability & public API accessors ──────────────────────────
+
+    /// Check if a function is reachable from any entry point.
+    pub fn is_reachable(&self, qn: &str) -> bool {
+        self.reachability.is_reachable(qn)
+    }
+
+    /// Check if a qualified name is part of the public API (exported/public).
+    pub fn is_public_api(&self, qn: &str) -> bool {
+        self.public_api.contains(qn)
+    }
+
+    // ── Module metrics accessors ─────────────────────────────────────
+
+    /// Get the coupling ratio for a module (0.0 = no cross-module calls).
+    pub fn module_coupling(&self, module: &str) -> f64 {
+        self.module_metrics
+            .get(module)
+            .map_or(0.0, |m| m.coupling())
+    }
+
+    // ── Class cohesion accessors ─────────────────────────────────────
+
+    /// Get the class cohesion score (LCOM4 approximation).
+    pub fn class_cohesion_score(&self, qn: &str) -> Option<f64> {
+        self.class_cohesion.get(qn).copied()
+    }
+
+    // ── Decorator accessors ──────────────────────────────────────────
+
+    /// Get decorators for a function.
+    pub fn decorators(&self, qn: &str) -> &[String] {
+        self.decorator_index
+            .get(qn)
+            .map_or(&[], |v| v.as_slice())
+    }
+
+    /// Check if a function has a specific decorator.
+    pub fn has_decorator(&self, qn: &str, decorator: &str) -> bool {
+        self.decorators(qn).iter().any(|d| d == decorator)
+    }
+
+    // ── Composite role queries ───────────────────────────────────────
+
+    /// Check if function is an HMM-classified handler.
+    pub fn is_handler(&self, qn: &str) -> bool {
+        self.hmm_role(qn).map_or(false, |(role, conf)| {
+            role == crate::detectors::context_hmm::FunctionContext::Handler && conf > 0.5
+        })
+    }
+
+    /// Check if function is infrastructure (utility, hub, or handler).
+    pub fn is_infrastructure(&self, qn: &str) -> bool {
+        self.is_utility_function(qn) || self.is_hub_function(qn) || self.is_handler(qn)
+    }
+
+    /// Get adaptive threshold, falling back to default.
+    pub fn threshold(&self, kind: crate::calibrate::MetricKind, default: f64) -> f64 {
+        self.resolver.warn(kind, default)
     }
 
     // ── Test constructors ────────────────────────────────────────────
@@ -165,6 +243,11 @@ impl<'g> AnalysisContext<'g> {
             detector_ctx,
             hmm_classifications: Arc::new(HashMap::new()),
             resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+            reachability: Arc::new(ReachabilityIndex::empty()),
+            public_api: Arc::new(HashSet::new()),
+            module_metrics: Arc::new(HashMap::new()),
+            class_cohesion: Arc::new(HashMap::new()),
+            decorator_index: Arc::new(HashMap::new()),
         }
     }
 }

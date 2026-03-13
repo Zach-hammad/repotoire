@@ -596,6 +596,11 @@ mod tests {
             detector_ctx: Arc::new(det_ctx),
             hmm_classifications: Arc::new(std::collections::HashMap::new()),
             resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+            reachability: Arc::new(crate::detectors::reachability::ReachabilityIndex::empty()),
+            public_api: Arc::new(std::collections::HashSet::new()),
+            module_metrics: Arc::new(std::collections::HashMap::new()),
+            class_cohesion: Arc::new(std::collections::HashMap::new()),
+            decorator_index: Arc::new(std::collections::HashMap::new()),
         };
 
         let detector = ShotgunSurgeryDetector::new();
@@ -671,6 +676,11 @@ mod tests {
             detector_ctx: Arc::new(det_ctx),
             hmm_classifications: Arc::new(hmm_map),
             resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+            reachability: Arc::new(crate::detectors::reachability::ReachabilityIndex::empty()),
+            public_api: Arc::new(std::collections::HashSet::new()),
+            module_metrics: Arc::new(std::collections::HashMap::new()),
+            class_cohesion: Arc::new(std::collections::HashMap::new()),
+            decorator_index: Arc::new(std::collections::HashMap::new()),
         };
 
         let detector = ShotgunSurgeryDetector::new();
