@@ -33,14 +33,30 @@ fn test_dunder_methods_by_pattern() {
 }
 
 #[test]
-fn test_common_trait_methods() {
-    assert!(DeadCodeDetector::is_common_trait_method("new"));
-    assert!(DeadCodeDetector::is_common_trait_method("default"));
-    assert!(DeadCodeDetector::is_common_trait_method("from"));
-    assert!(DeadCodeDetector::is_common_trait_method("serialize"));
-    assert!(DeadCodeDetector::is_common_trait_method("build"));
-    assert!(!DeadCodeDetector::is_common_trait_method("my_function"));
-    assert!(!DeadCodeDetector::is_common_trait_method("process"));
+fn test_trait_impl_method() {
+    // Trait impl methods: QN contains impl<Trait for Type>
+    assert!(DeadCodeDetector::is_trait_impl_method(
+        "src/detectors/god_class.rs::impl<Detector for GodClassDetector>::detect:42"
+    ));
+    assert!(DeadCodeDetector::is_trait_impl_method(
+        "src/lib.rs::impl<Display for MyStruct>::fmt:15"
+    ));
+    assert!(DeadCodeDetector::is_trait_impl_method(
+        "src/lib.rs::impl<Default for Config>::default:10"
+    ));
+
+    // Inherent impl methods: QN has impl<Type> but NOT " for "
+    assert!(!DeadCodeDetector::is_trait_impl_method(
+        "src/lib.rs::impl<MyStruct>::new:5"
+    ));
+    // Regular functions
+    assert!(!DeadCodeDetector::is_trait_impl_method(
+        "src/lib.rs::my_function:1"
+    ));
+    // Class methods (Python-style)
+    assert!(!DeadCodeDetector::is_trait_impl_method(
+        "src/app.py::MyClass.process"
+    ));
 }
 
 #[test]
@@ -407,6 +423,40 @@ fn test_hmm_handler_skipped() {
     assert!(
         !findings.iter().any(|f| f.title.contains("on_message")),
         "HMM Handler should be skipped"
+    );
+}
+
+#[test]
+fn test_trait_impl_method_skipped_in_detection() {
+    use crate::graph::store_models::CodeNode;
+    use crate::graph::GraphStore;
+
+    let store = GraphStore::in_memory();
+
+    // A trait impl method: QN has impl<Trait for Type> pattern
+    let func = CodeNode::function("detect", "src/detectors/god_class.rs")
+        .with_qualified_name("src/detectors/god_class.rs::impl<Detector for GodClassDetector>::detect:42");
+    store.add_node(func);
+
+    // An inherent impl method: QN has impl<Type> but NOT " for "
+    let func2 = CodeNode::function("helper", "src/core.rs")
+        .with_qualified_name("src/core.rs::impl<MyStruct>::helper:10");
+    store.add_node(func2);
+
+    let ctx = make_test_analysis_ctx(&store);
+    let detector = DeadCodeDetector::new();
+    let findings = detector.find_dead_functions(&ctx);
+
+    // Trait impl method should NOT be flagged
+    assert!(
+        !findings.iter().any(|f| f.title.contains("detect")),
+        "Trait impl method should be skipped"
+    );
+
+    // Inherent impl method SHOULD be flagged (not a trait impl)
+    assert!(
+        findings.iter().any(|f| f.title.contains("helper")),
+        "Inherent impl method without callers should be flagged"
     );
 }
 

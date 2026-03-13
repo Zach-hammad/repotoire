@@ -1021,4 +1021,54 @@ pub enum Color {
         assert_eq!(color.field_count, 4, "Color enum has 4 variants");
     }
 
+    #[test]
+    fn test_trait_impl_method_qn_format() {
+        let source = r#"
+struct GodClassDetector;
+
+impl GodClassDetector {
+    fn new() -> Self { GodClassDetector }
+}
+
+trait Detector {
+    fn detect(&self) -> Vec<String>;
+}
+
+impl Detector for GodClassDetector {
+    fn detect(&self) -> Vec<String> { vec![] }
+}
+"#;
+        let result = parse_source(source, Path::new("src/detectors/god_class.rs")).unwrap();
+
+        // Print all functions for debugging
+        for f in &result.functions {
+            eprintln!("  FUNC: {} -> {}", f.name, f.qualified_name);
+        }
+
+        // Find the IMPL method (not the trait signature)
+        let detect_impl = result.functions.iter()
+            .find(|f| f.name == "detect" && f.qualified_name.contains("impl<"))
+            .expect("Should find impl method for detect");
+
+        assert!(
+            detect_impl.qualified_name.contains("impl<Detector for GodClassDetector>"),
+            "Trait impl method QN should contain impl<Trait for Type>, got: {}",
+            detect_impl.qualified_name
+        );
+
+        // Check inherent impl methods do NOT have " for "
+        let new_fn = result.functions.iter().find(|f| f.name == "new").unwrap();
+        assert!(
+            new_fn.qualified_name.contains("impl<GodClassDetector>"),
+            "Inherent impl QN should contain impl<Type>, got: {}",
+            new_fn.qualified_name
+        );
+        assert!(
+            !new_fn.qualified_name.contains(" for "),
+            "Inherent impl QN should NOT contain ' for ', got: {}",
+            new_fn.qualified_name
+        );
+    }
+
+
 }

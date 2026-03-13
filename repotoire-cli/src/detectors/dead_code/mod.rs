@@ -20,12 +20,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, info};
 
-/// Common Rust trait method names called via dynamic dispatch.
-/// These have callers not visible in the static call graph.
-const COMMON_TRAIT_METHODS: &[&str] = &[
-    "new", "default", "from", "into", "try_from", "try_into", "clone", "fmt", "eq", "cmp",
-    "hash", "drop", "deref", "serialize", "deserialize", "build",
-];
 
 /// Minimal entry point names that should never be flagged.
 /// Most entry points are now handled by FunctionRole::EntryPoint.
@@ -129,10 +123,15 @@ impl DeadCodeDetector {
             || path_lower.starts_with("benchmarks\\")
     }
 
-    /// Check if a function name is a common Rust trait method
-    /// (called via dynamic dispatch, not visible in call graph).
-    fn is_common_trait_method(name: &str) -> bool {
-        COMMON_TRAIT_METHODS.contains(&name)
+    /// Check if a function is a trait implementation method.
+    ///
+    /// Trait impl methods have QN format: `path::impl<TraitName for TypeName>::method:line`
+    /// These are called via dynamic dispatch (`&dyn Trait`) which is invisible
+    /// to the static call graph. They should never be flagged as dead code
+    /// because trait impls are contractual obligations — they exist because
+    /// something requires the trait.
+    fn is_trait_impl_method(func_qn: &str) -> bool {
+        func_qn.contains("::impl<") && func_qn.contains(" for ")
     }
 
     /// Check if a function name is in the minimal entry points list.
@@ -156,26 +155,111 @@ impl DeadCodeDetector {
             || path_lower.ends_with("\\mod.rs")
     }
 
-    /// Check if a function is called via `self.method()` in the same file.
+    /// Check if a function is called via `self.method()` or `Self::method()` in the same file.
     ///
     /// This is a workaround for Rust parser limitations where self-calls
     /// aren't tracked in the call graph.
-    fn is_called_via_self(ctx: &AnalysisContext<'_>, name: &str, file_path: &str) -> bool {
+    /// Check if a function is defined inside a trait block (trait method definition).
+    /// These are called via dynamic dispatch and never have direct callers in the call graph.
+    fn is_inside_trait_definition(ctx: &AnalysisContext<'_>, file_path: &str, line_start: u32, line_end: u32) -> bool {
+        let classes = ctx.graph.get_classes_in_file(file_path);
+        for class in &classes {
+            let i = ctx.graph.interner();
+            let class_name = class.node_name(i);
+            // Trait definitions have class nodes that encompass the trait body.
+            // Check if this function's line range is inside a class's line range.
+            // This catches trait method definitions and default implementations.
+            if class.line_start <= line_start && class.line_end >= line_end {
+                // Skip impl blocks — those are handled by is_trait_impl_method QN check.
+                // Trait definitions use names like "trait::TraitName" or just "TraitName".
+                // Impl blocks use QN patterns like "impl<Trait for Type>".
+                let class_qn = class.qn(i);
+                if class_qn.contains("::impl<") {
+                    continue; // impl block, not a trait definition
+                }
+                debug!("Skipping function inside class/trait '{}': line {}-{} within {}-{}", class_name, line_start, line_end, class.line_start, class.line_end);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if a function is referenced anywhere in its source file outside its own definition.
+    /// This catches calls inside macros (format!, println!, etc.), function pointers,
+    /// attribute references, and other patterns that tree-sitter can't extract as call edges.
+    fn is_referenced_in_file(ctx: &AnalysisContext<'_>, name: &str, file_path: &str, func_line_start: u32, func_line_end: u32) -> bool {
+        // Skip very short names to avoid false matches (e.g., "id", "as", "to")
+        if name.len() < 3 {
+            return false;
+        }
+
         let path = std::path::Path::new(file_path);
+
+        // Build the search pattern: function name followed by call/reference patterns
+        let call_pattern = format!("{}(", name);
+        let pointer_pattern_comma = format!("{},", name); // .map(func_name, ...)
+        let pointer_pattern_paren = format!("{})", name); // .map(func_name)
+        let attr_pattern_quoted = format!("\"{}\"", name); // #[serde(deserialize_with = "name")]
+        let attr_pattern_bare = format!("= {}", name); // #[arg(value_parser = name)]
+
+        let check_content = |content: &str| -> bool {
+            for (line_idx, line) in content.lines().enumerate() {
+                let line_num = line_idx as u32 + 1;
+                // Skip the function's own definition lines
+                if line_num >= func_line_start && line_num <= func_line_end {
+                    continue;
+                }
+                // Skip pure comment lines (// and /// but NOT # which is a Rust attribute)
+                let trimmed = line.trim();
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+                if line.contains(&call_pattern)
+                    || line.contains(&pointer_pattern_comma)
+                    || line.contains(&pointer_pattern_paren)
+                    || line.contains(&attr_pattern_quoted)
+                    || line.contains(&attr_pattern_bare)
+                {
+                    return true;
+                }
+            }
+            false
+        };
 
         // Try AnalysisContext FileIndex first
         if let Some(entry) = ctx.files.get(path) {
-            let self_call = format!("self.{}(", name);
-            let self_call_alt = format!("self.{},", name); // Passed as closure
-            if entry.content.contains(&self_call) || entry.content.contains(&self_call_alt) {
+            return check_content(&entry.content);
+        }
+        // Fall back to global_cache
+        if let Some(content) = crate::cache::global_cache().content(path) {
+            return check_content(&content);
+        }
+
+        false
+    }
+
+    fn is_called_via_self(ctx: &AnalysisContext<'_>, name: &str, file_path: &str) -> bool {
+        let path = std::path::Path::new(file_path);
+
+        let self_call = format!("self.{}(", name);
+        let self_call_alt = format!("self.{},", name); // Passed as closure
+        let self_static = format!("Self::{}(", name); // Associated function via Self
+
+        // Try AnalysisContext FileIndex first
+        if let Some(entry) = ctx.files.get(path) {
+            if entry.content.contains(&self_call)
+                || entry.content.contains(&self_call_alt)
+                || entry.content.contains(&self_static)
+            {
                 return true;
             }
         } else {
             // Fall back to global_cache
             if let Some(content) = crate::cache::global_cache().content(path) {
-                let self_call = format!("self.{}(", name);
-                let self_call_alt = format!("self.{},", name);
-                if content.contains(&self_call) || content.contains(&self_call_alt) {
+                if content.contains(&self_call)
+                    || content.contains(&self_call_alt)
+                    || content.contains(&self_static)
+                {
                     return true;
                 }
             }
@@ -353,7 +437,8 @@ impl DeadCodeDetector {
             let func_qn = func.qn(i);
 
             // Core check: has callers -> not dead
-            if graph.call_fan_in(func_qn) > 0 {
+            let fan_in = graph.call_fan_in(func_qn);
+            if fan_in > 0 {
                 continue;
             }
 
@@ -433,9 +518,9 @@ impl DeadCodeDetector {
                 continue;
             }
 
-            // Rust trait methods (common names called via dispatch)
-            if Self::is_common_trait_method(name) {
-                debug!("Skipping trait method: {}", name);
+            // Trait impl methods (called via dynamic dispatch, invisible in call graph)
+            if Self::is_trait_impl_method(func_qn) {
+                debug!("Skipping trait impl method: {}", func_qn);
                 continue;
             }
 
@@ -448,6 +533,21 @@ impl DeadCodeDetector {
             // === Qualified name test module check ===
             if func_qn.contains("::tests::") || func_qn.contains("::test::") {
                 debug!("Skipping test module function: {}", func_qn);
+                continue;
+            }
+
+            // === Trait/class definition spatial check ===
+            // Functions defined inside trait blocks are called via dynamic dispatch.
+            if Self::is_inside_trait_definition(ctx, file_path, func.line_start, func.line_end) {
+                debug!("Skipping function inside trait definition: {}", name);
+                continue;
+            }
+
+            // === Same-file text scan (catches calls inside macros, function pointers, attributes) ===
+            // Tree-sitter can't extract calls from Rust macro bodies (format!, println!, etc.)
+            // so we fall back to a text scan of the source file as a last resort.
+            if Self::is_referenced_in_file(ctx, name, file_path, func.line_start, func.line_end) {
+                debug!("Skipping function referenced in file: {} in {}", name, file_path);
                 continue;
             }
 

@@ -89,6 +89,8 @@ pub struct FunctionInfo {
     pub max_nesting: Option<u32>,
     /// Whether this function has decorators/annotations
     pub has_annotations: bool,
+    /// Whether this function is exported (pub visibility)
+    pub is_exported: bool,
 }
 
 /// Lightweight class info
@@ -126,6 +128,7 @@ impl ParsedFileInfo {
             .into_iter()
             .map(|f| {
                 let has_annotations = !f.annotations.is_empty();
+                let is_exported = f.annotations.iter().any(|a| a == "exported");
                 FunctionInfo {
                     name: f.name,
                     qualified_name: f.qualified_name,
@@ -137,6 +140,7 @@ impl ParsedFileInfo {
                     return_type: f.return_type,
                     max_nesting: f.max_nesting,
                     has_annotations,
+                    is_exported,
                 }
             })
             .collect();

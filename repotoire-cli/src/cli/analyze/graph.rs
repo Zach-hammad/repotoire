@@ -7,7 +7,7 @@
 //! - Streaming graph building for huge repos
 
 use crate::graph::store_models::{
-    ExtraProps, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC,
+    ExtraProps, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC, FLAG_IS_EXPORTED,
 };
 use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
 use crate::models::{Class, Function};
@@ -137,6 +137,9 @@ fn build_func_node(
     }
     if !func.annotations.is_empty() {
         flags |= FLAG_HAS_DECORATORS;
+    }
+    if func.annotations.iter().any(|a| a == "exported") {
+        flags |= FLAG_IS_EXPORTED;
     }
 
     CodeNode {
@@ -338,6 +341,9 @@ pub(super) fn build_graph(
                 }
                 if !func.annotations.is_empty() {
                     flags |= FLAG_HAS_DECORATORS;
+                }
+                if func.annotations.iter().any(|a| a == "exported") {
+                    flags |= FLAG_IS_EXPORTED;
                 }
 
                 let func_node = CodeNode {
@@ -1310,6 +1316,9 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
             }
             if func.has_annotations {
                 flags |= FLAG_HAS_DECORATORS;
+            }
+            if func.is_exported {
+                flags |= FLAG_IS_EXPORTED;
             }
 
             let func_node = CodeNode {

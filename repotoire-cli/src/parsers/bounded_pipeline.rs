@@ -32,7 +32,7 @@
 //! - Edge flushing: periodic flush instead of defer-all
 //! - Memory estimation: warns before OOM
 
-use crate::graph::store_models::{FLAG_ADDRESS_TAKEN, FLAG_IS_ASYNC};
+use crate::graph::store_models::{FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC, FLAG_IS_EXPORTED};
 use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
 use crate::parsers::lightweight::{LightweightFileInfo, LightweightParseStats};
 use crate::parsers::parse_file_lightweight;
@@ -312,6 +312,12 @@ impl FlushingGraphBuilder {
             }
             if address_taken {
                 flags |= FLAG_ADDRESS_TAKEN;
+            }
+            if func.has_annotations {
+                flags |= FLAG_HAS_DECORATORS;
+            }
+            if func.is_exported {
+                flags |= FLAG_IS_EXPORTED;
             }
 
             let node = CodeNode {

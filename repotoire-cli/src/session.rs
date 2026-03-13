@@ -19,7 +19,7 @@ use crate::detectors::{Detector, DetectorEngine, DetectorScope, GdPrecomputed, S
 use crate::graph::store::GraphStore;
 use crate::graph::store_models::{
     CodeEdge, CodeNode, ExtraProps, NodeKind, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS,
-    FLAG_IS_ASYNC,
+    FLAG_IS_ASYNC, FLAG_IS_EXPORTED,
 };
 use crate::models::Finding;
 use crate::parsers::{self, ParseResult};
@@ -1122,6 +1122,9 @@ fn build_graph_from_parse_results(
                 }
                 if !func.annotations.is_empty() {
                     flags |= FLAG_HAS_DECORATORS;
+                }
+                if func.annotations.iter().any(|a| a == "exported") {
+                    flags |= FLAG_IS_EXPORTED;
                 }
 
                 let func_node = CodeNode {
