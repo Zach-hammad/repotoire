@@ -159,6 +159,13 @@ fn run_intra_all_categories(
     file_groups.par_iter().for_each(|(file_path, func_indices)| {
         let full_path = repository_path.join(file_path);
 
+        // Language detection ONCE per file
+        let ext = full_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        let language = Language::from_extension(ext);
+
         // Read file content ONCE per file
         let content: Arc<String> = match shared_cache.get_or_read(&full_path) {
             Some(c) => c,
@@ -166,10 +173,15 @@ fn run_intra_all_categories(
         };
 
         // Pre-filter categories for this file ONCE
+        // Check both content relevance AND file extension — sinks like
+        // cursor.execute are Python/JS/Go/Java patterns, not Rust/C/C++.
         let relevant_categories: Vec<TaintCategory> = ALL_CATEGORIES
             .iter()
             .copied()
-            .filter(|cat| cat.file_might_be_relevant(&content))
+            .filter(|cat| {
+                cat.relevant_extensions().contains(&ext)
+                    && cat.file_might_be_relevant(&content)
+            })
             .collect();
 
         if relevant_categories.is_empty() {
@@ -178,13 +190,6 @@ fn run_intra_all_categories(
 
         // Collect lines ONCE per file (was done per-function before)
         let lines: Vec<&str> = content.lines().collect();
-
-        // Language detection ONCE per file
-        let ext = full_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        let language = Language::from_extension(ext);
 
         // Process all functions in this file
         let mut file_results: Vec<(TaintCategory, Vec<TaintPath>)> = Vec::new();

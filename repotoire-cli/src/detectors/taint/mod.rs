@@ -1059,10 +1059,23 @@ pub fn run_intra_function_taint(
     use crate::graph::interner::StrKey;
     let mut file_cache: HashMap<StrKey, String> = HashMap::new();
 
+    let relevant_exts = category.relevant_extensions();
+
     for func in functions.iter() {
         let func_path = func.path(i);
         // Need a source file to analyze
         if func_path.is_empty() {
+            continue;
+        }
+
+        // Skip files whose language doesn't have sinks for this category.
+        // e.g. Rust files don't have cursor.execute/db.query — any match
+        // would be inside a string literal (test fixture, regex, etc.)
+        let ext = std::path::Path::new(func_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if !relevant_exts.contains(&ext) {
             continue;
         }
 

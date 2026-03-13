@@ -81,6 +81,25 @@ impl TaintCategory {
         }
     }
 
+    /// File extensions where this taint category's sinks can actually exist.
+    /// Files with other extensions are skipped entirely — any pattern matches
+    /// in unsupported languages (e.g. `cursor.execute` in a `.rs` raw string)
+    /// are guaranteed false positives.
+    pub fn relevant_extensions(&self) -> &'static [&'static str] {
+        match self {
+            // All current taint sinks are Python/JS/TS/Go/Java patterns.
+            // Rust, C, C++, C# have different DB APIs (sqlx, diesel, ADO.NET)
+            // that aren't modeled by the taint analyzer.
+            TaintCategory::SqlInjection
+            | TaintCategory::CommandInjection
+            | TaintCategory::PathTraversal
+            | TaintCategory::CodeInjection
+            | TaintCategory::LogInjection => &["py", "js", "ts", "jsx", "tsx", "go", "java", "rb"],
+            TaintCategory::Xss => &["js", "ts", "jsx", "tsx", "py", "rb", "java"],
+            TaintCategory::Ssrf => &["py", "js", "ts", "jsx", "tsx", "go", "java", "rb"],
+        }
+    }
+
     /// Literal strings that MUST appear in file content for this taint category
     /// to be relevant. Files without any of these patterns are skipped entirely.
     pub fn quick_reject_patterns(&self) -> &'static [&'static str] {
