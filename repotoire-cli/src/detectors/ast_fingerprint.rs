@@ -106,6 +106,72 @@ fn node_text<'a>(node: Node<'a>, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
 }
 
+/// Decide whether to preserve or normalize an identifier based on its AST parent context.
+///
+/// **Preserve** (return actual text): call targets, method names, type names,
+/// scoped identifiers (enum variants), field/property/attribute accesses.
+///
+/// **Normalize** (return `$ID`): local variables, parameters, assignments,
+/// and any identifier without a recognizable semantic parent.
+fn normalize_identifier<'a>(node: Node<'a>, source: &'a str) -> &'a str {
+    if let Some(parent) = node.parent() {
+        let parent_kind = parent.kind();
+        match parent_kind {
+            // Python: call(func, args) — preserve if this node is the `function` field
+            "call" => {
+                if parent.child_by_field_name("function") == Some(node) {
+                    return node_text(node, source);
+                }
+            }
+            // JS/TS: call_expression(function, arguments) — preserve call target
+            "call_expression" => {
+                if parent.child_by_field_name("function") == Some(node) {
+                    return node_text(node, source);
+                }
+            }
+            // Rust: call_expression(function, arguments) — preserve call target
+            // Go: call_expression(function, arguments) — same field name
+            "method_call_expression" => {
+                // Rust method call: object.method(args) — preserve the method name
+                if parent.child_by_field_name("name") == Some(node) {
+                    return node_text(node, source);
+                }
+            }
+            // Rust scoped identifiers: e.g., Severity::Critical, std::io::Error
+            "scoped_identifier" | "scoped_type_identifier" => {
+                return node_text(node, source);
+            }
+            // Field/member/attribute access — preserve field name
+            // Rust: field_expression (object.field)
+            "field_expression" => {
+                if parent.child_by_field_name("field") == Some(node) {
+                    return node_text(node, source);
+                }
+            }
+            // JS/TS: member_expression (object.property)
+            "member_expression" => {
+                if parent.child_by_field_name("property") == Some(node) {
+                    return node_text(node, source);
+                }
+            }
+            // Python: attribute (object.attribute)
+            "attribute" => {
+                if parent.child_by_field_name("attribute") == Some(node) {
+                    return node_text(node, source);
+                }
+            }
+            // Java/C#: method_invocation(name, arguments)
+            "method_invocation" => {
+                if parent.child_by_field_name("name") == Some(node) {
+                    return node_text(node, source);
+                }
+            }
+            _ => {}
+        }
+    }
+    "$ID"
+}
+
 // ---------------------------------------------------------------------------
 // Function node kinds per language
 // ---------------------------------------------------------------------------
@@ -315,10 +381,10 @@ pub fn normalized_fingerprint(content: &str, lang: Language) -> HashSet<String> 
         None => return HashSet::new(),
     };
 
-    // Collect a sequence of normalized tokens (node kinds, with identifiers
-    // replaced by $ID and literals by $LIT).
+    // Collect a sequence of normalized tokens (node kinds, with selective
+    // identifier normalization based on AST context).
     let mut tokens = Vec::new();
-    collect_normalized_tokens(tree.root_node(), &mut tokens);
+    collect_normalized_tokens(tree.root_node(), content, &mut tokens);
 
     // Build bigrams
     let mut bigrams = HashSet::new();
@@ -329,13 +395,24 @@ pub fn normalized_fingerprint(content: &str, lang: Language) -> HashSet<String> 
 }
 
 #[cfg(test)]
-fn collect_normalized_tokens(node: Node, out: &mut Vec<String>) {
+fn collect_normalized_tokens(node: Node, source: &str, out: &mut Vec<String>) {
     let kind = node.kind();
 
     if node.child_count() == 0 {
         match kind {
-            "identifier" | "property_identifier" | "field_identifier" | "type_identifier"
-            | "shorthand_property_identifier" => {
+            "identifier" => {
+                let normalized = normalize_identifier(node, source);
+                out.push(normalized.to_string());
+            }
+            "type_identifier" => {
+                // Always preserve type names — they carry semantic meaning
+                out.push(node_text(node, source).to_string());
+            }
+            "property_identifier" | "field_identifier" => {
+                // Preserve field/property names
+                out.push(node_text(node, source).to_string());
+            }
+            "shorthand_property_identifier" => {
                 out.push("$ID".to_string());
             }
             "integer" | "float" | "number" | "number_literal" | "decimal_integer_literal"
@@ -343,7 +420,12 @@ fn collect_normalized_tokens(node: Node, out: &mut Vec<String>) {
                 out.push("$LIT".to_string());
             }
             "string" | "string_literal" | "template_string" | "raw_string_literal" => {
-                out.push("$STR".to_string());
+                let text = node_text(node, source);
+                if text.len() <= 52 {
+                    out.push(format!("$STR:{}", text));
+                } else {
+                    out.push("$STR".to_string());
+                }
             }
             "true" | "false" | "none" | "null" | "undefined" => {
                 out.push("$CONST".to_string());
@@ -362,7 +444,7 @@ fn collect_normalized_tokens(node: Node, out: &mut Vec<String>) {
     let count = node.child_count();
     for i in 0..count {
         if let Some(child) = node.child(i) {
-            collect_normalized_tokens(child, out);
+            collect_normalized_tokens(child, source, out);
         }
     }
 }
@@ -683,18 +765,26 @@ pub fn collect_all_features(
     all_kinds.insert(kind.to_string());
 
     if node.child_count() == 0 {
-        // Leaf node — normalize for fingerprinting
+        // Leaf node — selectively normalize for fingerprinting
         match kind {
             "identifier" => {
-                normalized_tokens.push("$ID".to_string());
+                let normalized = normalize_identifier(node, source);
+                normalized_tokens.push(normalized.to_string());
                 // Also collect identifier text
                 let text = node_text(node, source);
                 if !text.is_empty() {
                     identifiers.push(text.to_string());
                 }
             }
-            "property_identifier" | "field_identifier" | "type_identifier"
-            | "shorthand_property_identifier" => {
+            "type_identifier" => {
+                // Always preserve type names — they carry semantic meaning
+                normalized_tokens.push(node_text(node, source).to_string());
+            }
+            "property_identifier" | "field_identifier" => {
+                // Preserve field/property names
+                normalized_tokens.push(node_text(node, source).to_string());
+            }
+            "shorthand_property_identifier" => {
                 normalized_tokens.push("$ID".to_string());
             }
             "integer" | "float" | "number" | "number_literal" | "decimal_integer_literal"
@@ -702,7 +792,12 @@ pub fn collect_all_features(
                 normalized_tokens.push("$LIT".to_string());
             }
             "string" | "string_literal" | "template_string" | "raw_string_literal" => {
-                normalized_tokens.push("$STR".to_string());
+                let text = node_text(node, source);
+                if text.len() <= 52 { // 50 chars + 2 for quotes
+                    normalized_tokens.push(format!("$STR:{}", text));
+                } else {
+                    normalized_tokens.push("$STR".to_string());
+                }
             }
             "true" | "false" | "none" | "null" | "undefined" => {
                 normalized_tokens.push("$CONST".to_string());
@@ -1276,26 +1371,46 @@ except Exception:
     }
 
     #[test]
-    fn test_normalized_fingerprint_ignores_names() {
-        // Two functions with identical structure but different variable names.
+    fn test_normalized_fingerprint_selective_normalization() {
+        // Same call targets, different local variables — should match
+        // (local variables are normalized to $ID, call targets are preserved).
         let code_a = r#"
-x = foo(1)
+x = validate(1)
 if x > 0:
-    bar(x)
+    transform(x)
 "#;
         let code_b = r#"
-y = baz(1)
+y = validate(1)
 if y > 0:
-    qux(y)
+    transform(y)
 "#;
         let fp_a = normalized_fingerprint(code_a, Language::Python);
         let fp_b = normalized_fingerprint(code_b, Language::Python);
 
-        // Both should produce the same bigram set since identifiers are replaced
         assert_eq!(
             fp_a, fp_b,
-            "Same structure with different names should produce identical fingerprints.\n  A: {:?}\n  B: {:?}",
+            "Same structure with same call targets but different local vars should produce identical fingerprints.\n  A: {:?}\n  B: {:?}",
             fp_a, fp_b
+        );
+
+        // Different call targets — should NOT match (call targets are preserved).
+        let code_c = r#"
+x = foo(1)
+if x > 0:
+    bar(x)
+"#;
+        let code_d = r#"
+y = baz(1)
+if y > 0:
+    qux(y)
+"#;
+        let fp_c = normalized_fingerprint(code_c, Language::Python);
+        let fp_d = normalized_fingerprint(code_d, Language::Python);
+
+        assert_ne!(
+            fp_c, fp_d,
+            "Different call targets should produce different fingerprints.\n  C: {:?}\n  D: {:?}",
+            fp_c, fp_d
         );
     }
 
