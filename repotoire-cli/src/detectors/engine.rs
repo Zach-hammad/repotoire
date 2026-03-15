@@ -1048,9 +1048,6 @@ impl DetectorEngine {
         let completed = Arc::new(AtomicUsize::new(0));
         let total = self.detectors.len();
 
-        // Shared finding counter for early termination
-        let finding_count = Arc::new(AtomicUsize::new(0));
-
         // Run independent detectors in parallel
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.workers)
@@ -1077,7 +1074,6 @@ impl DetectorEngine {
             debug!("Skipping {} detectors with no matching files", skip_set.len());
         }
 
-        let finding_count_parallel = Arc::clone(&finding_count);
         let independent_results: Vec<DetectorResult> = pool.install(|| {
             independent
                 .par_iter()
@@ -1091,18 +1087,7 @@ impl DetectorEngine {
                         return DetectorResult::skipped(detector.name());
                     }
 
-                    // Skip if we've already hit the finding limit
-                    if finding_count_parallel.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
-                        // Still update progress for skipped detectors
-                        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
-                        if let Some(ref callback) = self.progress_callback {
-                            callback(detector.name(), done, total);
-                        }
-                        return DetectorResult::skipped(detector.name());
-                    }
-
                     let result = self.run_single_detector(detector, &analysis_ctx);
-                    finding_count_parallel.fetch_add(result.findings.len(), Ordering::Relaxed);
 
                     // Update progress
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1149,19 +1134,7 @@ impl DetectorEngine {
                 continue;
             }
 
-            // Skip if we've already hit the finding limit
-            if finding_count.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
-                // Still update progress for skipped detectors
-                let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
-                if let Some(ref callback) = self.progress_callback {
-                    callback(detector.name(), done, total);
-                }
-                summary.add_result(&DetectorResult::skipped(detector.name()));
-                continue;
-            }
-
             let result = self.run_single_detector(&detector, &analysis_ctx);
-            finding_count.fetch_add(result.findings.len(), Ordering::Relaxed);
 
             // Update progress
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1178,15 +1151,6 @@ impl DetectorEngine {
             } else if let Some(err) = &result.error {
                 warn!("Detector {} failed: {}", result.detector_name, err);
             }
-        }
-
-        // Log early termination if it triggered
-        let final_count = finding_count.load(Ordering::Relaxed);
-        if final_count >= MAX_FINDINGS_LIMIT {
-            info!(
-                "Early termination: {} findings reached limit of {}",
-                final_count, MAX_FINDINGS_LIMIT
-            );
         }
 
         // Print per-detector timing report (sorted by slowest first)
@@ -1282,7 +1246,6 @@ impl DetectorEngine {
         // Graph-independent detectors don't use function contexts, so pass an empty map.
         // Actual contexts will be built lazily when run_graph_dependent() is called.
         let contexts: Arc<FunctionContextMap> = Arc::new(HashMap::new());
-        let finding_count = Arc::new(AtomicUsize::new(0));
         let completed = Arc::new(AtomicUsize::new(0));
         let total = gi_detectors.len();
 
@@ -1337,22 +1300,12 @@ impl DetectorEngine {
             }
         };
 
-        let finding_count_clone = Arc::clone(&finding_count);
         let results: Vec<DetectorResult> = pool.install(|| {
             gi_detectors
                 .par_iter()
                 .map(|detector| {
-                    if finding_count_clone.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
-                        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
-                        if let Some(ref callback) = self.progress_callback {
-                            callback(detector.name(), done, total);
-                        }
-                        return DetectorResult::skipped(detector.name());
-                    }
-
                     let result =
                         self.run_single_detector(detector, &gi_analysis_ctx);
-                    finding_count_clone.fetch_add(result.findings.len(), Ordering::Relaxed);
 
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
                     if let Some(ref callback) = self.progress_callback {
@@ -1480,7 +1433,6 @@ impl DetectorEngine {
             (ctx, hmm)
         };
 
-        let finding_count = Arc::new(AtomicUsize::new(0));
         let completed = Arc::new(AtomicUsize::new(0));
 
         // Split into parallel (independent but graph-requiring) and sequential (dependent)
@@ -1498,22 +1450,12 @@ impl DetectorEngine {
             .stack_size(8 * 1024 * 1024) // 8MB stack for deeply nested C/C++ parsing
             .build()?;
 
-        let finding_count_clone = Arc::clone(&finding_count);
         let parallel_results: Vec<DetectorResult> = pool.install(|| {
             parallel
                 .par_iter()
                 .map(|detector| {
-                    if finding_count_clone.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
-                        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
-                        if let Some(ref callback) = self.progress_callback {
-                            callback(detector.name(), done, total);
-                        }
-                        return DetectorResult::skipped(detector.name());
-                    }
-
                     let result =
                         self.run_single_detector(detector, &analysis_ctx);
-                    finding_count_clone.fetch_add(result.findings.len(), Ordering::Relaxed);
 
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
                     if let Some(ref callback) = self.progress_callback {
@@ -1545,16 +1487,7 @@ impl DetectorEngine {
 
         // Run sequential dependent detectors
         for detector in sequential {
-            if finding_count.load(Ordering::Relaxed) >= MAX_FINDINGS_LIMIT {
-                let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
-                if let Some(ref callback) = self.progress_callback {
-                    callback(detector.name(), done, total);
-                }
-                continue;
-            }
-
             let result = self.run_single_detector(&detector, &analysis_ctx);
-            finding_count.fetch_add(result.findings.len(), Ordering::Relaxed);
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
             if let Some(ref callback) = self.progress_callback {
