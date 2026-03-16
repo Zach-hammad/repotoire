@@ -277,7 +277,7 @@ impl Detector for DeepNestingDetector {
                         max_depth as f64,
                         self.default_threshold as f64,
                     );
-                    let threshold_metadata: std::collections::HashMap<String, String> =
+                    let threshold_metadata: std::collections::BTreeMap<String, String> =
                         explanation.to_metadata().into_iter().collect();
 
                     findings.push(Finding {

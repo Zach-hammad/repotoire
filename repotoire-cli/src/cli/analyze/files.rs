@@ -105,6 +105,10 @@ pub(crate) fn collect_file_list(repo_path: &Path, exclude: &ExcludeConfig) -> Re
         }
     }
 
+    // Sort for deterministic ordering — WalkBuilder does not guarantee
+    // consistent order across runs on the same filesystem.
+    files.sort();
+
     Ok(files)
 }
 
@@ -221,7 +225,6 @@ pub(crate) fn walk_files_to_channel(
         let repo_canonical = &repo_canonical;
         let effective = &effective;
         let repo_path_ref = repo_path;
-        let sender = sender.clone();
         Box::new(move |entry| {
             let entry = match entry {
                 Ok(e) => e,
@@ -245,9 +248,6 @@ pub(crate) fn walk_files_to_channel(
                 }
             }
             if let Some(validated) = validate_file(path, repo_canonical) {
-                // Send to parse channel (backpressure applies via bounded channel)
-                let _ = sender.send(validated.clone());
-                // Also collect for downstream use
                 if let Ok(mut f) = files.lock() {
                     f.push(validated);
                 }
@@ -256,10 +256,9 @@ pub(crate) fn walk_files_to_channel(
         })
     });
 
-    // sender drops here (our copy), walker thread copies already dropped above
-    drop(sender);
-
-    // Parallel walk returns files in arbitrary order; sort for deterministic results
+    // Parallel walk returns files in arbitrary order; sort for deterministic results.
+    // Sorting BEFORE sending to channel ensures the parse pipeline receives files
+    // in a consistent order, producing deterministic graph node indices.
     let mut files = files.into_inner().expect("walk mutex poisoned");
     files.sort();
 
@@ -267,6 +266,13 @@ pub(crate) fn walk_files_to_channel(
     if let Some(early) = early_files {
         let _ = early.set(files.clone());
     }
+
+    // Send sorted files to parse channel
+    for file in &files {
+        let _ = sender.send(file.clone());
+    }
+    // Drop sender to signal channel end
+    drop(sender);
 
     Ok(files)
 }

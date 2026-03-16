@@ -85,7 +85,8 @@ impl LargeFilesDetector {
             .max_by_key(|(_, size)| *size);
 
         // Group functions by prefix to suggest split points
-        let mut prefixes: HashSet<String> = HashSet::new();
+        // BTreeSet for deterministic ordering in output
+        let mut prefixes: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for func in &functions {
             if let Some(prefix) = func.node_name(i).split('_').next() {
                 if prefix.len() > 2 && func.node_name(i).contains('_') {

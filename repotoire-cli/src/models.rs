@@ -50,14 +50,14 @@ impl std::fmt::Display for Severity {
     }
 }
 
-/// Deserialize a HashMap that may be `null` in JSON (treat null as empty map)
+/// Deserialize a BTreeMap that may be `null` in JSON (treat null as empty map)
 fn deserialize_null_as_empty_map<'de, D>( // repotoire:ignore[surprisal]
     deserializer: D,
-) -> Result<std::collections::HashMap<String, String>, D::Error>
+) -> Result<std::collections::BTreeMap<String, String>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let opt: Option<std::collections::HashMap<String, String>> =
+    let opt: Option<std::collections::BTreeMap<String, String>> =
         Option::deserialize(deserializer)?;
     Ok(opt.unwrap_or_default())
 }
@@ -96,8 +96,8 @@ pub struct Finding {
     pub confidence: Option<f64>,
     /// Threshold metadata for adaptive explainability
     /// Keys: threshold_source, effective_threshold, actual_value, default_threshold
-    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty", deserialize_with = "deserialize_null_as_empty_map")]
-    pub threshold_metadata: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty", deserialize_with = "deserialize_null_as_empty_map")]
+    pub threshold_metadata: std::collections::BTreeMap<String, String>,
 }
 
 /// Default confidence value when no category-specific default applies.
@@ -268,7 +268,7 @@ mod tests {
             title: "Test finding".into(),
             description: "A test".into(),
             threshold_metadata: {
-                let mut m = std::collections::HashMap::new();
+                let mut m = std::collections::BTreeMap::new();
                 m.insert("key".into(), "value".into());
                 m
             },

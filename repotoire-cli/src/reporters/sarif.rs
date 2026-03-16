@@ -192,7 +192,7 @@ struct SarifResultProperties {
     #[serde(skip_serializing_if = "Option::is_none")]
     cwe_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    threshold_metadata: Option<std::collections::HashMap<String, String>>,
+    threshold_metadata: Option<std::collections::BTreeMap<String, String>>,
 }
 
 #[derive(Serialize)]

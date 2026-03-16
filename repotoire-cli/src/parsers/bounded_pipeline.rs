@@ -320,10 +320,11 @@ impl FlushingGraphBuilder {
                 flags |= FLAG_IS_EXPORTED;
             }
 
+            let qn_key = i.intern(&func.qualified_name);
             let node = CodeNode {
                 kind: NodeKind::Function,
                 name: i.intern(&func.name),
-                qualified_name: i.intern(&func.qualified_name),
+                qualified_name: qn_key,
                 file_path: rel_key,
                 language: lang_key,
                 line_start: func.line_start,
@@ -338,6 +339,15 @@ impl FlushingGraphBuilder {
                 flags,
             };
             entity_nodes.push(node);
+
+            // Store decorator/annotation strings in ExtraProps side table
+            if let Some(ref annotations) = func.annotations_joined {
+                let ep = crate::graph::ExtraProps {
+                    decorators: Some(i.intern(annotations)),
+                    ..Default::default()
+                };
+                self.graph.set_extra_props(qn_key, ep);
+            }
 
             // Decorated functions still need a Calls edge (file → func via decorator)
             if func.has_annotations {
@@ -647,9 +657,29 @@ pub fn run_bounded_pipeline(
     drop(file_rx);
     drop(result_tx);
 
-    // Consumer: build graph sequentially
+    // Collect all parse results from parallel workers, then re-sort by
+    // file path to restore the deterministic input order.  Without sorting,
+    // parallel workers return results in nondeterministic completion order.
+    //
+    // Callers (e.g. parse_and_build_streaming) should pre-sort the input
+    // `files` Vec; sorting here ensures the consumer processes them in that
+    // same order regardless of per-file parse time variation.
+    let mut all_results: Vec<LightweightFileInfo> = result_rx.into_iter().collect();
+
+    // Wait for threads
+    let _ = producer.join();
+    for w in workers {
+        let _ = w.join();
+    }
+
+    // Re-sort parse results to match input file order (alphabetical).
+    // This is a no-op when the caller already provides sorted input AND
+    // num_workers == 1, but is essential for determinism with parallel workers.
+    all_results.sort_by(|a, b| a.path.cmp(&b.path));
+
+    // Process sorted results sequentially
     let mut count = 0;
-    for info in result_rx {
+    for info in all_results {
         count += 1;
 
         if let Some(cb) = progress {
@@ -663,13 +693,6 @@ pub fn run_bounded_pipeline(
         if let Err(e) = builder.process(info) {
             tracing::warn!("Process error: {}", e);
         }
-        // info is dropped here - memory freed immediately
-    }
-
-    // Wait for threads
-    let _ = producer.join();
-    for w in workers {
-        let _ = w.join();
     }
 
     // Finalize
@@ -772,9 +795,22 @@ pub fn run_bounded_pipeline_from_channel(
     drop(file_receiver);
     drop(result_tx);
 
-    // Consumer: build graph sequentially, adding module lookup entries incrementally
+    // Collect all parse results, then sort by file path for deterministic
+    // graph node insertion order.  Parallel parsing means results arrive in
+    // completion order (thread-scheduling-dependent); sorting removes that
+    // nondeterminism so detectors always see the same graph structure.
+    let mut all_results: Vec<LightweightFileInfo> = result_rx.into_iter().collect();
+
+    // Wait for workers before sorting (they may still be finishing)
+    for w in workers {
+        let _ = w.join();
+    }
+
+    all_results.sort_by(|a, b| a.path.cmp(&b.path));
+
+    // Process sorted results sequentially
     let mut count = 0;
-    for info in result_rx {
+    for info in all_results {
         count += 1;
 
         // Incrementally populate module lookup from each processed file's path
@@ -791,11 +827,6 @@ pub fn run_bounded_pipeline_from_channel(
         if let Err(e) = builder.process(info) {
             tracing::warn!("Process error: {}", e);
         }
-        // info is dropped here — memory freed immediately
-    }
-    // Wait for workers
-    for w in workers {
-        let _ = w.join();
     }
 
     // Finalize
@@ -1035,26 +1066,26 @@ mod tests {
     /// Verify that ambiguous bare names (same function name in two files)
     /// do NOT produce spurious cross-file call edges.
     ///
-    /// Uses 1 worker to ensure deterministic processing order: utils_a, utils_b
-    /// (both define `process`), then main (calls `process`). After both utils
+    /// File names are chosen so that alphabetical sort processes definitions
+    /// (a_utils, b_utils) before the caller (c_main). After both definition
     /// files are processed, `process` is marked Ambiguous and the call from
-    /// main should be dropped.
+    /// c_main should be dropped.
     #[test]
     fn test_ambiguous_bare_name_drops_cross_file_edge() {
         let dir = TempDir::new().expect("temp dir");
         let path = dir.path();
 
-        create_test_file(path, "utils_a.py", "def process():\n    pass\n");
-        create_test_file(path, "utils_b.py", "def process():\n    pass\n");
-        create_test_file(path, "main.py", "def main():\n    process()\n");
+        create_test_file(path, "a_utils.py", "def process():\n    pass\n");
+        create_test_file(path, "b_utils.py", "def process():\n    pass\n");
+        create_test_file(path, "c_main.py", "def main():\n    process()\n");
 
         let graph = Arc::new(GraphStore::in_memory());
         let mut config = PipelineConfig::for_repo_size(3);
-        config.num_workers = 1; // deterministic order: utils_a, utils_b, main
+        config.num_workers = 1;
         let files = vec![
-            path.join("utils_a.py"),
-            path.join("utils_b.py"),
-            path.join("main.py"),
+            path.join("a_utils.py"),
+            path.join("b_utils.py"),
+            path.join("c_main.py"),
         ];
 
         let (_stats, _parse_stats) =
@@ -1065,7 +1096,7 @@ mod tests {
         let call_edges = graph.get_edges_by_kind(crate::graph::EdgeKind::Calls);
         let spurious = call_edges
             .iter()
-            .filter(|(src, _dst)| gi.resolve(*src).contains("main"))
+            .filter(|(src, _dst)| gi.resolve(*src).contains("c_main"))
             .filter(|(_src, dst)| gi.resolve(*dst).contains("process"))
             .count();
         assert_eq!(

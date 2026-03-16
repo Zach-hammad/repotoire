@@ -104,7 +104,7 @@ impl Detector for HierarchicalSurprisalDetector {
             );
 
             // Build threshold_metadata with per-level info
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert(
                 "threshold_source".to_string(),
                 "predictive-coding".to_string(),

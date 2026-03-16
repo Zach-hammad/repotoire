@@ -55,7 +55,7 @@ struct CachedFinding {
     #[serde(default)]
     pub confidence: Option<f64>,
     #[serde(default)]
-    pub threshold_metadata: std::collections::HashMap<String, String>,
+    pub threshold_metadata: std::collections::BTreeMap<String, String>,
 }
 
 impl From<&Finding> for CachedFinding {
@@ -941,9 +941,9 @@ mod tests {
     #[test]
     fn test_cached_finding_round_trip_preserves_threshold_metadata() {
         use crate::models::{Finding, Severity};
-        use std::collections::HashMap;
+        use std::collections::BTreeMap;
 
-        let mut meta = HashMap::new();
+        let mut meta = BTreeMap::new();
         meta.insert("threshold_source".to_string(), "adaptive".to_string());
         meta.insert("effective_threshold".to_string(), "15".to_string());
 

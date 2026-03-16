@@ -61,7 +61,7 @@ mod tests {
             description: "Has confidence".into(),
             confidence: Some(0.82),
             threshold_metadata: {
-                let mut m = std::collections::HashMap::new();
+                let mut m = std::collections::BTreeMap::new();
                 m.insert("confidence_signals".into(), "bundled_code,multi_detector_agreement".into());
                 m
             },
