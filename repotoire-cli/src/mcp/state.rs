@@ -9,21 +9,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::ai::{AiClient, LlmBackend};
+use crate::engine::{AnalysisConfig, AnalysisEngine, AnalysisMode};
 use crate::graph::GraphStore;
 use crate::models::Finding;
-use crate::session::AnalysisSession;
 
-/// Result of a session-based analysis (cold or incremental).
-pub struct SessionAnalysisResult {
+/// Result of an engine-based analysis.
+pub struct EngineAnalysisResult {
     /// All findings from the current analysis state.
     pub findings: Vec<Finding>,
     /// Overall health score (0..100).
-    pub score: Option<f64>,
-    /// All source files known to the session.
-    pub source_files: Vec<PathBuf>,
-    /// Whether this was an incremental update (true) or cold analysis (false).
-    pub incremental: bool,
-    /// Number of files that changed (0 for cold analysis or no-change fast path).
+    pub score: f64,
+    /// Analysis mode (cold, incremental, or cached).
+    pub mode: AnalysisMode,
+    /// Number of files that changed (from AnalysisStats).
     pub files_changed: usize,
 }
 
@@ -41,9 +39,9 @@ pub struct HandlerState {
     pub api_url: String,
     /// BYOK: User's own AI backend
     pub ai_backend: Option<LlmBackend>,
-    /// Persistent analysis session for incremental updates across MCP calls.
-    /// `None` until the first `analyze` call, then holds the live session.
-    session: Option<AnalysisSession>,
+    /// Persistent analysis engine for incremental updates across MCP calls.
+    /// `None` until the first `analyze` call, then holds the live engine.
+    engine: Option<AnalysisEngine>,
 }
 
 impl HandlerState {
@@ -78,7 +76,7 @@ impl HandlerState {
             api_key,
             api_url,
             ai_backend,
-            session: None,
+            engine: None,
         }
     }
 
@@ -115,8 +113,19 @@ impl HandlerState {
         }
     }
 
-    /// Initialize or return the cached graph client
+    /// Initialize or return the cached graph client.
+    ///
+    /// Prefers the engine's graph (freshest) when available, then falls
+    /// back to the cached Arc, and finally initializes a new GraphStore.
     pub fn graph(&mut self) -> Result<Arc<GraphStore>> {
+        // If the engine has a graph, prefer that (it's the freshest)
+        if let Some(ref engine) = self.engine {
+            if let Some(arc) = engine.graph_arc() {
+                self.graph = Some(Arc::clone(&arc));
+                return Ok(arc);
+            }
+        }
+
         if let Some(ref client) = self.graph {
             return Ok(Arc::clone(client));
         }
@@ -134,56 +143,47 @@ impl HandlerState {
         self.graph = Some(graph);
     }
 
-    /// Get or create an analysis session. First call does cold analysis,
-    /// subsequent calls detect file changes and do incremental updates.
+    /// Run analysis via `AnalysisEngine`. First call does cold analysis,
+    /// subsequent calls detect file changes and return cached/incremental results.
     ///
-    /// The session is kept in memory between MCP tool calls so that the
-    /// graph, findings, and file hashes persist. On the first call we run
-    /// a full cold analysis. On subsequent calls we diff file hashes,
-    /// delta-patch the graph, and selectively re-run detectors.
-    pub fn analyze_with_session(&mut self) -> Result<SessionAnalysisResult> {
-        match self.session.as_mut() {
-            Some(session) => {
-                // Incremental path
-                let changed = session.detect_changed_files()?;
-                if changed.is_empty() {
-                    // No changes — return cached results
-                    Ok(SessionAnalysisResult {
-                        findings: session.findings().to_vec(),
-                        score: session.score(),
-                        source_files: session.source_files().to_vec(),
-                        incremental: true,
-                        files_changed: 0,
-                    })
-                } else {
-                    let files_changed = changed.len();
-                    let _delta = session.update(&changed)?;
-                    Ok(SessionAnalysisResult {
-                        findings: session.findings().to_vec(),
-                        score: session.score(),
-                        source_files: session.source_files().to_vec(),
-                        incremental: true,
-                        files_changed,
-                    })
-                }
-            }
+    /// The engine is kept in memory between MCP tool calls so that the
+    /// graph, findings, and file hashes persist.
+    pub fn analyze_with_engine(&mut self) -> Result<EngineAnalysisResult> {
+        let engine = match self.engine.as_mut() {
+            Some(e) => e,
             None => {
-                // Cold analysis — create new session
-                let session = AnalysisSession::new(&self.repo_path, 8)?;
-                let result = SessionAnalysisResult {
-                    findings: session.findings().to_vec(),
-                    score: session.score(),
-                    source_files: session.source_files().to_vec(),
-                    incremental: false,
-                    files_changed: 0,
-                };
-                // Also populate the graph field so other tools (graph queries,
-                // impact analysis, etc.) can use the session's graph.
-                self.graph = Some(Arc::clone(session.graph()));
-                self.session = Some(session);
-                Ok(result)
+                // First call — create the engine
+                let e = AnalysisEngine::new(&self.repo_path)?;
+                self.engine = Some(e);
+                self.engine.as_mut().unwrap()
             }
+        };
+
+        let config = AnalysisConfig {
+            workers: 8,
+            no_git: false,
+            ..Default::default()
+        };
+
+        let result = engine.analyze(&config)?;
+
+        // Populate the graph field so other tools (graph queries,
+        // impact analysis, etc.) can use the engine's graph.
+        if let Some(arc) = engine.graph_arc() {
+            self.graph = Some(arc);
         }
+
+        let files_changed = match &result.stats.mode {
+            AnalysisMode::Incremental { files_changed } => *files_changed,
+            _ => 0,
+        };
+
+        Ok(EngineAnalysisResult {
+            findings: result.findings,
+            score: result.score.overall,
+            mode: result.stats.mode,
+            files_changed,
+        })
     }
 }
 

@@ -7,6 +7,7 @@ use crate::config::ProjectConfig;
 use crate::detectors::api_surface::is_api_surface;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use tracing::{debug, info};
 
@@ -81,7 +82,7 @@ const MAX_COMPLEXITY_DIST_BONUS: f64 = 0.05; // 5% max
 const MAX_TEST_COVERAGE_BONUS: f64 = 0.05; // 5% max
 
 /// Breakdown of a single pillar score
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PillarBreakdown {
     /// Pillar name
     pub name: String,
@@ -100,7 +101,7 @@ pub struct PillarBreakdown {
 }
 
 /// Complete score breakdown for transparency
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoreBreakdown {
     /// Overall health score (0-100+)
     pub overall_score: f64,
@@ -117,7 +118,7 @@ pub struct ScoreBreakdown {
 }
 
 /// Metrics derived from the code graph
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GraphMetrics {
     /// Number of modules (directories with code)
     pub module_count: usize,

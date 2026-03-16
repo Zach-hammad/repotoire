@@ -7,10 +7,12 @@ pub mod diff;
 pub mod stages;
 pub mod state;
 
+use anyhow::Context;
 use crate::config::{load_project_config, ProjectConfig};
-use crate::graph::GraphQuery;
+use crate::graph::{GraphQuery, GraphStore};
 use crate::models::Finding;
 use crate::scoring::ScoreBreakdown;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -41,7 +43,7 @@ impl Default for AnalysisConfig {
 }
 
 /// How the analysis was performed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AnalysisMode {
     Cold,
     Incremental { files_changed: usize },
@@ -49,7 +51,7 @@ pub enum AnalysisMode {
 }
 
 /// Health score result.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoreResult {
     pub overall: f64,
     pub grade: String,
@@ -57,7 +59,7 @@ pub struct ScoreResult {
 }
 
 /// Stats from each pipeline phase.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisStats {
     pub mode: AnalysisMode,
     pub files_analyzed: usize,
@@ -180,6 +182,14 @@ impl AnalysisEngine {
     /// For general graph queries, prefer `graph()` which returns `&dyn GraphQuery`.
     pub fn graph_store(&self) -> Option<&crate::graph::GraphStore> {
         self.state.as_ref().map(|s| s.graph.as_ref())
+    }
+
+    /// Returns a shared `Arc<GraphStore>` if analysis has been run.
+    ///
+    /// Use this when you need to share the graph across handler boundaries
+    /// (e.g., MCP state passing the graph to other tool handlers).
+    pub fn graph_arc(&self) -> Option<Arc<crate::graph::GraphStore>> {
+        self.state.as_ref().map(|s| Arc::clone(&s.graph))
     }
 
     /// Returns a reference to the project configuration.
@@ -362,6 +372,123 @@ impl AnalysisEngine {
             stats,
         })
     }
+
+    /// Persist the current engine state to disk.
+    ///
+    /// Writes two files into `session_path`:
+    /// - `engine_session.json` — serializable metadata (hashes, findings, score)
+    /// - `graph.bin` — bincode-serialized code graph
+    ///
+    /// If no analysis has been run yet (state is None), this is a no-op.
+    pub fn save(&self, session_path: &Path) -> anyhow::Result<()> {
+        let state = match &self.state {
+            Some(s) => s,
+            None => return Ok(()), // nothing to save
+        };
+
+        std::fs::create_dir_all(session_path)
+            .with_context(|| format!("Failed to create session directory: {}", session_path.display()))?;
+
+        // Build serializable metadata
+        let meta = state::SessionMeta {
+            version: state::SESSION_VERSION,
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
+            file_hashes: state.file_hashes.clone(),
+            source_files: state.source_files.clone(),
+            edge_fingerprint: state.edge_fingerprint,
+            findings_by_file: state.findings_by_file.clone(),
+            graph_wide_findings: state.graph_wide_findings.clone(),
+            last_findings: state.last_findings.clone(),
+            last_score: state.last_score.clone(),
+            last_stats: state.last_stats.clone(),
+        };
+
+        let json = serde_json::to_string(&meta)
+            .context("Failed to serialize engine session")?;
+        let meta_path = session_path.join("engine_session.json");
+        std::fs::write(&meta_path, json)
+            .with_context(|| format!("Failed to write {}", meta_path.display()))?;
+
+        // Save graph via GraphStore's bincode cache
+        let graph_path = session_path.join("graph.bin");
+        state.graph.save_graph_cache(&graph_path)
+            .context("Failed to save graph cache")?;
+
+        Ok(())
+    }
+
+    /// Load a previously saved engine session from disk.
+    ///
+    /// Reads `engine_session.json` and `graph.bin` from `session_path`,
+    /// validates version compatibility, and reconstructs the engine state.
+    ///
+    /// Transient fields (GdPrecomputed, ValueStore, NgramModel, StyleProfile)
+    /// are left empty and rebuilt on the next `analyze()` call.
+    pub fn load(session_path: &Path, repo_path: &Path) -> anyhow::Result<Self> {
+        let repo_path = repo_path.canonicalize()?;
+        let project_config = load_project_config(&repo_path);
+
+        // Read and deserialize session metadata
+        let meta_path = session_path.join("engine_session.json");
+        let json = std::fs::read_to_string(&meta_path)
+            .with_context(|| format!("Failed to read {}", meta_path.display()))?;
+        let meta: state::SessionMeta = serde_json::from_str(&json)
+            .context("Failed to deserialize engine session")?;
+
+        // Version checks
+        if meta.version != state::SESSION_VERSION {
+            anyhow::bail!(
+                "Session version mismatch: expected {}, found {}",
+                state::SESSION_VERSION,
+                meta.version
+            );
+        }
+        if meta.binary_version != env!("CARGO_PKG_VERSION") {
+            anyhow::bail!(
+                "Binary version mismatch: session was saved with {}, current is {}",
+                meta.binary_version,
+                env!("CARGO_PKG_VERSION")
+            );
+        }
+
+        // Load graph from bincode cache
+        let graph_path = session_path.join("graph.bin");
+        let graph = GraphStore::load_graph_cache(&graph_path)
+            .ok_or_else(|| anyhow::anyhow!(
+                "Failed to load graph cache from {}",
+                graph_path.display()
+            ))?;
+
+        let state = state::EngineState {
+            file_hashes: meta.file_hashes,
+            source_files: meta.source_files,
+            graph: Arc::new(graph),
+            value_store: None,
+            edge_fingerprint: meta.edge_fingerprint,
+            gd_precomputed: None,
+            style_profile: crate::calibrate::StyleProfile {
+                version: crate::calibrate::StyleProfile::VERSION,
+                generated_at: String::new(),
+                commit_sha: None,
+                total_files: 0,
+                total_functions: 0,
+                metrics: std::collections::HashMap::new(),
+            },
+            ngram_model: None,
+            findings_by_file: meta.findings_by_file,
+            graph_wide_findings: meta.graph_wide_findings,
+            last_findings: meta.last_findings,
+            last_score: meta.last_score,
+            last_stats: meta.last_stats,
+        };
+
+        Ok(Self {
+            repo_path,
+            project_config,
+            state: Some(state),
+            progress: None,
+        })
+    }
 }
 
 /// Time a closure and record its duration in the timings map.
@@ -439,5 +566,70 @@ def greet(name):
         assert_eq!(r1.findings.len(), r2.findings.len());
         assert_eq!(r1.score.overall, r2.score.overall);
         assert_eq!(r1.score.grade, r2.score.grade);
+    }
+
+    #[test]
+    fn test_save_load_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.py"), "def hello(): pass").unwrap();
+
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let config = AnalysisConfig {
+            no_git: true,
+            max_files: 5,
+            workers: 2,
+            ..Default::default()
+        };
+        let r1 = engine.analyze(&config).unwrap();
+
+        let session_dir = tempfile::tempdir().unwrap();
+        engine.save(session_dir.path()).unwrap();
+        drop(engine);
+
+        let engine2 = AnalysisEngine::load(session_dir.path(), dir.path()).unwrap();
+        // Engine loaded successfully with graph and findings
+        assert!(engine2.graph().is_some());
+
+        // Findings and score survived the roundtrip
+        let state = engine2.state.as_ref().unwrap();
+        assert_eq!(state.last_findings.len(), r1.findings.len());
+        assert_eq!(state.last_score.overall, r1.score.overall);
+        assert_eq!(state.last_score.grade, r1.score.grade);
+    }
+
+    #[test]
+    fn test_save_noop_without_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = AnalysisEngine::new(dir.path()).unwrap();
+        let session_dir = tempfile::tempdir().unwrap();
+        // save() on a fresh engine (no analyze() yet) should be a no-op
+        engine.save(session_dir.path()).unwrap();
+        assert!(!session_dir.path().join("engine_session.json").exists());
+    }
+
+    #[test]
+    fn test_load_cached_fast_path() {
+        // After load(), calling analyze() with unchanged files should hit the cached fast path
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("app.py"), "def run(): return 42").unwrap();
+
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let config = AnalysisConfig {
+            no_git: true,
+            workers: 2,
+            ..Default::default()
+        };
+        let r1 = engine.analyze(&config).unwrap();
+
+        let session_dir = tempfile::tempdir().unwrap();
+        engine.save(session_dir.path()).unwrap();
+        drop(engine);
+
+        let mut engine2 = AnalysisEngine::load(session_dir.path(), dir.path()).unwrap();
+        let r2 = engine2.analyze(&config).unwrap();
+
+        assert!(matches!(r2.stats.mode, AnalysisMode::Cached));
+        assert_eq!(r1.findings.len(), r2.findings.len());
+        assert_eq!(r1.score.overall, r2.score.overall);
     }
 }

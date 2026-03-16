@@ -12,32 +12,29 @@ use crate::models::FindingsSummary;
 
 /// Run code analysis on the repository.
 ///
-/// Uses an in-memory `AnalysisSession` that persists between MCP calls.
+/// Uses an in-memory `AnalysisEngine` that persists between MCP calls.
 /// The first call performs a full cold analysis. Subsequent calls detect
-/// file changes and do incremental updates (re-parse only changed files,
-/// delta-patch the graph, selectively re-run detectors).
+/// file changes and return cached or incremental results.
 ///
-/// Falls back to the legacy one-shot path when the session fails to
+/// Falls back to the legacy one-shot path when the engine fails to
 /// initialize (e.g. on an empty or unclonable repo).
 pub fn handle_analyze(state: &mut HandlerState, params: &AnalyzeParams) -> Result<Value> {
     let _incremental = params.incremental.unwrap_or(true);
     let repo_path = state.repo_path.clone();
 
-    // ── Session-backed analysis (incremental) ────────────────────────────
-    match state.analyze_with_session() {
+    // ── Engine-backed analysis (incremental) ─────────────────────────────
+    match state.analyze_with_engine() {
         Ok(result) => {
             let summary = FindingsSummary::from_findings(&result.findings);
-            let mode = if result.incremental {
-                if result.files_changed > 0 {
-                    format!("incremental ({} files changed)", result.files_changed)
-                } else {
-                    "cached (no changes)".to_string()
+            let mode = match &result.mode {
+                crate::engine::AnalysisMode::Cold => "cold".to_string(),
+                crate::engine::AnalysisMode::Incremental { files_changed } => {
+                    format!("incremental ({} files changed)", files_changed)
                 }
-            } else {
-                "cold".to_string()
+                crate::engine::AnalysisMode::Cached => "cached (no changes)".to_string(),
             };
 
-            let mut response = json!({
+            let response = json!({
                 "status": "completed",
                 "repo_path": repo_path.display().to_string(),
                 "total_findings": summary.total,
@@ -48,19 +45,15 @@ pub fn handle_analyze(state: &mut HandlerState, params: &AnalyzeParams) -> Resul
                     "low": summary.low,
                     "info": summary.info
                 },
+                "health_score": result.score,
                 "mode": mode,
                 "message": format!("Analysis complete. Found {} issues.", summary.total)
             });
 
-            // Include health score when available
-            if let Some(score) = result.score {
-                response["health_score"] = json!(score);
-            }
-
             Ok(response)
         }
         Err(e) => {
-            tracing::warn!("Session analysis failed, falling back to one-shot: {}", e);
+            tracing::warn!("Engine analysis failed, falling back to one-shot: {}", e);
             handle_analyze_oneshot(state, &repo_path)
         }
     }
