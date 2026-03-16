@@ -19,7 +19,7 @@
 
 use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use tracing::{debug, info};
 
 /// Voting strategy for consensus determination
@@ -485,7 +485,9 @@ impl VotingEngine {
                 // Bayesian update with detector-family de-correlation (#52).
                 // Correlated detectors (same family/prefix) should not count as
                 // independent evidence.
-                let mut by_family: HashMap<String, Vec<f64>> = HashMap::new();
+                // BTreeMap ensures alphabetical family order for deterministic
+                // sequential Bayesian updates (the update is non-commutative).
+                let mut by_family: BTreeMap<String, Vec<f64>> = BTreeMap::new();
                 for f in findings {
                     let family = f
                         .detector
@@ -548,21 +550,23 @@ impl VotingEngine {
                 .unwrap_or(Severity::Medium),
 
             SeverityResolution::MajorityVote => {
-                // Most common severity
-                let mut counts: HashMap<Severity, usize> = HashMap::new();
+                // Most common severity; ties broken by higher severity
+                let mut counts: BTreeMap<Severity, usize> = BTreeMap::new();
                 for finding in findings {
                     *counts.entry(finding.severity).or_insert(0) += 1;
                 }
                 counts
                     .into_iter()
-                    .max_by_key(|(_, count)| *count)
+                    .max_by(|(sev_a, count_a), (sev_b, count_b)| {
+                        count_a.cmp(count_b).then_with(|| sev_a.cmp(sev_b))
+                    })
                     .map(|(sev, _)| sev)
                     .unwrap_or(Severity::Medium)
             }
 
             SeverityResolution::WeightedVote => {
-                // Weight by confidence
-                let mut severity_scores: HashMap<Severity, f64> = HashMap::new();
+                // Weight by confidence; ties broken by higher severity
+                let mut severity_scores: BTreeMap<Severity, f64> = BTreeMap::new();
                 for finding in findings {
                     let conf = self.get_finding_confidence(finding);
                     let weight = self.get_detector_weight(&finding.detector);
@@ -570,7 +574,11 @@ impl VotingEngine {
                 }
                 severity_scores
                     .into_iter()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .max_by(|(sev_a, a), (sev_b, b)| {
+                        a.partial_cmp(b)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| sev_a.cmp(sev_b))
+                    })
                     .map(|(sev, _)| sev)
                     .unwrap_or(Severity::Medium)
             }
