@@ -67,7 +67,7 @@ fn validate_file(path: &Path, repo_canonical: &Path) -> Option<PathBuf> {
 }
 
 /// Quick file list collection (no git, no incremental checking) for cache validation
-pub(crate) fn collect_file_list(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
+pub fn collect_file_list(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
     let repo_canonical = repo_path.canonicalize().with_context(|| {
         format!("Cannot canonicalize repository path: {}", repo_path.display())
     })?;

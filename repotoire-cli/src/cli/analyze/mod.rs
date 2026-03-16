@@ -15,7 +15,7 @@ pub(crate) mod files;
 pub(crate) mod graph;
 pub(crate) mod output;
 mod parse;
-mod postprocess;
+pub(crate) mod postprocess;
 mod scoring;
 mod setup;
 

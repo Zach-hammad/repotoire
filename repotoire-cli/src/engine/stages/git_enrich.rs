@@ -32,6 +32,16 @@ impl GitEnrichOutput {
 ///
 /// IMPURE: Mutates graph nodes in place (additive metadata only).
 /// Must complete before detect_stage reads the graph.
-pub fn git_enrich_stage(_input: &GitEnrichInput) -> Result<GitEnrichOutput> {
-    todo!("Implement in Task 6")
+pub fn git_enrich_stage(input: &GitEnrichInput) -> Result<GitEnrichOutput> {
+    let stats = crate::git::enrichment::enrich_graph_with_git(
+        input.repo_path,
+        input.graph,
+        None, // repo_id — not needed for local analysis
+    )?;
+
+    Ok(GitEnrichOutput {
+        functions_enriched: stats.functions_enriched,
+        classes_enriched: stats.classes_enriched,
+        cache_hits: stats.cache_hits,
+    })
 }

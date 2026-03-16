@@ -31,8 +31,32 @@ pub struct GraphPatchInput<'a> {
 }
 
 /// Build a graph from scratch (cold path).
-pub fn graph_stage(_input: &GraphInput) -> Result<GraphOutput> {
-    todo!("Implement in Task 5")
+pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
+    let graph = Arc::new(GraphStore::in_memory());
+
+    // Create hidden progress bars (no terminal output) to satisfy the existing API
+    let multi = indicatif::MultiProgress::with_draw_target(
+        indicatif::ProgressDrawTarget::hidden(),
+    );
+    let bar_style = indicatif::ProgressStyle::default_bar();
+
+    // Delegate to the existing build_graph function
+    let value_store = crate::cli::analyze::graph::build_graph(
+        &graph,
+        input.repo_path,
+        input.parse_results,
+        &multi,
+        &bar_style,
+    )?;
+
+    // Compute edge fingerprint for topology change detection
+    let edge_fingerprint = graph.compute_edge_fingerprint();
+
+    Ok(GraphOutput {
+        graph,
+        value_store: Some(Arc::new(value_store)),
+        edge_fingerprint,
+    })
 }
 
 /// Patch an existing graph with delta changes (incremental path).

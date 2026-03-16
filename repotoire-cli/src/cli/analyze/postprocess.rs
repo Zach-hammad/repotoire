@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use super::detect::{apply_detector_overrides, update_incremental_cache};
 
 /// Run the full post-processing pipeline on findings.
-pub(super) fn postprocess_findings(
+pub fn postprocess_findings(
     findings: &mut Vec<Finding>,
     project_config: &ProjectConfig,
     incremental_cache: &mut IncrementalCache,

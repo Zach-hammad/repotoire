@@ -8,10 +8,10 @@ use crate::graph::GraphQuery;
 use crate::models::Finding;
 use crate::values::store::ValueStore;
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Input for the detect stage.
 pub struct DetectInput<'a> {
@@ -54,6 +54,100 @@ pub struct DetectOutput {
 }
 
 /// Build detectors, precompute shared data, run all detectors in parallel.
-pub fn detect_stage(_input: &DetectInput) -> Result<DetectOutput> {
-    todo!("Implement in Task 8")
+pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
+    let skip_set: HashSet<&str> = input.skip_detectors.iter().map(|s| s.as_str()).collect();
+
+    // Build the detector engine
+    let hmm_cache_path = input.repo_path.join(".repotoire");
+    let mut engine = crate::detectors::DetectorEngine::new(input.workers)
+        .with_hmm_cache(hmm_cache_path.clone());
+
+    // Wire adaptive threshold resolver
+    engine.set_threshold_resolver(crate::detectors::build_threshold_resolver(
+        input.style_profile,
+    ));
+
+    // Register default detectors (with ngram model for surprisal detector)
+    let ngram_clone = input.ngram_model.cloned();
+    for detector in crate::detectors::default_detectors_with_ngram(
+        input.repo_path,
+        input.project_config,
+        input.style_profile,
+        ngram_clone,
+    ) {
+        let name = detector.name();
+        if !skip_set.contains(name) {
+            engine.register(detector);
+        }
+    }
+
+    // Build file provider
+    let source_files = crate::detectors::SourceFiles::new(
+        input.source_files.to_vec(),
+        input.repo_path.to_path_buf(),
+    );
+
+    // Precompute GD data (contexts, HMM, taint, etc.)
+    let precompute_start = Instant::now();
+    let vs_clone = input.value_store.cloned();
+    let detectors_ref = engine.detectors();
+    let gd_precomputed = crate::detectors::precompute_gd_startup(
+        input.graph,
+        input.repo_path,
+        Some(&hmm_cache_path),
+        input.source_files,
+        vs_clone,
+        detectors_ref,
+    );
+    let precompute_duration = precompute_start.elapsed();
+
+    // Inject precomputed data and run GI + GD phases
+    let gi_findings = engine.run_graph_independent(input.graph, &source_files)?;
+    let gi_count = gi_findings.len();
+
+    engine.inject_gd_precomputed(gd_precomputed.clone());
+    let gd_findings = engine.run_graph_dependent(input.graph, &source_files)?;
+    let gd_count = gd_findings.len();
+
+    let detectors_run = engine.detector_count();
+
+    // Merge findings
+    let mut findings = gi_findings;
+    findings.extend(gd_findings);
+
+    // Partition findings into per-file and graph-wide
+    let mut findings_by_file: HashMap<PathBuf, Vec<Finding>> = HashMap::new();
+    let mut graph_wide_findings: HashMap<String, Vec<Finding>> = HashMap::new();
+
+    for finding in &findings {
+        if finding.affected_files.is_empty() {
+            // Graph-wide finding (no specific file) — key by detector name
+            graph_wide_findings
+                .entry(finding.detector.clone())
+                .or_default()
+                .push(finding.clone());
+        } else {
+            // File-specific finding
+            for file in &finding.affected_files {
+                findings_by_file
+                    .entry(file.clone())
+                    .or_default()
+                    .push(finding.clone());
+            }
+        }
+    }
+
+    Ok(DetectOutput {
+        findings,
+        gd_precomputed,
+        findings_by_file,
+        graph_wide_findings,
+        stats: DetectStats {
+            detectors_run,
+            detectors_skipped: 0,
+            gi_findings: gi_count,
+            gd_findings: gd_count,
+            precompute_duration,
+        },
+    })
 }

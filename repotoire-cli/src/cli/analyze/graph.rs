@@ -266,7 +266,7 @@ fn estimate_graph_capacity(parse_results: &[(PathBuf, Arc<ParseResult>)]) -> (us
 ///
 /// Returns a [`ValueStore`] containing all resolved symbolic values extracted
 /// during parsing, with cross-function propagation already applied.
-pub(super) fn build_graph(
+pub fn build_graph(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
     parse_results: &[(PathBuf, Arc<ParseResult>)],
