@@ -177,22 +177,22 @@ mod tests {
     fn test_data() -> Vec<(PathBuf, Arc<str>, ContentFlags)> {
         vec![
             (
-                PathBuf::from("/repo/app.py"),
+                PathBuf::from("app.py"),
                 Arc::from("import os\ndef main(): pass"),
                 ContentFlags::HAS_IMPORT,
             ),
             (
-                PathBuf::from("/repo/sql.py"),
+                PathBuf::from("sql.py"),
                 Arc::from("SELECT * FROM users"),
                 ContentFlags::HAS_SQL,
             ),
             (
-                PathBuf::from("/repo/safe.py"),
+                PathBuf::from("safe.py"),
                 Arc::from("x = 1 + 2"),
                 ContentFlags::empty(),
             ),
             (
-                PathBuf::from("/repo/index.ts"),
+                PathBuf::from("index.ts"),
                 Arc::from("import React from 'react'"),
                 {
                     let mut f = ContentFlags::empty();

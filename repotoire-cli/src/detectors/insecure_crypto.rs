@@ -303,18 +303,10 @@ pub struct InsecureCryptoDetector {
 }
 
 impl InsecureCryptoDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
-    /// Convert absolute path to relative path for consistent output
     fn relative_path(&self, path: &std::path::Path) -> PathBuf {
-        path.strip_prefix(&self.repository_path)
-            .unwrap_or(path)
-            .to_path_buf()
+        crate::detectors::detector_relative_path(&self.repository_path, path)
     }
 }
 

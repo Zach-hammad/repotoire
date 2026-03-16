@@ -123,6 +123,9 @@ pub struct FunctionData {
     pub sig_idx: usize,
     pub generic_ratio: f64,
     pub ast_size: usize,
+    /// String literals extracted from source (sorted, deduplicated).
+    /// Used by Tier 4 to distinguish leaf functions with same AST but different constants.
+    pub string_literals: Vec<String>,
 }
 
 /// Pre-built set for O(1) generic identifier lookup
@@ -141,6 +144,47 @@ fn calculate_generic_ratio(identifiers: &[String]) -> f64 {
         .count();
 
     generic_count as f64 / identifiers.len() as f64
+}
+
+/// Extract string literals from a function's source lines.
+/// Returns sorted, deduplicated set of strings found between double quotes.
+/// Used by Tier 4 to distinguish leaf functions that match on the same enum
+/// but return different string constants.
+fn extract_string_literals(content: &str, line_start: u32, line_end: u32) -> Vec<String> {
+    let mut literals = HashSet::new();
+    for (idx, line) in content.lines().enumerate() {
+        let line_num = idx as u32 + 1;
+        if line_num < line_start || line_num > line_end {
+            continue;
+        }
+        // Simple extraction: scan for "..." substrings
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'"' {
+                let start = i + 1;
+                i = start;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 2; // skip escaped char
+                        continue;
+                    }
+                    if bytes[i] == b'"' {
+                        let lit = &line[start..i];
+                        if !lit.is_empty() && lit.len() < 100 {
+                            literals.insert(lit.to_string());
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            i += 1;
+        }
+    }
+    let mut sorted: Vec<String> = literals.into_iter().collect();
+    sorted.sort();
+    sorted
 }
 
 /// Detect near-identical code blocks typical of AI-generated code
@@ -291,23 +335,35 @@ impl AIDuplicateBlockDetector {
         }
     }
 
+    /// Resolve a FunctionData to its graph QN via find_function_at.
+    /// Falls back to the detector's simplified QN if not found in graph.
+    fn resolve_graph_qn(func: &FunctionData, graph: &dyn crate::graph::GraphQuery) -> String {
+        let i = graph.interner();
+        graph
+            .find_function_at(&func.file_path, func.line_start)
+            .map(|n| n.qn(i).to_string())
+            .unwrap_or_else(|| func.qualified_name.clone())
+    }
+
     /// Verify that a candidate duplicate pair is semantically real, not coincidental.
     /// Returns false if the pair should be rejected as a false positive.
     fn verify_semantic_overlap(
         func1: &FunctionData,
         func2: &FunctionData,
-        similarity: f64,
+        _similarity: f64,
         graph: &dyn crate::graph::GraphQuery,
     ) -> bool {
+        // Resolve to graph QNs (which include impl<Type> info)
+        let gqn1 = Self::resolve_graph_qn(func1, graph);
+        let gqn2 = Self::resolve_graph_qn(func2, graph);
+
         // Tier 1: Trait impl filter
         // Same trait on different types -> not a real clone (idiomatic pattern)
-        if Self::is_trait_impl(&func1.qualified_name)
-            && Self::is_trait_impl(&func2.qualified_name)
-        {
-            let trait1 = Self::extract_trait_name(&func1.qualified_name);
-            let trait2 = Self::extract_trait_name(&func2.qualified_name);
-            let type1 = Self::extract_impl_type(&func1.qualified_name);
-            let type2 = Self::extract_impl_type(&func2.qualified_name);
+        if Self::is_trait_impl(&gqn1) && Self::is_trait_impl(&gqn2) {
+            let trait1 = Self::extract_trait_name(&gqn1);
+            let trait2 = Self::extract_trait_name(&gqn2);
+            let type1 = Self::extract_impl_type(&gqn1);
+            let type2 = Self::extract_impl_type(&gqn2);
             if trait1 == trait2 && type1 != type2 {
                 return false;
             }
@@ -316,12 +372,12 @@ impl AIDuplicateBlockDetector {
         // Tier 2: Callee overlap check (for functions with callees)
         let i = graph.interner();
         let callees1: HashSet<String> = graph
-            .get_callees(&func1.qualified_name)
+            .get_callees(&gqn1)
             .into_iter()
             .map(|n| n.qn(i).to_string())
             .collect();
         let callees2: HashSet<String> = graph
-            .get_callees(&func2.qualified_name)
+            .get_callees(&gqn2)
             .into_iter()
             .map(|n| n.qn(i).to_string())
             .collect();
@@ -340,12 +396,33 @@ impl AIDuplicateBlockDetector {
         }
 
         // Tier 3: Leaf function context (no callees on either side)
-        // Leaf functions in different impl blocks / types are likely coincidental
+        // Leaf functions in different impl types are likely coincidental
         if callees1.is_empty() && callees2.is_empty() {
-            let type1 = Self::extract_impl_type(&func1.qualified_name);
-            let type2 = Self::extract_impl_type(&func2.qualified_name);
-            if type1 != type2 && similarity < 0.95 {
+            let type1 = Self::extract_impl_type(&gqn1);
+            let type2 = Self::extract_impl_type(&gqn2);
+            if type1.is_some() && type2.is_some() && type1 != type2 {
                 return false;
+            }
+
+            // Tier 4: String literal divergence for leaf functions.
+            // Functions with identical AST structure but different string constants
+            // (e.g. match on same enum returning different strings) are template
+            // siblings, not true duplicates.
+            if !func1.string_literals.is_empty() || !func2.string_literals.is_empty() {
+                let set1: HashSet<&str> =
+                    func1.string_literals.iter().map(|s| s.as_str()).collect();
+                let set2: HashSet<&str> =
+                    func2.string_literals.iter().map(|s| s.as_str()).collect();
+                let intersection = set1.intersection(&set2).count();
+                let union = set1.union(&set2).count();
+                let literal_overlap = if union > 0 {
+                    intersection as f64 / union as f64
+                } else {
+                    1.0
+                };
+                if literal_overlap < 0.2 {
+                    return false;
+                }
             }
         }
 
@@ -524,6 +601,7 @@ impl Detector for AIDuplicateBlockDetector {
             file_path: String,
             line_start: u32,
             line_end: u32,
+            string_literals: Vec<String>,
             loc: usize,
             generic_ratio: f64,
             ast_size: usize,
@@ -550,12 +628,14 @@ impl Detector for AIDuplicateBlockDetector {
                             let sig = fp.minhash_sig.unwrap_or_else(|| {
                                 crate::detectors::ast_fingerprint::compute_minhash_signature(&fp.normalized_bigrams)
                             });
+                            let string_literals = extract_string_literals(content, fp.line_start, fp.line_end);
                             Some(FuncWithSig {
                                 qualified_name: format!("{}::{}", path_str, fp.name),
                                 name: fp.name,
                                 file_path: path_str.clone(),
                                 line_start: fp.line_start,
                                 line_end: fp.line_end,
+                                string_literals,
                                 loc,
                                 generic_ratio,
                                 ast_size,
@@ -577,12 +657,14 @@ impl Detector for AIDuplicateBlockDetector {
                     let generic_ratio = calculate_generic_ratio(&fp.identifiers);
                     let ast_size = fp.normalized_bigrams.len();
                     let sig = crate::detectors::ast_fingerprint::compute_minhash_signature(&fp.normalized_bigrams);
+                    let string_literals = extract_string_literals(content, func.line_start, func.line_end);
                     Some(FuncWithSig {
                         qualified_name: format!("{}::{}", path_str, func.name),
                         name: func.name,
                         file_path: path_str.clone(),
                         line_start: func.line_start,
                         line_end: func.line_end,
+                        string_literals,
                         loc,
                         generic_ratio,
                         ast_size,
@@ -607,13 +689,17 @@ impl Detector for AIDuplicateBlockDetector {
                     if ctx.is_test_function(qn) {
                         return false;
                     }
-                    for d in ctx.decorators(qn) {
+                    let decos = ctx.decorators(qn);
+                    for d in decos {
                         if d == "test" || d.starts_with("cfg(test") {
                             return false;
                         }
                     }
                     true
                 } else {
+                    if fs.name.starts_with("test_") {
+                        info!("AIDupBlock filter: find_function_at MISS for test fn {}:{} (file={})", fs.name, fs.line_start, fs.file_path);
+                    }
                     !fs.name.starts_with("test_")
                 }
             })
@@ -633,6 +719,7 @@ impl Detector for AIDuplicateBlockDetector {
                 sig_idx,
                 generic_ratio: fs.generic_ratio,
                 ast_size: fs.ast_size,
+                string_literals: fs.string_literals,
             });
         }
 

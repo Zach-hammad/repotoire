@@ -510,15 +510,21 @@ pub(super) fn update_incremental_cache(
     incremental_cache: &mut IncrementalCache,
     files: &[PathBuf],
     findings: &[Finding],
+    repo_path: &Path,
 ) {
     if !is_incremental_mode {
         return;
     }
 
     for file_path in files {
+        let rel_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
         let file_findings: Vec<_> = findings
             .iter()
-            .filter(|f| f.affected_files.iter().any(|af| af == file_path))
+            .filter(|f| {
+                f.affected_files
+                    .iter()
+                    .any(|af| af == file_path || af == rel_path)
+            })
             .cloned()
             .collect();
         incremental_cache.cache_findings(file_path, &file_findings);

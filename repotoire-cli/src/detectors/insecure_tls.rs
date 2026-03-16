@@ -161,12 +161,7 @@ pub struct InsecureTlsDetector {
 }
 
 impl InsecureTlsDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     fn get_patterns_for_ext(&self, ext: &str) -> Vec<(&'static str, &'static str, Severity)> {
         match ext {

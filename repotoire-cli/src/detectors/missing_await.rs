@@ -28,12 +28,7 @@ pub struct MissingAwaitDetector {
 }
 
 impl MissingAwaitDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Identify async functions from the graph — only trust the is_async flag
     fn find_async_functions(graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {

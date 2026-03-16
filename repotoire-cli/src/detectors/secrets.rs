@@ -106,11 +106,8 @@ impl SecretDetector {
         }
     }
 
-    /// Convert absolute path to relative path for consistent output
     fn relative_path(&self, path: &Path) -> PathBuf {
-        path.strip_prefix(&self.repository_path)
-            .unwrap_or(path)
-            .to_path_buf()
+        crate::detectors::detector_relative_path(&self.repository_path, path)
     }
 
     /// Check if a Python os.environ.get() or os.getenv() call has a fallback (second argument)

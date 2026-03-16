@@ -70,12 +70,7 @@ pub struct SyncInAsyncDetector {
 }
 
 impl SyncInAsyncDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Find all functions that contain blocking calls.
     /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).

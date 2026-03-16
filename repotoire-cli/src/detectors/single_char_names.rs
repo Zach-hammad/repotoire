@@ -73,12 +73,7 @@ pub struct SingleCharNamesDetector {
 }
 
 impl SingleCharNamesDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Build a map of file -> function LOC ranges from graph
     fn build_function_map(

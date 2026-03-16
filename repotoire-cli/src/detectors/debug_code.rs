@@ -25,12 +25,7 @@ pub struct DebugCodeDetector {
 }
 
 impl DebugCodeDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 100,
-        }
-    }
+    crate::detectors::detector_new!(100);
 
     /// Check if function is a logging/debug utility (acceptable)
     fn is_logging_utility(func_name: &str) -> bool {
@@ -60,7 +55,9 @@ impl DebugCodeDetector {
             "ogrinfo",
             "ogrinspect",
         ];
-        dev_patterns.iter().any(|p| path.contains(p))
+        // Normalize: ensure path starts with '/' so patterns like "/management/" match relative paths
+        let normalized = if path.starts_with('/') { path.to_string() } else { format!("/{}", path) };
+        dev_patterns.iter().any(|p| normalized.contains(p))
     }
 
 }

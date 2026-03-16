@@ -30,12 +30,7 @@ pub struct GlobalVariablesDetector {
 }
 
 impl GlobalVariablesDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Extract variable name from declaration
     fn extract_var_name(line: &str) -> Option<String> {

@@ -25,12 +25,7 @@ pub struct HardcodedIpsDetector {
 }
 
 impl HardcodedIpsDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Analyze context of the hardcoded IP
     fn analyze_context(line: &str) -> (String, bool) {

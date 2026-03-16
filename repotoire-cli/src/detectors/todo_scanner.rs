@@ -28,12 +28,7 @@ pub struct TodoScanner {
 }
 
 impl TodoScanner {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 200,
-        }
-    }
+    crate::detectors::detector_new!(200);
 
     /// Check if function is dead code (no callers and not an entry point)
     fn is_in_dead_code(graph: &dyn crate::graph::GraphQuery, file_path: &str, line: u32) -> bool {

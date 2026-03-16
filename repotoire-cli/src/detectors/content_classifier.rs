@@ -25,24 +25,26 @@ static COMMONJS_WRAPPER: LazyLock<Regex> = LazyLock::new(|| {
 /// Semantic path patterns that indicate non-source code
 pub fn is_likely_bundled_path(path: &str) -> bool {
     let path_lower = path.to_lowercase();
+    // Normalize: ensure path starts with '/' so patterns match relative paths
+    let p = if path_lower.starts_with('/') { path_lower } else { format!("/{}", path_lower) };
 
     // Build output directories (semantic: these contain generated code)
-    path_lower.contains("/dist/")
-        || path_lower.contains("/build/")
-        || path_lower.contains("/npm/")
-        || path_lower.contains("/cjs/")
-        || path_lower.contains("/esm/")
-        || path_lower.contains("/umd/")
-        || path_lower.contains(".min.")
-        || path_lower.contains(".bundle.")
+    p.contains("/dist/")
+        || p.contains("/build/")
+        || p.contains("/npm/")
+        || p.contains("/cjs/")
+        || p.contains("/esm/")
+        || p.contains("/umd/")
+        || p.contains(".min.")
+        || p.contains(".bundle.")
         // Test fixtures (semantic: simplified test examples, not production code)
-        || path_lower.contains("/fixtures/")
-        || path_lower.contains("/__fixtures__/")
+        || p.contains("/fixtures/")
+        || p.contains("/__fixtures__/")
         // Legacy compatibility shims
-        || path_lower.contains("/legacy-")
+        || p.contains("/legacy-")
         // Devtools (separate tooling, not core library)
-        || path_lower.contains("/devtools-")
-        || path_lower.contains("-devtools/")
+        || p.contains("/devtools-")
+        || p.contains("-devtools/")
 }
 
 /// Check if file is in a non-production path (scripts, tests, examples, etc.)

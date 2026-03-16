@@ -25,12 +25,7 @@ pub struct BroadExceptionDetector {
 }
 
 impl BroadExceptionDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Find try block and extract function calls
     fn analyze_try_block(lines: &[&str], catch_line: usize) -> HashSet<String> {

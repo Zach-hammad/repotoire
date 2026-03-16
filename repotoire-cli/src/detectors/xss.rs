@@ -39,14 +39,7 @@ impl Detector for XssDetector {
         "Detects XSS vulnerabilities"
     }
 
-    fn set_precomputed_taint(
-        &self,
-        cross: Vec<crate::detectors::taint::TaintPath>,
-        intra: Vec<crate::detectors::taint::TaintPath>,
-    ) {
-        let _ = self.precomputed_cross.set(cross);
-        let _ = self.precomputed_intra.set(intra);
-    }
+    crate::detectors::impl_taint_precompute!();
 
     fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
         Some(TaintCategory::Xss)

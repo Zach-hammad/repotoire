@@ -28,12 +28,7 @@ pub struct InsecureCookieDetector {
 }
 
 impl InsecureCookieDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Check if this is a sensitive cookie (session, auth, etc.)
     fn is_sensitive_cookie(line: &str, surrounding: &str) -> (bool, String) {

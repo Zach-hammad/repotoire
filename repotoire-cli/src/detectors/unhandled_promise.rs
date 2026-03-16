@@ -27,12 +27,7 @@ pub struct UnhandledPromiseDetector {
 }
 
 impl UnhandledPromiseDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Find all async functions in the codebase
     fn find_async_functions(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> HashSet<String> {

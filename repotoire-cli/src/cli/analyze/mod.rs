@@ -362,6 +362,7 @@ pub fn run(
         rank,
         effective_min_confidence,
         show_all,
+        &env.repo_path,
     );
 
     // Phase 4b: Export training data (if --export-training)

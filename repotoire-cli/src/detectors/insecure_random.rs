@@ -98,12 +98,7 @@ pub struct InsecureRandomDetector {
 }
 
 impl InsecureRandomDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Check what the random value is used for
     fn analyze_usage(line: &str, surrounding: &str) -> (SecurityContext, String) {

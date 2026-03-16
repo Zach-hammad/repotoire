@@ -365,16 +365,21 @@ impl DetectorContext {
             .collect();
 
         // Clone file data for FileIndex construction (caller builds FileIndex from this)
+        // Use relative paths so FileIndex entries match graph-stored paths (e.g. "src/file.rs")
         let file_data_for_index: Vec<(PathBuf, Arc<str>, ContentFlags)> = file_data
             .iter()
-            .map(|(p, c, f)| (p.clone(), Arc::clone(c), *f))
+            .map(|(p, c, f)| {
+                let rel = p.strip_prefix(repo_path).unwrap_or(p);
+                (rel.to_path_buf(), Arc::clone(c), *f)
+            })
             .collect();
 
         let mut file_contents = HashMap::with_capacity(file_data.len());
         let mut content_flags = HashMap::with_capacity(file_data.len());
         for (path, content, flags) in file_data {
-            file_contents.insert(path.clone(), content);
-            content_flags.insert(path, flags);
+            let rel = path.strip_prefix(repo_path).unwrap_or(&path).to_path_buf();
+            file_contents.insert(rel.clone(), content);
+            content_flags.insert(rel, flags);
         }
 
         (Self {
@@ -415,8 +420,9 @@ mod tests {
 
         let (ctx, _file_data) = DetectorContext::build(&graph, &[file_path.clone()], None, dir.path());
         assert_eq!(ctx.file_contents.len(), 1);
-        assert!(ctx.file_contents.contains_key(&file_path));
-        assert_eq!(&*ctx.file_contents[&file_path], "def hello(): pass");
+        let rel_path = file_path.strip_prefix(dir.path()).unwrap().to_path_buf();
+        assert!(ctx.file_contents.contains_key(&rel_path));
+        assert_eq!(&*ctx.file_contents[&rel_path], "def hello(): pass");
     }
 
     #[test]
@@ -575,12 +581,14 @@ mod tests {
         let (ctx, _file_data) = DetectorContext::build(&graph, &[py_file.clone(), safe_file.clone()], None, dir.path());
 
         // app.py should have both FILE_OPS and PATH_OPS flags
-        let app_flags = ctx.content_flags[&py_file];
+        let rel_py = py_file.strip_prefix(dir.path()).unwrap().to_path_buf();
+        let app_flags = ctx.content_flags[&rel_py];
         assert!(app_flags.has(ContentFlags::FILE_OPS));
         assert!(app_flags.has(ContentFlags::PATH_OPS));
 
         // safe.py should have no flags
-        let safe_flags = ctx.content_flags[&safe_file];
+        let rel_safe = safe_file.strip_prefix(dir.path()).unwrap().to_path_buf();
+        let safe_flags = ctx.content_flags[&rel_safe];
         assert!(!safe_flags.has(ContentFlags::FILE_OPS));
         assert!(!safe_flags.has(ContentFlags::PATH_OPS));
     }

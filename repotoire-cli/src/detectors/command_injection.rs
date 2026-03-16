@@ -44,11 +44,8 @@ impl CommandInjectionDetector {
         }
     }
 
-    /// Convert absolute path to relative path for consistent output
     fn relative_path(&self, path: &Path) -> PathBuf {
-        path.strip_prefix(&self.repository_path)
-            .unwrap_or(path)
-            .to_path_buf()
+        crate::detectors::detector_relative_path(&self.repository_path, path)
     }
 }
 
@@ -60,14 +57,7 @@ impl Detector for CommandInjectionDetector {
         "Detects command injection vulnerabilities"
     }
 
-    fn set_precomputed_taint(
-        &self,
-        cross: Vec<crate::detectors::taint::TaintPath>,
-        intra: Vec<crate::detectors::taint::TaintPath>,
-    ) {
-        let _ = self.precomputed_cross.set(cross);
-        let _ = self.precomputed_intra.set(intra);
-    }
+    crate::detectors::impl_taint_precompute!();
 
     fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
         Some(TaintCategory::CommandInjection)

@@ -947,6 +947,58 @@ pub fn no_attrs() {}
     }
 
     #[test]
+    fn test_attribute_extraction_inside_cfg_test_module() {
+        let code = r#"
+pub fn production_code() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_something() {
+        assert!(true);
+    }
+
+    #[test]
+    fn test_another() {
+        assert_eq!(1, 1);
+    }
+}
+"#;
+        let result = parse_source(code, Path::new("test.rs")).expect("should parse");
+
+        // Check that test functions inside #[cfg(test)] mod tests are found
+        let test_fn = result.functions.iter().find(|f| f.name == "test_something");
+        assert!(
+            test_fn.is_some(),
+            "test_something inside mod tests should be found. Functions: {:?}",
+            result.functions.iter().map(|f| (&f.name, &f.annotations)).collect::<Vec<_>>()
+        );
+
+        if let Some(tf) = test_fn {
+            assert!(
+                tf.annotations.iter().any(|a| a == "test"),
+                "test_something should have #[test] annotation, got: {:?}",
+                tf.annotations
+            );
+        }
+
+        let test_fn2 = result.functions.iter().find(|f| f.name == "test_another");
+        assert!(
+            test_fn2.is_some(),
+            "test_another inside mod tests should be found"
+        );
+        if let Some(tf) = test_fn2 {
+            assert!(
+                tf.annotations.iter().any(|a| a == "test"),
+                "test_another should have #[test] annotation, got: {:?}",
+                tf.annotations
+            );
+        }
+    }
+
+    #[test]
     fn test_impl_method_export_detection() {
         let code = r#"
 struct MyStruct;

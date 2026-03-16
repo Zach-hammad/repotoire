@@ -13,6 +13,49 @@
 //! and returns findings. Security detectors also use SSA-based
 //! intra-function taint analysis via tree-sitter ASTs.
 
+/// Shared helper: convert absolute path to relative using repository_path.
+pub(crate) fn detector_relative_path(
+    repository_path: &std::path::Path,
+    path: &std::path::Path,
+) -> std::path::PathBuf {
+    path.strip_prefix(repository_path)
+        .unwrap_or(path)
+        .to_path_buf()
+}
+
+/// Macro for the standard detector `new()` constructor.
+///
+/// Generates: `pub fn new(repository_path: impl Into<PathBuf>) -> Self`
+/// with fields `repository_path` and `max_findings`.
+macro_rules! detector_new {
+    ($max:expr) => {
+        pub fn new(repository_path: impl Into<std::path::PathBuf>) -> Self {
+            Self {
+                repository_path: repository_path.into(),
+                max_findings: $max,
+            }
+        }
+    };
+}
+pub(crate) use detector_new;
+
+/// Macro for the standard `set_precomputed_taint` trait override.
+///
+/// Expects `self.precomputed_cross` and `self.precomputed_intra` to be `OnceLock` fields.
+macro_rules! impl_taint_precompute {
+    () => {
+        fn set_precomputed_taint(
+            &self,
+            cross: Vec<crate::detectors::taint::TaintPath>,
+            intra: Vec<crate::detectors::taint::TaintPath>,
+        ) {
+            let _ = self.precomputed_cross.set(cross);
+            let _ = self.precomputed_intra.set(intra);
+        }
+    };
+}
+pub(crate) use impl_taint_precompute;
+
 pub mod analysis_context;
 pub mod base;
 pub mod confidence_enrichment;

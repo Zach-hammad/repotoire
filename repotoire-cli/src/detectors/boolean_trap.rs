@@ -29,12 +29,7 @@ pub struct BooleanTrapDetector {
 }
 
 impl BooleanTrapDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Extract function name from call
     fn extract_func_name(line: &str) -> Option<String> {

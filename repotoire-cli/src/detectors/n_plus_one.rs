@@ -65,12 +65,7 @@ struct FileAnalysis {
 }
 
 impl NPlusOneDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Phase 0: Check if the project has any database/ORM ecosystem.
     fn detect_db_ecosystem(&self, ctx: &AnalysisContext<'_>) -> HashSet<Framework> {

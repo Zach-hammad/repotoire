@@ -417,7 +417,8 @@ fn collect_normalized_tokens(node: Node, source: &str, out: &mut Vec<String>) {
             }
             "integer" | "float" | "number" | "number_literal" | "decimal_integer_literal"
             | "hex_integer_literal" => {
-                out.push("$LIT".to_string());
+                let text = node_text(node, source);
+                out.push(format!("$LIT:{}", text));
             }
             "string" | "string_literal" | "template_string" | "raw_string_literal" => {
                 let text = node_text(node, source);
@@ -789,7 +790,8 @@ pub fn collect_all_features(
             }
             "integer" | "float" | "number" | "number_literal" | "decimal_integer_literal"
             | "hex_integer_literal" => {
-                normalized_tokens.push("$LIT".to_string());
+                let text = node_text(node, source);
+                normalized_tokens.push(format!("$LIT:{}", text));
             }
             "string" | "string_literal" | "template_string" | "raw_string_literal" => {
                 let text = node_text(node, source);

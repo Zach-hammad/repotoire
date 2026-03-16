@@ -67,6 +67,7 @@ fn categorize_deserialize(line: &str) -> (&'static str, &'static str, Severity) 
 pub struct InsecureDeserializeDetector {
     repository_path: PathBuf,
     max_findings: usize,
+    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
     precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
@@ -75,6 +76,7 @@ impl InsecureDeserializeDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 50,
+            precomputed_cross: std::sync::OnceLock::new(),
             precomputed_intra: std::sync::OnceLock::new(),
         }
     }
@@ -133,13 +135,7 @@ impl Detector for InsecureDeserializeDetector {
         "Detects insecure deserialization"
     }
 
-    fn set_precomputed_taint(
-        &self,
-        _cross: Vec<crate::detectors::taint::TaintPath>,
-        intra: Vec<crate::detectors::taint::TaintPath>,
-    ) {
-        let _ = self.precomputed_intra.set(intra);
-    }
+    crate::detectors::impl_taint_precompute!();
 
     fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
         Some(crate::detectors::taint::TaintCategory::CodeInjection)

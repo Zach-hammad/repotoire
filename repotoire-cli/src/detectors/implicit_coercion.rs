@@ -24,12 +24,7 @@ pub struct ImplicitCoercionDetector {
 }
 
 impl ImplicitCoercionDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 100,
-        }
-    }
+    crate::detectors::detector_new!(100);
 
     /// Find containing function and get its context
     fn find_function_context(

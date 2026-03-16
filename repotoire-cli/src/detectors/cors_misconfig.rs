@@ -31,12 +31,7 @@ pub struct CorsMisconfigDetector {
 }
 
 impl CorsMisconfigDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Check if path is development-only
     fn is_dev_only_path(path: &str) -> bool {
@@ -56,7 +51,9 @@ impl CorsMisconfigDetector {
             "/mocks/",
         ];
         let path_lower = path.to_lowercase();
-        dev_patterns.iter().any(|p| path_lower.contains(p))
+        // Normalize: ensure path starts with '/' so patterns like "/dev/" match relative paths
+        let normalized = if path_lower.starts_with('/') { path_lower } else { format!("/{}", path_lower) };
+        dev_patterns.iter().any(|p| normalized.contains(p))
     }
 
     /// Check if the file/area handles sensitive operations

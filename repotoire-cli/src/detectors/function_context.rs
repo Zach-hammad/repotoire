@@ -218,8 +218,9 @@ impl<'a> FunctionContextBuilder<'a> {
                 // Get call depth
                 let call_depth = call_depths.get(&func.qualified_name).copied().unwrap_or(0);
 
-                // Detect test file
-                let is_test = self.is_test_path(func.path(i));
+                // Detect test function: file-path heuristic OR #[test] decorator
+                let is_test = self.is_test_path(func.path(i))
+                    || self.has_test_decorator(func.qualified_name, i);
 
                 // Detect utility module
                 let is_in_utility_module = self.is_utility_module(func.path(i));
@@ -516,6 +517,24 @@ impl<'a> FunctionContextBuilder<'a> {
         } else {
             parts.join(".")
         }
+    }
+
+    /// Check if function has a test decorator (#[test], @pytest.mark, etc.)
+    fn has_test_decorator(&self, qn: crate::graph::interner::StrKey, i: &crate::graph::interner::StringInterner) -> bool {
+        if let Some(ep) = self.graph.extra_props(qn) {
+            if let Some(decos_key) = ep.decorators {
+                let decos = i.resolve(decos_key);
+                return decos.split(',').any(|d| {
+                    let d = d.trim();
+                    d == "test"
+                        || d == "cfg(test)"
+                        || d.ends_with("::test") // tokio::test, actix_rt::test, etc.
+                        || d.starts_with("pytest.mark")
+                        || d.starts_with("rstest")
+                });
+            }
+        }
+        false
     }
 
     /// Check if path is a test file

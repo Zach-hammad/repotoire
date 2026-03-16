@@ -197,7 +197,7 @@ impl<'g> AnalysisContext<'g> {
             entries
                 .into_iter()
                 .map(|(rel, body)| {
-                    let full = PathBuf::from("/mock/repo").join(rel);
+                    let full = PathBuf::from(rel);
                     (
                         full,
                         Arc::from(body),
@@ -366,12 +366,12 @@ mod tests {
     fn make_ctx_with_sample_files(graph: &dyn GraphQuery) -> AnalysisContext<'_> {
         let file_data = vec![
             (
-                PathBuf::from("/repo/app.py"),
+                PathBuf::from("app.py"),
                 Arc::from("import os\ndef main(): pass"),
                 ContentFlags::HAS_IMPORT,
             ),
             (
-                PathBuf::from("/repo/index.ts"),
+                PathBuf::from("index.ts"),
                 Arc::from("console.log('hi')"),
                 ContentFlags::empty(),
             ),
@@ -396,14 +396,14 @@ mod tests {
     fn test_constructor_with_files() {
         let graph = GraphStore::in_memory();
         let file_data = vec![(
-            PathBuf::from("/repo/main.rs"),
+            PathBuf::from("main.rs"),
             Arc::from("fn main() {}"),
             ContentFlags::empty(),
         )];
         let ctx = AnalysisContext::test_with_files(&graph, file_data);
 
         assert_eq!(ctx.files.all().len(), 1);
-        let entry = ctx.files.get(Path::new("/repo/main.rs"));
+        let entry = ctx.files.get(Path::new("main.rs"));
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().content.as_ref(), "fn main() {}");
     }
@@ -425,7 +425,7 @@ mod tests {
 
         let py_files = shim.files_with_extension("py");
         assert_eq!(py_files.len(), 1);
-        assert_eq!(py_files[0], Path::new("/repo/app.py"));
+        assert_eq!(py_files[0], Path::new("app.py"));
 
         let ts_files = shim.files_with_extension("ts");
         assert_eq!(ts_files.len(), 1);
@@ -447,12 +447,12 @@ mod tests {
         let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
-        let content = shim.content(Path::new("/repo/app.py"));
+        let content = shim.content(Path::new("app.py"));
         assert!(content.is_some());
         assert_eq!(content.unwrap().as_str(), "import os\ndef main(): pass");
 
         // Missing file returns None
-        assert!(shim.content(Path::new("/repo/missing.py")).is_none());
+        assert!(shim.content(Path::new("missing.py")).is_none());
     }
 
     #[test]

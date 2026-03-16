@@ -58,6 +58,7 @@ pub struct UnsafeTemplateDetector {
     outerhtml_assign_pattern: Regex,
     document_write_pattern: Regex,
     // Pre-computed taint results
+    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
     precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
@@ -124,6 +125,7 @@ impl UnsafeTemplateDetector {
             innerhtml_assign_pattern,
             outerhtml_assign_pattern,
             document_write_pattern,
+            precomputed_cross: std::sync::OnceLock::new(),
             precomputed_intra: std::sync::OnceLock::new(),
         }
     }
@@ -660,13 +662,7 @@ impl Detector for UnsafeTemplateDetector {
         Some(&self.config)
     }
 
-    fn set_precomputed_taint(
-        &self,
-        _cross: Vec<crate::detectors::taint::TaintPath>,
-        intra: Vec<crate::detectors::taint::TaintPath>,
-    ) {
-        let _ = self.precomputed_intra.set(intra);
-    }
+    crate::detectors::impl_taint_precompute!();
 
     fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
         Some(crate::detectors::taint::TaintCategory::Xss)

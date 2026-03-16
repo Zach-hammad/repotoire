@@ -31,12 +31,7 @@ pub struct WildcardImportsDetector {
 }
 
 impl WildcardImportsDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 100,
-        }
-    }
+    crate::detectors::detector_new!(100);
 
     /// Extract module name from wildcard import line
     fn extract_module_name(line: &str) -> Option<String> {

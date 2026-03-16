@@ -61,6 +61,10 @@ pub struct LightweightFunctionInfo {
     /// Maximum nesting depth within this function
     #[serde(default)]
     pub max_nesting: Option<u16>,
+    /// Annotation/decorator strings (e.g. "test", "cfg(test)", "exported").
+    /// Stored as comma-joined string to keep the struct compact.
+    #[serde(default)]
+    pub annotations_joined: Option<String>,
 }
 
 impl LightweightFunctionInfo {
@@ -304,6 +308,11 @@ impl LightweightFileInfo {
                 has_annotations: !f.annotations.is_empty(),
                 is_exported: f.annotations.iter().any(|a| a == "exported"),
                 max_nesting: f.max_nesting.map(|n| n.min(65535) as u16),
+                annotations_joined: if f.annotations.is_empty() {
+                    None
+                } else {
+                    Some(f.annotations.join(","))
+                },
             })
             .collect();
 
@@ -420,6 +429,7 @@ mod tests {
             has_annotations: false,
             is_exported: false,
             max_nesting: None,
+            annotations_joined: None,
         };
         assert_eq!(func.loc(), 11);
     }

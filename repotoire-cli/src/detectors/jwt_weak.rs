@@ -40,12 +40,7 @@ pub struct JwtWeakDetector {
 }
 
 impl JwtWeakDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Analyze JWT vulnerability type
     fn analyze_vulnerability(line: &str, context: &str) -> JwtVulnerability {

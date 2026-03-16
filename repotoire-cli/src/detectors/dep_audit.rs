@@ -103,12 +103,7 @@ pub struct DepAuditDetector {
 }
 
 impl DepAuditDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 100,
-        }
-    }
+    crate::detectors::detector_new!(100);
 
     /// Discover and parse all lockfiles in the repository
     fn discover_dependencies(&self) -> Vec<Dependency> {

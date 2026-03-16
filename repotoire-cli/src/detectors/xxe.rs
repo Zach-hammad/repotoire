@@ -153,6 +153,7 @@ fn get_fix_example(ext: &str) -> &'static str {
 pub struct XxeDetector {
     repository_path: PathBuf,
     max_findings: usize,
+    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
     precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
@@ -161,6 +162,7 @@ impl XxeDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 50,
+            precomputed_cross: std::sync::OnceLock::new(),
             precomputed_intra: std::sync::OnceLock::new(),
         }
     }
@@ -193,13 +195,7 @@ impl Detector for XxeDetector {
         "Detects XXE vulnerabilities"
     }
 
-    fn set_precomputed_taint(
-        &self,
-        _cross: Vec<crate::detectors::taint::TaintPath>,
-        intra: Vec<crate::detectors::taint::TaintPath>,
-    ) {
-        let _ = self.precomputed_intra.set(intra);
-    }
+    crate::detectors::impl_taint_precompute!();
 
     fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
         // XXE uses PathTraversal category per #16

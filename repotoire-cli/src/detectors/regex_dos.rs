@@ -63,12 +63,7 @@ pub struct RegexDosDetector {
 }
 
 impl RegexDosDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Find containing function and context
     fn find_function_context(

@@ -72,12 +72,7 @@ pub struct ReactHooksDetector {
 }
 
 impl ReactHooksDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Find containing component from graph
     fn find_component(

@@ -30,12 +30,7 @@ pub struct DjangoSecurityDetector {
 }
 
 impl DjangoSecurityDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Find containing function/view using graph trait method
     fn find_containing_function(
@@ -337,7 +332,7 @@ impl Detector for DjangoSecurityDetector {
                             || lower_path.contains("db/models/query")
                             || lower_path.contains("db/migrations/")
                             || lower_path.contains("core/cache/backends/")
-                            || lower_path.contains("/migrations/")
+                            || lower_path.contains("/migrations/") || lower_path.starts_with("migrations/")
                             || lower_path.contains("contrib/postgres/")
                             || lower_path.contains("management/commands/")
                             || lower_path.ends_with("management.py")

@@ -36,12 +36,7 @@ pub struct DeadStoreDetector {
 }
 
 impl DeadStoreDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Check whether `var` appears as a word-boundary token in `line`.
     fn word_appears_in_line(var: &str, line: &str) -> bool {

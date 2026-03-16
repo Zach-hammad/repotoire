@@ -53,6 +53,7 @@ fn categorize_pattern(line: &str) -> (&'static str, &'static str) {
 pub struct PrototypePollutionDetector {
     repository_path: PathBuf,
     max_findings: usize,
+    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
     precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
 }
 
@@ -61,6 +62,7 @@ impl PrototypePollutionDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 50,
+            precomputed_cross: std::sync::OnceLock::new(),
             precomputed_intra: std::sync::OnceLock::new(),
         }
     }
@@ -142,13 +144,7 @@ impl Detector for PrototypePollutionDetector {
         DetectorScope::GraphWide
     }
 
-    fn set_precomputed_taint(
-        &self,
-        _cross: Vec<crate::detectors::taint::TaintPath>,
-        intra: Vec<crate::detectors::taint::TaintPath>,
-    ) {
-        let _ = self.precomputed_intra.set(intra);
-    }
+    crate::detectors::impl_taint_precompute!();
 
     fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
         Some(crate::detectors::taint::TaintCategory::CodeInjection)

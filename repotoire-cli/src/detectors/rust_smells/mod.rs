@@ -232,8 +232,9 @@ mod tests {
     fn test_clone_in_loop() {
         let graph = GraphStore::in_memory();
         let detector = CloneInHotPathDetector::new("/mock/repo");
+        // Two clones in a loop — exceeds MIN_CLONES_TO_FLAG for orphan hits
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
-            ("test.rs", "fn process(items: &[Item]) {\n    for item in items {\n        let owned = item.clone();\n        do_something(owned);\n    }\n}\n"),
+            ("test.rs", "fn process(items: &[Item]) {\n    for item in items {\n        let owned = item.clone();\n        let name = item.name.clone();\n        do_something(owned, name);\n    }\n}\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
