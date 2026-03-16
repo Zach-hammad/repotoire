@@ -478,7 +478,8 @@ impl RiskAnalyzer {
 
         // Update description if critical compound risk
         if assessment.is_critical_risk() {
-            let factor_names: Vec<&str> = assessment.factor_types().into_iter().collect();
+            let mut factor_names: Vec<&str> = assessment.factor_types().into_iter().collect();
+            factor_names.sort();
             finding.description = format!(
                 "**CRITICAL COMPOUND RISK**: {}\n\n\
                  Risk factors: {}\n\

@@ -333,7 +333,10 @@ impl Detector for UnusedImportsDetector {
         }
 
         // Create findings grouped by file
-        for (file_path, unused) in unused_per_file {
+        // Sort by file path for deterministic iteration order
+        let mut sorted_unused: Vec<_> = unused_per_file.into_iter().collect();
+        sorted_unused.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (file_path, unused) in sorted_unused {
             if unused.is_empty() {
                 continue;
             }

@@ -321,7 +321,10 @@ impl Detector for InappropriateIntimacyDetector {
         }
 
         // Flag only BIDIRECTIONAL coupling (true intimacy, not layered dependency)
-        for ((file_a, file_b), count_a_to_b) in &a_to_b {
+        // Sort by file pair for deterministic iteration order
+        let mut sorted_a_to_b: Vec<_> = a_to_b.iter().collect();
+        sorted_a_to_b.sort_by_key(|((a, b), _)| (a.clone(), b.clone()));
+        for ((file_a, file_b), count_a_to_b) in sorted_a_to_b {
             let count_b_to_a = b_to_a
                 .get(&(file_a.clone(), file_b.clone()))
                 .copied()

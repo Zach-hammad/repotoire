@@ -35,12 +35,7 @@ pub struct TestInProductionDetector {
 }
 
 impl TestInProductionDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Categorize what kind of test code was found
     fn categorize_test_code(line: &str) -> (&'static str, &'static str) {
@@ -167,7 +162,10 @@ impl Detector for TestInProductionDetector {
         }
 
         // Create findings with graph context
-        for (file_path, issues) in issues_per_file {
+        // Sort by file path for deterministic iteration order
+        let mut sorted_issues: Vec<_> = issues_per_file.into_iter().collect();
+        sorted_issues.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (file_path, issues) in sorted_issues {
             let path_str = file_path.to_string_lossy().to_string();
 
             // Check if this file is used by production code
@@ -188,8 +186,11 @@ impl Detector for TestInProductionDetector {
             };
 
             // Build notes
+            // Sort by category for deterministic description content
+            let mut sorted_by_type: Vec<_> = by_type.iter().collect();
+            sorted_by_type.sort_by(|(a, _), (b, _)| a.cmp(b));
             let mut notes = Vec::new();
-            for (category, lines) in &by_type {
+            for (category, lines) in sorted_by_type {
                 let desc = match category.as_str() {
                     "mock" => "Mock/stub objects",
                     "assertion" => "Test assertions",

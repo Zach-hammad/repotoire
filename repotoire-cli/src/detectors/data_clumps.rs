@@ -478,13 +478,14 @@ impl Detector for DataClumpsDetector {
                 String::new()
             };
 
-            let files: Vec<PathBuf> = clump
+            let mut files: Vec<PathBuf> = clump
                 .funcs
                 .iter()
                 .map(|f| PathBuf::from(&f.file))
                 .collect::<HashSet<_>>()
                 .into_iter()
                 .collect();
+            files.sort();
 
             findings.push(Finding {
                 id: String::new(),

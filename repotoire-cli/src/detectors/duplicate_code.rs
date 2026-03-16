@@ -229,7 +229,10 @@ impl Detector for DuplicateCodeDetector {
         }
 
         // Find duplicates with graph-enhanced analysis
-        for (_block, locations) in blocks {
+        // Sort blocks by key for deterministic iteration order
+        let mut sorted_blocks: Vec<_> = blocks.into_iter().collect();
+        sorted_blocks.sort_by_key(|(hash, _)| *hash);
+        for (_block, locations) in sorted_blocks {
             if locations.len() > 1 && findings.len() < self.max_findings {
                 let files: Vec<_> = locations.iter().map(|(p, _)| p.clone()).collect();
                 let first_line = locations[0].1;
