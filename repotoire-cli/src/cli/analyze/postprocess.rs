@@ -288,7 +288,7 @@ fn downgrade_non_production_security(findings: &mut [Finding]) {
 /// Uses the GBDT classifier if a trained model is available, otherwise falls
 /// back to the heuristic classifier. Findings are sorted in descending order
 /// so the most actionable findings appear first.
-fn rank_findings(findings: &mut Vec<Finding>, graph: &dyn crate::graph::GraphQuery) {
+pub(crate) fn rank_findings(findings: &mut Vec<Finding>, graph: &dyn crate::graph::GraphQuery) {
     use crate::graph::CachedGraphQuery;
     let cached = CachedGraphQuery::new(graph);
     let graph: &dyn crate::graph::GraphQuery = &cached;
@@ -654,7 +654,7 @@ fn detector_name_to_path_slug(name: &str) -> String {
 /// If `show_all` is true, the filter is bypassed entirely.
 /// If `min_confidence` is `None`, no filtering is applied.
 /// The threshold is clamped to [0.0, 1.0].
-fn filter_by_min_confidence(
+pub(crate) fn filter_by_min_confidence(
     findings: &mut Vec<Finding>,
     min_confidence: Option<f64>,
     show_all: bool,

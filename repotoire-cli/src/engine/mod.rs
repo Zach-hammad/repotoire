@@ -97,6 +97,47 @@ pub enum ProgressEvent {
 /// Progress callback type.
 pub type ProgressFn = Arc<dyn Fn(ProgressEvent) + Send + Sync>;
 
+/// Consumer-side presentation options — everything needed to format and display
+/// analysis results. No analysis-logic concerns; purely output/filtering.
+#[derive(Debug, Clone)]
+pub struct OutputOptions {
+    pub format: String,
+    pub output_path: Option<PathBuf>,
+    pub severity_filter: Option<String>,
+    pub min_confidence: Option<f64>,
+    pub show_all: bool,
+    pub top: Option<usize>,
+    pub page: usize,
+    pub per_page: usize,
+    pub no_emoji: bool,
+    pub explain_score: bool,
+    pub rank: bool,
+    pub export_training: Option<PathBuf>,
+    pub timings: bool,
+    pub fail_on: Option<String>,
+}
+
+impl Default for OutputOptions {
+    fn default() -> Self {
+        Self {
+            format: "text".to_string(),
+            output_path: None,
+            severity_filter: None,
+            min_confidence: None,
+            show_all: false,
+            top: None,
+            page: 1,
+            per_page: 20,
+            no_emoji: false,
+            explain_score: false,
+            rank: false,
+            export_training: None,
+            timings: false,
+            fail_on: None,
+        }
+    }
+}
+
 /// The analysis engine. Holds graph + precomputed data between calls.
 pub struct AnalysisEngine {
     repo_path: PathBuf,
@@ -131,6 +172,24 @@ impl AnalysisEngine {
         self.state
             .as_ref()
             .map(|s| s.graph.as_ref() as &dyn GraphQuery)
+    }
+
+    /// Returns a reference to the concrete `GraphStore` if analysis has been run.
+    ///
+    /// Use this when you need `GraphStore`-specific APIs (e.g., `GraphScorer::new`).
+    /// For general graph queries, prefer `graph()` which returns `&dyn GraphQuery`.
+    pub fn graph_store(&self) -> Option<&crate::graph::GraphStore> {
+        self.state.as_ref().map(|s| s.graph.as_ref())
+    }
+
+    /// Returns a reference to the project configuration.
+    pub fn project_config(&self) -> &ProjectConfig {
+        &self.project_config
+    }
+
+    /// Returns the canonicalized repository path.
+    pub fn repo_path(&self) -> &Path {
+        &self.repo_path
     }
 
     /// Run analysis on the repository.

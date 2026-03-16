@@ -30,7 +30,7 @@ fn normalize_path(path: &Path) -> String {
 }
 
 /// Filter findings by severity and limit
-pub(super) fn filter_findings(
+pub(crate) fn filter_findings(
     findings: &mut Vec<Finding>,
     severity: &Option<String>,
     top: Option<usize>,
@@ -48,7 +48,7 @@ pub(super) fn filter_findings(
 }
 
 /// Paginate findings
-pub(super) fn paginate_findings(
+pub(crate) fn paginate_findings(
     mut findings: Vec<Finding>,
     page: usize,
     per_page: usize,
@@ -93,7 +93,7 @@ pub(super) fn paginate_findings(
 }
 
 /// Format and output results
-pub(super) fn format_and_output(
+pub(crate) fn format_and_output(
     report: &HealthReport,
     all_findings: &[Finding],
     format: &str,
@@ -185,7 +185,7 @@ pub(super) fn format_and_output(
 }
 
 /// Check if fail threshold is met
-pub(super) fn check_fail_threshold(fail_on: &Option<String>, report: &HealthReport) -> Result<()> {
+pub(crate) fn check_fail_threshold(fail_on: &Option<String>, report: &HealthReport) -> Result<()> {
     if let Some(ref threshold) = fail_on {
         let should_fail = match threshold.to_lowercase().as_str() {
             "critical" => report.findings_summary.critical > 0,

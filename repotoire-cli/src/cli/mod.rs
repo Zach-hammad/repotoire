@@ -468,7 +468,7 @@ pub fn run(cli: Cli) -> Result<()> {
             per_page,
             skip_detector,
             thorough,
-            external,
+            external: _,
             relaxed,
             no_git,
             skip_graph,
@@ -478,7 +478,7 @@ pub fn run(cli: Cli) -> Result<()> {
             no_emoji,
             explain_score,
             verify,
-            since,
+            since: _, // TODO: wire --since into AnalysisConfig for incremental-by-ref
             rank,
             export_training,
             timings,
@@ -491,9 +491,6 @@ pub fn run(cli: Cli) -> Result<()> {
                 eprintln!("   Use --external=off to skip external tools. --thorough will be removed in a future release.");
             }
 
-            // External tools: on by default, --external=off disables
-            let run_external = external != "off";
-
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
                 Some("high".to_string())
@@ -503,7 +500,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
             // Lite mode: fast analysis for huge repos
             let effective_max_files = if lite && max_files == 0 { 10000 } else { max_files };
-            let (effective_no_git, effective_skip_graph) = if lite {
+            let (effective_no_git, _effective_skip_graph) = if lite {
                 (true, true)
             } else {
                 (no_git, skip_graph)
@@ -512,32 +509,40 @@ pub fn run(cli: Cli) -> Result<()> {
             // Resolve min_confidence: CLI flag > config fallback > None
             let effective_min_confidence = min_confidence;
 
-            analyze::run(
-                &cli.path,
-                &format,
-                output.as_deref(),
-                effective_severity,
+            // Normalize skip_detector names to kebab-case ("TodoScanner" → "todo-scanner")
+            let skip_detectors: Vec<String> = skip_detector
+                .into_iter()
+                .map(|s| analyze::normalize_to_kebab(&s))
+                .collect();
+
+            // Build AnalysisConfig (engine-side: what to analyze)
+            let analysis_config = crate::engine::AnalysisConfig {
+                workers: cli.workers,
+                skip_detectors,
+                max_files: effective_max_files,
+                no_git: effective_no_git,
+                verify,
+            };
+
+            // Build OutputOptions (consumer-side: how to present)
+            let output_options = crate::engine::OutputOptions {
+                format,
+                output_path: output,
+                severity_filter: effective_severity,
+                min_confidence: effective_min_confidence,
+                show_all,
                 top,
                 page,
                 per_page,
-                skip_detector,
-                run_external,
-                effective_no_git,
-                cli.workers,
-                fail_on,
                 no_emoji,
-                since.is_some(),
-                since,
                 explain_score,
-                verify,
-                effective_skip_graph,
-                effective_max_files,
                 rank,
-                export_training.as_deref(),
+                export_training,
                 timings,
-                effective_min_confidence,
-                show_all,
-            )
+                fail_on,
+            };
+
+            analyze::run_engine(&cli.path, analysis_config, output_options)
         }
 
         Some(Commands::Diff {
@@ -715,32 +720,12 @@ pub fn run(cli: Cli) -> Result<()> {
             // Check if the path looks like an unknown subcommand
             check_unknown_subcommand(&cli.path)?;
             // Default: run analyze with pagination (page 1, 20 per page)
-            analyze::run(
-                &cli.path,
-                "text",
-                None,
-                None,
-                None,
-                1,
-                20,
-                vec![],
-                false,
-                false,
-                cli.workers,
-                None,
-                false,
-                false,
-                None,
-                false,
-                false, // verify
-                false, // skip_graph
-                0,     // max_files (unlimited)
-                false, // rank
-                None,  // export_training
-                false, // timings
-                None,  // min_confidence
-                false, // show_all
-            )
+            let analysis_config = crate::engine::AnalysisConfig {
+                workers: cli.workers,
+                ..Default::default()
+            };
+            let output_options = crate::engine::OutputOptions::default();
+            analyze::run_engine(&cli.path, analysis_config, output_options)
         }
     }
 }

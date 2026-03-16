@@ -53,7 +53,11 @@ pub fn cache_path(repo_path: &Path) -> PathBuf {
     repo_path.join(".repotoire")
 }
 
-/// Run the analyze command — main entry point.
+/// Run the analyze command — legacy entry point (kept as fallback).
+///
+/// The primary path is `run_engine()` which uses the new `AnalysisEngine`.
+/// This function will be removed once the engine path is fully validated.
+#[allow(dead_code)]
 pub fn run(
     path: &Path,
     format: &str,
@@ -517,12 +521,198 @@ pub fn run(
     Ok(())
 }
 
+/// Run analysis via the new `AnalysisEngine` pipeline.
+///
+/// This is the primary analysis path. The engine handles all 8 stages
+/// (collect, parse, graph, git_enrich, calibrate, detect, postprocess, score).
+/// This function applies consumer-side presentation (filtering, pagination,
+/// formatting, timings, fail-on threshold).
+pub fn run_engine(
+    path: &Path,
+    config: crate::engine::AnalysisConfig,
+    output: crate::engine::OutputOptions,
+) -> Result<()> {
+    let start_time = Instant::now();
+    let quiet_mode = output.format == "json" || output.format == "sarif";
+
+    // Clear per-run caches (important for MCP long-running server)
+    crate::parsers::clear_structural_fingerprint_cache();
+
+    // Create engine and run analysis
+    let mut engine = crate::engine::AnalysisEngine::new(path)?;
+    let result = engine.analyze(&config)?;
+
+    let mode_label = match &result.stats.mode {
+        crate::engine::AnalysisMode::Cold => "cold",
+        crate::engine::AnalysisMode::Incremental { files_changed } => {
+            if !quiet_mode {
+                let icon = if output.no_emoji { "" } else { "⚡ " };
+                eprintln!(
+                    "\n{}Incremental update: {} files changed\n",
+                    style(icon).bold(),
+                    files_changed,
+                );
+            }
+            "incremental"
+        }
+        crate::engine::AnalysisMode::Cached => {
+            if !quiet_mode {
+                let icon = if output.no_emoji { "" } else { "⚡ " };
+                eprintln!(
+                    "\n{}Using cached results (no changes detected)\n",
+                    style(icon).bold(),
+                );
+            }
+            "cached"
+        }
+    };
+
+    let mut findings = result.findings;
+
+    // Consumer-side filtering: min_confidence (engine postprocess skips this)
+    postprocess::filter_by_min_confidence(
+        &mut findings,
+        output.min_confidence,
+        output.show_all,
+    );
+
+    // Consumer-side ranking (engine postprocess skips this)
+    if output.rank {
+        if let Some(graph) = engine.graph() {
+            postprocess::rank_findings(&mut findings, graph);
+        }
+    }
+
+    // Export training data (if requested) — needs graph access
+    if let Some(ref export_path) = output.export_training {
+        if let Some(graph) = engine.graph() {
+            let repo_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            match export::export_training_data(&findings, graph, &repo_path, export_path) {
+                Ok(count) => {
+                    if !quiet_mode {
+                        let icon = if output.no_emoji { "" } else { "📊 " };
+                        println!("{}Exported {} training samples to {}", icon, count, export_path.display());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: failed to export training data: {}", e);
+                }
+            }
+        }
+    }
+
+    // Apply severity filter and top-N limit
+    output::filter_findings(&mut findings, &output.severity_filter, output.top);
+    let all_findings = findings.clone();
+
+    // Paginate
+    let (paginated_findings, pagination_info) =
+        output::paginate_findings(findings, output.page, output.per_page);
+
+    // Build HealthReport from engine results
+    let findings_summary = crate::models::FindingsSummary::from_findings(&paginated_findings);
+    let report = crate::models::HealthReport {
+        overall_score: result.score.overall,
+        grade: result.score.grade.clone(),
+        structure_score: result.score.breakdown.structure.final_score,
+        quality_score: result.score.breakdown.quality.final_score,
+        architecture_score: Some(result.score.breakdown.architecture.final_score),
+        findings: paginated_findings.clone(),
+        findings_summary,
+        total_files: result.stats.files_analyzed,
+        total_functions: result.stats.total_functions,
+        total_classes: result.stats.total_classes,
+        total_loc: result.stats.total_loc,
+    };
+
+    // Ensure cache dir exists for output caching
+    let repotoire_dir = crate::cache::ensure_cache_dir(
+        &path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
+    )
+    .unwrap_or_else(|_| path.join(".repotoire"));
+
+    // Format and output
+    format_and_output(
+        &report,
+        &all_findings,
+        &output.format,
+        output.output_path.as_deref(),
+        &repotoire_dir,
+        pagination_info,
+        paginated_findings.len(),
+        output.no_emoji,
+    )?;
+
+    // Explain score (if requested)
+    if output.explain_score {
+        if let Some(graph_store) = engine.graph_store() {
+            let scorer = crate::scoring::GraphScorer::new(
+                graph_store,
+                engine.project_config(),
+                engine.repo_path(),
+            );
+            let explanation = scorer.explain(&result.score.breakdown);
+            match output.format.as_str() {
+                "json" => {
+                    let explain_json = build_explain_json(&explanation, &result.score.breakdown);
+                    eprintln!(
+                        "{}",
+                        serde_json::to_string_pretty(&explain_json).unwrap_or_default()
+                    );
+                }
+                _ => {
+                    println!("\n{}", style("─".repeat(60)).dim());
+                    println!("{}", explanation);
+                }
+            }
+        }
+    }
+
+    // Print timing breakdown (if requested)
+    if output.timings {
+        let total = start_time.elapsed();
+        println!("\nPhase timings ({}):", mode_label);
+        for (name, dur) in &result.stats.timings {
+            let pct = dur.as_secs_f64() / total.as_secs_f64() * 100.0;
+            println!("  {:<16} {:.3}s  ({:.1}%)", name, dur.as_secs_f64(), pct);
+        }
+        println!("  {:<16} {:.3}s", "TOTAL", total.as_secs_f64());
+    }
+
+    // Final summary
+    if !quiet_mode {
+        let elapsed = start_time.elapsed();
+        let icon_done = if output.no_emoji { "" } else { "✨ " };
+        eprintln!(
+            "\n{}Analysis complete in {:.2}s",
+            style(icon_done).bold(),
+            elapsed.as_secs_f64()
+        );
+    }
+
+    // Cache results (fire-and-forget background)
+    {
+        let repotoire_dir = repotoire_dir.clone();
+        let health_report = report.clone();
+        let all_findings_clone = all_findings.clone();
+        std::thread::spawn(move || {
+            let _ = cache_results(&repotoire_dir, &health_report, &all_findings_clone);
+        });
+    }
+
+    // CI/CD threshold check
+    check_fail_threshold(&output.fail_on, &report)?;
+
+    Ok(())
+}
+
 // ============================================================================
-// Pipeline phases (private orchestration helpers)
+// Pipeline phases (private orchestration helpers for the legacy `run()` path)
 // ============================================================================
 
 /// Build an n-gram language model from parsed source files, skipping test/vendor paths.
 /// Returns None if the model doesn't have enough data to be confident.
+#[allow(dead_code)]
 fn build_ngram_model(parse_results: &[(PathBuf, Arc<crate::parsers::ParseResult>)]) -> Option<crate::calibrate::NgramModel> {
     let mut model = crate::calibrate::NgramModel::new();
     for (path, _pr) in parse_results {
@@ -540,6 +730,7 @@ fn build_ngram_model(parse_results: &[(PathBuf, Arc<crate::parsers::ParseResult>
 }
 
 /// Try the fast cache path — returns Some(()) if cache hit, None if cache miss.
+#[allow(dead_code)]
 fn try_cached_fast_path(
     env: &EnvironmentSetup,
     format: &str,
@@ -606,6 +797,7 @@ fn try_cached_fast_path(
 /// Returns `(graph, files, parse_result, Option<gi_findings>)`.
 /// When the overlapped pipeline is used, GI detectors run in parallel with
 /// parse+graph, so `gi_findings` is Some. Otherwise None.
+#[allow(dead_code)]
 fn initialize_graph(
     env: &mut EnvironmentSetup,
     since: &Option<String>,
@@ -719,6 +911,7 @@ fn initialize_graph(
 ///                    └→ [GI detectors 1.8s] ─→ done (overlapped)
 ///
 /// This removes GI from the critical path: GI runs "for free" during parse.
+#[allow(dead_code)]
 fn initialize_graph_overlapped(
     env: &mut EnvironmentSetup,
     multi: &MultiProgress,
@@ -865,6 +1058,7 @@ fn initialize_graph_overlapped(
 /// When `pre_gi_findings` is Some, the GI phase was already executed during
 /// parse (Parse ∥ GI overlap). The detection phase skips GI and only runs
 /// GD pre-compute + GD parallel detectors.
+#[allow(dead_code)]
 fn execute_detection_phase(
     env: &EnvironmentSetup,
     graph: &Arc<GraphStore>,
@@ -927,6 +1121,7 @@ fn execute_detection_phase(
 }
 
 /// Phase 6: Generate and output reports.
+#[allow(dead_code)]
 fn generate_reports(
     report_data: &(
         HealthReport,
@@ -988,6 +1183,7 @@ fn generate_reports(
 ///
 /// Used by the session-based incremental path where we don't have the full
 /// `GraphScorer` available. Matches the grade boundaries in `graph_scorer.rs`.
+#[allow(dead_code)]
 fn session_score_to_grade(score: f64) -> String {
     match score as u32 {
         97..=100 => "A+",
@@ -1013,6 +1209,7 @@ fn session_score_to_grade(score: f64) -> String {
 /// because `save_graph_cache` uses atomic write-to-temp-then-rename: the worst
 /// case on early process exit is that no cache file is saved (a stale `.bin.tmp`
 /// may remain), never a corrupt cache.
+#[allow(dead_code)]
 fn spawn_graph_cache_save(graph: &Arc<GraphStore>, repotoire_dir: &Path) {
     let cache_path = repotoire_dir.join("graph_cache.bin");
     let graph_for_cache = Arc::clone(graph);
@@ -1027,6 +1224,7 @@ fn spawn_graph_cache_save(graph: &Arc<GraphStore>, repotoire_dir: &Path) {
 }
 
 /// Apply max_files limit to file collection result.
+#[allow(dead_code)]
 fn apply_max_files_limit(
     file_result: &mut FileCollectionResult,
     max_files: usize,
@@ -1063,6 +1261,7 @@ fn apply_max_files_limit(
 /// In incremental mode, tries to load a persistent graph cache first and
 /// delta-patches it by removing entities for changed files. Falls back to
 /// creating a fresh graph when no cache exists.
+#[allow(dead_code)]
 fn init_graph_db(
     env: &EnvironmentSetup,
     file_result: &FileCollectionResult,
@@ -1121,6 +1320,7 @@ fn init_graph_db(
 }
 
 /// Parse files and build graph, choosing strategy based on repo size.
+#[allow(dead_code)]
 fn parse_and_build(
     env: &EnvironmentSetup,
     file_result: &FileCollectionResult,
@@ -1235,6 +1435,7 @@ fn build_explain_json(explanation: &str, bd: &crate::scoring::ScoreBreakdown) ->
 }
 
 /// Cache findings for the feedback command.
+#[allow(dead_code)]
 fn cache_findings(path: &Path, findings: &[Finding]) {
     let cache_path = cache_path(path);
     if let Err(e) = std::fs::create_dir_all(&cache_path) {
@@ -1257,6 +1458,7 @@ fn cache_findings(path: &Path, findings: &[Finding]) {
 }
 
 /// Print final summary message.
+#[allow(dead_code)]
 fn print_final_summary(quiet_mode: bool, no_emoji: bool, start_time: Instant) {
     if !quiet_mode {
         let elapsed = start_time.elapsed();
@@ -1270,7 +1472,7 @@ fn print_final_summary(quiet_mode: bool, no_emoji: bool, start_time: Instant) {
 }
 
 /// Convert PascalCase or camelCase to kebab-case (e.g. "TodoScanner" → "todo-scanner").
-fn normalize_to_kebab(s: &str) -> String {
+pub(crate) fn normalize_to_kebab(s: &str) -> String {
     if s.contains('-') {
         return s.to_lowercase();
     }
