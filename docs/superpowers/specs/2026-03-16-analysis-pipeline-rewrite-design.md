@@ -259,7 +259,7 @@ pub struct ParseStats {
 pub fn parse_stage(input: &ParseInput) -> Result<ParseOutput>;
 ```
 
-Returns `Arc<ParseResult>` because graph building and calibration both consume parse results without cloning. On incremental runs, the engine calls this with only changed files, then merges with cached parse results for unchanged files before passing to the graph stage.
+Returns `Arc<ParseResult>` because graph building and calibration both consume parse results without cloning. On incremental runs, the engine calls this with only changed files. **Note:** `ParseStats` from incremental runs reflects only re-parsed files. The engine merges with cached `last_stats` from `EngineState` to produce correct `AnalysisStats` totals (total_functions, total_classes, total_loc reflect the full codebase, not just the delta).
 
 ### Stage 3: Graph
 
@@ -276,6 +276,9 @@ pub struct GraphInput<'a> {
 pub struct GraphOutput {
     pub graph: Arc<GraphStore>,
     pub value_store: Option<Arc<ValueStore>>,
+    /// Edge fingerprint (hash of all cross-file edges) for topology change detection.
+    /// Computed after graph construction/patching completes.
+    pub edge_fingerprint: u64,
 }
 
 /// Build a graph from scratch (cold path).
@@ -293,11 +296,19 @@ pub struct GraphPatchInput<'a> {
 pub fn graph_patch_stage(input: &GraphPatchInput) -> Result<GraphOutput>;
 ```
 
-`graph_patch_stage` removes nodes/edges for changed and removed files via `remove_file_entities()`, inserts new nodes from re-parsed results, and re-resolves cross-file edges (calls, imports, inheritance) using the global function map. This mirrors the existing `AnalysisSession::update()` approach (session.rs lines 541-791) which already handles file additions and deletions incrementally. The engine decides which function to call — the consumer of `GraphOutput` doesn't know or care.
+`graph_patch_stage` removes nodes/edges for changed and removed files via `remove_file_entities()`, inserts new nodes from re-parsed results, and re-resolves cross-file edges (calls, imports, inheritance). This mirrors the existing `AnalysisSession::update()` approach (session.rs lines 541-791). The engine decides which function to call — the consumer of `GraphOutput` doesn't know or care.
 
-**Correctness model:** Graph patching handles adds, removes, and content changes. After patching, the engine computes an **edge fingerprint** (hash of all cross-file edges) and compares it to the cached fingerprint. If the edge set changed, topology-dependent detectors (FileScopedGraph, GraphWide) must re-run. This is more precise than file-set-based heuristics — a content change that adds an import statement changes topology even though no files were added or removed. See `EngineState.edge_fingerprint` below.
+Both functions compute `edge_fingerprint` before returning, so the engine can detect topology changes.
 
 `graph_stage` (full rebuild) is only used on cold runs (no prior state). All incremental runs use `graph_patch_stage`.
+
+**Implementation prerequisites** (changes required to `GraphStore` before this stage works correctly):
+
+1. **Resettable call maps cache.** `GraphStore.call_maps_cache` is currently `OnceLock<CallMapsRaw>` — once set, it can never be cleared. After `remove_file_entities()`, cached call maps reference removed `NodeIndex` values and miss newly added functions. **Fix:** Replace `OnceLock` with `RwLock<Option<CallMapsRaw>>` and clear it in `remove_file_entities()`. The same applies to any other `OnceLock`-cached derived data in `GraphStore` (`CachedGraphQuery` creates its own per-instance caches via `OnceLock` which is fine — those are ephemeral wrappers, not stored on `GraphStore`).
+
+2. **Full-graph name resolution during patching.** The current `build_graph_from_parse_results()` builds `global_func_map` only from the provided parse results. When patching, this means short-name-to-qualified-name resolution fails for functions in unchanged files (e.g., `foo()` can't resolve to `module.Class.foo` if that file wasn't re-parsed). **Fix:** `graph_patch_stage` must build `global_func_map` from the existing graph's function nodes (`graph.get_functions()`) PLUS the new parse results' entities. This ensures call edges from changed files to unchanged files resolve correctly. The same applies to `module_lookup` for import resolution.
+
+3. **Metrics cache clearing.** `GraphStore.metrics_cache` (DashMap) stores computed metrics (degree centrality, etc.) keyed by entity QN. After `remove_file_entities()`, stale entries remain for removed nodes. **Fix:** Clear entries for removed QNs in `remove_file_entities()`.
 
 ### Stage 4: Git Enrich (optional)
 
@@ -385,8 +396,6 @@ pub struct DetectOutput {
     pub findings_by_file: HashMap<PathBuf, Vec<Finding>>,
     /// Keyed by detector name for selective invalidation on incremental runs.
     pub graph_wide_findings: HashMap<String, Vec<Finding>>,
-    /// Edge fingerprint (hash of all cross-file edges) for topology change detection.
-    pub edge_fingerprint: u64,
     pub stats: DetectStats,
 }
 
@@ -532,7 +541,7 @@ struct EngineState {
 
     // Previous results (for cached return)
     last_findings: Vec<Finding>,
-    last_score: ScoreOutput,
+    last_score: ScoreResult,
     last_stats: AnalysisStats,
 }
 ```
@@ -649,18 +658,38 @@ impl AnalysisEngine {
         };
 
         // ── Stage 5: Calibrate ────────────────────────────────
+        // Reuse cached style_profile if available. Always rebuild
+        // ngram_model if missing (e.g., after load() from disk).
         let calibrate_out = timed(&mut timings, "calibrate", || {
-            if let Some(ref state) = self.state {
-                Ok(CalibrateOutput {
-                    style_profile: state.style_profile.clone(),
-                    ngram_model: state.ngram_model.clone(),
-                })
-            } else {
-                calibrate_stage(&CalibrateInput {
-                    parse_results: &parse_out.results,
-                    file_count: collect_out.files.len(),
-                    repo_path: &self.repo_path,
-                })
+            match &self.state {
+                Some(state) if state.ngram_model.is_some() => {
+                    // Both style_profile and ngram_model are cached — reuse
+                    Ok(CalibrateOutput {
+                        style_profile: state.style_profile.clone(),
+                        ngram_model: state.ngram_model.clone(),
+                    })
+                }
+                Some(state) => {
+                    // style_profile cached but ngram_model missing (post-load)
+                    // Rebuild ngram only; reuse style_profile
+                    let full = calibrate_stage(&CalibrateInput {
+                        parse_results: &parse_out.results,
+                        file_count: collect_out.files.len(),
+                        repo_path: &self.repo_path,
+                    })?;
+                    Ok(CalibrateOutput {
+                        style_profile: state.style_profile.clone(),
+                        ngram_model: full.ngram_model,
+                    })
+                }
+                None => {
+                    // Cold run — build everything
+                    calibrate_stage(&CalibrateInput {
+                        parse_results: &parse_out.results,
+                        file_count: collect_out.files.len(),
+                        repo_path: &self.repo_path,
+                    })
+                }
             }
         })?;
 
@@ -673,11 +702,11 @@ impl AnalysisEngine {
         }
 
         // ── Topology change detection ─────────────────────────
-        // Compare edge fingerprint after graph patching to detect
+        // Compare edge fingerprint (computed by graph stage) to detect
         // topology changes from content edits (e.g., adding imports).
         let prev_fingerprint = self.state.as_ref().map(|s| s.edge_fingerprint);
         let topology_changed = prev_fingerprint
-            .map(|prev| graph_out.graph.compute_edge_fingerprint() != prev)
+            .map(|prev| graph_out.edge_fingerprint != prev)
             .unwrap_or(true); // cold run = treat as changed
 
         // ── Stage 6: Detect ────────────────────────────────────
@@ -758,7 +787,7 @@ impl AnalysisEngine {
             source_files: all_files,
             graph: graph_out.graph,
             value_store: graph_out.value_store,
-            edge_fingerprint: detect_out.edge_fingerprint,
+            edge_fingerprint: graph_out.edge_fingerprint,
             gd_precomputed: Some(detect_out.gd_precomputed),
             style_profile: calibrate_out.style_profile,
             ngram_model: calibrate_out.ngram_model,
@@ -794,8 +823,12 @@ impl AnalysisEngine {
             file_hashes: state.file_hashes.clone(),
             source_files: state.source_files.clone(),
             edge_fingerprint: state.edge_fingerprint,
+            // Pre-postprocess findings (for incremental merge in detect stage)
             findings_by_file: state.findings_by_file.clone(),
             graph_wide_findings: state.graph_wide_findings.clone(),
+            // Postprocessed findings (for cached return path — includes
+            // confidence enrichment, FP filtering, compound escalation, etc.)
+            last_findings: state.last_findings.clone(),
             last_score: state.last_score.clone(),
             last_stats: state.last_stats.clone(),
             style_profile: state.style_profile.clone(),
@@ -820,17 +853,13 @@ impl AnalysisEngine {
             anyhow::bail!("Session cache version mismatch — cold analysis required");
         }
 
-        // Restore graph
-        let graph = Arc::new(GraphStore::load_graph_cache(session_path)?);
+        // Restore graph (load_graph_cache returns Option<Self>)
+        let graph = Arc::new(
+            GraphStore::load_graph_cache(session_path)
+                .ok_or_else(|| anyhow!("Graph cache missing or corrupt"))?
+        );
 
         let project_config = load_project_config(repo_path);
-
-        // Reconstruct last_findings from per-file + graph-wide findings
-        let mut last_findings: Vec<Finding> = meta.findings_by_file.values()
-            .flatten().cloned().collect();
-        last_findings.extend(
-            meta.graph_wide_findings.values().flatten().cloned()
-        );
 
         Ok(Self {
             repo_path: repo_path.to_path_buf(),
@@ -846,7 +875,7 @@ impl AnalysisEngine {
                 ngram_model: None,              // rebuilt on next analyze
                 findings_by_file: meta.findings_by_file,
                 graph_wide_findings: meta.graph_wide_findings,
-                last_findings,
+                last_findings: meta.last_findings,
                 last_score: meta.last_score,
                 last_stats: meta.last_stats,
             }),
@@ -863,7 +892,8 @@ impl AnalysisEngine {
 | file_hashes, source_files | Yes | Needed for change detection |
 | graph | Yes | Via redb; expensive to rebuild |
 | edge_fingerprint | Yes | Needed for topology change detection |
-| findings_by_file, graph_wide_findings | Yes | Needed for incremental finding merge |
+| findings_by_file, graph_wide_findings | Yes | Pre-postprocess; needed for incremental finding merge in detect stage |
+| last_findings | Yes | Postprocessed findings; needed for cached return path (includes FP filtering, etc.) |
 | last_score, last_stats | Yes | Needed for cached return path |
 | style_profile | Yes | Stable across runs |
 | gd_precomputed | No | ~3.9s to rebuild; complex Arc structures |
@@ -871,6 +901,8 @@ impl AnalysisEngine {
 | value_store | No | Rebuilt during graph stage |
 
 After `load()`, the first `analyze()` call will be incremental (not cached) because `gd_precomputed` and `ngram_model` need rebuilding. If no files changed, the engine still re-runs calibration and detection precomputation, but reuses the cached graph and finding merge logic.
+
+**Edge fingerprint after load:** The current `compute_edge_fingerprint()` hashes raw `lasso::Spur` u32 values which are process-local — the same string gets different u32 keys across process invocations. This means the persisted `edge_fingerprint` will never match post-load, causing the first run after load to always treat topology as "changed" and re-run all graph-dependent detectors. This is acceptable because `gd_precomputed` must be rebuilt anyway. **Future optimization:** Hash resolved string values instead of raw Spur keys for cross-process determinism.
 
 ## Consumer Examples
 
@@ -952,13 +984,23 @@ fn handle_query_graph(state: &HandlerState, params: &QueryGraphParams) -> Result
 ```rust
 // src/cli/watch.rs
 
-let mut engine = AnalysisEngine::new(path)?
+let session_dir = cache_path(path).join("session");
+let mut engine = AnalysisEngine::load(&session_dir, path)
+    .unwrap_or_else(|_| AnalysisEngine::new(path).unwrap())
     .with_progress(Arc::new(watch_progress()));
+
+let mut last_save = Instant::now();
 
 loop {
     wait_for_file_change(path)?;
     let result = engine.analyze(&config)?;  // automatically incremental
     print_delta(&result);
+
+    // Persist periodically (every 5 minutes)
+    if last_save.elapsed() > Duration::from_secs(300) {
+        let _ = engine.save(&session_dir);
+        last_save = Instant::now();
+    }
 }
 ```
 
@@ -1147,7 +1189,7 @@ fn test_cli_and_mcp_produce_identical_results() {
 - Graph patching in graph stage (align with existing `AnalysisSession::update()` approach)
 - Cached finding merge in detect stage
 - Remove old `AnalysisSession` (replaced by engine state)
-- Remove `IncrementalCache` (`detectors/incremental_cache.rs`) — superseded by `EngineState.findings_by_file` + `file_hashes`
+- Remove `IncrementalCache` (`detectors/incremental_cache.rs`) — superseded by `EngineState.findings_by_file` + `file_hashes`. Note: the first run after upgrading will be a cold run (old `IncrementalCache` JSON files are not migrated; they can be cleaned up via `repotoire clean`)
 
 ### Phase 6: Clean up
 
