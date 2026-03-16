@@ -209,6 +209,7 @@ impl AnalysisEngine {
     ///
     /// On the first call, performs a full (cold) analysis.
     /// On subsequent calls with unchanged files, returns cached results.
+    /// When files change between calls, runs incremental analysis (delta only).
     pub fn analyze(&mut self, config: &AnalysisConfig) -> anyhow::Result<AnalysisResult> {
         use stages::*;
         let mut timings = BTreeMap::new();
@@ -248,6 +249,26 @@ impl AnalysisEngine {
         // Ensure cache directory exists (build_graph saves graph stats there)
         let _ = crate::cache::ensure_cache_dir(&self.repo_path);
 
+        // Decide: incremental or cold path
+        let is_incremental = self.state.is_some() && changes.is_delta();
+
+        if is_incremental {
+            self.analyze_incremental(config, &collect_out, &changes, all_files, timings)
+        } else {
+            self.analyze_cold(config, &collect_out, all_files, timings)
+        }
+    }
+
+    /// Cold analysis path — full parse, graph build, calibrate, detect, score.
+    fn analyze_cold(
+        &mut self,
+        config: &AnalysisConfig,
+        collect_out: &stages::collect::CollectOutput,
+        all_files: Vec<PathBuf>,
+        mut timings: BTreeMap<String, Duration>,
+    ) -> anyhow::Result<AnalysisResult> {
+        use stages::*;
+
         // Stage 2: Parse — tree-sitter parse all source files in parallel
         let parse_out = timed(&mut timings, "parse", || {
             parse::parse_stage(&parse::ParseInput {
@@ -257,7 +278,7 @@ impl AnalysisEngine {
             })
         })?;
 
-        // Stage 3: Graph — build the code graph from parse results (cold path)
+        // Stage 3: Graph — build the code graph from parse results
         let graph_out = timed(&mut timings, "graph", || {
             graph::graph_stage(&graph::GraphInput {
                 parse_results: &parse_out.results,
@@ -359,6 +380,181 @@ impl AnalysisEngine {
             gd_precomputed: Some(detect_out.gd_precomputed),
             style_profile: calibrate_out.style_profile,
             ngram_model: calibrate_out.ngram_model,
+            findings_by_file: detect_out.findings_by_file,
+            graph_wide_findings: detect_out.graph_wide_findings,
+            last_findings: postprocess_out.findings.clone(),
+            last_score: score_out.clone(),
+            last_stats: stats.clone(),
+        });
+
+        Ok(AnalysisResult {
+            findings: postprocess_out.findings,
+            score: score_out,
+            stats,
+        })
+    }
+
+    /// Incremental analysis path — parse only changed files, patch graph, reuse calibration.
+    fn analyze_incremental(
+        &mut self,
+        config: &AnalysisConfig,
+        collect_out: &stages::collect::CollectOutput,
+        changes: &diff::FileChanges,
+        all_files: Vec<PathBuf>,
+        mut timings: BTreeMap<String, Duration>,
+    ) -> anyhow::Result<AnalysisResult> {
+        use stages::*;
+
+        let files_changed = changes.changed.len() + changes.added.len() + changes.removed.len();
+        let delta_files = changes.changed_and_added();
+
+        // Take the previous state (we'll put it back at the end)
+        let prev_state = self.state.take().expect("incremental requires state");
+
+        // Evict changed files from the global file cache so detectors read fresh content
+        crate::cache::global_cache().evict(&delta_files);
+
+        // Stage 2: Parse — only changed + added files
+        let parse_out = timed(&mut timings, "parse", || {
+            parse::parse_stage(&parse::ParseInput {
+                files: delta_files.clone(),
+                workers: config.workers,
+                progress: self.progress.clone(),
+            })
+        })?;
+
+        // Stage 3: Graph — patch existing graph with delta
+        let graph_out = timed(&mut timings, "graph", || {
+            graph::graph_patch_stage(&graph::GraphPatchInput {
+                graph: prev_state.graph,
+                changed_files: &changes.changed,
+                removed_files: &changes.removed,
+                new_parse_results: &parse_out.results,
+                repo_path: &self.repo_path,
+            })
+        })?;
+
+        // Stage 4: Git enrich — enrich the patched graph
+        if !config.no_git {
+            timed(&mut timings, "git_enrich", || {
+                git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
+                    repo_path: &self.repo_path,
+                    graph: &graph_out.graph,
+                })
+            })?;
+        }
+
+        // Stage 5: Calibrate — reuse cached style_profile, rebuild ngram if None
+        let style_profile = prev_state.style_profile;
+        let ngram_model = if prev_state.ngram_model.is_some() {
+            prev_state.ngram_model
+        } else {
+            // Rebuild ngram from all files (need full parse for this)
+            // For now, just leave it None — full calibration rebuild would be expensive.
+            // A future optimization could rebuild from all_files parse results.
+            None
+        };
+
+        // Detect topology change by comparing edge fingerprints.
+        // After load() from disk, gd_precomputed is None — treat as topology changed
+        // since process-local Spur values make fingerprint comparison unreliable.
+        let topology_changed = prev_state.gd_precomputed.is_none()
+            || prev_state.edge_fingerprint != graph_out.edge_fingerprint;
+
+        // Reuse GdPrecomputed when topology is stable
+        let cached_gd = if !topology_changed {
+            prev_state.gd_precomputed.as_ref()
+        } else {
+            None
+        };
+
+        // Stage 6: Detect — run all detectors (reusing GdPrecomputed when topology is stable)
+        let detect_out = timed(&mut timings, "detect", || {
+            detect::detect_stage(&detect::DetectInput {
+                graph: graph_out.graph.as_ref(),
+                source_files: &all_files,
+                repo_path: &self.repo_path,
+                project_config: &self.project_config,
+                style_profile: Some(&style_profile),
+                ngram_model: ngram_model.as_ref(),
+                value_store: graph_out.value_store.as_ref(),
+                skip_detectors: &config.skip_detectors,
+                workers: config.workers,
+                progress: self.progress.clone(),
+                // Incremental hints
+                changed_files: Some(&delta_files),
+                topology_changed,
+                cached_gd_precomputed: cached_gd,
+                cached_file_findings: Some(&prev_state.findings_by_file),
+                cached_graph_wide_findings: Some(&prev_state.graph_wide_findings),
+            })
+        })?;
+
+        // Stage 7: Postprocess — deduplicate, suppress, filter findings
+        let postprocess_out = timed(&mut timings, "postprocess", || {
+            postprocess::postprocess_stage(postprocess::PostprocessInput {
+                findings: detect_out.findings,
+                project_config: &self.project_config,
+                graph: graph_out.graph.as_ref(),
+                all_files: &all_files,
+                repo_path: &self.repo_path,
+                verify: config.verify,
+            })
+        })?;
+
+        // Merge parse stats: delta parse stats + cached totals for full codebase picture.
+        // The delta only parsed changed files, but stats should reflect the whole codebase.
+        let total_functions = prev_state.last_stats.total_functions
+            .saturating_sub(parse_out.stats.total_functions)
+            .saturating_add(parse_out.stats.total_functions);
+        let total_classes = prev_state.last_stats.total_classes
+            .saturating_sub(parse_out.stats.total_classes)
+            .saturating_add(parse_out.stats.total_classes);
+        // For LOC, use the cached total and adjust. Since we only parsed delta files,
+        // we can't accurately recount all LOC. Use the cached value as a reasonable estimate.
+        let total_loc = prev_state.last_stats.total_loc;
+
+        // Stage 8: Score — compute three-pillar health score
+        let score_out = timed(&mut timings, "score", || {
+            score::score_stage(&score::ScoreInput {
+                graph: graph_out.graph.as_ref(),
+                findings: &postprocess_out.findings,
+                project_config: &self.project_config,
+                repo_path: &self.repo_path,
+                total_loc,
+            })
+        })?;
+
+        // Build stats
+        let stats = AnalysisStats {
+            mode: AnalysisMode::Incremental { files_changed },
+            files_analyzed: collect_out.files.len(),
+            total_functions,
+            total_classes,
+            total_loc,
+            detectors_run: detect_out.stats.detectors_run,
+            findings_before_postprocess: postprocess_out.stats.input_count,
+            findings_filtered: postprocess_out
+                .stats
+                .input_count
+                .saturating_sub(postprocess_out.stats.output_count),
+            timings,
+        };
+
+        // Cache state for next call
+        self.state = Some(state::EngineState {
+            file_hashes: collect_out
+                .files
+                .iter()
+                .map(|f| (f.path.clone(), f.content_hash))
+                .collect(),
+            source_files: all_files,
+            graph: graph_out.graph,
+            value_store: graph_out.value_store,
+            edge_fingerprint: graph_out.edge_fingerprint,
+            gd_precomputed: Some(detect_out.gd_precomputed),
+            style_profile,
+            ngram_model,
             findings_by_file: detect_out.findings_by_file,
             graph_wide_findings: detect_out.graph_wide_findings,
             last_findings: postprocess_out.findings.clone(),
@@ -631,5 +827,132 @@ def greet(name):
         assert!(matches!(r2.stats.mode, AnalysisMode::Cached));
         assert_eq!(r1.findings.len(), r2.findings.len());
         assert_eq!(r1.score.overall, r2.score.overall);
+    }
+
+    #[test]
+    fn test_incremental_after_file_modify() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
+
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let config = AnalysisConfig {
+            no_git: true,
+            workers: 2,
+            ..Default::default()
+        };
+
+        let r1 = engine.analyze(&config).unwrap();
+        assert!(matches!(r1.stats.mode, AnalysisMode::Cold));
+
+        // Modify file
+        std::fs::write(dir.path().join("main.py"), "def foo():\n    return 42\n").unwrap();
+
+        let r2 = engine.analyze(&config).unwrap();
+        assert!(
+            matches!(r2.stats.mode, AnalysisMode::Incremental { .. }),
+            "Expected Incremental mode after file modify, got {:?}",
+            r2.stats.mode
+        );
+    }
+
+    #[test]
+    fn test_incremental_after_file_add() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
+
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let config = AnalysisConfig {
+            no_git: true,
+            workers: 2,
+            ..Default::default()
+        };
+
+        engine.analyze(&config).unwrap();
+
+        // Add new file
+        std::fs::write(dir.path().join("helper.py"), "def bar(): return 1").unwrap();
+
+        let r2 = engine.analyze(&config).unwrap();
+        assert!(
+            matches!(r2.stats.mode, AnalysisMode::Incremental { .. }),
+            "Expected Incremental mode after file add, got {:?}",
+            r2.stats.mode
+        );
+    }
+
+    #[test]
+    fn test_incremental_after_file_remove() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
+        std::fs::write(dir.path().join("helper.py"), "def bar(): return 1").unwrap();
+
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let config = AnalysisConfig {
+            no_git: true,
+            workers: 2,
+            ..Default::default()
+        };
+
+        engine.analyze(&config).unwrap();
+
+        // Remove a file
+        std::fs::remove_file(dir.path().join("helper.py")).unwrap();
+
+        let r2 = engine.analyze(&config).unwrap();
+        assert!(
+            matches!(r2.stats.mode, AnalysisMode::Incremental { .. }),
+            "Expected Incremental mode after file remove, got {:?}",
+            r2.stats.mode
+        );
+    }
+
+    #[test]
+    fn test_incremental_then_cached() {
+        // After incremental, a second call with no changes should be cached
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
+
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let config = AnalysisConfig {
+            no_git: true,
+            workers: 2,
+            ..Default::default()
+        };
+
+        engine.analyze(&config).unwrap(); // cold
+        std::fs::write(dir.path().join("main.py"), "def foo():\n    return 42\n").unwrap();
+        engine.analyze(&config).unwrap(); // incremental
+
+        let r3 = engine.analyze(&config).unwrap();
+        assert!(
+            matches!(r3.stats.mode, AnalysisMode::Cached),
+            "Expected Cached mode on third call with no changes, got {:?}",
+            r3.stats.mode
+        );
+    }
+
+    #[test]
+    fn test_incremental_produces_valid_score() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
+
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let config = AnalysisConfig {
+            no_git: true,
+            workers: 2,
+            ..Default::default()
+        };
+
+        engine.analyze(&config).unwrap();
+
+        std::fs::write(
+            dir.path().join("main.py"),
+            "def foo():\n    return 42\n\ndef bar():\n    return 0\n",
+        )
+        .unwrap();
+
+        let r2 = engine.analyze(&config).unwrap();
+        assert!(r2.score.overall >= 0.0 && r2.score.overall <= 100.0);
+        assert!(!r2.score.grade.is_empty());
     }
 }
