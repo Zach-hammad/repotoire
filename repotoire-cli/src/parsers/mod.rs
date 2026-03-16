@@ -539,6 +539,11 @@ pub struct ParseResult {
     /// These should not be flagged as dead code even if they have zero direct callers.
     pub address_taken: std::collections::HashSet<String>,
 
+    /// Trait implementations as (type_name, trait_name) pairs.
+    /// Used to create Inherits edges from implementing types to traits.
+    #[serde(default)]
+    pub trait_impls: Vec<(String, String)>,
+
     /// Extracted symbolic values (assignments, constants, returns) for the value oracle.
     /// Populated by the value extraction pass during parsing.
     #[serde(skip)]
@@ -558,6 +563,7 @@ impl ParseResult {
         self.imports.extend(other.imports);
         self.calls.extend(other.calls);
         self.address_taken.extend(other.address_taken);
+        self.trait_impls.extend(other.trait_impls);
 
         // Merge raw value extraction results.
         if let Some(other_raw) = other.raw_values {
@@ -631,6 +637,7 @@ mod tests {
             imports: vec![ImportInfo::runtime("os")],
             calls: vec![],
             address_taken: std::collections::HashSet::new(),
+            trait_impls: vec![],
             raw_values: None,
         };
 
@@ -664,6 +671,7 @@ mod tests {
             imports: vec![ImportInfo::runtime("sys")],
             calls: vec![("test::func1:1".to_string(), "func2".to_string())],
             address_taken: std::collections::HashSet::new(),
+            trait_impls: vec![("MyStruct".to_string(), "MyTrait".to_string())],
             raw_values: None,
         };
 
@@ -673,6 +681,9 @@ mod tests {
         assert_eq!(result1.classes.len(), 1);
         assert_eq!(result1.imports.len(), 2);
         assert_eq!(result1.calls.len(), 1);
+        assert_eq!(result1.trait_impls.len(), 1);
+        assert_eq!(result1.trait_impls[0].0, "MyStruct");
+        assert_eq!(result1.trait_impls[0].1, "MyTrait");
         assert_eq!(result1.entity_count(), 3);
     }
 

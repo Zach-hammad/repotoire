@@ -1247,6 +1247,17 @@ fn build_graph_from_parse_results(
                 }
             }
 
+            // Trait implementation edges (type implements trait)
+            for (type_name, trait_name) in &result.trait_impls {
+                // Find type QN from classes in this file
+                let type_qn = result.classes.iter()
+                    .find(|c| c.name == *type_name)
+                    .map(|c| c.qualified_name.clone());
+                if let Some(type_qn) = type_qn {
+                    edges.push((type_qn, trait_name.clone(), CodeEdge::inherits()));
+                }
+            }
+
             // Call edges — resolve callee names to qualified names
             for (caller_qn, callee_name) in &result.calls {
                 // Try exact match first

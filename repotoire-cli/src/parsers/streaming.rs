@@ -72,6 +72,9 @@ pub struct ParsedFileInfo {
 
     /// Functions whose addresses are taken (for dead code detection)
     pub address_taken: HashSet<String>,
+
+    /// Trait implementations as (type_name, trait_name) pairs
+    pub trait_impls: Vec<(String, String)>,
 }
 
 /// Lightweight function info - no PathBuf duplication per function
@@ -181,6 +184,7 @@ impl ParsedFileInfo {
             imports,
             calls: result.calls,
             address_taken: result.address_taken,
+            trait_impls: result.trait_impls,
         }
     }
 
@@ -233,6 +237,7 @@ impl ParsedFileInfo {
                 .collect(),
             calls: self.calls.clone(),
             address_taken: self.address_taken.clone(),
+            trait_impls: self.trait_impls.clone(),
             raw_values: None,
         }
     }

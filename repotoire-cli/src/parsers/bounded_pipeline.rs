@@ -452,6 +452,16 @@ impl FlushingGraphBuilder {
             });
         }
 
+        // Trait implementation edges (type implements trait)
+        for (type_name, trait_name) in &info.trait_impls {
+            if let Some(type_qn) = info.classes.iter()
+                .find(|c| c.name == *type_name)
+                .map(|c| c.qualified_name.clone())
+            {
+                self.edge_buffer.push((type_qn, trait_name.clone(), CodeEdge::inherits()));
+            }
+        }
+
         // Track peak buffer size (resolved edges + deferred imports + pending calls)
         let combined = self.edge_buffer.len()
             + self.deferred_imports.len()

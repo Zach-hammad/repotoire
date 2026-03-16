@@ -430,6 +430,11 @@ fn extract_impl_methods(
 
     let impl_line = impl_node.start_position().row as u32 + 1;
 
+    // Record trait implementation relationship
+    if let Some(ref trait_n) = trait_name {
+        result.trait_impls.push((type_name.clone(), trait_n.clone()));
+    }
+
     // Extract methods from the impl body
     if let Some(body) = impl_node.child_by_field_name("body") {
         for child in body.children(&mut body.walk()) {
@@ -1122,5 +1127,26 @@ impl Detector for GodClassDetector {
         );
     }
 
+    #[test]
+    fn test_trait_impl_relationships() {
+        let source = r#"
+trait MyTrait {
+    fn do_thing(&self);
+}
 
+struct MyStruct;
+
+impl MyTrait for MyStruct {
+    fn do_thing(&self) {}
+}
+
+impl MyStruct {
+    fn new() -> Self { MyStruct }
+}
+"#;
+        let result = parse_source(source, Path::new("test.rs")).unwrap();
+        assert_eq!(result.trait_impls.len(), 1);
+        assert_eq!(result.trait_impls[0].0, "MyStruct");
+        assert_eq!(result.trait_impls[0].1, "MyTrait");
+    }
 }

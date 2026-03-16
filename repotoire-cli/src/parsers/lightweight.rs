@@ -227,6 +227,8 @@ pub struct LightweightFileInfo {
     pub calls: Vec<LightweightCall>,
     /// Functions whose address is taken (callbacks, etc.)
     pub address_taken: HashSet<String>,
+    /// Trait implementations as (type_name, trait_name) pairs
+    pub trait_impls: Vec<(String, String)>,
 }
 
 impl LightweightFileInfo {
@@ -242,6 +244,7 @@ impl LightweightFileInfo {
             imports: Vec::new(),
             calls: Vec::new(),
             address_taken: HashSet::new(),
+            trait_impls: Vec::new(),
         }
     }
 
@@ -357,6 +360,7 @@ impl LightweightFileInfo {
             imports,
             calls,
             address_taken: result.address_taken.clone(),
+            trait_impls: result.trait_impls.clone(),
         }
     }
 }

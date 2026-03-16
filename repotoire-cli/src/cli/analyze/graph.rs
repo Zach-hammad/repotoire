@@ -452,6 +452,16 @@ pub(super) fn build_graph(
                 ));
             }
 
+            // Trait implementation edges (type implements trait)
+            for (type_name, trait_name) in &result.trait_impls {
+                if let Some(type_qn) = result.classes.iter()
+                    .find(|c| c.name == *type_name)
+                    .map(|c| c.qualified_name.clone())
+                {
+                    edges.push((type_qn, trait_name.clone(), CodeEdge::inherits()));
+                }
+            }
+
             // Call edges
             build_call_edges_fast(
                 &mut edges,
@@ -671,6 +681,16 @@ pub(super) fn build_graph_chunked(
                         class.qualified_name.clone(),
                         CodeEdge::contains(),
                     ));
+                }
+
+                // Trait implementation edges (type implements trait)
+                for (type_name, trait_name) in &result.trait_impls {
+                    if let Some(type_qn) = result.classes.iter()
+                        .find(|c| c.name == *type_name)
+                        .map(|c| c.qualified_name.clone())
+                    {
+                        edges.push((type_qn, trait_name.clone(), CodeEdge::inherits()));
+                    }
                 }
 
                 // Call edges (using global lookup)
@@ -1390,6 +1410,16 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
             self.total_classes += 1;
         }
 
+        // Trait implementation edges (type implements trait)
+        for (type_name, trait_name) in &info.trait_impls {
+            if let Some(type_qn) = info.classes.iter()
+                .find(|c| c.name == *type_name)
+                .map(|c| c.qualified_name.clone())
+            {
+                self.edges.push((type_qn, trait_name.clone(), CodeEdge::inherits()));
+            }
+        }
+
         // Collect call edges (resolve using index)
         for (caller, callee) in &info.calls {
             let parts: Vec<&str> = callee.rsplitn(2, "::").collect();
@@ -1600,6 +1630,7 @@ mod tests {
             imports: vec![],
             calls: vec![],
             address_taken: StdHashSet::new(),
+            trait_impls: vec![],
             raw_values: None,
         }
     }
@@ -1789,6 +1820,7 @@ mod tests {
                 imports: vec![ImportInfo::runtime("os")],
                 calls: vec![("app.main.foo:1".to_string(), "bar".to_string())],
                 address_taken: StdHashSet::new(),
+                trait_impls: vec![],
                 raw_values: None,
             }),
         )];
