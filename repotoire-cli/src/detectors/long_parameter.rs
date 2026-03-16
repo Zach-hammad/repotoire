@@ -8,12 +8,23 @@
 //! - Find builder pattern implementations (acceptable)
 //! - Check if DataClumps exist for the parameters
 //!
+//! FP-reduction strategies:
+//! - Constructor/builder/factory: double the threshold (they legitimately take many params)
+//! - Hub/Orchestrator role: increase threshold by 50%
+//! - Handler functions: increase threshold by 50% (request + response + context)
+//! - Test functions: cap severity at Low
+//! - Unreachable non-public: reduce severity one level
+//! - Trait impl methods: reduce severity (can't control signature)
+//! - Delegator/wrapper: reduce severity (just forwarding)
+//!
 //! Detection indicates:
 //! - The function is doing too much (violates SRP)
 //! - Related parameters should be grouped into objects
 //! - The function has poor API design
 
+use crate::calibrate::MetricKind;
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::function_context::FunctionRole;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -45,6 +56,29 @@ impl Default for LongParameterThresholds {
 /// Parameters to exclude from counting
 static SKIP_PARAMS: &[&str] = &["self", "cls"];
 
+/// Name patterns indicating constructors or factory functions where many
+/// parameters are legitimate and the threshold should be doubled.
+static CONSTRUCTOR_PATTERNS: &[&str] = &[
+    "new",
+    "create",
+    "build",
+    "builder",
+    "make",
+    "init",
+    "initialize",
+    "from_",
+    "with_",
+    "__init__",
+    "constructor",
+    "setup",
+    "configure",
+    "register",
+    "install",
+];
+
+/// Builder method prefixes — skip entirely (builder API by design).
+static BUILDER_PREFIXES: &[&str] = &["with_", "set_", "add_", "build"];
+
 /// Detects functions with too many parameters
 pub struct LongParameterListDetector {
     #[allow(dead_code)] // Stored for future config access
@@ -73,7 +107,6 @@ impl LongParameterListDetector {
 
     /// Create with custom config
     pub fn with_config(config: DetectorConfig) -> Self {
-        use crate::calibrate::MetricKind;
         let thresholds = LongParameterThresholds {
             max_params: config.get_option_or(
                 "max_params",
@@ -116,18 +149,152 @@ impl LongParameterListDetector {
             .collect()
     }
 
-    /// Calculate severity based on parameter count
-    fn calculate_severity(&self, param_count: usize) -> Severity {
-        if param_count >= self.thresholds.critical_params {
+    // ── Effective threshold computation ──────────────────────────────
+
+    /// Compute the effective parameter threshold for a function,
+    /// incorporating constructor, hub, orchestrator, and handler
+    /// adjustments.
+    fn effective_threshold(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+        qn: &str,
+        name_lower: &str,
+        base: usize,
+    ) -> (usize, Vec<&'static str>) {
+        let mut threshold = base;
+        let mut reasons: Vec<&'static str> = Vec::new();
+
+        // 1. Constructor/factory/builder: double the threshold
+        if Self::is_constructor_like(name_lower) {
+            threshold *= 2;
+            reasons.push("Constructor/factory pattern (threshold doubled)");
+        }
+
+        // 2. Hub or Orchestrator role: increase by 50%
+        if let Some(role) = ctx.function_role(qn) {
+            if matches!(role, FunctionRole::Hub | FunctionRole::Orchestrator) {
+                threshold = threshold * 3 / 2;
+                reasons.push("Hub/Orchestrator function (threshold +50%)");
+            }
+        }
+
+        // 3. Handler functions: increase by 50% (request + response + context)
+        if ctx.is_handler(qn) {
+            threshold = threshold * 3 / 2;
+            reasons.push("Handler function (threshold +50%)");
+        }
+
+        (threshold, reasons)
+    }
+
+    /// Check if a function name matches constructor/factory patterns.
+    fn is_constructor_like(name_lower: &str) -> bool {
+        CONSTRUCTOR_PATTERNS
+            .iter()
+            .any(|p| name_lower.starts_with(p) || name_lower == *p)
+    }
+
+    /// Check if a function name matches builder method patterns.
+    fn is_builder_method(name_lower: &str) -> bool {
+        BUILDER_PREFIXES.iter().any(|p| name_lower.starts_with(p))
+    }
+
+    /// Check if a function is a trait impl method (Rust `impl Trait for Type`).
+    ///
+    /// Trait impl methods can't control their parameter count — the trait
+    /// defines the signature. Qualified names contain `impl<TraitName for Type>`.
+    fn is_trait_impl(qn: &str) -> bool {
+        // Rust parser encodes: `path::impl<Trait for Type>::method:line`
+        qn.contains("impl<") && qn.contains(" for ")
+    }
+
+    /// Check if a function delegates most of its parameters to a single callee.
+    fn is_delegator(
+        graph: &dyn crate::graph::GraphQuery,
+        qn: &str,
+        param_count: usize,
+    ) -> bool {
+        let callees = graph.get_callees(qn);
+        callees.iter().any(|callee| {
+            let callee_params = callee.param_count_opt().unwrap_or(0) as usize;
+            callee_params >= param_count.saturating_sub(2)
+        })
+    }
+
+    // ── Severity helpers ─────────────────────────────────────────────
+
+    /// Calculate base severity from parameter count relative to effective
+    /// thresholds.
+    fn calculate_severity(&self, param_count: usize, effective_threshold: usize) -> Severity {
+        // Scale high/critical thresholds proportionally to the effective
+        // threshold so that when the threshold is raised (e.g. doubled for
+        // constructors), the severity bands shift accordingly.
+        let scale = effective_threshold as f64 / self.thresholds.max_params.max(1) as f64;
+        let high = (self.thresholds.high_params as f64 * scale).ceil() as usize;
+        let critical = (self.thresholds.critical_params as f64 * scale).ceil() as usize;
+
+        if param_count >= critical {
             Severity::Critical
-        } else if param_count >= self.thresholds.high_params {
+        } else if param_count >= high {
             Severity::High
-        } else if param_count > self.thresholds.max_params {
+        } else if param_count > effective_threshold {
             Severity::Medium
         } else {
             Severity::Low
         }
     }
+
+    /// Apply post-hoc severity reductions for context-specific patterns.
+    ///
+    /// Returns the adjusted severity and any notes about reductions applied.
+    fn apply_severity_reductions(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+        qn: &str,
+        base_severity: Severity,
+        is_delegator: bool,
+        is_trait_impl: bool,
+    ) -> (Severity, Vec<String>) {
+        let mut severity = base_severity;
+        let mut notes = Vec::new();
+
+        // Delegator/wrapper pattern: reduce one level
+        if is_delegator {
+            severity = Self::reduce_severity(severity);
+            notes.push("Delegates to callee (wrapper pattern, reduced severity)".to_string());
+        }
+
+        // Trait impl methods can't control their parameter count
+        if is_trait_impl {
+            severity = Self::reduce_severity(severity);
+            notes.push("Trait impl method (signature fixed by trait, reduced severity)".to_string());
+        }
+
+        // Test functions: cap severity at Low
+        if ctx.is_test_function(qn) {
+            severity = Severity::Low;
+            notes.push("Test function (severity capped at Low)".to_string());
+        }
+
+        // Unreachable + non-public: reduce one level
+        if !ctx.is_reachable(qn) && !ctx.is_public_api(qn) {
+            severity = Self::reduce_severity(severity);
+            notes.push("Unreachable non-public function (reduced severity)".to_string());
+        }
+
+        (severity, notes)
+    }
+
+    /// Reduce severity by one level (Critical -> High -> Medium -> Low).
+    fn reduce_severity(s: Severity) -> Severity {
+        match s {
+            Severity::Critical => Severity::High,
+            Severity::High => Severity::Medium,
+            Severity::Medium | Severity::Low | Severity::Info => Severity::Low,
+        }
+    }
+
+    // ── Suggestion / description helpers ─────────────────────────────
 
     /// Generate a suggested config class name
     #[allow(dead_code)] // Helper for graph-based parameter analysis
@@ -175,65 +342,6 @@ impl LongParameterListDetector {
         format!("{}Config", to_pascal_case(func_name))
     }
 
-    /// Generate refactoring suggestion
-    #[allow(dead_code)] // Helper for graph-based parameter analysis
-    fn generate_suggestion(&self, func_name: &str, params: &[String]) -> String {
-        let config_name = self.suggest_config_name(func_name, params);
-
-        let mut lines = vec![
-            "**Refactoring Options:**\n".to_string(),
-            "**1. Introduce Parameter Object:**".to_string(),
-            "```python".to_string(),
-            "from dataclasses import dataclass".to_string(),
-            String::new(),
-            "@dataclass".to_string(),
-            format!("class {}:", config_name),
-        ];
-
-        // Add parameters as fields (first 6)
-        for p in params.iter().take(6) {
-            lines.push(format!("    {}: Any", p));
-        }
-        if params.len() > 6 {
-            lines.push(format!("    # ... and {} more fields", params.len() - 6));
-        }
-
-        lines.push(String::new());
-        lines.push(format!("def {}(config: {}):", func_name, config_name));
-        lines.push("    ...".to_string());
-        lines.push("```".to_string());
-        lines.push(String::new());
-
-        // Option 2: Builder pattern (for many params)
-        if params.len() >= 8 {
-            let builder_name = format!("{}Builder", to_pascal_case(func_name));
-            lines.push("**2. Use Builder Pattern:**".to_string());
-            lines.push("```python".to_string());
-            lines.push(format!("class {}:", builder_name));
-            if let Some(p) = params.first() {
-                lines.push(format!("    def with_{}(self, value): ...", p));
-            }
-            if let Some(p) = params.get(1) {
-                lines.push(format!("    def with_{}(self, value): ...", p));
-            }
-            lines.push("    # ... more setters".to_string());
-            lines.push(format!("    def build(self): return {}(...)", func_name));
-            lines.push("```".to_string());
-            lines.push(String::new());
-        }
-
-        // Option 3: Split function
-        let option_num = if params.len() >= 8 { "3" } else { "2" };
-        lines.push(format!("**{}. Split Into Smaller Functions:**", option_num));
-        lines.push(format!(
-            "- Break `{}` into functions with focused responsibilities",
-            func_name
-        ));
-        lines.push("- Each function handles a subset of the original task".to_string());
-
-        lines.join("\n")
-    }
-
     /// Estimate effort based on parameter count
     fn estimate_effort(&self, param_count: usize) -> String {
         if param_count >= 12 {
@@ -247,93 +355,25 @@ impl LongParameterListDetector {
         }
     }
 
-    /// Create a finding for a function with long parameter list
-    #[allow(dead_code)] // Helper for graph-based parameter analysis
-    fn create_finding(
-        &self,
-        _qualified_name: String,
-        func_name: String,
-        file_path: String,
-        line_start: Option<u32>,
-        params: Vec<String>,
-    ) -> Finding {
-        let param_count = params.len();
-        let severity = self.calculate_severity(param_count);
-
-        // Format parameters for display
-        let mut params_display = params
-            .iter()
-            .take(8)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", ");
-        if params.len() > 8 {
-            params_display.push_str(&format!(" ... ({} total)", params.len()));
-        }
-
-        let description = if param_count >= self.thresholds.critical_params {
-            format!(
-                "Function `{}` has {} parameters: `{}`\n\n\
-                 **Threshold**: >{} parameters\n\n\
-                 This is a critical issue. Such long parameter lists:\n\
-                 - Are nearly impossible to use correctly\n\
-                 - Indicate the function is doing way too much\n\
-                 - Should be split into multiple smaller functions",
-                func_name, param_count, params_display, self.thresholds.max_params
-            )
-        } else if param_count >= self.thresholds.high_params {
-            format!(
-                "Function `{}` has {} parameters: `{}`\n\n\
-                 **Threshold**: >{} parameters\n\n\
-                 Consider refactoring to:\n\
-                 - Group related parameters into a data class\n\
-                 - Split the function into smaller functions\n\
-                 - Use the Builder pattern for complex construction",
-                func_name, param_count, params_display, self.thresholds.max_params
-            )
+    /// Build contextual suggestion based on function patterns.
+    fn build_suggestion(is_constructor: bool, is_delegator: bool, is_trait_impl: bool) -> String {
+        if is_trait_impl {
+            "This function's signature is fixed by a trait. Consider:\n\
+             1. Grouping related trait parameters into a struct in the trait definition\n\
+             2. Using an associated type or configuration struct if the trait is yours"
+                .to_string()
+        } else if is_constructor {
+            "For constructors with many parameters, consider:\n\
+             1. Builder pattern: `MyClass::builder().field1(x).field2(y).build()`\n\
+             2. Configuration struct: `MyClass::new(Config { ... })`"
+                .to_string()
+        } else if is_delegator {
+            "This function appears to be a wrapper. Consider:\n\
+             1. If wrapping is necessary, this is acceptable\n\
+             2. If not, remove the wrapper and call the target directly"
+                .to_string()
         } else {
-            format!(
-                "Function `{}` has {} parameters: `{}`\n\n\
-                 **Threshold**: >{} parameters\n\n\
-                 Consider whether some parameters can be grouped \
-                 into a single configuration object or data class.",
-                func_name, param_count, params_display, self.thresholds.max_params
-            )
-        };
-
-        let explanation = self.config.adaptive.explain(
-            crate::calibrate::MetricKind::ParameterCount,
-            param_count as f64,
-            5.0, // default max_params
-        );
-        let threshold_metadata = explanation.to_metadata().into_iter().collect();
-        let description = format!("{}\n\n📊 {}", description, explanation.to_note());
-
-        Finding {
-            id: String::new(),
-            detector: "LongParameterListDetector".to_string(),
-            severity,
-            title: format!(
-                "Long parameter list: {} ({} params)",
-                func_name, param_count
-            ),
-            description,
-            affected_files: vec![PathBuf::from(&file_path)],
-            line_start,
-            line_end: None,
-            suggested_fix: Some(self.generate_suggestion(&func_name, &params)),
-            estimated_effort: Some(self.estimate_effort(param_count)),
-            category: Some("code_smell".to_string()),
-            cwe_id: None,
-            why_it_matters: Some(
-                "Long parameter lists make functions difficult to use correctly. \
-                 Callers must remember the order and meaning of each parameter, \
-                 leading to errors. They also indicate that a function may be \
-                 doing too much and should be split."
-                    .to_string(),
-            ),
-            threshold_metadata,
-            ..Default::default()
+            "Group related parameters into a configuration object or class".to_string()
         }
     }
 }
@@ -366,122 +406,58 @@ impl Detector for LongParameterListDetector {
         let i = graph.interner();
         let mut findings = Vec::new();
 
-        // Constructor/factory patterns that legitimately need many params
-        let constructor_patterns = [
-            "new",
-            "create",
-            "build",
-            "make",
-            "init",
-            "from",
-            "__init__",
-            "constructor",
-        ];
-
-        // Builder pattern methods (acceptable)
-        let builder_patterns = ["with_", "set_", "add_", "build"];
-
-        // Use adaptive threshold from context resolver
-        let adaptive_max_params = ctx.threshold(crate::calibrate::MetricKind::ParameterCount, self.thresholds.max_params as f64) as usize;
-
-        // Additional constructor/setup patterns for threshold doubling
-        let setup_patterns = ["setup", "configure", "register", "install"];
+        // Use adaptive threshold from context resolver, falling back to config.
+        let adaptive_base = ctx.threshold(MetricKind::ParameterCount, self.thresholds.max_params as f64) as usize;
 
         for func in graph.get_functions_shared().iter() {
             let param_count = func.param_count_opt().unwrap_or(0) as usize;
 
-            // Use adaptive thresholds
-            if param_count <= adaptive_max_params {
+            // Quick pre-filter: skip functions clearly under the base threshold.
+            // Even with no adjustments, they can't be flagged.
+            if param_count <= adaptive_base {
                 continue;
             }
 
             let name_lower = func.node_name(i).to_lowercase();
+            let qn = func.qn(i);
 
-            // Skip test functions: cap severity at Low (handled below)
-            let is_test = ctx.is_test_function(func.qn(i));
-
-            // === Graph-aware pattern detection ===
-
-            // 1. Check if this is a constructor/factory (includes setup/configure)
-            let is_constructor = constructor_patterns
-                .iter()
-                .any(|p| name_lower.starts_with(p) || name_lower == *p)
-                || setup_patterns.iter().any(|p| name_lower.starts_with(p) || name_lower == *p);
-
-            // 2. Check if this is a builder pattern method
-            let is_builder = builder_patterns.iter().any(|p| name_lower.starts_with(p));
-
-            // 3. Check if function delegates most params to a single callee (wrapper pattern)
-            let is_delegator = {
-                let callees = graph.get_callees(func.qn(i));
-                callees.iter().any(|callee| {
-                    // If callee has similar param count, this function is likely a wrapper
-                    let callee_params = callee.param_count_opt().unwrap_or(0) as usize;
-                    callee_params >= param_count.saturating_sub(2)
-                })
-            };
-
-            // 4. Check if this is an entry point handler (acceptable)
-            let is_entry_point = func.path(i).contains("/handlers/")
-                || func.path(i).contains("/routes/")
-                || func.path(i).contains("/views/")
-                || func.node_name(i).contains("handle")
-                || func.node_name(i).contains("endpoint");
-
-            // Calculate severity with graph-aware adjustments
-            let mut severity = self.calculate_severity(param_count);
-            let mut notes = Vec::new();
-
-            if is_constructor {
-                severity = match severity {
-                    Severity::Critical => Severity::High,
-                    Severity::High => Severity::Medium,
-                    _ => Severity::Low,
-                };
-                notes.push("🏗️ Constructor/factory pattern (reduced severity)".to_string());
-            }
-
-            if is_builder {
-                // Builder methods are fine with many params
+            // === Skip builder methods entirely ===
+            if Self::is_builder_method(&name_lower) {
+                debug!("Skipping builder method: {}", qn);
                 continue;
             }
 
-            if is_delegator {
-                severity = match severity {
-                    Severity::Critical | Severity::High => Severity::Medium,
-                    _ => Severity::Low,
-                };
-                notes.push("📤 Delegates to another function (wrapper pattern)".to_string());
+            // === Compute effective threshold with all allowances ===
+            let (effective_threshold, threshold_reasons) =
+                self.effective_threshold(ctx, qn, &name_lower, adaptive_base);
+
+            // After computing the full effective threshold, check again
+            if param_count <= effective_threshold {
+                debug!(
+                    "Under effective threshold ({} <= {}): {}",
+                    param_count, effective_threshold, qn
+                );
+                continue;
             }
 
-            if is_entry_point {
-                severity = match severity {
-                    Severity::Critical => Severity::High,
-                    Severity::High => Severity::Medium,
-                    _ => Severity::Low,
-                };
-                notes.push("🚪 Entry point/handler (reduced severity)".to_string());
-            }
+            // === Classify function patterns ===
+            let is_constructor = Self::is_constructor_like(&name_lower);
+            let is_delegator_fn = Self::is_delegator(graph, qn, param_count);
+            let is_trait_impl_fn = Self::is_trait_impl(qn);
 
-            // 5. Hub functions: increase effective threshold by 50%
-            if ctx.is_hub_function(func.qn(i)) {
-                let hub_threshold = (adaptive_max_params as f64 * 1.5) as usize;
-                if param_count <= hub_threshold {
-                    continue; // Under the Hub-adjusted threshold
-                }
-                severity = match severity {
-                    Severity::Critical => Severity::High,
-                    Severity::High => Severity::Medium,
-                    _ => Severity::Low,
-                };
-                notes.push("🔀 Hub function (increased threshold)".to_string());
-            }
+            // === Calculate severity with scaled bands ===
+            let base_severity = self.calculate_severity(param_count, effective_threshold);
 
-            // 6. Test functions: cap severity at Low
-            if is_test {
-                severity = Severity::Low;
-                notes.push("🧪 Test function (capped severity)".to_string());
-            }
+            // === Apply post-hoc severity reductions ===
+            let (severity, reduction_notes) =
+                self.apply_severity_reductions(ctx, qn, base_severity, is_delegator_fn, is_trait_impl_fn);
+
+            // Collect all analysis notes
+            let mut notes: Vec<String> = threshold_reasons
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect();
+            notes.extend(reduction_notes);
 
             let pattern_notes = if notes.is_empty() {
                 String::new()
@@ -489,23 +465,10 @@ impl Detector for LongParameterListDetector {
                 format!("\n\n**Graph Analysis:**\n{}", notes.join("\n"))
             };
 
-            // Build smart suggestion based on patterns
-            let suggestion = if is_constructor {
-                "For constructors with many parameters, consider:\n\
-                 1. Builder pattern: `MyClass::builder().field1(x).field2(y).build()`\n\
-                 2. Configuration struct: `MyClass::new(Config { ... })`"
-                    .to_string()
-            } else if is_delegator {
-                "This function appears to be a wrapper. Consider:\n\
-                 1. If wrapping is necessary, this is acceptable\n\
-                 2. If not, remove the wrapper and call the target directly"
-                    .to_string()
-            } else {
-                "Group related parameters into a configuration object or class".to_string()
-            };
+            let suggestion = Self::build_suggestion(is_constructor, is_delegator_fn, is_trait_impl_fn);
 
             let explanation = self.config.adaptive.explain(
-                crate::calibrate::MetricKind::ParameterCount,
+                MetricKind::ParameterCount,
                 param_count as f64,
                 5.0,
             );
@@ -517,10 +480,10 @@ impl Detector for LongParameterListDetector {
                 severity,
                 title: format!("Long parameter list: {}", func.node_name(i)),
                 description: format!(
-                    "Function '{}' has {} parameters (threshold: {}).{}\n\n📊 {}",
+                    "Function '{}' has {} parameters (effective threshold: {}).{}\n\n{}",
                     func.node_name(i),
                     param_count,
-                    self.thresholds.max_params,
+                    effective_threshold,
                     pattern_notes,
                     explanation.to_note()
                 ),
@@ -566,6 +529,8 @@ fn to_pascal_case(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detectors::analysis_context::AnalysisContext;
+    use crate::detectors::base::Detector;
 
     #[test]
     fn test_default_thresholds() {
@@ -576,13 +541,27 @@ mod tests {
     }
 
     #[test]
-    fn test_severity_calculation() {
+    fn test_severity_calculation_default_threshold() {
         let detector = LongParameterListDetector::new();
 
-        assert_eq!(detector.calculate_severity(5), Severity::Low);
-        assert_eq!(detector.calculate_severity(6), Severity::Medium);
-        assert_eq!(detector.calculate_severity(7), Severity::High);
-        assert_eq!(detector.calculate_severity(10), Severity::Critical);
+        // With effective_threshold == max_params (5), scale factor is 1.0
+        // so severity bands are unchanged: <=5 Low, 6 Medium, 7+ High, 10+ Critical
+        assert_eq!(detector.calculate_severity(5, 5), Severity::Low);
+        assert_eq!(detector.calculate_severity(6, 5), Severity::Medium);
+        assert_eq!(detector.calculate_severity(7, 5), Severity::High);
+        assert_eq!(detector.calculate_severity(10, 5), Severity::Critical);
+    }
+
+    #[test]
+    fn test_severity_calculation_doubled_threshold() {
+        let detector = LongParameterListDetector::new();
+
+        // With effective_threshold == 10 (constructor doubled), scale factor = 2.0
+        // High band = ceil(7*2.0) = 14, Critical band = ceil(10*2.0) = 20
+        assert_eq!(detector.calculate_severity(10, 10), Severity::Low);
+        assert_eq!(detector.calculate_severity(11, 10), Severity::Medium);
+        assert_eq!(detector.calculate_severity(14, 10), Severity::High);
+        assert_eq!(detector.calculate_severity(20, 10), Severity::Critical);
     }
 
     #[test]
@@ -625,5 +604,101 @@ mod tests {
                 .suggest_config_name("login", &["username".to_string(), "password".to_string()]),
             "Credentials"
         );
+    }
+
+    #[test]
+    fn test_constructor_pattern_detection() {
+        assert!(LongParameterListDetector::is_constructor_like("new"));
+        assert!(LongParameterListDetector::is_constructor_like("new_with_options"));
+        assert!(LongParameterListDetector::is_constructor_like("create_user"));
+        assert!(LongParameterListDetector::is_constructor_like("from_parts"));
+        assert!(LongParameterListDetector::is_constructor_like("with_config"));
+        assert!(LongParameterListDetector::is_constructor_like("__init__"));
+        assert!(LongParameterListDetector::is_constructor_like("setup_database"));
+        assert!(LongParameterListDetector::is_constructor_like("configure_server"));
+        assert!(LongParameterListDetector::is_constructor_like("initialize_state"));
+        assert!(!LongParameterListDetector::is_constructor_like("process_data"));
+        assert!(!LongParameterListDetector::is_constructor_like("detect"));
+    }
+
+    #[test]
+    fn test_builder_method_detection() {
+        assert!(LongParameterListDetector::is_builder_method("with_timeout"));
+        assert!(LongParameterListDetector::is_builder_method("set_name"));
+        assert!(LongParameterListDetector::is_builder_method("add_header"));
+        assert!(LongParameterListDetector::is_builder_method("build"));
+        assert!(!LongParameterListDetector::is_builder_method("detect"));
+        assert!(!LongParameterListDetector::is_builder_method("process"));
+    }
+
+    #[test]
+    fn test_trait_impl_detection() {
+        assert!(LongParameterListDetector::is_trait_impl(
+            "src/detectors/god_class.rs::impl<Detector for GodClassDetector>::detect:42"
+        ));
+        assert!(LongParameterListDetector::is_trait_impl(
+            "foo.rs::impl<Display for MyType>::fmt:10"
+        ));
+        // Inherent impl (no trait) should NOT match
+        assert!(!LongParameterListDetector::is_trait_impl(
+            "foo.rs::impl<MyType>::new:5"
+        ));
+        // Regular function
+        assert!(!LongParameterListDetector::is_trait_impl(
+            "foo.rs::MyModule::process:20"
+        ));
+    }
+
+    #[test]
+    fn test_reduce_severity() {
+        assert_eq!(
+            LongParameterListDetector::reduce_severity(Severity::Critical),
+            Severity::High
+        );
+        assert_eq!(
+            LongParameterListDetector::reduce_severity(Severity::High),
+            Severity::Medium
+        );
+        assert_eq!(
+            LongParameterListDetector::reduce_severity(Severity::Medium),
+            Severity::Low
+        );
+        assert_eq!(
+            LongParameterListDetector::reduce_severity(Severity::Low),
+            Severity::Low
+        );
+    }
+
+    #[test]
+    fn test_detect_no_findings_on_empty_graph() {
+        let graph = GraphStore::in_memory();
+        let ctx = AnalysisContext::test(&graph);
+        let detector = LongParameterListDetector::new();
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_build_suggestion_trait_impl() {
+        let suggestion = LongParameterListDetector::build_suggestion(false, false, true);
+        assert!(suggestion.contains("trait"));
+    }
+
+    #[test]
+    fn test_build_suggestion_constructor() {
+        let suggestion = LongParameterListDetector::build_suggestion(true, false, false);
+        assert!(suggestion.contains("Builder pattern"));
+    }
+
+    #[test]
+    fn test_build_suggestion_delegator() {
+        let suggestion = LongParameterListDetector::build_suggestion(false, true, false);
+        assert!(suggestion.contains("wrapper"));
+    }
+
+    #[test]
+    fn test_build_suggestion_generic() {
+        let suggestion = LongParameterListDetector::build_suggestion(false, false, false);
+        assert!(suggestion.contains("configuration object"));
     }
 }

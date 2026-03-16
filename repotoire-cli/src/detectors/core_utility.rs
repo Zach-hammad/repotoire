@@ -314,7 +314,6 @@ impl Detector for CoreUtilityDetector {
         // Pre-build skip set per FILE (not per function) — avoids redundant content
         // classifier scans.  On CPython (3.4K files, 71K functions) this turns
         // 71K × 4 content scans into 3.4K × 4.
-        // Get shared Arc once — reused for both classification and detection loops
         let all_functions = graph.get_functions_shared();
 
         let mut skip_files: HashSet<String> = HashSet::new();
@@ -349,54 +348,100 @@ impl Detector for CoreUtilityDetector {
         // Adaptive fan-in threshold (default 10)
         let fan_in_threshold = ctx.threshold(crate::calibrate::MetricKind::FanIn, 10.0) as usize;
 
+        // Minimum cross-module callers to be flagged as a true cross-cutting utility.
+        // A function called from only 1-2 directories is a local concern, not architectural.
+        let min_cross_module_callers: usize = 3;
+
         for func in all_functions.iter() {
             if skip_files.contains(func.path(i)) {
                 continue;
             }
 
+            let qn = func.qn(i);
+
+            // ── Early cheap filters ─────────────────────────────────────
+
             // fan_in check first (cheap O(1) lookup) — skip 99%+ of functions early
-            let fan_in = graph.call_fan_in(func.qn(i));
+            let fan_in = graph.call_fan_in(qn);
             if fan_in < fan_in_threshold {
                 continue;
             }
 
-            let fan_out = graph.call_fan_out(func.qn(i));
+            // Utilities have low fan-out (they are called, not callers)
+            let fan_out = graph.call_fan_out(qn);
             if fan_out > 2 {
                 continue;
             }
 
-            // --- Context-based FP reduction ---
+            // ── Role-based FP reduction ─────────────────────────────────
 
-            // Skip Hub and Orchestrator roles — these are infrastructure, not utilities
-            if let Some(role) = ctx.function_role(func.qn(i)) {
-                if matches!(role, crate::detectors::function_context::FunctionRole::Hub
-                    | crate::detectors::function_context::FunctionRole::Orchestrator) {
+            // Skip test functions — not architectural concerns
+            if ctx.is_test_function(qn) {
+                continue;
+            }
+
+            // Skip Hub and Orchestrator roles — these are infrastructure/coordination
+            // code, not utilities that need extra test coverage attention
+            if let Some(role) = ctx.function_role(qn) {
+                use crate::detectors::function_context::FunctionRole;
+                if matches!(role,
+                    FunctionRole::Hub
+                    | FunctionRole::Orchestrator
+                    | FunctionRole::EntryPoint
+                ) {
                     continue;
                 }
             }
 
-            // Skip unreachable code (dead code)
-            if !ctx.is_reachable(func.qn(i)) && !ctx.is_public_api(func.qn(i)) {
+            // Skip HMM-classified handlers (request handlers, CLI handlers, etc.)
+            if ctx.is_handler(qn) {
                 continue;
             }
 
-            // Check caller diversity: if mostly called within one module, it's a local
-            // utility, not a cross-module concern worth flagging
-            if let Some(callers) = ctx.detector_ctx.callers_by_qn.get(func.qn(i)) {
-                if callers.len() >= 2 {
-                    let mut caller_modules: HashSet<&str> = HashSet::new();
-                    for caller_qn in callers {
-                        // Extract module from qualified name (e.g., "module.Class.method" -> "module")
-                        if let Some(module) = caller_qn.split('.').next() {
-                            caller_modules.insert(module);
+            // Skip unreachable code (dead code) — unless it's public API
+            if !ctx.is_reachable(qn) && !ctx.is_public_api(qn) {
+                continue;
+            }
+
+            // ── Cross-module fan-in analysis ────────────────────────────
+            //
+            // A function called 20 times within its own file/directory isn't an
+            // architectural concern — it's a well-used local helper. We only flag
+            // functions with significant cross-module (cross-directory) callers,
+            // which indicates true cross-cutting utility status.
+
+            let func_dir = std::path::Path::new(func.path(i))
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new(""))
+                .to_string_lossy();
+
+            let mut cross_module_dirs: HashSet<String> = HashSet::new();
+            let mut total_cross_module: usize = 0;
+
+            if let Some(callers) = ctx.detector_ctx.callers_by_qn.get(qn) {
+                for caller_qn in callers {
+                    // Look up the caller's file path via the graph
+                    if let Some(caller_node) = graph.get_node(caller_qn) {
+                        let caller_dir = std::path::Path::new(caller_node.path(i))
+                            .parent()
+                            .unwrap_or_else(|| std::path::Path::new(""))
+                            .to_string_lossy()
+                            .to_string();
+
+                        if caller_dir != func_dir.as_ref() {
+                            cross_module_dirs.insert(caller_dir);
+                            total_cross_module += 1;
                         }
-                    }
-                    // If all callers are from the same module, skip — it's a local utility
-                    if caller_modules.len() <= 1 {
-                        continue;
                     }
                 }
             }
+
+            // Not enough cross-module callers — this is a local utility, skip
+            if cross_module_dirs.len() < min_cross_module_callers {
+                continue;
+            }
+
+            // ── Content-based FP reduction ──────────────────────────────
 
             // Per-function AST manipulation check (needs func name — can't pre-compute)
             if let Some(content) =
@@ -409,26 +454,76 @@ impl Detector for CoreUtilityDetector {
                 }
             }
 
+            // ── Severity & finding construction ─────────────────────────
+
+            // Public API functions are designed to be widely called — Info only
+            let is_public = ctx.is_public_api(qn);
+            let severity = if is_public {
+                Severity::Info
+            } else if cross_module_dirs.len() >= 8 && fan_in >= fan_in_threshold * 3 {
+                // Very high cross-module fan-in AND high total fan-in
+                Severity::Medium
+            } else {
+                Severity::Info
+            };
+
+            let cross_pct = if fan_in > 0 {
+                (total_cross_module as f64 / fan_in as f64 * 100.0) as u32
+            } else {
+                0
+            };
+
+            let description = format!(
+                "Function `{}` is called from {} distinct directories ({} cross-module callers \
+                out of {} total, {}%). Changes here have wide-reaching effects across the codebase.\n\n\
+                **Metrics:**\n\
+                - Total callers (fan-in): {}\n\
+                - Cross-module callers: {} (from {} directories)\n\
+                - Fan-out: {}{}",
+                func.node_name(i),
+                cross_module_dirs.len(),
+                total_cross_module,
+                fan_in,
+                cross_pct,
+                fan_in,
+                total_cross_module,
+                cross_module_dirs.len(),
+                fan_out,
+                if is_public { "\n- **Public API** — widely called by design" } else { "" },
+            );
+
             findings.push(Finding {
                 id: String::new(),
                 detector: "CoreUtilityDetector".to_string(),
-                severity: Severity::Info,
-                title: format!("Core Utility: {}", func.node_name(i)),
-                description: format!(
-                    "Function '{}' is used by {} callers. This is a core utility - ensure it's well-tested.",
-                    func.node_name(i), fan_in
-                ),
+                severity,
+                title: format!("Core Utility: {} ({} cross-module callers)", func.node_name(i), total_cross_module),
+                description,
                 affected_files: vec![func.path(i).to_string().into()],
                 line_start: Some(func.line_start),
                 line_end: Some(func.line_end),
-                suggested_fix: Some("Ensure comprehensive test coverage for this core function".to_string()),
+                suggested_fix: Some(
+                    "**For core utilities:**\n\n\
+                    1. **Ensure comprehensive test coverage** — bugs here affect many callers\n\n\
+                    2. **Avoid breaking changes** — consider deprecation cycles\n\n\
+                    3. **Document the contract** — callers depend on stable behavior\n\n\
+                    4. **Monitor performance** — hot path across many modules".to_string()
+                ),
                 estimated_effort: Some("Small (1 hour)".to_string()),
                 category: Some("architecture".to_string()),
                 cwe_id: None,
-                why_it_matters: Some("Core utilities need extra attention as bugs affect many callers".to_string()),
+                why_it_matters: Some(format!(
+                    "Called from {} different directories — a bug or breaking change in this \
+                    function cascades across the codebase.",
+                    cross_module_dirs.len()
+                )),
                 ..Default::default()
             });
         }
+
+        info!(
+            "CoreUtilityDetector: {} findings (fan_in_threshold={}, min_cross_module={})",
+            findings.len(), fan_in_threshold, min_cross_module_callers
+        );
 
         Ok(findings)
     }

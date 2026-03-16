@@ -5,13 +5,25 @@
 //! - Find the containing function and its role
 //! - Identify callees that could be extracted
 //! - Reduce severity for entry points/handlers
+//! - Skip test functions entirely
+//! - Apply context-aware thresholds (handler, orchestrator, adaptive)
+//! - Discount match/switch arms that inflate nesting depth
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::function_context::FunctionRole;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use tracing::info;
+
+/// Default nesting threshold for normal code.
+const DEFAULT_THRESHOLD: usize = 4;
+/// Elevated threshold for handler functions (dispatch logic is expected).
+const HANDLER_THRESHOLD: usize = 6;
+/// How many match/switch levels to discount from effective depth.
+/// Each match/switch arm counts as +1 instead of full depth.
+const MATCH_DISCOUNT: usize = 1;
 
 pub struct DeepNestingDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -28,8 +40,8 @@ impl DeepNestingDetector {
         Self {
             repository_path: repository_path.into(),
             max_findings: 100,
-            threshold: 4,
-            default_threshold: 4,
+            threshold: DEFAULT_THRESHOLD,
+            default_threshold: DEFAULT_THRESHOLD,
             resolver: Default::default(),
         }
     }
@@ -40,20 +52,19 @@ impl DeepNestingDetector {
         resolver: &crate::calibrate::ThresholdResolver,
     ) -> Self {
         use crate::calibrate::MetricKind;
-        let default_threshold = 4usize;
-        let threshold = resolver.warn_usize(MetricKind::NestingDepth, default_threshold);
-        if threshold != default_threshold {
+        let threshold = resolver.warn_usize(MetricKind::NestingDepth, DEFAULT_THRESHOLD);
+        if threshold != DEFAULT_THRESHOLD {
             tracing::info!(
                 "DeepNesting: adaptive threshold {} (default={})",
                 threshold,
-                default_threshold
+                DEFAULT_THRESHOLD
             );
         }
         Self {
             repository_path: repository_path.into(),
             max_findings: 100,
             threshold,
-            default_threshold,
+            default_threshold: DEFAULT_THRESHOLD,
             resolver: resolver.clone(),
         }
     }
@@ -114,6 +125,30 @@ impl DeepNestingDetector {
             .take(3)
             .collect()
     }
+
+    /// Compute effective nesting threshold for a function given its role context.
+    ///
+    /// Returns the threshold to use. Handlers get HANDLER_THRESHOLD (6),
+    /// orchestrators get base + 1, all others get the base adaptive threshold.
+    fn effective_threshold(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+        qn: &str,
+    ) -> usize {
+        // Handlers have dispatch logic with match/switch — higher threshold
+        if ctx.is_handler(qn) {
+            return HANDLER_THRESHOLD.max(self.threshold);
+        }
+
+        // Orchestrators coordinate many functions, nested conditionals expected
+        if let Some(FunctionRole::Orchestrator) = ctx.function_role(qn) {
+            return self.threshold + 1;
+        }
+
+        // Entry points (by name/path heuristic) get +1
+        // (already covered by is_entry_point severity reduction, but also bump threshold)
+        self.threshold
+    }
 }
 
 impl Detector for DeepNestingDetector {
@@ -133,6 +168,19 @@ impl Detector for DeepNestingDetector {
         let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
+
+        // Use adaptive threshold from AnalysisContext if available.
+        // Floor at DEFAULT_THRESHOLD (4) to prevent adaptive calibration
+        // from making the detector overly sensitive.
+        let base_threshold = {
+            let adaptive = ctx.threshold(
+                crate::calibrate::MetricKind::NestingDepth,
+                self.default_threshold as f64,
+            ) as usize;
+            // Use the higher of self.threshold (from resolver at construction) and ctx threshold,
+            // but never below the hardcoded default
+            adaptive.max(self.threshold).max(DEFAULT_THRESHOLD)
+        };
 
         for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c"]) {
             if findings.len() >= self.max_findings {
@@ -157,32 +205,21 @@ impl Detector for DeepNestingDetector {
 
             if let Some(content) = files.content(path) {
                 let path_str = path.to_string_lossy().to_string();
-                let mut max_depth = 0;
-                let mut current_depth = 0;
-                let mut max_line = 0;
 
-                let line_braces = structural_braces_multiline(&content);
-                for (i, braces) in line_braces.iter().enumerate() {
-                    for &ch in braces {
-                        if ch == '{' {
-                            current_depth += 1;
-                            if current_depth > max_depth {
-                                max_depth = current_depth;
-                                max_line = i + 1;
-                            }
-                        } else if ch == '}' && current_depth > 0 {
-                            current_depth -= 1;
-                        }
+                // Collect per-function nesting data instead of per-file max
+                let nesting_spots = analyze_nesting_per_function(&content);
+
+                for spot in nesting_spots {
+                    if findings.len() >= self.max_findings {
+                        break;
                     }
-                }
 
-                if max_depth > self.threshold {
                     // === Graph-enhanced analysis ===
                     let containing_func =
-                        self.find_containing_function(graph, &path_str, max_line as u32);
+                        self.find_containing_function(graph, &path_str, spot.line as u32);
 
-                    // Context-based FP reduction: check containing function
-                    if let Some(func) = &containing_func {
+                    // Determine effective threshold for this spot
+                    let effective_thresh = if let Some(func) = &containing_func {
                         let qn = func.qn(i);
 
                         // Skip test functions entirely
@@ -190,11 +227,22 @@ impl Detector for DeepNestingDetector {
                             continue;
                         }
 
-                        // HMM handlers: increase effective threshold to 6
-                        // (handlers have dispatch logic, match statements)
-                        if ctx.is_handler(qn) && max_depth <= 6 {
-                            continue;
-                        }
+                        self.effective_threshold(ctx, qn)
+                    } else {
+                        base_threshold
+                    };
+
+                    // Apply match/switch discount: if nesting occurs inside match arms,
+                    // reduce effective depth by the number of match levels (capped).
+                    let effective_depth = if spot.match_levels > 0 {
+                        spot.max_depth.saturating_sub(spot.match_levels.min(MATCH_DISCOUNT))
+                    } else {
+                        spot.max_depth
+                    };
+
+                    // Check against effective threshold
+                    if effective_depth <= effective_thresh {
+                        continue;
                     }
 
                     let (func_name, is_entry, complexity, extraction_candidates) =
@@ -209,7 +257,7 @@ impl Detector for DeepNestingDetector {
                         };
 
                     // Adjust severity based on context
-                    let mut severity = if max_depth > 8 {
+                    let mut severity = if effective_depth > 8 {
                         Severity::High
                     } else {
                         Severity::Medium
@@ -227,20 +275,32 @@ impl Detector for DeepNestingDetector {
                     let mut notes = Vec::new();
 
                     if let Some(ref name) = func_name {
-                        notes.push(format!("📍 In function: `{}`", name));
+                        notes.push(format!("In function: `{}`", name));
                     }
                     if is_entry {
-                        notes.push("🚪 Entry point/handler (reduced severity)".to_string());
+                        notes.push("Entry point/handler (reduced severity)".to_string());
                     }
                     if complexity > 10 {
                         notes.push(format!(
-                            "⚠️ High complexity: {} (nesting compounds this)",
+                            "High complexity: {} (nesting compounds this)",
                             complexity
+                        ));
+                    }
+                    if spot.match_levels > 0 {
+                        notes.push(format!(
+                            "Contains {} match/switch level(s) (discounted from raw depth {})",
+                            spot.match_levels, spot.max_depth
+                        ));
+                    }
+                    if effective_thresh != base_threshold {
+                        notes.push(format!(
+                            "Threshold adjusted to {} (base: {}) for function role",
+                            effective_thresh, base_threshold
                         ));
                     }
                     if !extraction_candidates.is_empty() {
                         notes.push(format!(
-                            "💡 Existing helpers that could reduce nesting: {}",
+                            "Existing helpers that could reduce nesting: {}",
                             extraction_candidates.join(", ")
                         ));
                     }
@@ -260,7 +320,7 @@ impl Detector for DeepNestingDetector {
                              3. Replace nested ifs with switch/match",
                             first_candidate
                         )
-                    } else if max_depth > 6 {
+                    } else if effective_depth > 6 {
                         "Severely nested code. Apply multiple techniques:\n\
                          1. Guard clauses: `if (!condition) return;`\n\
                          2. Extract Method: pull nested blocks into functions\n\
@@ -274,7 +334,7 @@ impl Detector for DeepNestingDetector {
                     // Build threshold explainability metadata
                     let explanation = self.resolver.explain(
                         crate::calibrate::MetricKind::NestingDepth,
-                        max_depth as f64,
+                        effective_depth as f64,
                         self.default_threshold as f64,
                     );
                     let threshold_metadata: std::collections::BTreeMap<String, String> =
@@ -286,21 +346,21 @@ impl Detector for DeepNestingDetector {
                         severity,
                         title: format!(
                             "Excessive nesting: {} levels{}",
-                            max_depth,
+                            effective_depth,
                             func_name.map(|n| format!(" in {}", n)).unwrap_or_default()
                         ),
                         description: format!(
-                            "{} levels of nesting (threshold: {}).{}\n\n📊 {}",
-                            max_depth,
-                            self.threshold,
+                            "{} levels of nesting (threshold: {}).{}\n\n{}",
+                            effective_depth,
+                            effective_thresh,
                             context_notes,
                             explanation.to_note()
                         ),
                         affected_files: vec![path.to_path_buf()],
-                        line_start: Some(max_line as u32),
-                        line_end: Some(max_line as u32),
+                        line_start: Some(spot.line as u32),
+                        line_end: Some(spot.line as u32),
                         suggested_fix: Some(suggestion),
-                        estimated_effort: Some(if max_depth > 6 {
+                        estimated_effort: Some(if effective_depth > 6 {
                             "1 hour".to_string()
                         } else {
                             "30 minutes".to_string()
@@ -325,6 +385,110 @@ impl Detector for DeepNestingDetector {
         );
         Ok(findings)
     }
+}
+
+/// A nesting hot-spot found in a file: the deepest point within a logical
+/// scope (typically a function body), with match/switch context information.
+struct NestingSpot {
+    /// 1-based line number of the deepest nesting point.
+    line: usize,
+    /// Raw maximum brace depth at that point.
+    max_depth: usize,
+    /// Number of match/switch levels contributing to the depth.
+    /// Used to discount inflated nesting from pattern matching.
+    match_levels: usize,
+}
+
+/// Analyze nesting depth across a file, returning one `NestingSpot` per
+/// distinct peak. This replaces the old single-max-per-file approach.
+///
+/// The algorithm:
+/// 1. Walks structural braces line by line.
+/// 2. Tracks the current brace depth and how many of those levels are
+///    match/switch arms.
+/// 3. When depth resets to 0 (function boundary), emits a spot for the
+///    peak seen in that region.
+///
+/// This naturally produces one spot per top-level function.
+fn analyze_nesting_per_function(content: &str) -> Vec<NestingSpot> {
+    let lines: Vec<&str> = content.lines().collect();
+    let brace_data = structural_braces_multiline(content);
+    let match_lines = detect_match_switch_lines(&lines);
+
+    let mut spots = Vec::new();
+    let mut current_depth: usize = 0;
+    let mut peak_depth: usize = 0;
+    let mut peak_line: usize = 0;
+    let mut match_depth_at_peak: usize = 0;
+    // Track how many of the current nesting levels are from match/switch
+    let mut match_level_stack: Vec<bool> = Vec::new();
+
+    for (line_idx, braces) in brace_data.iter().enumerate() {
+        let is_match_line = match_lines.contains(&line_idx);
+
+        for &ch in braces {
+            if ch == '{' {
+                current_depth += 1;
+                // If this brace is on a match/switch line, mark it
+                match_level_stack.push(is_match_line);
+                if current_depth > peak_depth {
+                    peak_depth = current_depth;
+                    peak_line = line_idx + 1; // 1-based
+                    // Count how many levels in the stack are match levels
+                    match_depth_at_peak =
+                        match_level_stack.iter().filter(|&&is_match| is_match).count();
+                }
+            } else if ch == '}' && current_depth > 0 {
+                current_depth -= 1;
+                match_level_stack.pop();
+
+                // When depth returns to 0, we've exited a top-level scope
+                if current_depth == 0 && peak_depth > 0 {
+                    spots.push(NestingSpot {
+                        line: peak_line,
+                        max_depth: peak_depth,
+                        match_levels: match_depth_at_peak,
+                    });
+                    peak_depth = 0;
+                    peak_line = 0;
+                    match_depth_at_peak = 0;
+                    match_level_stack.clear();
+                }
+            }
+        }
+    }
+
+    // Flush any remaining peak (unclosed braces / end of file)
+    if peak_depth > 0 {
+        spots.push(NestingSpot {
+            line: peak_line,
+            max_depth: peak_depth,
+            match_levels: match_depth_at_peak,
+        });
+    }
+
+    spots
+}
+
+/// Detect lines that contain match/switch statements.
+/// Returns a set of 0-based line indices.
+fn detect_match_switch_lines(lines: &[&str]) -> std::collections::HashSet<usize> {
+    let mut result = std::collections::HashSet::new();
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        // Rust: `match expr {`
+        // Also handle `match expr` without the brace on the same line
+        if trimmed.starts_with("match ") || (trimmed.contains("match ") && trimmed.contains('{')) {
+            result.insert(idx);
+        }
+        // C/Java/JS/Go: `switch (expr) {` or `switch expr {`
+        if trimmed.starts_with("switch ") || trimmed.starts_with("switch(") {
+            result.insert(idx);
+        }
+        // Python: `match expr:` (structural pattern matching, Python 3.10+)
+        // Note: Python uses indentation not braces, but for completeness
+    }
+    result
 }
 
 /// Extract structural braces from each line of a file, properly handling
@@ -464,6 +628,135 @@ mod tests {
     }
 
     #[test]
+    fn test_match_switch_discount() {
+        // fn{match{arm{if{if{  = 5 raw depth, 1 match level
+        // With match discount, effective depth = 4, which equals threshold => no finding
+        let store = GraphStore::in_memory();
+        let detector = DeepNestingDetector::new("/mock/repo");
+        let code = "\
+fn process(x: i32) {
+    match x {
+        1 => {
+            if true {
+                if true {
+                    println!(\"deep\");
+                }
+            }
+        }
+    }
+}
+";
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("match_code.rs", code)],
+        );
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        // Raw depth is 5 (fn + match + arm + if + if), match discount 1 => effective 4 = threshold => no finding
+        assert!(
+            findings.is_empty(),
+            "Match/switch discount should prevent finding for depth 5 with one match level, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_match_still_flags_very_deep() {
+        // Even with match discount, truly deep nesting should still fire
+        // fn{match{arm{if{if{if{  = 6 raw depth, 1 match level
+        // discount 1 => effective 5 > 4 => finding
+        let store = GraphStore::in_memory();
+        let detector = DeepNestingDetector::new("/mock/repo");
+        let code = "\
+fn process(x: i32) {
+    match x {
+        1 => {
+            if true {
+                if true {
+                    if true {
+                        println!(\"very deep\");
+                    }
+                }
+            }
+        }
+    }
+}
+";
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("deep_match.rs", code)],
+        );
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        // Raw depth is 6 (fn + match + arm + if + if + if), discount 1 => effective 5 > 4 => finding
+        assert!(
+            !findings.is_empty(),
+            "Should still detect very deep nesting even with match discount"
+        );
+        // Effective depth should be 5 (6 raw - 1 match discount)
+        assert!(
+            findings[0].title.contains("5 levels"),
+            "Title should show effective depth 5, got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn test_per_function_analysis() {
+        // Two functions: one shallow (2 levels), one deep (5 levels)
+        // Should only flag the deep one
+        let store = GraphStore::in_memory();
+        let detector = DeepNestingDetector::new("/mock/repo");
+        let code = "\
+fn shallow() {
+    if true {
+        println!(\"ok\");
+    }
+}
+
+fn deep() {
+    if true {
+        if true {
+            if true {
+                if true {
+                    if true {
+                        println!(\"deep\");
+                    }
+                }
+            }
+        }
+    }
+}
+";
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("two_funcs.rs", code)],
+        );
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert_eq!(
+            findings.len(),
+            1,
+            "Should detect exactly one finding (the deep function), got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_detect_match_switch_lines() {
+        let lines = vec![
+            "fn foo() {",
+            "    match x {",
+            "        1 => {",
+            "            if true {",
+            "            }",
+            "        }",
+            "    }",
+            "}",
+        ];
+        let match_lines = detect_match_switch_lines(&lines);
+        assert!(match_lines.contains(&1), "Should detect 'match x {{' on line 1");
+        assert!(!match_lines.contains(&0), "Should not detect 'fn foo()' as match");
+    }
+
+    #[test]
     fn test_structural_braces_skips_format_strings() {
         let empty: Vec<char> = vec![];
         // format!("{}", x) should not count the {} inside the string
@@ -519,5 +812,33 @@ mod tests {
         let braces = structural_braces_multiline(content);
         let all_braces: Vec<char> = braces.into_iter().flat_map(|v| v).collect();
         assert_eq!(all_braces, vec!['{', '}']);
+    }
+
+    #[test]
+    fn test_nesting_spot_analysis() {
+        // Single function with depth 3 — below threshold, so no spot should exceed 4
+        let code = "fn foo() {\n    if true {\n        if true {\n        }\n    }\n}\n";
+        let spots = analyze_nesting_per_function(code);
+        assert_eq!(spots.len(), 1);
+        assert_eq!(spots[0].max_depth, 3); // fn { if { if { } } }
+        assert_eq!(spots[0].match_levels, 0);
+    }
+
+    #[test]
+    fn test_nesting_spot_with_match() {
+        let code = "\
+fn foo() {
+    match x {
+        _ => {
+            if true {
+            }
+        }
+    }
+}
+";
+        let spots = analyze_nesting_per_function(code);
+        assert_eq!(spots.len(), 1);
+        assert_eq!(spots[0].max_depth, 4); // fn + match + arm + if
+        assert!(spots[0].match_levels >= 1, "Should detect match level");
     }
 }
