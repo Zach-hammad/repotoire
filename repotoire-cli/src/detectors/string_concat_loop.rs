@@ -37,12 +37,7 @@ pub struct StringConcatLoopDetector {
 }
 
 impl StringConcatLoopDetector {
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self {
-            repository_path: repository_path.into(),
-            max_findings: 50,
-        }
-    }
+    crate::detectors::detector_new!(50);
 
     /// Find functions that do string concatenation.
     /// Uses per-file line caching to avoid redundant content reads (71K functions → ~3.4K files).
@@ -167,7 +162,10 @@ impl Detector for StringConcatLoopDetector {
                                                loop_start_line: usize,
                                                file_path: &std::path::Path,
                                                extension: &str| {
-                    for (var_name, (first_line, count)) in concats.drain() {
+                    // Sort by variable name for deterministic finding order
+                    let mut entries: Vec<_> = concats.drain().collect();
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    for (var_name, (first_line, count)) in entries {
                         if count >= 2 {
                             let suggestion = Self::get_suggestion(extension);
                             findings.push(Finding {

@@ -258,11 +258,12 @@ impl AIBoilerplateDetector {
                 *pattern_counts.entry(p.clone()).or_insert(0) += 1;
             }
         }
-        let dominant_patterns: Vec<BoilerplatePattern> = pattern_counts
+        let mut dominant_patterns: Vec<BoilerplatePattern> = pattern_counts
             .into_iter()
             .filter(|(_, count)| *count >= functions.len() / 2)
             .map(|(p, _)| p)
             .collect();
+        dominant_patterns.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
 
         // Check for shared abstraction
         let mut has_abstraction = false;
