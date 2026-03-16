@@ -385,7 +385,9 @@ pub fn cache_results(
     Ok(())
 }
 
-/// Output results from fully cached data (fast path)
+/// Output results from fully cached data (fast path).
+/// Legacy: only used by the old `run()` pipeline.
+#[allow(dead_code)]
 pub(super) fn output_cached_results(
     no_emoji: bool,
     quiet_mode: bool,

@@ -1,8 +1,13 @@
-//! Detection functions for the analyze command
+//! Detection functions for the analyze command (legacy).
 //!
 //! This module contains all detector-related logic:
 //! - Running detectors on the code graph
 //! - Git history enrichment
+//!
+//! NOTE: This module was used by the old `run()` pipeline. The primary path
+//! now uses `AnalysisEngine` (see `engine/stages/detect.rs`). Kept for
+//! reference; will be removed in a future cleanup.
+#![allow(dead_code)]
 //! - Voting and consolidation
 //! - Incremental caching
 

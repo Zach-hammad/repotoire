@@ -1,7 +1,40 @@
-//! Analysis engine — layered architecture for code health analysis.
+//! Analysis engine — layered, presentation-free code health analysis.
 //!
-//! The engine produces analysis results; consumers format them.
-//! Stateful: holds graph + precomputed data between calls.
+//! # Architecture
+//!
+//! The engine cleanly separates *analysis* from *presentation*:
+//!
+//! - **`AnalysisEngine`** owns the repository state (graph, calibration data,
+//!   cached findings) and exposes a single `analyze()` method that returns an
+//!   [`AnalysisResult`] containing findings, score, and stats.
+//! - **Consumers** (CLI `run_engine()`, MCP tools, future web dashboard) take
+//!   the result and apply their own formatting, filtering, and pagination.
+//!
+//! # Pipeline stages
+//!
+//! Each call to `analyze()` runs 8 stages in order:
+//!
+//! 1. **Collect** — walk the repo, hash file contents, determine deltas
+//! 2. **Parse** — tree-sitter parse source files in parallel
+//! 3. **Graph** — build the in-memory petgraph code graph
+//! 4. **Git enrich** — add churn/blame/commit metadata to graph nodes
+//! 5. **Calibrate** — learn adaptive thresholds + n-gram language model
+//! 6. **Detect** — run all detectors in parallel (with incremental reuse)
+//! 7. **Postprocess** — deduplicate, suppress, filter findings
+//! 8. **Score** — compute three-pillar health score
+//!
+//! # Incremental analysis
+//!
+//! The engine is **stateful**: after the first cold analysis, subsequent calls
+//! to `analyze()` detect file changes via content hashing and:
+//! - Return cached results instantly if nothing changed
+//! - Parse only changed files, patch the graph, and selectively re-run
+//!   detectors when files were added/modified/removed
+//!
+//! # Persistence
+//!
+//! Engine state can be saved to disk via `save()` and restored via `load()`,
+//! enabling cross-process incremental analysis (e.g., between CLI invocations).
 
 pub mod diff;
 pub mod stages;
@@ -140,7 +173,26 @@ impl Default for OutputOptions {
     }
 }
 
-/// The analysis engine. Holds graph + precomputed data between calls.
+/// The analysis engine — the primary entry point for running code health analysis.
+///
+/// `AnalysisEngine` is stateful: it caches the code graph, calibration data,
+/// and detector findings between calls. This enables three analysis modes:
+///
+/// - **Cold**: First call — full parse, graph build, calibrate, detect, score.
+/// - **Cached**: Subsequent call with no file changes — returns previous results instantly.
+/// - **Incremental**: Subsequent call with file changes — re-parses only deltas,
+///   patches the graph, and selectively re-runs affected detectors.
+///
+/// # Usage
+///
+/// ```no_run
+/// use repotoire::engine::{AnalysisEngine, AnalysisConfig};
+/// use std::path::Path;
+///
+/// let mut engine = AnalysisEngine::new(Path::new("/path/to/repo")).unwrap();
+/// let result = engine.analyze(&AnalysisConfig::default()).unwrap();
+/// println!("Score: {} ({})", result.score.overall, result.score.grade);
+/// ```
 pub struct AnalysisEngine {
     repo_path: PathBuf,
     project_config: ProjectConfig,
@@ -375,7 +427,6 @@ impl AnalysisEngine {
                 .collect(),
             source_files: all_files,
             graph: graph_out.graph,
-            value_store: graph_out.value_store,
             edge_fingerprint: graph_out.edge_fingerprint,
             gd_precomputed: Some(detect_out.gd_precomputed),
             style_profile: calibrate_out.style_profile,
@@ -550,7 +601,6 @@ impl AnalysisEngine {
                 .collect(),
             source_files: all_files,
             graph: graph_out.graph,
-            value_store: graph_out.value_store,
             edge_fingerprint: graph_out.edge_fingerprint,
             gd_precomputed: Some(detect_out.gd_precomputed),
             style_profile,
@@ -659,7 +709,6 @@ impl AnalysisEngine {
             file_hashes: meta.file_hashes,
             source_files: meta.source_files,
             graph: Arc::new(graph),
-            value_store: None,
             edge_fingerprint: meta.edge_fingerprint,
             gd_precomputed: None,
             style_profile: crate::calibrate::StyleProfile {

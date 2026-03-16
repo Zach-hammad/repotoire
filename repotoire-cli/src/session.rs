@@ -3,6 +3,12 @@
 //! `AnalysisSession` holds the full analysis state in memory. After an initial
 //! cold analysis via `new()`, subsequent file changes are handled by `update()`
 //! which delta-patches the graph and selectively re-runs detectors.
+//!
+//! **DEPRECATED**: This module is superseded by `engine::AnalysisEngine` which
+//! provides the same incremental analysis capabilities via a cleaner layered
+//! architecture. `AnalysisSession` is still referenced by the `watch` command
+//! (`cli/watch.rs`). It will be removed once `watch` is migrated to use
+//! `AnalysisEngine`.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};

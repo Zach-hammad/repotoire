@@ -4,7 +4,6 @@ use crate::calibrate::{NgramModel, StyleProfile};
 use crate::detectors::GdPrecomputed;
 use crate::graph::GraphStore;
 use crate::models::Finding;
-use crate::values::store::ValueStore;
 
 use super::{AnalysisStats, ScoreResult};
 
@@ -58,8 +57,6 @@ pub(crate) struct EngineState {
 
     /// The code graph (shared via Arc for cheap cloning into stages).
     pub graph: Arc<GraphStore>,
-    /// Value store for symbolic value tracking.
-    pub value_store: Option<Arc<ValueStore>>,
 
     /// Hash of all cross-file edges for topology change detection.
     pub edge_fingerprint: u64,

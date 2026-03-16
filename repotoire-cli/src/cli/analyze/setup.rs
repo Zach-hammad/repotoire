@@ -1,4 +1,9 @@
-//! Environment setup, configuration, and UI helpers for the analyze command.
+//! Environment setup, configuration, and UI helpers for the analyze command (legacy).
+//!
+//! NOTE: This module was used by the old `run()` pipeline. The primary path
+//! now uses `AnalysisEngine`. Kept for reference; will be removed in a
+//! future cleanup.
+#![allow(dead_code)]
 
 use crate::cache::CacheCoordinator;
 use crate::config::{load_project_config, ProjectConfig};

@@ -1,4 +1,9 @@
-//! Score calculation and health report building for the analyze command.
+//! Score calculation and health report building for the analyze command (legacy).
+//!
+//! NOTE: This module was used by the old `run()` pipeline. The primary path
+//! now uses `AnalysisEngine` (see `engine/stages/score.rs`). Kept for
+//! reference; will be removed in a future cleanup.
+#![allow(dead_code)]
 
 use super::setup::ScoreResult;
 use crate::config::ProjectConfig;

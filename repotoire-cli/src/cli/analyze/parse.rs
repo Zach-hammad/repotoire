@@ -1,8 +1,13 @@
-//! Parsing functions for the analyze command
+//! Parsing functions for the analyze command (legacy).
 //!
 //! This module contains all file parsing logic, including:
 //! - Parallel parsing with caching
 //! - Lite mode parsing (minimal memory)
+//!
+//! NOTE: This module was used by the old `run()` pipeline. The primary path
+//! now uses `AnalysisEngine` (see `engine/stages/parse.rs`). Kept for
+//! reference; will be removed in a future cleanup.
+#![allow(dead_code)]
 //! - Chunked parsing for huge repos
 
 use crate::detectors::ConcurrentCacheView;

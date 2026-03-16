@@ -32,28 +32,6 @@ fn count_lines(path: &Path) -> Result<usize> {
     Ok(content.lines().count())
 }
 
-/// Detect the language from file extension
-pub(crate) fn detect_language(path: &Path) -> String {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    match ext {
-        "py" | "pyi" => "Python",
-        "ts" | "tsx" => "TypeScript",
-        "js" | "jsx" | "mjs" => "JavaScript",
-        "rs" => "Rust",
-        "go" => "Go",
-        "java" => "Java",
-        "c" | "h" => "C",
-        "cpp" | "hpp" | "cc" => "C++",
-        "cs" => "C#",
-        "kt" | "kts" => "Kotlin",
-        "rb" => "Ruby",
-        "php" => "PHP",
-        "swift" => "Swift",
-        _ => "Unknown",
-    }
-    .to_string()
-}
-
 /// Detect language from a relative path string (avoids needing a &Path)
 fn detect_language_from_path_str(relative_str: &str) -> &'static str {
     let ext = relative_str.rsplit('.').next().unwrap_or("");
@@ -117,6 +95,7 @@ fn generate_module_patterns(relative_str: &str) -> Vec<String> {
 ///
 /// String properties (params, doc_comment) are written to the ExtraProps side table
 /// via `graph.update_node_properties()` after the node is inserted into the graph.
+#[allow(dead_code)]
 fn build_func_node(
     graph: &GraphStore,
     func: &Function,
@@ -165,6 +144,7 @@ fn build_func_node(
 ///
 /// String properties (doc_comment) are written to the ExtraProps side table
 /// via `graph.update_node_properties()` after the node is inserted into the graph.
+#[allow(dead_code)]
 fn build_class_node(graph: &GraphStore, class: &Class, relative_str: &str) -> CodeNode {
     let i = graph.interner();
     let file_key = i.intern(relative_str);
@@ -536,6 +516,7 @@ pub fn build_graph(
 ///
 /// Returns a [`ValueStore`] containing all resolved symbolic values extracted
 /// during parsing, with cross-function propagation already applied.
+#[allow(dead_code)]
 pub(super) fn build_graph_chunked(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
@@ -1483,6 +1464,7 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
 /// - True backpressure - parsers block when consumer is slow
 ///
 /// Memory target: <1.5GB for 50k files, <2GB for 100k files
+#[allow(dead_code)]
 pub(super) fn parse_and_build_streaming(
     files: &[PathBuf],
     repo_path: &Path,
@@ -1540,6 +1522,7 @@ pub(super) fn parse_and_build_streaming(
 /// discovered, rather than waiting for the entire walk to complete.
 ///
 /// Returns `(total_functions, total_classes)` matching the streaming contract.
+#[allow(dead_code)]
 pub(super) fn parse_and_build_streaming_overlapped(
     file_receiver: crossbeam_channel::Receiver<PathBuf>,
     repo_path: &Path,

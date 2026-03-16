@@ -2,6 +2,10 @@
 //!
 //! Handles full, incremental, and `--since` file collection modes,
 //! including cached finding retrieval for unchanged files.
+//!
+//! The engine stage `engine/stages/collect.rs` uses `collect_file_list`.
+//! The remaining functions are legacy from the old `run()` pipeline.
+#![allow(dead_code)]
 
 use super::setup::{FileCollectionResult, SUPPORTED_EXTENSIONS};
 use crate::config::{glob_match, ExcludeConfig};
