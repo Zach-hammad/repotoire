@@ -22,7 +22,7 @@ use crate::detectors::IncrementalCache;
 use crate::models::{Finding, Severity};
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::detect::{apply_detector_overrides, update_incremental_cache};
 
@@ -40,6 +40,7 @@ pub(super) fn postprocess_findings(
     rank: bool,
     min_confidence: Option<f64>,
     show_all: bool,
+    repo_path: &Path,
 ) {
     // Step 0: Replace random UUIDs with deterministic IDs for cache dedup (#73)
     for finding in findings.iter_mut() {
@@ -75,6 +76,7 @@ pub(super) fn postprocess_findings(
         incremental_cache,
         files_to_parse,
         findings,
+        repo_path,
     );
 
     // Step 2: Apply detector overrides from project config
@@ -422,7 +424,10 @@ fn filter_false_positives(
                 let prediction = classifier.predict(&features);
                 let category = DetectorCategory::from_detector(&f.detector);
                 let config = thresholds.get_category(category);
-                prediction.tp_probability >= config.filter_threshold as f64
+                // Round to 4 decimal places to eliminate floating-point
+                // jitter from parallel feature extraction (#determinism)
+                let rounded = (prediction.tp_probability * 10_000.0).round() / 10_000.0;
+                rounded >= config.filter_threshold as f64
             })
             .collect();
 
