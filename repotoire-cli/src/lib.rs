@@ -23,6 +23,7 @@ pub mod classifier;
 pub mod cli;
 pub mod config;
 pub mod detectors;
+pub mod engine;
 pub mod fixes;
 pub mod git;
 pub mod graph;
