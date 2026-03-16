@@ -11,7 +11,7 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::Direction;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, RwLock};
 
 use super::interner::StrKey;
 use super::store_models::ExtraProps;
@@ -50,7 +50,7 @@ pub struct GraphStore {
     edge_set: Mutex<HashSet<(NodeIndex, NodeIndex, EdgeKind)>>,
     /// Cached call maps from build_call_maps_raw() — computed once, reused by
     /// both DetectorEngine (CachedGraphQuery) and postprocess (FP filter).
-    call_maps_cache: OnceLock<CallMapsRaw>,
+    call_maps_cache: RwLock<Option<CallMapsRaw>>,
     /// Persistence layer (optional) — uses redb (ACID, well-maintained)
     db: Option<redb::Database>,
     /// Database path for lazy loading
@@ -85,7 +85,7 @@ impl GraphStore {
 
             extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
-            call_maps_cache: OnceLock::new(),
+            call_maps_cache: RwLock::new(None),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: false,
@@ -115,7 +115,7 @@ impl GraphStore {
 
             extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
-            call_maps_cache: OnceLock::new(),
+            call_maps_cache: RwLock::new(None),
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: true,
@@ -135,7 +135,7 @@ impl GraphStore {
 
             extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
-            call_maps_cache: OnceLock::new(),
+            call_maps_cache: RwLock::new(None),
             db: None,
             db_path: None,
             lazy_mode: false,
@@ -223,6 +223,11 @@ impl GraphStore {
         self.file_all_nodes_index.clear();
         self.metrics_cache.clear();
         self.extra_props.clear();
+        {
+            let mut guard = self.call_maps_cache.write()
+                .expect("call_maps_cache lock poisoned");
+            *guard = None;
+        }
 
         if let Some(ref db) = self.db {
             let write_txn = db.begin_write()?;
@@ -769,8 +774,12 @@ impl GraphStore {
         HashMap<usize, Vec<usize>>,
     ) {
         // Return cached result if already computed (avoids 74-103ms rebuild in postprocess)
-        if let Some(cached) = self.call_maps_cache.get() {
-            return cached.clone();
+        {
+            let guard = self.call_maps_cache.read()
+                .expect("call_maps_cache lock poisoned");
+            if let Some(cached) = guard.as_ref() {
+                return cached.clone();
+            }
         }
 
         use petgraph::visit::EdgeRef;
@@ -836,7 +845,9 @@ impl GraphStore {
 
         let result = (qn_to_idx, callers, callees);
         // Cache for subsequent calls (postprocess FP filter reuse)
-        let _ = self.call_maps_cache.set(result.clone());
+        let mut guard = self.call_maps_cache.write()
+            .expect("call_maps_cache lock poisoned");
+        *guard = Some(result.clone());
         result
     }
 
@@ -1425,6 +1436,13 @@ impl GraphStore {
                     graph.remove_edge(eid);
                 }
 
+                // Remove metrics_cache entries for this node's qualified name
+                if let Some(node) = graph.node_weight(*idx) {
+                    let qn_str = self.interner().resolve(node.qualified_name);
+                    let suffix = format!(":{}", qn_str);
+                    self.metrics_cache.retain(|k, _| !k.ends_with(&suffix));
+                }
+
                 // Remove the node from QN index
                 if let Some(node) = graph.node_weight(*idx) {
                     self.node_index.remove(&node.qualified_name);
@@ -1438,6 +1456,13 @@ impl GraphStore {
             self.file_functions_index.remove(&file_key);
             self.file_classes_index.remove(&file_key);
             self.function_spatial_index.remove(&file_key);
+        }
+
+        // Invalidate call maps cache — stale after node/edge removal
+        {
+            let mut guard = self.call_maps_cache.write()
+                .expect("call_maps_cache lock poisoned");
+            *guard = None;
         }
     }
 
@@ -1543,7 +1568,7 @@ impl GraphStore {
 
             extra_props: DashMap::new(),
             edge_set: Mutex::new(HashSet::new()),
-            call_maps_cache: OnceLock::new(),
+            call_maps_cache: RwLock::new(None),
             db: None,
             db_path: None,
             lazy_mode: false,

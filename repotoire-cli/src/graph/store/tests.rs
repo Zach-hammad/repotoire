@@ -556,3 +556,63 @@ fn test_edge_fingerprint_ignores_intra_file() {
 
     assert_eq!(fp_before, fp_after, "Intra-file edges should not affect the fingerprint");
 }
+
+// ==================== Call Maps Cache Invalidation Tests ====================
+
+#[test]
+fn test_call_maps_cache_invalidated_on_remove_file_entities() {
+    let store = GraphStore::in_memory();
+
+    // Set up: two files with functions and a cross-file call edge
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo").with_lines(1, 10));
+    store.add_node(CodeNode::function("bar", "src/b.rs").with_qualified_name("b.bar").with_lines(1, 10));
+    store.add_edges_batch(vec![
+        ("a.foo".to_string(), "b.bar".to_string(), CodeEdge::new(EdgeKind::Calls)),
+    ]);
+
+    // Warm the cache by calling build_call_maps_raw()
+    let (qn_to_idx, _callers, callees) = store.build_call_maps_raw();
+    assert!(qn_to_idx.contains_key(&store.interner().intern("a.foo")),
+        "a.foo should be in the call maps before removal");
+    assert!(!callees.is_empty(), "Should have callees before removal");
+
+    // Remove file a.rs — this must invalidate the call_maps_cache
+    store.remove_file_entities(&[std::path::PathBuf::from("src/a.rs")]);
+
+    // Rebuild call maps — should reflect the updated graph (no a.foo)
+    let (qn_to_idx_after, _callers_after, callees_after) = store.build_call_maps_raw();
+
+    // a.foo should no longer be present
+    assert!(!qn_to_idx_after.contains_key(&store.interner().intern("a.foo")),
+        "a.foo should NOT be in call maps after removal");
+
+    // b.bar should still be present
+    assert!(qn_to_idx_after.contains_key(&store.interner().intern("b.bar")),
+        "b.bar should still be in call maps after removal");
+
+    // No callees should remain (the only call edge was a.foo -> b.bar)
+    assert!(callees_after.is_empty(),
+        "No callees should exist after removing the caller's file");
+}
+
+#[test]
+fn test_metrics_cache_cleared_for_removed_entities() {
+    let store = GraphStore::in_memory();
+    store.add_node(CodeNode::function("foo", "src/a.rs").with_qualified_name("a.foo").with_lines(1, 10));
+    store.add_node(CodeNode::function("bar", "src/b.rs").with_qualified_name("b.bar").with_lines(1, 10));
+
+    // Cache metrics for both
+    store.cache_metric("degree_centrality:a.foo", 0.85);
+    store.cache_metric("degree_centrality:b.bar", 0.72);
+
+    // Remove file a.rs
+    store.remove_file_entities(&[std::path::PathBuf::from("src/a.rs")]);
+
+    // Metrics for a.foo should be cleared
+    assert!(store.get_cached_metric("degree_centrality:a.foo").is_none(),
+        "Metrics for removed entity a.foo should be cleared");
+
+    // Metrics for b.bar should still exist
+    assert!(store.get_cached_metric("degree_centrality:b.bar").is_some(),
+        "Metrics for remaining entity b.bar should be preserved");
+}
