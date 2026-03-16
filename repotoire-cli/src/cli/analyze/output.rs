@@ -72,6 +72,7 @@ pub(super) fn paginate_findings(
             })
             .then_with(|| a.line_start.cmp(&b.line_start))
             .then_with(|| a.detector.cmp(&b.detector))
+            .then_with(|| a.title.cmp(&b.title))
     });
 
     let displayed_findings = findings.len();

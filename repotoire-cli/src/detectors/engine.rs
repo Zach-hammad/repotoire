@@ -1372,7 +1372,27 @@ impl DetectorEngine {
             }
         }
 
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+        // Canonical sort for deterministic output: severity (desc), file, line, detector, title
+        findings.sort_by(|a, b| {
+            b.severity
+                .cmp(&a.severity)
+                .then_with(|| {
+                    let a_file = a
+                        .affected_files
+                        .first()
+                        .map(|f| f.to_string_lossy())
+                        .unwrap_or_default();
+                    let b_file = b
+                        .affected_files
+                        .first()
+                        .map(|f| f.to_string_lossy())
+                        .unwrap_or_default();
+                    a_file.cmp(&b_file)
+                })
+                .then_with(|| a.line_start.cmp(&b.line_start))
+                .then_with(|| a.detector.cmp(&b.detector))
+                .then_with(|| a.title.cmp(&b.title))
+        });
         Ok(findings)
     }
 
@@ -1555,7 +1575,27 @@ impl DetectorEngine {
             }
         }
 
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+        // Canonical sort for deterministic output: severity (desc), file, line, detector, title
+        findings.sort_by(|a, b| {
+            b.severity
+                .cmp(&a.severity)
+                .then_with(|| {
+                    let a_file = a
+                        .affected_files
+                        .first()
+                        .map(|f| f.to_string_lossy())
+                        .unwrap_or_default();
+                    let b_file = b
+                        .affected_files
+                        .first()
+                        .map(|f| f.to_string_lossy())
+                        .unwrap_or_default();
+                    a_file.cmp(&b_file)
+                })
+                .then_with(|| a.line_start.cmp(&b.line_start))
+                .then_with(|| a.detector.cmp(&b.detector))
+                .then_with(|| a.title.cmp(&b.title))
+        });
         Ok(findings)
     }
 
