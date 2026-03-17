@@ -636,6 +636,317 @@ impl CodeGraph {
     }
 }
 
+// ==================== GraphQuery trait implementation ====================
+//
+// Enables `CodeGraph` to be used as `&dyn GraphQuery` by detector and scoring
+// stages. All methods delegate to the compat bridges above or to native
+// CodeGraph indexed methods.
+
+#[allow(deprecated)]
+impl super::traits::GraphQuery for CodeGraph {
+    fn interner(&self) -> &super::interner::StringInterner {
+        self.interner()
+    }
+
+    fn extra_props(&self, qn: StrKey) -> Option<super::store_models::ExtraProps> {
+        CodeGraph::extra_props(self, qn).cloned()
+    }
+
+    fn get_functions(&self) -> Vec<CodeNode> {
+        self.get_functions_compat()
+    }
+
+    fn get_classes(&self) -> Vec<CodeNode> {
+        self.get_classes_compat()
+    }
+
+    fn get_files(&self) -> Vec<CodeNode> {
+        self.get_files_compat()
+    }
+
+    fn get_functions_shared(&self) -> std::sync::Arc<[CodeNode]> {
+        self.get_functions_shared_compat()
+    }
+
+    fn get_classes_shared(&self) -> std::sync::Arc<[CodeNode]> {
+        self.get_classes_shared_compat()
+    }
+
+    fn get_files_shared(&self) -> std::sync::Arc<[CodeNode]> {
+        self.get_files_shared_compat()
+    }
+
+    fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+        self.get_functions_in_file_compat(file_path)
+    }
+
+    fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+        self.get_classes_in_file_compat(file_path)
+    }
+
+    fn get_node(&self, qn: &str) -> Option<CodeNode> {
+        self.get_node_compat(qn)
+    }
+
+    fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
+        self.get_callers_compat(qn)
+    }
+
+    fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
+        self.get_callees_compat(qn)
+    }
+
+    fn call_fan_in(&self, qn: &str) -> usize {
+        self.call_fan_in_by_name(qn)
+    }
+
+    fn call_fan_out(&self, qn: &str) -> usize {
+        self.call_fan_out_by_name(qn)
+    }
+
+    fn get_calls(&self) -> Vec<(StrKey, StrKey)> {
+        self.get_calls_compat()
+    }
+
+    fn get_calls_shared(&self) -> std::sync::Arc<[(StrKey, StrKey)]> {
+        self.get_calls_shared_compat()
+    }
+
+    fn get_imports(&self) -> Vec<(StrKey, StrKey)> {
+        self.get_imports_compat()
+    }
+
+    fn get_inheritance(&self) -> Vec<(StrKey, StrKey)> {
+        self.get_inheritance_compat()
+    }
+
+    fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
+        self.get_child_classes_compat(qn)
+    }
+
+    fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
+        self.get_importers_compat(qn)
+    }
+
+    fn find_import_cycles(&self) -> Vec<Vec<String>> {
+        self.find_import_cycles_compat()
+    }
+
+    fn is_in_import_cycle(&self, file_path: &str) -> bool {
+        self.is_in_import_cycle_compat(file_path)
+    }
+
+    fn stats(&self) -> std::collections::BTreeMap<String, i64> {
+        CodeGraph::stats(self)
+    }
+
+    fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
+        self.find_function_at_compat(file_path, line)
+    }
+
+    fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
+        self.get_complex_functions_compat(min_complexity)
+    }
+
+    fn get_long_param_functions(&self, min_params: i64) -> Vec<CodeNode> {
+        self.get_long_param_functions_compat(min_params)
+    }
+
+    fn caller_file_spread(&self, qn: &str) -> usize {
+        self.caller_file_spread_compat(qn)
+    }
+
+    fn count_external_callers_of(
+        &self,
+        qn: &str,
+        class_file: &str,
+        class_start: u32,
+        class_end: u32,
+    ) -> usize {
+        self.count_external_callers_of_compat(qn, class_file, class_start, class_end)
+    }
+
+    fn caller_module_spread(&self, qn: &str) -> usize {
+        self.caller_module_spread_compat(qn)
+    }
+
+    fn build_call_maps_raw(
+        &self,
+    ) -> (
+        std::collections::HashMap<StrKey, usize>,
+        std::collections::HashMap<usize, Vec<usize>>,
+        std::collections::HashMap<usize, Vec<usize>>,
+    ) {
+        self.build_call_maps_raw_compat()
+    }
+
+    fn get_call_adjacency(
+        &self,
+    ) -> (
+        Vec<Vec<usize>>,
+        Vec<Vec<usize>>,
+        std::collections::HashMap<StrKey, usize>,
+    ) {
+        self.get_call_adjacency_compat()
+    }
+}
+
+// Also implement for Arc<CodeGraph> to match the existing Arc<GraphStore> impl.
+#[allow(deprecated)]
+impl super::traits::GraphQuery for std::sync::Arc<CodeGraph> {
+    fn interner(&self) -> &super::interner::StringInterner {
+        (**self).interner()
+    }
+
+    fn extra_props(&self, qn: StrKey) -> Option<super::store_models::ExtraProps> {
+        <CodeGraph as super::traits::GraphQuery>::extra_props(self, qn)
+    }
+
+    fn get_functions(&self) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_functions(self)
+    }
+
+    fn get_classes(&self) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_classes(self)
+    }
+
+    fn get_files(&self) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_files(self)
+    }
+
+    fn get_functions_shared(&self) -> std::sync::Arc<[CodeNode]> {
+        <CodeGraph as super::traits::GraphQuery>::get_functions_shared(self)
+    }
+
+    fn get_classes_shared(&self) -> std::sync::Arc<[CodeNode]> {
+        <CodeGraph as super::traits::GraphQuery>::get_classes_shared(self)
+    }
+
+    fn get_files_shared(&self) -> std::sync::Arc<[CodeNode]> {
+        <CodeGraph as super::traits::GraphQuery>::get_files_shared(self)
+    }
+
+    fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_functions_in_file(self, file_path)
+    }
+
+    fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_classes_in_file(self, file_path)
+    }
+
+    fn get_node(&self, qn: &str) -> Option<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_node(self, qn)
+    }
+
+    fn get_callers(&self, qn: &str) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_callers(self, qn)
+    }
+
+    fn get_callees(&self, qn: &str) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_callees(self, qn)
+    }
+
+    fn call_fan_in(&self, qn: &str) -> usize {
+        <CodeGraph as super::traits::GraphQuery>::call_fan_in(self, qn)
+    }
+
+    fn call_fan_out(&self, qn: &str) -> usize {
+        <CodeGraph as super::traits::GraphQuery>::call_fan_out(self, qn)
+    }
+
+    fn get_calls(&self) -> Vec<(StrKey, StrKey)> {
+        <CodeGraph as super::traits::GraphQuery>::get_calls(self)
+    }
+
+    fn get_calls_shared(&self) -> std::sync::Arc<[(StrKey, StrKey)]> {
+        <CodeGraph as super::traits::GraphQuery>::get_calls_shared(self)
+    }
+
+    fn get_imports(&self) -> Vec<(StrKey, StrKey)> {
+        <CodeGraph as super::traits::GraphQuery>::get_imports(self)
+    }
+
+    fn get_inheritance(&self) -> Vec<(StrKey, StrKey)> {
+        <CodeGraph as super::traits::GraphQuery>::get_inheritance(self)
+    }
+
+    fn get_child_classes(&self, qn: &str) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_child_classes(self, qn)
+    }
+
+    fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_importers(self, qn)
+    }
+
+    fn find_import_cycles(&self) -> Vec<Vec<String>> {
+        <CodeGraph as super::traits::GraphQuery>::find_import_cycles(self)
+    }
+
+    fn is_in_import_cycle(&self, file_path: &str) -> bool {
+        <CodeGraph as super::traits::GraphQuery>::is_in_import_cycle(self, file_path)
+    }
+
+    fn stats(&self) -> std::collections::BTreeMap<String, i64> {
+        <CodeGraph as super::traits::GraphQuery>::stats(self)
+    }
+
+    fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::find_function_at(self, file_path, line)
+    }
+
+    fn get_complex_functions(&self, min_complexity: i64) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_complex_functions(self, min_complexity)
+    }
+
+    fn get_long_param_functions(&self, min_params: i64) -> Vec<CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::get_long_param_functions(self, min_params)
+    }
+
+    fn caller_file_spread(&self, qn: &str) -> usize {
+        <CodeGraph as super::traits::GraphQuery>::caller_file_spread(self, qn)
+    }
+
+    fn count_external_callers_of(
+        &self,
+        qn: &str,
+        class_file: &str,
+        class_start: u32,
+        class_end: u32,
+    ) -> usize {
+        <CodeGraph as super::traits::GraphQuery>::count_external_callers_of(
+            self,
+            qn,
+            class_file,
+            class_start,
+            class_end,
+        )
+    }
+
+    fn caller_module_spread(&self, qn: &str) -> usize {
+        <CodeGraph as super::traits::GraphQuery>::caller_module_spread(self, qn)
+    }
+
+    fn build_call_maps_raw(
+        &self,
+    ) -> (
+        std::collections::HashMap<StrKey, usize>,
+        std::collections::HashMap<usize, Vec<usize>>,
+        std::collections::HashMap<usize, Vec<usize>>,
+    ) {
+        <CodeGraph as super::traits::GraphQuery>::build_call_maps_raw(self)
+    }
+
+    fn get_call_adjacency(
+        &self,
+    ) -> (
+        Vec<Vec<usize>>,
+        Vec<Vec<usize>>,
+        std::collections::HashMap<StrKey, usize>,
+    ) {
+        <CodeGraph as super::traits::GraphQuery>::get_call_adjacency(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

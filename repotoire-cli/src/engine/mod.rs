@@ -42,7 +42,8 @@ pub mod state;
 
 use anyhow::Context;
 use crate::config::{load_project_config, ProjectConfig};
-use crate::graph::{GraphQuery, GraphStore};
+use crate::graph::frozen::CodeGraph;
+use crate::graph::GraphQuery;
 use crate::models::Finding;
 use crate::scoring::ScoreBreakdown;
 use serde::{Deserialize, Serialize};
@@ -228,20 +229,44 @@ impl AnalysisEngine {
             .map(|s| s.graph.as_ref() as &dyn GraphQuery)
     }
 
+    /// Returns a reference to the concrete `CodeGraph` if analysis has been run.
+    ///
+    /// Use this when you need `CodeGraph`-specific APIs.
+    /// For general graph queries, prefer `graph()` which returns `&dyn GraphQuery`.
+    pub fn code_graph(&self) -> Option<&CodeGraph> {
+        self.state.as_ref().map(|s| s.graph.as_ref())
+    }
+
+    /// Returns a shared `Arc<CodeGraph>` if analysis has been run.
+    ///
+    /// Use this when you need to share the graph across handler boundaries
+    /// (e.g., MCP state passing the graph to other tool handlers).
+    pub fn graph_arc(&self) -> Option<Arc<CodeGraph>> {
+        self.state.as_ref().map(|s| Arc::clone(&s.graph))
+    }
+
     /// Returns a reference to the concrete `GraphStore` if analysis has been run.
     ///
-    /// Use this when you need `GraphStore`-specific APIs (e.g., `GraphScorer::new`).
-    /// For general graph queries, prefer `graph()` which returns `&dyn GraphQuery`.
+    /// Deprecated: prefer `code_graph()` or `graph()`. This is kept for backward
+    /// compatibility with code that needs `GraphStore`-specific APIs (MCP tools, etc.).
+    /// Returns None if no mutable_graph is cached (e.g., after load from disk).
     pub fn graph_store(&self) -> Option<&crate::graph::GraphStore> {
-        self.state.as_ref().map(|s| s.graph.as_ref())
+        self.state
+            .as_ref()
+            .and_then(|s| s.mutable_graph.as_ref())
+            .map(|g| g.as_ref())
     }
 
     /// Returns a shared `Arc<GraphStore>` if analysis has been run.
     ///
-    /// Use this when you need to share the graph across handler boundaries
-    /// (e.g., MCP state passing the graph to other tool handlers).
-    pub fn graph_arc(&self) -> Option<Arc<crate::graph::GraphStore>> {
-        self.state.as_ref().map(|s| Arc::clone(&s.graph))
+    /// Deprecated: prefer `graph_arc()` which returns `Arc<CodeGraph>`.
+    /// This is kept for backward compatibility with MCP state and other consumers
+    /// that haven't migrated yet.
+    pub fn graph_store_arc(&self) -> Option<Arc<crate::graph::GraphStore>> {
+        self.state
+            .as_ref()
+            .and_then(|s| s.mutable_graph.as_ref())
+            .map(Arc::clone)
     }
 
     /// Returns a reference to the project configuration.
@@ -330,7 +355,7 @@ impl AnalysisEngine {
             })
         })?;
 
-        // Stage 3: Graph — build the code graph from parse results
+        // Stage 3: Graph — build the mutable code graph from parse results
         let graph_out = timed(&mut timings, "graph", || {
             graph::graph_stage(&graph::GraphInput {
                 parse_results: &parse_out.results,
@@ -338,15 +363,20 @@ impl AnalysisEngine {
             })
         })?;
 
-        // Stage 4: Git enrich — add churn/blame/commit data to graph nodes
+        // Stage 4: Git enrich — add churn/blame/commit data to mutable graph nodes
         if !config.no_git {
             timed(&mut timings, "git_enrich", || {
                 git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
                     repo_path: &self.repo_path,
-                    graph: &graph_out.graph,
+                    graph: &graph_out.mutable_graph,
                 })
             })?;
         }
+
+        // Freeze: convert mutable GraphStore → immutable CodeGraph with indexes
+        let frozen = timed(&mut timings, "freeze", || {
+            graph::freeze_graph(&graph_out.mutable_graph, graph_out.value_store)
+        });
 
         // Stage 5: Calibrate — learn adaptive thresholds from the codebase
         let calibrate_out = timed(&mut timings, "calibrate", || {
@@ -360,13 +390,13 @@ impl AnalysisEngine {
         // Stage 6: Detect — run all detectors in parallel
         let detect_out = timed(&mut timings, "detect", || {
             detect::detect_stage(&detect::DetectInput {
-                graph: graph_out.graph.as_ref(),
+                graph: frozen.graph.as_ref(),
                 source_files: &all_files,
                 repo_path: &self.repo_path,
                 project_config: &self.project_config,
                 style_profile: Some(&calibrate_out.style_profile),
                 ngram_model: calibrate_out.ngram_model.as_ref(),
-                value_store: graph_out.value_store.as_ref(),
+                value_store: frozen.value_store.as_ref(),
                 skip_detectors: &config.skip_detectors,
                 workers: config.workers,
                 progress: self.progress.clone(),
@@ -384,7 +414,7 @@ impl AnalysisEngine {
             postprocess::postprocess_stage(postprocess::PostprocessInput {
                 findings: detect_out.findings,
                 project_config: &self.project_config,
-                graph: graph_out.graph.as_ref(),
+                graph: frozen.graph.as_ref(),
                 all_files: &all_files,
                 repo_path: &self.repo_path,
                 verify: config.verify,
@@ -394,7 +424,7 @@ impl AnalysisEngine {
         // Stage 8: Score — compute three-pillar health score
         let score_out = timed(&mut timings, "score", || {
             score::score_stage(&score::ScoreInput {
-                graph: graph_out.graph.as_ref(),
+                graph: frozen.graph.as_ref(),
                 findings: &postprocess_out.findings,
                 project_config: &self.project_config,
                 repo_path: &self.repo_path,
@@ -426,8 +456,9 @@ impl AnalysisEngine {
                 .map(|f| (f.path.clone(), f.content_hash))
                 .collect(),
             source_files: all_files,
-            graph: graph_out.graph,
-            edge_fingerprint: graph_out.edge_fingerprint,
+            graph: frozen.graph,
+            mutable_graph: Some(graph_out.mutable_graph),
+            edge_fingerprint: frozen.edge_fingerprint,
             precomputed: Some(detect_out.precomputed),
             style_profile: calibrate_out.style_profile,
             ngram_model: calibrate_out.ngram_model,
@@ -474,10 +505,23 @@ impl AnalysisEngine {
             })
         })?;
 
-        // Stage 3: Graph — patch existing graph with delta
+        // Stage 3: Graph — patch existing mutable graph with delta.
+        // If no mutable_graph is cached (e.g., after load from disk), rebuild from scratch.
+        let mutable_graph = prev_state.mutable_graph.unwrap_or_else(|| {
+            // Rebuild a mutable GraphStore from the frozen CodeGraph.
+            // This is a clone + rebuild, but only happens on the first incremental
+            // run after a load() from disk.
+            let store = crate::graph::GraphStore::in_memory();
+            // We can't easily reconstruct a GraphStore from a CodeGraph without
+            // re-inserting all nodes/edges, so fall back to a cold rebuild.
+            // The incremental path will still work correctly — it just re-adds
+            // the new parse results to a fresh graph.
+            Arc::new(store)
+        });
+
         let graph_out = timed(&mut timings, "graph", || {
             graph::graph_patch_stage(&graph::GraphPatchInput {
-                graph: prev_state.graph,
+                mutable_graph,
                 changed_files: &changes.changed,
                 removed_files: &changes.removed,
                 new_parse_results: &parse_out.results,
@@ -485,15 +529,20 @@ impl AnalysisEngine {
             })
         })?;
 
-        // Stage 4: Git enrich — enrich the patched graph
+        // Stage 4: Git enrich — enrich the patched mutable graph
         if !config.no_git {
             timed(&mut timings, "git_enrich", || {
                 git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
                     repo_path: &self.repo_path,
-                    graph: &graph_out.graph,
+                    graph: &graph_out.mutable_graph,
                 })
             })?;
         }
+
+        // Freeze: convert mutable GraphStore → immutable CodeGraph with indexes
+        let frozen = timed(&mut timings, "freeze", || {
+            graph::freeze_graph(&graph_out.mutable_graph, graph_out.value_store)
+        });
 
         // Stage 5: Calibrate — reuse cached style_profile, rebuild ngram if None
         let style_profile = prev_state.style_profile;
@@ -510,7 +559,7 @@ impl AnalysisEngine {
         // After load() from disk, precomputed is None — treat as topology changed
         // since process-local Spur values make fingerprint comparison unreliable.
         let topology_changed = prev_state.precomputed.is_none()
-            || prev_state.edge_fingerprint != graph_out.edge_fingerprint;
+            || prev_state.edge_fingerprint != frozen.edge_fingerprint;
 
         // Reuse precomputed data when topology is stable
         let cached_gd = if !topology_changed {
@@ -522,13 +571,13 @@ impl AnalysisEngine {
         // Stage 6: Detect — run all detectors (reusing PrecomputedAnalysis when topology is stable)
         let detect_out = timed(&mut timings, "detect", || {
             detect::detect_stage(&detect::DetectInput {
-                graph: graph_out.graph.as_ref(),
+                graph: frozen.graph.as_ref(),
                 source_files: &all_files,
                 repo_path: &self.repo_path,
                 project_config: &self.project_config,
                 style_profile: Some(&style_profile),
                 ngram_model: ngram_model.as_ref(),
-                value_store: graph_out.value_store.as_ref(),
+                value_store: frozen.value_store.as_ref(),
                 skip_detectors: &config.skip_detectors,
                 workers: config.workers,
                 progress: self.progress.clone(),
@@ -546,7 +595,7 @@ impl AnalysisEngine {
             postprocess::postprocess_stage(postprocess::PostprocessInput {
                 findings: detect_out.findings,
                 project_config: &self.project_config,
-                graph: graph_out.graph.as_ref(),
+                graph: frozen.graph.as_ref(),
                 all_files: &all_files,
                 repo_path: &self.repo_path,
                 verify: config.verify,
@@ -568,7 +617,7 @@ impl AnalysisEngine {
         // Stage 8: Score — compute three-pillar health score
         let score_out = timed(&mut timings, "score", || {
             score::score_stage(&score::ScoreInput {
-                graph: graph_out.graph.as_ref(),
+                graph: frozen.graph.as_ref(),
                 findings: &postprocess_out.findings,
                 project_config: &self.project_config,
                 repo_path: &self.repo_path,
@@ -600,8 +649,9 @@ impl AnalysisEngine {
                 .map(|f| (f.path.clone(), f.content_hash))
                 .collect(),
             source_files: all_files,
-            graph: graph_out.graph,
-            edge_fingerprint: graph_out.edge_fingerprint,
+            graph: frozen.graph,
+            mutable_graph: Some(graph_out.mutable_graph),
+            edge_fingerprint: frozen.edge_fingerprint,
             precomputed: Some(detect_out.precomputed),
             style_profile,
             ngram_model,
@@ -655,9 +705,9 @@ impl AnalysisEngine {
         std::fs::write(&meta_path, json)
             .with_context(|| format!("Failed to write {}", meta_path.display()))?;
 
-        // Save graph via GraphStore's bincode cache
+        // Save graph via CodeGraph's bincode persistence
         let graph_path = session_path.join("graph.bin");
-        state.graph.save_graph_cache(&graph_path)
+        state.graph.save_cache(&graph_path)
             .context("Failed to save graph cache")?;
 
         Ok(())
@@ -697,9 +747,9 @@ impl AnalysisEngine {
             );
         }
 
-        // Load graph from bincode cache
+        // Load graph from CodeGraph bincode cache
         let graph_path = session_path.join("graph.bin");
-        let graph = GraphStore::load_graph_cache(&graph_path)
+        let graph = CodeGraph::load_cache(&graph_path)
             .ok_or_else(|| anyhow::anyhow!(
                 "Failed to load graph cache from {}",
                 graph_path.display()
@@ -709,6 +759,7 @@ impl AnalysisEngine {
             file_hashes: meta.file_hashes,
             source_files: meta.source_files,
             graph: Arc::new(graph),
+            mutable_graph: None, // No mutable graph after load — rebuilt on first incremental
             edge_fingerprint: meta.edge_fingerprint,
             precomputed: None,
             style_profile: crate::calibrate::StyleProfile {

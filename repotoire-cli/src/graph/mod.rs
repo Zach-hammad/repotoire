@@ -16,6 +16,7 @@ pub mod builder;
 pub mod frozen;
 pub mod compat;
 pub mod metrics_cache;
+pub mod persistence;
 
 #[allow(unused_imports)] // Public API for downstream use — not consumed internally yet
 pub use interner::{StrKey, StringInterner};

@@ -1,5 +1,6 @@
-//! Stage 3: Graph construction and patching.
+//! Stage 3: Graph construction, patching, and freeze.
 
+use crate::graph::frozen::CodeGraph;
 use crate::graph::GraphStore;
 use crate::parsers::ParseResult;
 use crate::values::store::ValueStore;
@@ -13,9 +14,24 @@ pub struct GraphInput<'a> {
     pub repo_path: &'a Path,
 }
 
-/// Output from graph construction or patching.
+/// Output from graph construction (mutable phase — before git enrichment).
+///
+/// The `mutable_graph` field holds the old `GraphStore` which supports mutation
+/// (needed by git enrichment). After all mutations complete, call `freeze()`
+/// to produce the immutable `FrozenGraphOutput`.
 pub struct GraphOutput {
-    pub graph: Arc<GraphStore>,
+    /// Mutable graph for git enrichment and other mutations.
+    pub mutable_graph: Arc<GraphStore>,
+    pub value_store: Option<Arc<ValueStore>>,
+}
+
+/// Output from the frozen graph phase (immutable, indexed).
+///
+/// Produced by calling `freeze_graph()` after all mutations (git enrichment, etc.)
+/// are complete. The `graph` field is an immutable `CodeGraph` with pre-built indexes.
+pub struct FrozenGraphOutput {
+    /// Immutable, indexed code graph for detection and scoring.
+    pub graph: Arc<CodeGraph>,
     pub value_store: Option<Arc<ValueStore>>,
     /// Edge fingerprint (hash of all cross-file edges) for topology change detection.
     pub edge_fingerprint: u64,
@@ -23,7 +39,7 @@ pub struct GraphOutput {
 
 /// Input for incremental graph patching.
 pub struct GraphPatchInput<'a> {
-    pub graph: Arc<GraphStore>,
+    pub mutable_graph: Arc<GraphStore>,
     pub changed_files: &'a [PathBuf],
     pub removed_files: &'a [PathBuf],
     pub new_parse_results: &'a [(PathBuf, Arc<ParseResult>)],
@@ -31,6 +47,9 @@ pub struct GraphPatchInput<'a> {
 }
 
 /// Build a graph from scratch (cold path).
+///
+/// Returns a mutable `GraphOutput` suitable for git enrichment. After all
+/// mutations complete, call `freeze_graph()` to produce the immutable `FrozenGraphOutput`.
 pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
     let graph = Arc::new(GraphStore::in_memory());
 
@@ -49,14 +68,25 @@ pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
         &bar_style,
     )?;
 
-    // Compute edge fingerprint for topology change detection
-    let edge_fingerprint = graph.compute_edge_fingerprint();
-
     Ok(GraphOutput {
-        graph,
+        mutable_graph: graph,
         value_store: Some(Arc::new(value_store)),
-        edge_fingerprint,
     })
+}
+
+/// Freeze a mutable graph into an immutable `CodeGraph` with pre-built indexes.
+///
+/// Call this AFTER git enrichment and all other mutations are complete.
+/// Converts the `GraphStore` to a `CodeGraph` and computes the edge fingerprint.
+pub fn freeze_graph(mutable_graph: &GraphStore, value_store: Option<Arc<ValueStore>>) -> FrozenGraphOutput {
+    let code_graph = mutable_graph.to_code_graph();
+    let edge_fingerprint = code_graph.edge_fingerprint();
+
+    FrozenGraphOutput {
+        graph: Arc::new(code_graph),
+        value_store,
+        edge_fingerprint,
+    }
 }
 
 /// Patch an existing graph with delta changes (incremental path).
@@ -64,9 +94,10 @@ pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
 /// Steps:
 /// 1. Remove entities for changed + removed files from the existing graph
 /// 2. Re-insert new nodes/edges from the fresh parse results
-/// 3. Compute a new edge fingerprint for topology change detection
+///
+/// Returns a mutable GraphOutput for further enrichment.
 pub fn graph_patch_stage(input: &GraphPatchInput) -> Result<GraphOutput> {
-    let graph = input.graph.clone();
+    let graph = input.mutable_graph.clone();
 
     // Step 1: Remove old entities for changed + removed files.
     // remove_file_entities expects relative paths (matching how build_graph stores them).
@@ -99,22 +130,15 @@ pub fn graph_patch_stage(input: &GraphPatchInput) -> Result<GraphOutput> {
             &bar_style,
         )?;
 
-        // Step 3: Compute new edge fingerprint
-        let edge_fingerprint = graph.compute_edge_fingerprint();
-
         Ok(GraphOutput {
-            graph,
+            mutable_graph: graph,
             value_store: Some(Arc::new(value_store)),
-            edge_fingerprint,
         })
     } else {
-        // No new files to add — just compute fingerprint after removals
-        let edge_fingerprint = graph.compute_edge_fingerprint();
-
+        // No new files to add
         Ok(GraphOutput {
-            graph,
+            mutable_graph: graph,
             value_store: None,
-            edge_fingerprint,
         })
     }
 }

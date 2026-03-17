@@ -2,7 +2,7 @@
 
 use crate::config::ProjectConfig;
 use crate::engine::ScoreResult;
-use crate::graph::GraphStore;
+use crate::graph::GraphQuery;
 use crate::models::Finding;
 use crate::scoring::GraphScorer;
 use anyhow::Result;
@@ -10,10 +10,8 @@ use std::path::Path;
 
 /// Input for the score stage.
 pub struct ScoreInput<'a> {
-    /// The concrete GraphStore — needed by GraphScorer which requires &GraphStore,
-    /// not &dyn GraphQuery, because it calls compute_coupling_stats() and other
-    /// methods not on the trait.
-    pub graph: &'a GraphStore,
+    /// The graph — any type that implements GraphQuery (CodeGraph, GraphStore, etc.).
+    pub graph: &'a dyn GraphQuery,
     pub findings: &'a [Finding],
     pub project_config: &'a ProjectConfig,
     pub repo_path: &'a Path,

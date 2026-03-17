@@ -159,9 +159,9 @@ pub fn run_engine(
 
     // Explain score (if requested)
     if output.explain_score {
-        if let Some(graph_store) = engine.graph_store() {
+        if let Some(graph) = engine.graph() {
             let scorer = crate::scoring::GraphScorer::new(
-                graph_store,
+                graph,
                 engine.project_config(),
                 engine.repo_path(),
             );

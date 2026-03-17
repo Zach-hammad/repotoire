@@ -115,12 +115,15 @@ impl HandlerState {
 
     /// Initialize or return the cached graph client.
     ///
-    /// Prefers the engine's graph (freshest) when available, then falls
-    /// back to the cached Arc, and finally initializes a new GraphStore.
+    /// Prefers the engine's mutable GraphStore (freshest) when available, then
+    /// falls back to the cached Arc, and finally initializes a new GraphStore.
+    ///
+    /// Note: returns `Arc<GraphStore>` for backward compatibility with MCP tools.
+    /// MCP tools will be migrated to `Arc<CodeGraph>` / `&dyn GraphQuery` in Phase C.
     pub fn graph(&mut self) -> Result<Arc<GraphStore>> {
-        // If the engine has a graph, prefer that (it's the freshest)
+        // If the engine has a mutable GraphStore, prefer that (it's the freshest)
         if let Some(ref engine) = self.engine {
-            if let Some(arc) = engine.graph_arc() {
+            if let Some(arc) = engine.graph_store_arc() {
                 self.graph = Some(Arc::clone(&arc));
                 return Ok(arc);
             }
@@ -169,7 +172,9 @@ impl HandlerState {
 
         // Populate the graph field so other tools (graph queries,
         // impact analysis, etc.) can use the engine's graph.
-        if let Some(arc) = engine.graph_arc() {
+        // Use graph_store_arc() for backward compatibility with MCP tools
+        // that still take &GraphStore.
+        if let Some(arc) = engine.graph_store_arc() {
             self.graph = Some(arc);
         }
 

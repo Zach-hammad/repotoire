@@ -5,7 +5,7 @@
 
 use crate::config::ProjectConfig;
 use crate::detectors::api_surface::is_api_surface;
-use crate::graph::GraphStore;
+use crate::graph::GraphQuery;
 use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -232,7 +232,7 @@ fn classify_pillar(category: &str, detector: &str, is_security: bool) -> Pillar 
 
 /// Graph-aware health scorer
 pub struct GraphScorer<'a> {
-    graph: &'a GraphStore,
+    graph: &'a dyn GraphQuery,
     config: &'a ProjectConfig,
     repo_path: &'a std::path::Path,
 }
@@ -240,7 +240,7 @@ pub struct GraphScorer<'a> {
 impl<'a> GraphScorer<'a> {
     // repotoire:ignore[surprisal] — constructor with many parameters is expected for scorer
     pub fn new(
-        graph: &'a GraphStore,
+        graph: &'a dyn GraphQuery,
         config: &'a ProjectConfig,
         repo_path: &'a std::path::Path,
     ) -> Self {
@@ -462,8 +462,28 @@ impl<'a> GraphScorer<'a> {
             })
             .collect();
 
-        // Compute coupling directly on the graph — avoids materializing 3M+ (String, String) pairs
-        let (total_calls, cross_module_calls) = self.graph.compute_coupling_stats();
+        // Compute coupling stats from call edges.
+        // For each call edge, compare the file_path parent dirs of source and target.
+        let (total_calls, cross_module_calls) = {
+            let calls = self.graph.get_calls();
+            let mut total = 0usize;
+            let mut cross = 0usize;
+            for &(src_qn, tgt_qn) in &calls {
+                total += 1;
+                let src_node = self.graph.get_node(i.resolve(src_qn));
+                let tgt_node = self.graph.get_node(i.resolve(tgt_qn));
+                if let (Some(src), Some(tgt)) = (src_node, tgt_node) {
+                    let src_path = i.resolve(src.file_path);
+                    let dst_path = i.resolve(tgt.file_path);
+                    let src_mod = std::path::Path::new(src_path).parent();
+                    let dst_mod = std::path::Path::new(dst_path).parent();
+                    if src_mod != dst_mod {
+                        cross += 1;
+                    }
+                }
+            }
+            (total, cross)
+        };
 
         debug!(
             "Call graph: {} total calls, {} cross-module, {} modules",

@@ -2,7 +2,7 @@
 
 use crate::calibrate::{NgramModel, StyleProfile};
 use crate::detectors::PrecomputedAnalysis;
-use crate::graph::GraphStore;
+use crate::graph::frozen::CodeGraph;
 use crate::models::Finding;
 
 use super::{AnalysisStats, ScoreResult};
@@ -55,8 +55,13 @@ pub(crate) struct EngineState {
     /// All source file paths from the last collect pass.
     pub source_files: Vec<PathBuf>,
 
-    /// The code graph (shared via Arc for cheap cloning into stages).
-    pub graph: Arc<GraphStore>,
+    /// The immutable code graph (shared via Arc for cheap cloning into stages).
+    pub graph: Arc<CodeGraph>,
+
+    /// The mutable GraphStore kept alive for incremental patching.
+    /// On the incremental path, we need to mutate the graph (remove old entities,
+    /// add new ones) before re-freezing. This is None after load() from disk.
+    pub mutable_graph: Option<Arc<crate::graph::GraphStore>>,
 
     /// Hash of all cross-file edges for topology change detection.
     pub edge_fingerprint: u64,

@@ -1466,6 +1466,37 @@ impl GraphStore {
         }
     }
 
+    // ==================== Conversion to CodeGraph ====================
+
+    /// Convert this `GraphStore` into an immutable `CodeGraph` with pre-built indexes.
+    ///
+    /// Clones the StableGraph, node_index, and extra_props from the old locked/DashMap
+    /// structures into the new architecture. Indexes are built during construction.
+    ///
+    /// Use this after all mutations (graph build, git enrichment) are complete,
+    /// to transition from the mutable build phase to the immutable query phase.
+    pub fn to_code_graph(&self) -> super::frozen::CodeGraph {
+        use super::indexes::GraphIndexes;
+
+        // Clone graph under lock
+        let graph = self.read_graph().clone();
+
+        // Clone node_index from DashMap
+        let node_index: HashMap<StrKey, NodeIndex> = self.node_index.iter()
+            .map(|entry| (*entry.key(), *entry.value()))
+            .collect();
+
+        // Clone extra_props from DashMap
+        let extra_props: HashMap<StrKey, ExtraProps> = self.extra_props.iter()
+            .map(|entry| (*entry.key(), entry.value().clone()))
+            .collect();
+
+        // Build indexes
+        let indexes = GraphIndexes::build(&graph, &node_index);
+
+        super::frozen::CodeGraph::from_parts(graph, node_index, extra_props, indexes)
+    }
+
     // ==================== Graph Cache (bincode) ====================
 
     /// Save the in-memory graph to a bincode cache file for fast reload.
