@@ -223,9 +223,9 @@ pub fn apply_hmm_context_filter(findings: Vec<Finding>, ctx: &AnalysisContext<'_
 
     // Build per-file function list from graph, sorted by line_start for binary search
     let i = ctx.graph.interner();
-    let all_functions = ctx.graph.get_functions_shared();
     let mut func_by_file: HashMap<&str, Vec<&CodeNode>> = HashMap::new();
-    for func in all_functions.iter() {
+    for &func_idx in ctx.graph.functions_idx() {
+        let Some(func) = ctx.graph.node_idx(func_idx) else { continue };
         func_by_file.entry(func.path(i)).or_default().push(func);
     }
     // Sort each file's functions by line_start (done once, shared by all findings)

@@ -228,8 +228,8 @@ impl<'a> ClassContextBuilder<'a> {
         let i = self.graph.interner();
         let start = std::time::Instant::now();
 
-        let classes = self.graph.get_classes_shared();
-        let class_count = classes.len();
+        let class_idxs = self.graph.classes_idx();
+        let class_count = class_idxs.len();
 
         if class_count == 0 {
             return HashMap::new();
@@ -237,21 +237,23 @@ impl<'a> ClassContextBuilder<'a> {
 
         info!("Building class context for {} classes", class_count);
 
-        let calls = self.graph.get_calls_shared();
+        let call_edges = self.graph.all_call_edges();
 
         // Build call lookup: function qn -> set of called qns
         let call_map: HashMap<&str, HashSet<&str>> = {
             let mut map: HashMap<&str, HashSet<&str>> = HashMap::new();
-            for (caller, callee) in calls.iter() {
-                map.entry(i.resolve(*caller))
-                    .or_default()
-                    .insert(i.resolve(*callee));
+            for &(caller_idx, callee_idx) in call_edges {
+                if let (Some(caller), Some(callee)) = (self.graph.node_idx(caller_idx), self.graph.node_idx(callee_idx)) {
+                    map.entry(caller.qn(i))
+                        .or_default()
+                        .insert(callee.qn(i));
+                }
             }
             map
         };
 
         // Build class method map: class qn -> vec of method nodes
-        // Group classes by file first to avoid calling get_functions_in_file() 13K+ times.
+        // Group classes by file first to avoid calling functions_in_file_idx() 13K+ times.
         // With ~4 classes/file, this reduces from 13K to ~3.4K file lookups.
         let class_methods: HashMap<&str, Vec<crate::graph::store_models::CodeNode>> = {
             let mut map: HashMap<&str, Vec<crate::graph::store_models::CodeNode>> = HashMap::new();
@@ -259,23 +261,26 @@ impl<'a> ClassContextBuilder<'a> {
             // Group classes by file path
             let mut classes_by_file: HashMap<&str, Vec<&crate::graph::store_models::CodeNode>> =
                 HashMap::new();
-            for class in classes.iter() {
-                classes_by_file
-                    .entry(class.path(i))
-                    .or_default()
-                    .push(class);
+            for &class_idx in class_idxs {
+                if let Some(class) = self.graph.node_idx(class_idx) {
+                    classes_by_file
+                        .entry(class.path(i))
+                        .or_default()
+                        .push(class);
+                }
             }
 
             // For each unique file, fetch functions once and assign to all classes in that file
             for (file_path, file_classes) in &classes_by_file {
-                let file_funcs = self.graph.get_functions_in_file(file_path);
+                let file_func_idxs = self.graph.functions_in_file_idx(file_path);
                 for class in file_classes {
-                    let methods: Vec<_> = file_funcs
+                    let methods: Vec<_> = file_func_idxs
                         .iter()
+                        .filter_map(|&idx| self.graph.node_idx(idx))
                         .filter(|f| {
                             f.line_start >= class.line_start && f.line_end <= class.line_end
                         })
-                        .cloned()
+                        .copied()
                         .collect();
                     if !methods.is_empty() {
                         map.insert(class.qn(i), methods);
@@ -286,9 +291,9 @@ impl<'a> ClassContextBuilder<'a> {
         };
 
         // Build class usage map: how many other classes use each class
-        // O(E) approach: build method→class reverse map, then iterate call edges
+        // O(E) approach: build method->class reverse map, then iterate call edges
         let class_usages: HashMap<&str, usize> = {
-            // Build reverse map: method_qn → class_qn
+            // Build reverse map: method_qn -> class_qn
             let mut method_to_class: HashMap<&str, &str> = HashMap::new();
             for (class_qn, methods) in &class_methods {
                 for method in methods {
@@ -301,12 +306,14 @@ impl<'a> ClassContextBuilder<'a> {
             let mut class_pair_seen: HashSet<(&str, &str)> = HashSet::new();
             let mut usages: HashMap<&str, usize> = HashMap::new();
 
-            for (caller, callee) in calls.iter() {
-                let caller_class = method_to_class.get(i.resolve(*caller));
-                let callee_class = method_to_class.get(i.resolve(*callee));
-                if let (Some(&from_class), Some(&to_class)) = (caller_class, callee_class) {
-                    if from_class != to_class && class_pair_seen.insert((from_class, to_class)) {
-                        *usages.entry(to_class).or_insert(0) += 1;
+            for &(caller_idx, callee_idx) in call_edges {
+                if let (Some(caller), Some(callee)) = (self.graph.node_idx(caller_idx), self.graph.node_idx(callee_idx)) {
+                    let caller_class = method_to_class.get(caller.qn(i));
+                    let callee_class = method_to_class.get(callee.qn(i));
+                    if let (Some(&from_class), Some(&to_class)) = (caller_class, callee_class) {
+                        if from_class != to_class && class_pair_seen.insert((from_class, to_class)) {
+                            *usages.entry(to_class).or_insert(0) += 1;
+                        }
                     }
                 }
             }
@@ -315,7 +322,8 @@ impl<'a> ClassContextBuilder<'a> {
 
         let mut contexts = ClassContextMap::new();
 
-        for class in classes.iter() {
+        for &class_idx in class_idxs {
+            let Some(class) = self.graph.node_idx(class_idx) else { continue };
             let qn = class.qn(i);
 
             let methods = class_methods.get(qn).cloned().unwrap_or_default();

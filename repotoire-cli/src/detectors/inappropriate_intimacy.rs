@@ -280,12 +280,9 @@ impl Detector for InappropriateIntimacyDetector {
         let mut a_to_b_funcs: HashMap<(String, String), HashSet<String>> = HashMap::new();
         let mut b_to_a_funcs: HashMap<(String, String), HashSet<String>> = HashMap::new();
 
-        let calls = graph.get_calls_shared();
-        for (caller_key, callee_key) in calls.iter() {
-            let caller_str = i.resolve(*caller_key);
-            let callee_str = i.resolve(*callee_key);
+        for &(caller_idx, callee_idx) in graph.all_call_edges() {
             if let (Some(caller_node), Some(callee_node)) =
-                (graph.get_node(caller_str), graph.get_node(callee_str))
+                (graph.node_idx(caller_idx), graph.node_idx(callee_idx))
             {
                 let caller_file = caller_node.path(i);
                 let callee_file = callee_node.path(i);
