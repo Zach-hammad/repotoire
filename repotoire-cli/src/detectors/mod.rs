@@ -255,6 +255,7 @@ mod engine;
 pub mod file_cache;
 pub mod file_index;
 pub mod file_provider;
+pub mod runner;
 pub mod streaming_engine;
 
 // Context classification using HMM
@@ -411,6 +412,12 @@ pub use file_provider::{FileProvider, SourceFiles};
 
 // Re-export engine
 pub use engine::{DetectorEngine, DetectorEngineBuilder, GdPrecomputed, precompute_gd_startup};
+
+// Re-export standalone runner functions
+pub use runner::{
+    apply_hmm_context_filter, filter_test_file_findings, inject_taint_precomputed,
+    run_detectors, sort_findings_deterministic,
+};
 
 // Re-export graph-based detector implementations
 pub use circular_dependency::CircularDependencyDetector;
