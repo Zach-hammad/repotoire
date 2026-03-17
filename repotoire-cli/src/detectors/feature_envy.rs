@@ -477,7 +477,7 @@ impl Detector for FeatureEnvyDetector {
             "/memory/",
         ];
 
-        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
+        for func in graph.get_functions_shared().iter() {
             // Skip test functions (they naturally access many things for fixtures)
             if func.node_name(i).starts_with("test_") || func.path(i).contains("/tests/") {
                 continue;

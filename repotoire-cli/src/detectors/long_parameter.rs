@@ -409,7 +409,7 @@ impl Detector for LongParameterListDetector {
         // Use adaptive threshold from context resolver, falling back to config.
         let adaptive_base = ctx.threshold(MetricKind::ParameterCount, self.thresholds.max_params as f64) as usize;
 
-        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
+        for func in graph.get_functions_shared().iter() {
             let param_count = func.param_count_opt().unwrap_or(0) as usize;
 
             // Quick pre-filter: skip functions clearly under the base threshold.

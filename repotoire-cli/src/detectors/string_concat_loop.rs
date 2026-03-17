@@ -46,7 +46,7 @@ impl StringConcatLoopDetector {
         let mut concat_funcs = HashSet::new();
         let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
-        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
+        for func in graph.get_functions_shared().iter() {
             let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
                 crate::cache::global_cache()
                     .content(std::path::Path::new(func.path(i)))
@@ -304,7 +304,7 @@ impl Detector for StringConcatLoopDetector {
         if !concat_funcs.is_empty() {
             let mut graph_file_lines: HashMap<String, Vec<String>> = HashMap::new();
 
-            for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
+            for func in graph.get_functions_shared().iter() {
                 if findings.len() >= self.max_findings {
                     break;
                 }

@@ -273,7 +273,7 @@ impl ShotgunSurgeryDetector {
         let mut findings = Vec::new();
         let all_functions = graph.get_functions_shared();
 
-        for class in graph.classes_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
+        for class in graph.get_classes_shared().iter() {
             // Skip interfaces
             if class.qn(i).contains("::interface::") {
                 continue;

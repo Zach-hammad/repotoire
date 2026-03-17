@@ -34,7 +34,7 @@ impl MissingAwaitDetector {
     fn find_async_functions(graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let i = graph.interner();
         let mut async_funcs = HashSet::new();
-        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
+        for func in graph.get_functions_shared().iter() {
             if func.is_async() {
                 async_funcs.insert(func.node_name(i).to_string());
             }

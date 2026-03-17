@@ -254,7 +254,7 @@ impl Detector for InconsistentReturnsDetector {
         let i = graph.interner();
         let mut findings = vec![];
 
-        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
+        for func in graph.get_functions_shared().iter() {
             if findings.len() >= self.max_findings {
                 break;
             }

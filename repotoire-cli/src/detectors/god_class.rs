@@ -499,7 +499,7 @@ impl Detector for GodClassDetector {
             None
         };
 
-        for class in graph.classes_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
+        for class in graph.get_classes_shared().iter() {
             // Skip TypeScript/Go interfaces - they have properties, not methods
             if class.qn(i).contains("::interface::")
                 || class.qn(i).contains("::type::")
