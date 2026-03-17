@@ -229,11 +229,18 @@ impl<'a> ClassContextBuilder<'a> {
         let start = std::time::Instant::now();
 
         let class_idxs = self.graph.classes_idx();
-        let class_count = class_idxs.len();
 
-        if class_count == 0 {
-            return HashMap::new();
+        // Use NodeIndex-based fast path when available (CodeGraph)
+        // Fall back to old API for GraphStore (used in tests)
+        if class_idxs.is_empty() {
+            let classes = self.graph.get_classes_shared();
+            if classes.is_empty() {
+                return HashMap::new();
+            }
+            return self.build_legacy(i, &classes);
         }
+
+        let class_count = class_idxs.len();
 
         info!("Building class context for {} classes", class_count);
 
@@ -424,6 +431,126 @@ impl<'a> ClassContextBuilder<'a> {
         }
         debug!("Class role distribution: {:?}", role_counts);
 
+        contexts
+    }
+
+    /// Build using old string-based API (GraphStore fallback for tests).
+    fn build_legacy(
+        &self,
+        i: &crate::graph::interner::StringInterner,
+        classes: &std::sync::Arc<[crate::graph::store_models::CodeNode]>,
+    ) -> ClassContextMap {
+        let start = std::time::Instant::now();
+        info!("Building class context for {} classes (legacy)", classes.len());
+
+        let calls = self.graph.get_calls_shared();
+
+        let call_map: HashMap<&str, HashSet<&str>> = {
+            let mut map: HashMap<&str, HashSet<&str>> = HashMap::new();
+            for (caller, callee) in calls.iter() {
+                map.entry(i.resolve(*caller))
+                    .or_default()
+                    .insert(i.resolve(*callee));
+            }
+            map
+        };
+
+        let class_methods: HashMap<&str, Vec<crate::graph::store_models::CodeNode>> = {
+            let mut map: HashMap<&str, Vec<crate::graph::store_models::CodeNode>> = HashMap::new();
+            let mut classes_by_file: HashMap<&str, Vec<&crate::graph::store_models::CodeNode>> =
+                HashMap::new();
+            for class in classes.iter() {
+                classes_by_file
+                    .entry(class.path(i))
+                    .or_default()
+                    .push(class);
+            }
+            for (file_path, file_classes) in &classes_by_file {
+                let file_funcs = self.graph.get_functions_in_file(file_path);
+                for class in file_classes {
+                    let methods: Vec<_> = file_funcs
+                        .iter()
+                        .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
+                        .cloned()
+                        .collect();
+                    if !methods.is_empty() {
+                        map.insert(class.qn(i), methods);
+                    }
+                }
+            }
+            map
+        };
+
+        let class_usages: HashMap<&str, usize> = {
+            let mut method_to_class: HashMap<&str, &str> = HashMap::new();
+            for (class_qn, methods) in &class_methods {
+                for method in methods {
+                    method_to_class.insert(method.qn(i), class_qn);
+                }
+            }
+            let mut class_pair_seen: HashSet<(&str, &str)> = HashSet::new();
+            let mut usages: HashMap<&str, usize> = HashMap::new();
+            for (caller, callee) in calls.iter() {
+                let caller_class = method_to_class.get(i.resolve(*caller));
+                let callee_class = method_to_class.get(i.resolve(*callee));
+                if let (Some(&from_class), Some(&to_class)) = (caller_class, callee_class) {
+                    if from_class != to_class && class_pair_seen.insert((from_class, to_class)) {
+                        *usages.entry(to_class).or_insert(0) += 1;
+                    }
+                }
+            }
+            usages
+        };
+
+        let mut contexts = ClassContextMap::new();
+        for class in classes.iter() {
+            let qn = class.qn(i);
+            let methods = class_methods.get(qn).cloned().unwrap_or_default();
+            let method_count = class.get_i64("methodCount").map(|n| n as usize).unwrap_or(methods.len());
+            let total_complexity: i64 = methods.iter().filter_map(|m| m.complexity_opt()).sum();
+            let avg_complexity = if method_count > 0 { total_complexity as f64 / method_count as f64 } else { 0.0 };
+            let mut delegating_count = 0;
+            let mut external_deps: HashSet<String> = HashSet::new();
+            for method in &methods {
+                if let Some(callees) = call_map.get(method.qn(i)) {
+                    let ext: Vec<_> = callees.iter().filter(|c| !methods.iter().any(|m| m.qn(i) == **c)).collect();
+                    if !ext.is_empty() {
+                        delegating_count += 1;
+                        for e in ext { if let Some(m) = e.rsplit("::").nth(1) { external_deps.insert(m.to_string()); } }
+                    }
+                }
+            }
+            let delegation_ratio = if method_count > 0 { delegating_count as f64 / method_count as f64 } else { 0.0 };
+            let public_methods = methods.iter().filter(|m| !m.node_name(i).starts_with('_')).count();
+            let usages = *class_usages.get(qn).unwrap_or(&0);
+            let is_test = self.is_test_path(class.path(i));
+            let is_framework_path = self.is_framework_path(class.path(i));
+            let (role, role_reason) = self.infer_role(
+                class.node_name(i), class.path(i), method_count, avg_complexity,
+                delegation_ratio, external_deps.len(), usages, is_test, is_framework_path,
+            );
+            contexts.insert(qn.to_string(), ClassContext {
+                qualified_name: qn.to_string(),
+                name: class.node_name(i).to_string(),
+                file_path: class.path(i).to_string(),
+                method_count,
+                loc: class.loc() as usize,
+                complexity: total_complexity as usize,
+                avg_method_complexity: avg_complexity,
+                delegating_methods: delegating_count,
+                delegation_ratio,
+                public_methods,
+                external_dependencies: external_deps.len(),
+                usages,
+                role,
+                is_test,
+                is_framework_path,
+                role_reason,
+            });
+        }
+
+        let elapsed = start.elapsed();
+        info!("Built class context (legacy) in {:?}", elapsed);
         contexts
     }
 
