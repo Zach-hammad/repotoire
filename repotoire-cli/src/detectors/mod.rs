@@ -56,6 +56,67 @@ macro_rules! impl_taint_precompute {
 }
 pub(crate) use impl_taint_precompute;
 
+// ── Registry infrastructure ────────────────────────────────────────────────
+
+/// Everything a detector needs for construction.
+/// Built once per analysis from ProjectConfig + StyleProfile.
+pub struct DetectorInit<'a> {
+    pub repo_path: &'a std::path::Path,
+    pub project_config: &'a crate::config::ProjectConfig,
+    pub resolver: crate::calibrate::ThresholdResolver,
+    pub ngram_model: Option<&'a crate::calibrate::NgramModel>,
+}
+
+impl<'a> DetectorInit<'a> {
+    /// Build a per-detector config with adaptive thresholds.
+    pub fn config_for(&self, detector_name: &str) -> DetectorConfig {
+        DetectorConfig::from_project_config_with_type(
+            detector_name,
+            self.project_config,
+            self.repo_path,
+        )
+        .with_adaptive(self.resolver.clone())
+    }
+
+    #[cfg(test)]
+    pub fn test_default() -> DetectorInit<'static> {
+        let path: &'static std::path::Path =
+            Box::leak(std::env::current_dir().unwrap().into_boxed_path());
+        DetectorInit {
+            repo_path: path,
+            project_config: Box::leak(Box::new(crate::config::ProjectConfig::default())),
+            resolver: crate::calibrate::ThresholdResolver::default(),
+            ngram_model: None,
+        }
+    }
+}
+
+/// Trait for detectors that participate in the automatic registry.
+/// Every registered detector implements create() as its canonical factory.
+pub trait RegisteredDetector: Detector {
+    fn create(init: &DetectorInit) -> Arc<dyn Detector>
+    where
+        Self: Sized;
+}
+
+/// Function pointer type for detector factories.
+type DetectorFactory = fn(&DetectorInit) -> Arc<dyn Detector>;
+
+/// Compile-time enforcement that D implements RegisteredDetector.
+const fn register<D: RegisteredDetector>() -> DetectorFactory {
+    D::create
+}
+
+/// Complete list of all registered detectors. Entries added in subsequent tasks.
+const DETECTOR_FACTORIES: &[DetectorFactory] = &[];
+
+/// Create all registered detectors from a unified init context.
+pub fn create_all_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
+    DETECTOR_FACTORIES.iter().map(|f| f(init)).collect()
+}
+
+// ── Module declarations ────────────────────────────────────────────────────
+
 pub mod analysis_context;
 pub mod base;
 pub mod confidence_enrichment;
@@ -1141,5 +1202,23 @@ mod tests {
         // Targeted suppression with no detector_name given should NOT match
         let content = "// repotoire:ignore-file[sql-injection]\nfn main() {}";
         assert!(!is_file_suppressed_for(content, None));
+    }
+
+    // ── Registry infrastructure ─────────────────────────────────────
+
+    #[test]
+    fn test_create_all_detectors_empty_registry() {
+        let init = DetectorInit::test_default();
+        let detectors = create_all_detectors(&init);
+        // Registry is empty until detectors are migrated in subsequent tasks.
+        assert_eq!(detectors.len(), 0);
+    }
+
+    #[test]
+    fn test_detector_init_config_for() {
+        let init = DetectorInit::test_default();
+        let config = init.config_for("GodClassDetector");
+        // Verify it produces a valid DetectorConfig with default coupling multiplier.
+        assert!(config.coupling_multiplier > 0.0);
     }
 }
