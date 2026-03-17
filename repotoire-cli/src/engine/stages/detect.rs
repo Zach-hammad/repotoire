@@ -2,6 +2,7 @@
 
 use crate::calibrate::{NgramModel, StyleProfile};
 use crate::config::ProjectConfig;
+use crate::detectors::base::DetectorScope;
 use crate::detectors::{
     apply_hmm_context_filter, build_threshold_resolver, create_all_detectors,
     filter_test_file_findings, inject_taint_precomputed, precompute_gd_startup,
@@ -112,13 +113,26 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     filter_test_file_findings(&mut findings);
     sort_findings_deterministic(&mut findings);
 
+    // Build a scope lookup so we route by detector_scope(), not affected_files.
+    // Graph-wide detectors (e.g. MutualRecursionDetector, SinglePointOfFailureDetector)
+    // may set affected_files but should still be keyed by detector name for selective
+    // invalidation on incremental runs.
+    let scope_map: HashMap<String, DetectorScope> = detectors
+        .iter()
+        .map(|d| (d.name().to_string(), d.detector_scope()))
+        .collect();
+
     // Partition findings into per-file and graph-wide
     let mut findings_by_file: HashMap<PathBuf, Vec<Finding>> = HashMap::new();
     let mut graph_wide_findings: HashMap<String, Vec<Finding>> = HashMap::new();
 
     for finding in &findings {
-        if finding.affected_files.is_empty() {
-            // Graph-wide finding (no specific file) — key by detector name
+        let scope = scope_map
+            .get(&finding.detector)
+            .copied()
+            .unwrap_or(DetectorScope::FileScopedGraph);
+        if scope == DetectorScope::GraphWide {
+            // Graph-wide finding — key by detector name
             graph_wide_findings
                 .entry(finding.detector.clone())
                 .or_default()
