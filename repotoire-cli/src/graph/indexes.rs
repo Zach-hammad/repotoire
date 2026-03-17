@@ -58,6 +58,7 @@ pub struct GraphIndexes {
     // ── Pre-computed expensive analyses ──
     pub(crate) import_cycles: Vec<Vec<NodeIndex>>,
     pub(crate) edge_fingerprint: u64,
+    pub(crate) primitives: super::primitives::GraphPrimitives,
 }
 
 impl Default for GraphIndexes {
@@ -86,9 +87,11 @@ impl Default for GraphIndexes {
             all_inheritance_edges: Vec::new(),
             import_cycles: Vec::new(),
             edge_fingerprint: 0,
+            primitives: super::primitives::GraphPrimitives::default(),
         }
     }
 }
+
 
 impl GraphIndexes {
     /// Build all indexes from a graph and node_index in one pass.
@@ -248,6 +251,18 @@ impl GraphIndexes {
 
         // ── Step 6: Compute edge fingerprint ──
         indexes.edge_fingerprint = compute_edge_fingerprint(graph);
+
+        // ── Step 7-9: Compute graph primitives ──
+        indexes.primitives = super::primitives::GraphPrimitives::compute(
+            graph,
+            &indexes.functions,
+            &indexes.files,
+            &indexes.all_call_edges,
+            &indexes.all_import_edges,
+            &indexes.call_callers,
+            &indexes.call_callees,
+            indexes.edge_fingerprint,
+        );
 
         indexes
     }
