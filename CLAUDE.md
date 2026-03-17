@@ -8,7 +8,7 @@ Repotoire is a graph-powered code health platform that analyzes codebases using 
 - **Structural analysis** (tree-sitter AST parsing across 9 languages)
 - **Relational patterns** (graph algorithms via petgraph)
 
-This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. All 99 detectors are pure Rust — no external tool dependencies.
+This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. All 100 detectors are pure Rust — no external tool dependencies.
 
 ## Development Rules
 
@@ -170,7 +170,7 @@ See [repotoire-cli/docs/MCP.md](repotoire-cli/docs/MCP.md) for complete document
 ### Core Pipeline Flow
 
 ```
-Codebase → Parsers (tree-sitter) → Entities + Relationships → petgraph Graph → Detectors (rayon parallel) → Scoring → Reports
+AnalysisEngine.analyze() → Collect → Parse → Graph (Builder→Freeze) → Git Enrich → Calibrate → Detect → Postprocess → Score → AnalysisResult
 ```
 
 ### System Components
@@ -181,11 +181,11 @@ Codebase → Parsers (tree-sitter) → Entities + Relationships → petgraph Gra
 
 1. **Parsers** (`repotoire-cli/src/parsers/`): 9 tree-sitter parsers — Python, TypeScript/JavaScript (with TSX), Rust, Go, Java, C#, C, C++, plus a lightweight fallback parser. Cross-language nesting depth enrichment via brace/indent counting. 2MB file size guardrail. Header file (`.h`) dispatch heuristic for C vs C++.
 
-2. **Graph Layer** (`repotoire-cli/src/graph/`): `GraphStore` — petgraph `DiGraph<CodeNode, CodeEdge>` with redb (embedded ACID database) persistence. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. Compact node types (`CompactNode` at ~32 bytes vs ~200 bytes for `CodeNode`) defined in `interner.rs` for future large-repo support. `GraphQuery` trait (19 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection.
+2. **Graph Layer** (`repotoire-cli/src/graph/`): Two-phase graph: `GraphBuilder` (mutable, used during parse/build/git-enrich) → `CodeGraph` (frozen, immutable, O(1) indexed queries via pre-built `GraphIndexes`). `GraphStore` is legacy/test-only. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. Compact node types (`CompactNode` at ~32 bytes vs ~200 bytes for `CodeNode`) defined in `interner.rs` for future large-repo support. `GraphQuery` trait (19 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection.
 
-3. **Pipeline** (`repotoire-cli/src/cli/analyze/`): Walk files → parse (tree-sitter, parallel via rayon) → batch insert into in-memory graph → run detectors. Streaming/bounded pipeline modes for large repos (20k+ files). Configurable batch sizes.
+3. **Engine** (`repotoire-cli/src/engine/`): `AnalysisEngine` is the primary analysis orchestrator. Runs 8 stages in order: collect, parse, graph, git_enrich, calibrate, detect, postprocess, score. Returns `AnalysisResult` (findings + score + stats). Stateful: supports cold, cached, and incremental modes. Persistence via `save()`/`load()` for cross-process incremental analysis. `AnalysisConfig` controls analysis parameters; `OutputOptions` handles presentation. Stage implementations live in `engine/stages/`.
 
-4. **Detectors** (`repotoire-cli/src/detectors/`): 99 pure Rust detectors across 14 categories. No external tool dependencies — all analysis runs in-process. Detectors run in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs.
+4. **Detectors** (`repotoire-cli/src/detectors/`): 100 pure Rust detectors across 14 categories. No external tool dependencies — all analysis runs in-process. `RegisteredDetector` trait + compile-time `DETECTOR_FACTORIES` registry. `create_all_detectors()` instantiates all detectors from a `DetectorInit` context. `run_detectors()` (in `runner.rs`) executes them in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs.
 
 5. **Scoring** (`repotoire-cli/src/scoring/`): Three-pillar scoring — Structure (40%), Quality (30%), Architecture (30%). Density-based penalty normalization (penalties scaled by kLOC). Graph-derived bonuses (modularity, cohesion, clean deps, complexity distribution, test coverage). Compound smell escalation. 13 grade levels (A+ through F). Score floor at 5.0, cap at 99.9 with medium+ findings. Security multiplier (default 3x).
 
@@ -368,7 +368,7 @@ cargo test detectors::god_class
 - petgraph in-memory graph with redb persistence
 - String interning via lasso for memory efficiency
 - 9 tree-sitter language parsers (Python, TypeScript/JavaScript, Rust, Go, Java, C#, C, C++, lightweight fallback)
-- 99 pure Rust detectors across 14 categories — zero external tool dependencies
+- 100 pure Rust detectors across 14 categories — zero external tool dependencies
 - SSA-based taint analysis for security detectors
 - Three-pillar health scoring with density normalization and graph-derived bonuses
 - Compound smell escalation (arXiv:2509.03896)

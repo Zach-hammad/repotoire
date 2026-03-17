@@ -1,7 +1,7 @@
 //! Pure Rust code analysis detectors — zero external dependencies.
 #![allow(unused_imports)]
 //!
-//! All 99 detectors are built-in Rust. No shelling out to Python, Node, or any external tool.
+//! All 100 detectors are built-in Rust. No shelling out to Python, Node, or any external tool.
 //!
 //! # Architecture
 //!
