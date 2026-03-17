@@ -139,6 +139,7 @@ impl Detector for StructuralBridgeRiskDetector {
                 id: String::new(),
                 detector: "structural-bridge-risk".to_string(),
                 severity,
+                confidence: Some(0.95), // Graph-theoretic: articulation points are mathematically provable
                 title: format!(
                     "Structural bridge: `{}` separates components of [{}]",
                     func_name,

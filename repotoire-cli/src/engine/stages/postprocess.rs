@@ -38,7 +38,6 @@ pub struct PostprocessOutput {
 /// Takes ownership of findings (every sub-step mutates the Vec).
 pub fn postprocess_stage(input: PostprocessInput) -> Result<PostprocessOutput> {
     let input_count = input.findings.len();
-
     let mut findings = input.findings;
 
     // Create a temporary no-op IncrementalCache (required by the existing function

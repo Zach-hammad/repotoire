@@ -85,6 +85,11 @@ impl DetectorCategory {
             || lower.contains("inconsistent")
             || lower.contains("centrality")
             || lower.contains("cohesion")
+            || lower.contains("single-point")
+            || lower.contains("bridge-risk")
+            || lower.contains("mutual-recursion")
+            || lower.contains("dominator")
+            || lower.contains("articulation")
         {
             return Self::CodeQuality;
         }

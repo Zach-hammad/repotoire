@@ -11,8 +11,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::debug;
-
 /// Detects functions that are single points of failure in the call graph.
 ///
 /// A function is a single point of failure when it dominates many other
@@ -88,11 +86,6 @@ impl Detector for SinglePointOfFailureDetector {
         if total_functions == 0 {
             return Ok(vec![]);
         }
-
-        debug!(
-            "SinglePointOfFailureDetector: scanning {} functions",
-            total_functions
-        );
 
         // Collect all PageRank values for percentile computation.
         let mut all_ranks: Vec<f64> = functions
@@ -185,6 +178,7 @@ impl Detector for SinglePointOfFailureDetector {
                 id: String::new(),
                 detector: "single-point-of-failure".to_string(),
                 severity,
+                confidence: Some(0.95), // Graph-theoretic: dominator tree is mathematically provable
                 title: format!(
                     "Single point of failure: `{}` dominates {} functions ({:.0}%)",
                     func_name, dom_count, dom_pct
@@ -218,11 +212,6 @@ impl Detector for SinglePointOfFailureDetector {
 
         // Sort by severity (highest first), then by domination count.
         findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        debug!(
-            "SinglePointOfFailureDetector found {} findings",
-            findings.len()
-        );
 
         Ok(findings)
     }
