@@ -8,7 +8,7 @@
 use crate::graph::interner::StrKey;
 use crate::graph::GraphQuery;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
 
 /// Inferred role of a function in the architecture
@@ -172,16 +172,26 @@ impl<'a> FunctionContextBuilder<'a> {
 
         info!("Building function context for {} functions (legacy path)", func_count);
 
-        let (adj, rev_adj, qn_to_idx) = self.graph.get_call_adjacency();
+        let (adj, rev_adj, _qn_to_idx) = self.graph.get_call_adjacency();
         let file_paths: Vec<&str> = functions.iter().map(|f| f.path(i)).collect();
-        let betweenness = self.calculate_betweenness(&adj);
-        let max_betweenness = betweenness.iter().cloned().fold(0.0_f64, f64::max);
+
+        // Read raw betweenness from graph primitives (returns 0.0 for non-CodeGraph backends)
+        // and normalize to [0, 1] by dividing by the maximum value.
+        let raw_betweenness: Vec<f64> = functions
+            .iter()
+            .map(|f| {
+                self.graph
+                    .node_by_name_idx(f.qn(i))
+                    .map(|(idx, _)| self.graph.betweenness_idx(idx))
+                    .unwrap_or(0.0)
+            })
+            .collect();
+        let max_betweenness = raw_betweenness.iter().cloned().fold(0.0_f64, f64::max);
         let normalized_betweenness: Vec<f64> = if max_betweenness > 0.0 {
-            betweenness.iter().map(|b| b / max_betweenness).collect()
+            raw_betweenness.iter().map(|b| b / max_betweenness).collect()
         } else {
-            vec![0.0; betweenness.len()]
+            vec![0.0; raw_betweenness.len()]
         };
-        let call_depths = self.calculate_call_depths(&adj, &qn_to_idx);
 
         let contexts: Vec<FunctionContext> = functions
             .par_iter()
@@ -198,12 +208,14 @@ impl<'a> FunctionContextBuilder<'a> {
                     .iter()
                     .map(|&callee_idx| self.extract_module(file_paths[callee_idx]))
                     .collect();
-                let betweenness_score = qn_to_idx
-                    .get(&func.qualified_name)
-                    .and_then(|&idx| normalized_betweenness.get(idx))
+                let betweenness_score = normalized_betweenness
+                    .get(idx)
                     .copied()
                     .unwrap_or(0.0);
-                let call_depth = call_depths.get(&func.qualified_name).copied().unwrap_or(0);
+                let call_depth = self.graph
+                    .node_by_name_idx(qn)
+                    .map(|(ni, _)| self.graph.call_depth_idx(ni))
+                    .unwrap_or(0);
                 let is_test = self.is_test_path(func.path(i))
                     || self.has_test_decorator(func.qualified_name, i);
                 let is_in_utility_module = self.is_utility_module(func.path(i));
@@ -272,15 +284,6 @@ impl<'a> FunctionContextBuilder<'a> {
             }
         }
 
-        // Build qn_to_idx (StrKey -> local index) for call_depths
-        let qn_to_idx: HashMap<StrKey, usize> = func_node_idxs
-            .iter()
-            .enumerate()
-            .filter_map(|(local, &ni)| {
-                self.graph.node_idx(ni).map(|n| (n.qualified_name, local))
-            })
-            .collect();
-
         // Pre-extract file paths
         let file_paths: Vec<&str> = func_node_idxs
             .iter()
@@ -292,17 +295,17 @@ impl<'a> FunctionContextBuilder<'a> {
             })
             .collect();
 
-        // Calculate betweenness centrality (parallelized)
-        let betweenness = self.calculate_betweenness(&adj);
-        let max_betweenness = betweenness.iter().cloned().fold(0.0_f64, f64::max);
+        // Read raw betweenness from graph primitives (O(1) per node) and normalize to [0, 1].
+        let raw_betweenness: Vec<f64> = func_node_idxs
+            .iter()
+            .map(|&ni| self.graph.betweenness_idx(ni))
+            .collect();
+        let max_betweenness = raw_betweenness.iter().cloned().fold(0.0_f64, f64::max);
         let normalized_betweenness: Vec<f64> = if max_betweenness > 0.0 {
-            betweenness.iter().map(|b| b / max_betweenness).collect()
+            raw_betweenness.iter().map(|b| b / max_betweenness).collect()
         } else {
-            vec![0.0; betweenness.len()]
+            vec![0.0; raw_betweenness.len()]
         };
-
-        // Build call depth map
-        let call_depths = self.calculate_call_depths(&adj, &qn_to_idx);
 
         // Build context for each function
         let contexts: Vec<FunctionContext> = func_node_idxs
@@ -332,7 +335,7 @@ impl<'a> FunctionContextBuilder<'a> {
                     .copied()
                     .unwrap_or(0.0);
 
-                let call_depth = call_depths.get(&func.qualified_name).copied().unwrap_or(0);
+                let call_depth = self.graph.call_depth_idx(ni);
 
                 let is_test = self.is_test_path(func.path(i))
                     || self.has_test_decorator(func.qualified_name, i);
@@ -388,158 +391,6 @@ impl<'a> FunctionContextBuilder<'a> {
         debug!("Role distribution: {:?}", role_counts);
 
         result
-    }
-
-    /// Calculate betweenness centrality using Brandes algorithm (parallelized)
-    ///
-    /// For graphs with more than SAMPLE_SIZE nodes, uses sampled approximation:
-    /// randomly selects K=500 source nodes and scales results by n/K.
-    /// This gives O(K*E) instead of O(N*E) with ~95% rank correlation.
-    fn calculate_betweenness(&self, adj: &[Vec<usize>]) -> Vec<f64> {
-        let n = adj.len();
-        if n == 0 {
-            return vec![];
-        }
-
-        const SAMPLE_SIZE: usize = 200;
-        let k = n.min(SAMPLE_SIZE);
-
-        // Select source nodes: all if small graph, random sample if large
-        let source_nodes: Vec<usize> = if k == n {
-            (0..n).collect()
-        } else {
-            use rand::seq::SliceRandom;
-            let mut rng = rand::rng();
-            let mut indices: Vec<usize> = (0..n).collect();
-            indices.shuffle(&mut rng);
-            indices.truncate(k);
-            indices
-        };
-
-        let scale = n as f64 / k as f64;
-
-        // Parallel Brandes: each source node computed independently
-        let partial_centralities: Vec<Vec<f64>> = source_nodes
-            .into_par_iter()
-            .map(|s| {
-                let mut centrality = vec![0.0; n];
-                let mut stack = Vec::new();
-                let mut predecessors: Vec<Vec<usize>> = vec![vec![]; n];
-                let mut sigma = vec![0.0; n]; // number of shortest paths
-                let mut dist = vec![-1i64; n];
-
-                sigma[s] = 1.0;
-                dist[s] = 0;
-
-                let mut queue = VecDeque::new();
-                queue.push_back(s);
-
-                // BFS
-                while let Some(v) = queue.pop_front() {
-                    stack.push(v);
-                    for &w in &adj[v] {
-                        // First visit?
-                        if dist[w] < 0 {
-                            queue.push_back(w);
-                            dist[w] = dist[v] + 1;
-                        }
-                        // Shortest path to w via v?
-                        if dist[w] == dist[v] + 1 {
-                            sigma[w] += sigma[v];
-                            predecessors[w].push(v);
-                        }
-                    }
-                }
-
-                // Back-propagation
-                let mut delta = vec![0.0; n];
-                while let Some(w) = stack.pop() {
-                    for &v in &predecessors[w] {
-                        delta[v] += (sigma[v] / sigma[w]) * (1.0 + delta[w]);
-                    }
-                    if w != s {
-                        centrality[w] += delta[w];
-                    }
-                }
-
-                centrality
-            })
-            .collect();
-
-        // Sum partial centralities
-        let mut centrality = vec![0.0; n];
-        for partial in partial_centralities {
-            for (i, &c) in partial.iter().enumerate() {
-                centrality[i] += c;
-            }
-        }
-
-        // Scale up if we sampled (approximation correction)
-        if k < n {
-            for c in &mut centrality {
-                *c *= scale;
-            }
-        }
-
-        centrality
-    }
-
-    /// Calculate call depth for each function (BFS from entry points)
-    fn calculate_call_depths(
-        &self,
-        adj: &[Vec<usize>],
-        qn_to_idx: &HashMap<StrKey, usize>,
-    ) -> HashMap<StrKey, usize> {
-        let n = adj.len();
-        if n == 0 {
-            return HashMap::new();
-        }
-
-        // Build reverse adjacency to find roots (in-degree 0)
-        let mut in_degree = vec![0usize; n];
-        for neighbors in adj {
-            for &target in neighbors {
-                in_degree[target] += 1;
-            }
-        }
-
-        // Entry points = functions with no callers
-        let entry_points: Vec<usize> = in_degree
-            .iter()
-            .enumerate()
-            .filter(|(_, &d)| d == 0)
-            .map(|(i, _)| i)
-            .collect();
-
-        // BFS from all entry points
-        let mut depths = vec![usize::MAX; n];
-        let mut queue = VecDeque::new();
-
-        for &ep in &entry_points {
-            depths[ep] = 0;
-            queue.push_back(ep);
-        }
-
-        while let Some(v) = queue.pop_front() {
-            let next_depth = depths[v] + 1;
-            for &w in &adj[v] {
-                if depths[w] > next_depth {
-                    depths[w] = next_depth;
-                    queue.push_back(w);
-                }
-            }
-        }
-
-        // Convert to HashMap with qualified names
-        let idx_to_qn: HashMap<usize, StrKey> =
-            qn_to_idx.iter().map(|(qn, &idx)| (idx, *qn)).collect();
-
-        depths
-            .iter()
-            .enumerate()
-            .filter(|(_, &d)| d != usize::MAX)
-            .filter_map(|(i, &d)| idx_to_qn.get(&i).map(|qn| (*qn, d)))
-            .collect()
     }
 
     /// Infer function role from metrics

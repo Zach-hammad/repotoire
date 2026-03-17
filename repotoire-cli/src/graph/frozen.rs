@@ -356,6 +356,10 @@ impl CodeGraph {
         self.indexes.primitives.betweenness.get(&idx).copied().unwrap_or(0.0)
     }
 
+    pub fn call_depth(&self, idx: NodeIndex) -> usize {
+        self.indexes.primitives.call_depth.get(&idx).copied().unwrap_or(0)
+    }
+
     /// Graph statistics (BTreeMap for deterministic key order).
     pub fn stats(&self) -> BTreeMap<String, i64> {
         let mut stats = BTreeMap::new();

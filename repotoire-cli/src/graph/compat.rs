@@ -475,6 +475,7 @@ impl super::traits::GraphQuery for CodeGraph {
     fn call_cycles_idx(&self) -> &[Vec<NodeIndex>] { self.call_cycles() }
     fn page_rank_idx(&self, idx: NodeIndex) -> f64 { self.page_rank(idx) }
     fn betweenness_idx(&self, idx: NodeIndex) -> f64 { self.betweenness(idx) }
+    fn call_depth_idx(&self, idx: NodeIndex) -> usize { self.call_depth(idx) }
 }
 
 // ==================== GraphQuery for Arc<CodeGraph> ====================
@@ -732,6 +733,7 @@ impl super::traits::GraphQuery for std::sync::Arc<CodeGraph> {
     fn call_cycles_idx(&self) -> &[Vec<NodeIndex>] { <CodeGraph as super::traits::GraphQuery>::call_cycles_idx(self) }
     fn page_rank_idx(&self, idx: NodeIndex) -> f64 { <CodeGraph as super::traits::GraphQuery>::page_rank_idx(self, idx) }
     fn betweenness_idx(&self, idx: NodeIndex) -> f64 { <CodeGraph as super::traits::GraphQuery>::betweenness_idx(self, idx) }
+    fn call_depth_idx(&self, idx: NodeIndex) -> usize { <CodeGraph as super::traits::GraphQuery>::call_depth_idx(self, idx) }
 }
 
 #[cfg(test)]

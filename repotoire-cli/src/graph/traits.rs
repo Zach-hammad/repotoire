@@ -363,4 +363,5 @@ pub trait GraphQuery: Send + Sync {
     fn call_cycles_idx(&self) -> &[Vec<NodeIndex>] { &[] }
     fn page_rank_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
     fn betweenness_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
+    fn call_depth_idx(&self, _idx: NodeIndex) -> usize { 0 }
 }
