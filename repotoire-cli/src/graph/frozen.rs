@@ -306,6 +306,56 @@ impl CodeGraph {
         self.indexes.edge_fingerprint
     }
 
+    // ==================== Graph Primitives (O(1)) ====================
+
+    pub fn immediate_dominator(&self, idx: NodeIndex) -> Option<NodeIndex> {
+        self.indexes.primitives.idom.get(&idx).copied()
+    }
+
+    pub fn dominated_by(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.indexes.primitives.dominated.get(&idx).map(|v| v.as_slice()).unwrap_or(EMPTY_NODE_SLICE)
+    }
+
+    pub fn domination_frontier(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.indexes.primitives.frontier.get(&idx).map(|v| v.as_slice()).unwrap_or(EMPTY_NODE_SLICE)
+    }
+
+    pub fn dominator_depth(&self, idx: NodeIndex) -> usize {
+        self.indexes.primitives.dom_depth.get(&idx).copied().unwrap_or(0)
+    }
+
+    pub fn domination_count(&self, idx: NodeIndex) -> usize {
+        self.dominated_by(idx).len()
+    }
+
+    pub fn is_articulation_point(&self, idx: NodeIndex) -> bool {
+        self.indexes.primitives.articulation_point_set.contains(&idx)
+    }
+
+    pub fn articulation_points(&self) -> &[NodeIndex] {
+        &self.indexes.primitives.articulation_points
+    }
+
+    pub fn bridges(&self) -> &[(NodeIndex, NodeIndex)] {
+        &self.indexes.primitives.bridges
+    }
+
+    pub fn separation_sizes(&self, idx: NodeIndex) -> Option<&[usize]> {
+        self.indexes.primitives.component_sizes.get(&idx).map(|v| v.as_slice())
+    }
+
+    pub fn call_cycles(&self) -> &[Vec<NodeIndex>] {
+        &self.indexes.primitives.call_cycles
+    }
+
+    pub fn page_rank(&self, idx: NodeIndex) -> f64 {
+        self.indexes.primitives.page_rank.get(&idx).copied().unwrap_or(0.0)
+    }
+
+    pub fn betweenness(&self, idx: NodeIndex) -> f64 {
+        self.indexes.primitives.betweenness.get(&idx).copied().unwrap_or(0.0)
+    }
+
     /// Graph statistics (BTreeMap for deterministic key order).
     pub fn stats(&self) -> BTreeMap<String, i64> {
         let mut stats = BTreeMap::new();
@@ -569,6 +619,25 @@ mod tests {
         let graph = builder.freeze();
         assert_eq!(graph.functions().len(), 3);
         assert_eq!(graph.callees(f2).len(), 1);
+    }
+
+    #[test]
+    fn test_primitive_accessors_empty_graph() {
+        let builder = GraphBuilder::new();
+        let graph = builder.freeze();
+        let fake_idx = NodeIndex::new(0);
+        assert!(graph.dominated_by(fake_idx).is_empty());
+        assert!(graph.domination_frontier(fake_idx).is_empty());
+        assert_eq!(graph.dominator_depth(fake_idx), 0);
+        assert_eq!(graph.domination_count(fake_idx), 0);
+        assert!(!graph.is_articulation_point(fake_idx));
+        assert!(graph.articulation_points().is_empty());
+        assert!(graph.bridges().is_empty());
+        assert!(graph.separation_sizes(fake_idx).is_none());
+        assert!(graph.call_cycles().is_empty());
+        assert_eq!(graph.page_rank(fake_idx), 0.0);
+        assert_eq!(graph.betweenness(fake_idx), 0.0);
+        assert!(graph.immediate_dominator(fake_idx).is_none());
     }
 
     #[test]
