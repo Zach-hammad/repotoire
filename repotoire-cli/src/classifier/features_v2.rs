@@ -347,9 +347,6 @@ impl FeatureExtractorV2 {
             f[8] = functions_in_file.len() as f64;
 
             // 14: scc_membership — is the file part of an import cycle?
-            // Uses is_in_import_cycle() which CachedGraphQuery overrides with
-            // a pre-computed HashSet for O(1) lookup instead of cloning the full
-            // cycle list per finding.
             f[14] = if g.is_in_import_cycle(&file_path) { 1.0 } else { 0.0 };
         } else {
             // No graph — only compute normalised span with default.

@@ -79,7 +79,6 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     let detectors_run = detectors.len();
     let detectors_skipped = skip_set.len();
 
-    // CodeGraph has built-in indexes — no need for CachedGraphQuery wrapper.
     let graph = input.graph;
 
     // Precompute GD data (contexts, HMM, taint, etc.)

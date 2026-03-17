@@ -7,7 +7,24 @@ use petgraph::stable_graph::NodeIndex;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-/// Common interface for graph stores
+/// Common interface for graph stores.
+///
+/// Two sets of methods coexist on this trait:
+///
+/// **String-based methods** (`get_functions()`, `get_callers(qn)`, …) —
+///   Return owned `Vec<CodeNode>` or `Vec<(StrKey, StrKey)>`.
+///   Implemented directly by `GraphStore` (mutable, test-friendly).
+///   On `CodeGraph`, these delegate to the indexed methods via compat bridges.
+///
+/// **NodeIndex-based methods** (`functions_idx()`, `callers_idx(idx)`, …) —
+///   Return zero-copy `&[NodeIndex]` slices from pre-built indexes.
+///   Implemented by `CodeGraph` (frozen, production path).
+///   Default implementations return empty results for backends that
+///   don't support them (e.g., `GraphStore` in test code).
+///
+/// New code should prefer the `_idx` methods when working with CodeGraph
+/// through the trait. The string-based methods are kept for backward
+/// compatibility and test ergonomics.
 #[allow(dead_code)] // Trait defines public API surface; not all methods called in binary
 pub trait GraphQuery: Send + Sync {
     /// Access the string interner for resolving StrKey -> &str.
@@ -26,19 +43,16 @@ pub trait GraphQuery: Send + Sync {
     fn get_files(&self) -> Vec<CodeNode>;
 
     /// Get all functions as shared Arc — Arc::clone is ~10ns vs Vec::clone ~50ms.
-    ///
-    /// CachedGraphQuery overrides this to return a cached Arc (zero-cost after first call).
-    /// Default implementation wraps get_functions() in Arc for backward compatibility.
     fn get_functions_shared(&self) -> Arc<[CodeNode]> {
         Arc::from(self.get_functions())
     }
 
-    /// Get all classes as shared Arc — see get_functions_shared.
+    /// Get all classes as shared Arc.
     fn get_classes_shared(&self) -> Arc<[CodeNode]> {
         Arc::from(self.get_classes())
     }
 
-    /// Get all files as shared Arc — see get_functions_shared.
+    /// Get all files as shared Arc.
     fn get_files_shared(&self) -> Arc<[CodeNode]> {
         Arc::from(self.get_files())
     }
@@ -88,8 +102,6 @@ pub trait GraphQuery: Send + Sync {
     fn find_import_cycles(&self) -> Vec<Vec<String>>;
 
     /// Check if a file participates in any import cycle.
-    /// Default implementation calls `find_import_cycles()` and checks.
-    /// `CachedGraphQuery` overrides with O(1) HashSet lookup.
     fn is_in_import_cycle(&self, file_path: &str) -> bool {
         let cycles = self.find_import_cycles();
         cycles.iter().any(|cycle| {
@@ -101,8 +113,6 @@ pub trait GraphQuery: Send + Sync {
     fn stats(&self) -> BTreeMap<String, i64>;
 
     /// Find the function containing a specific line in a file.
-    /// Default implementation uses get_functions_in_file (O(all_nodes) scan).
-    /// GraphStore overrides this with a spatial index for O(1) lookup.
     fn find_function_at(&self, file_path: &str, line: u32) -> Option<CodeNode> {
         self.get_functions_in_file(file_path)
             .into_iter()
@@ -125,24 +135,17 @@ pub trait GraphQuery: Send + Sync {
             .collect()
     }
 
-    /// Count unique files of callers — avoids cloning full CodeNodes.
-    ///
-    /// CachedGraphQuery overrides with a zero-copy implementation that resolves
-    /// caller indices directly from the cached functions Arc.
+    /// Count unique files of callers.
     fn caller_file_spread(&self, qn: &str) -> usize {
         let i = self.interner();
         let callers = self.get_callers(qn);
         let files: std::collections::HashSet<StrKey> =
             callers.iter().map(|c| c.file_path).collect();
-        let _ = i; // interner available if needed for resolution
+        let _ = i;
         files.len()
     }
 
     /// Count callers of `qn` that are OUTSIDE a given class boundary.
-    ///
-    /// A caller is "external" if it's in a different file OR its line range
-    /// doesn't overlap with the class range [class_start, class_end].
-    /// CachedGraphQuery overrides with a zero-copy implementation.
     fn count_external_callers_of(
         &self,
         qn: &str,
@@ -162,7 +165,7 @@ pub trait GraphQuery: Send + Sync {
             .count()
     }
 
-    /// Count unique modules (parent directories) of callers — avoids cloning full CodeNodes.
+    /// Count unique modules (parent directories) of callers.
     fn caller_module_spread(&self, qn: &str) -> usize {
         let i = self.interner();
         let callers = self.get_callers(qn);
@@ -181,8 +184,6 @@ pub trait GraphQuery: Send + Sync {
     /// Build call maps as (qn_to_idx, callers_idx, callees_idx).
     ///
     /// Returns index-based maps where indices correspond to positions in `get_functions()`.
-    /// GraphStore overrides this to iterate petgraph edges directly, avoiding
-    /// the 12.5M+ (StrKey, StrKey) allocation from `get_calls()`.
     fn build_call_maps_raw(
         &self,
     ) -> (
@@ -211,8 +212,6 @@ pub trait GraphQuery: Send + Sync {
     /// Build call adjacency lists: (forward_adj, reverse_adj, qn_to_idx).
     ///
     /// Indices correspond to positions in `get_functions()`.
-    /// CachedGraphQuery overrides this to reuse pre-built index maps,
-    /// avoiding cloning millions of (StrKey, StrKey) pairs from `get_calls()`.
     fn get_call_adjacency(&self) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, HashMap<StrKey, usize>) {
         let functions = self.get_functions();
         let calls = self.get_calls();
@@ -237,14 +236,10 @@ pub trait GraphQuery: Send + Sync {
 
     // ==================== NodeIndex-based API ====================
     //
-    // These methods provide zero-copy, O(1) access using petgraph NodeIndex.
-    // Default implementations return empty results so existing implementors
-    // (GraphStore, CachedGraphQuery) keep working without changes.
-    // CodeGraph overrides all of these with its pre-built indexes.
-    //
-    // Migration path: consumers can adopt these one file at a time.
-    // Once all consumers use the new API, the old String-based methods
-    // above will be removed in Phase D.
+    // Zero-copy, O(1) access using petgraph NodeIndex.
+    // CodeGraph implements all of these via pre-built indexes.
+    // Default implementations return empty results for backends
+    // that don't support indexed access (e.g., GraphStore in tests).
 
     /// Get a node by its graph index.
     fn node_idx(&self, _idx: NodeIndex) -> Option<&CodeNode> {
