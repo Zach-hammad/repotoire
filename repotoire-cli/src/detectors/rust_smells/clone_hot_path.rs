@@ -329,6 +329,13 @@ impl Detector for CloneInHotPathDetector {
     }
 }
 
+
+impl super::super::RegisteredDetector for CloneInHotPathDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

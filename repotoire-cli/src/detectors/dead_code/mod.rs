@@ -744,5 +744,11 @@ impl Detector for DeadCodeDetector {
     }
 }
 
+impl crate::detectors::RegisteredDetector for DeadCodeDetector {
+    fn create(_init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new())
+    }
+}
+
 #[cfg(test)]
 mod tests;

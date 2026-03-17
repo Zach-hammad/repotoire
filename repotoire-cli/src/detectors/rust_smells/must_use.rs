@@ -126,3 +126,9 @@ impl Detector for MissingMustUseDetector {
         Ok(findings)
     }
 }
+
+impl super::super::RegisteredDetector for MissingMustUseDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}

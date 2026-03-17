@@ -297,6 +297,12 @@ impl Detector for AIMissingTestsDetector {
     }
 }
 
+impl super::RegisteredDetector for AIMissingTestsDetector {
+    fn create(_init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

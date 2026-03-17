@@ -302,6 +302,13 @@ fn parse_fn_name(trimmed: &str) -> Option<String> {
     Some(name.to_string())
 }
 
+
+impl super::super::RegisteredDetector for PanicDensityDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

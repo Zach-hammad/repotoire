@@ -713,6 +713,12 @@ impl Detector for AIBoilerplateDetector {
     }
 }
 
+impl super::RegisteredDetector for AIBoilerplateDetector {
+    fn create(_init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

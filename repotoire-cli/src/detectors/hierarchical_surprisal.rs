@@ -155,6 +155,12 @@ impl Detector for HierarchicalSurprisalDetector {
     }
 }
 
+impl super::RegisteredDetector for HierarchicalSurprisalDetector {
+    fn create(_init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

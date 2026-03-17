@@ -596,6 +596,12 @@ impl Detector for AINamingPatternDetector {
     }
 }
 
+impl super::RegisteredDetector for AINamingPatternDetector {
+    fn create(_init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -112,3 +112,9 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
         Ok(findings)
     }
 }
+
+impl super::super::RegisteredDetector for UnsafeWithoutSafetyCommentDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}

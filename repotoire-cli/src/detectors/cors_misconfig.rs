@@ -245,6 +245,13 @@ impl Detector for CorsMisconfigDetector {
     }
 }
 
+
+impl super::RegisteredDetector for CorsMisconfigDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

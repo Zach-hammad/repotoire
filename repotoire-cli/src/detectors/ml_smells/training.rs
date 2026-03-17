@@ -480,3 +480,27 @@ impl Detector for ForwardMethodDetector {
         Ok(findings)
     }
 }
+
+impl super::super::RegisteredDetector for TorchLoadUnsafeDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
+impl super::super::RegisteredDetector for NanEqualityDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
+impl super::super::RegisteredDetector for MissingZeroGradDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
+impl super::super::RegisteredDetector for ForwardMethodDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}

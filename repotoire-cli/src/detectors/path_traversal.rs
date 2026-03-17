@@ -351,6 +351,13 @@ impl Detector for PathTraversalDetector {
     }
 }
 
+
+impl super::RegisteredDetector for PathTraversalDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

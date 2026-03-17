@@ -340,6 +340,13 @@ impl Detector for GHActionsInjectionDetector {
     }
 }
 
+
+impl super::RegisteredDetector for GHActionsInjectionDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

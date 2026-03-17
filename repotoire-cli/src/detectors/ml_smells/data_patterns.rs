@@ -511,3 +511,27 @@ impl Detector for DeprecatedTorchApiDetector {
 // ============================================================================
 // Tests
 // ============================================================================
+
+impl super::super::RegisteredDetector for MissingRandomSeedDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
+impl super::super::RegisteredDetector for ChainIndexingDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
+impl super::super::RegisteredDetector for RequireGradTypoDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
+impl super::super::RegisteredDetector for DeprecatedTorchApiDetector {
+    fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}

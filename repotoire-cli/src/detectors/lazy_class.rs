@@ -648,6 +648,12 @@ impl Detector for LazyClassDetector {
     }
 }
 
+impl super::RegisteredDetector for LazyClassDetector {
+    fn create(_init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

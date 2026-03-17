@@ -284,6 +284,12 @@ impl Detector for MiddleManDetector {
     }
 }
 
+impl super::RegisteredDetector for MiddleManDetector {
+    fn create(_init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

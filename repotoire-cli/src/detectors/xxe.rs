@@ -400,6 +400,13 @@ impl Detector for XxeDetector {
     }
 }
 
+
+impl super::RegisteredDetector for XxeDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
