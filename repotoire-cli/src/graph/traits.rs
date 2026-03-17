@@ -350,4 +350,17 @@ pub trait GraphQuery: Send + Sync {
     fn extra_props_ref(&self, _qn: StrKey) -> Option<&ExtraProps> {
         None
     }
+
+    // ── Graph primitives (pre-computed during freeze) ──
+
+    fn dominated_by_idx(&self, _idx: NodeIndex) -> &[NodeIndex] { &[] }
+    fn domination_frontier_idx(&self, _idx: NodeIndex) -> &[NodeIndex] { &[] }
+    fn dominator_depth_idx(&self, _idx: NodeIndex) -> usize { 0 }
+    fn is_articulation_point_idx(&self, _idx: NodeIndex) -> bool { false }
+    fn articulation_points_idx(&self) -> &[NodeIndex] { &[] }
+    fn separation_sizes_idx(&self, _idx: NodeIndex) -> Option<&[usize]> { None }
+    fn bridge_edges_idx(&self) -> &[(NodeIndex, NodeIndex)] { &[] }
+    fn call_cycles_idx(&self) -> &[Vec<NodeIndex>] { &[] }
+    fn page_rank_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
+    fn betweenness_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
 }
