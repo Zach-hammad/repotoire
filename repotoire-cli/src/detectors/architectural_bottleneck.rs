@@ -288,14 +288,15 @@ impl Detector for ArchitecturalBottleneckDetector {
         let contexts = &ctx.functions;
         let i = graph.interner();
         let mut findings = Vec::new();
-        let funcs = graph.get_functions_shared();
+        let func_idxs = graph.functions_idx();
 
         debug!(
             "ArchitecturalBottleneckDetector: analyzing {} functions with context",
-            funcs.len()
+            func_idxs.len()
         );
 
-        for func in funcs.iter() {
+        for &func_idx in func_idxs {
+            let Some(func) = graph.node_idx(func_idx) else { continue };
             // Skip by name pattern (CLI entry points, common utilities)
             if self.should_skip_by_name(func.node_name(i)) {
                 continue;
@@ -329,7 +330,7 @@ impl Detector for ArchitecturalBottleneckDetector {
                 )
             } else {
                 // Fall back to graph queries
-                let fan_in = graph.call_fan_in(func.qn(i));
+                let fan_in = graph.call_fan_in_idx(func_idx);
                 let complexity = func.complexity_opt().unwrap_or(1) as usize;
                 (fan_in, complexity, FunctionRole::Unknown, None)
             };
