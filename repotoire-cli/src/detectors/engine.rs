@@ -83,6 +83,38 @@ impl Clone for GdPrecomputed {
     }
 }
 
+/// Convenience alias so callers outside `engine.rs` can refer to the pre-computed
+/// analysis bundle without coupling to the `Gd` prefix.
+pub type PrecomputedAnalysis = GdPrecomputed;
+
+impl GdPrecomputed {
+    /// Convert pre-computed data into an [`AnalysisContext`] ready for detector
+    /// execution.
+    ///
+    /// The returned context borrows `graph` and clones every `Arc` field (~ns per
+    /// field). `resolver` is wrapped in a new `Arc`.
+    pub fn to_context<'g>(
+        &self,
+        graph: &'g dyn crate::graph::GraphQuery,
+        resolver: &crate::calibrate::ThresholdResolver,
+    ) -> super::AnalysisContext<'g> {
+        super::AnalysisContext {
+            graph,
+            files: Arc::clone(&self.file_index),
+            functions: Arc::clone(&self.contexts),
+            taint: Arc::clone(&self.taint_results),
+            detector_ctx: Arc::clone(&self.detector_context),
+            hmm_classifications: Arc::clone(&self.hmm_with_confidence),
+            resolver: Arc::new(resolver.clone()),
+            reachability: Arc::clone(&self.reachability),
+            public_api: Arc::clone(&self.public_api),
+            module_metrics: Arc::clone(&self.module_metrics),
+            class_cohesion: Arc::clone(&self.class_cohesion),
+            decorator_index: Arc::clone(&self.decorator_index),
+        }
+    }
+}
+
 /// Build all GD pre-compute data (contexts + HMM + taint) as a standalone computation.
 ///
 /// This does NOT require `&mut DetectorEngine` — it only reads the graph and files.
@@ -2271,5 +2303,28 @@ mod tests {
             gd_names.len(),
             all_detectors.len()
         );
+    }
+
+    #[test]
+    fn test_to_context_produces_valid_context() {
+        let graph = GraphStore::in_memory();
+        let init = crate::detectors::DetectorInit::test_default();
+        let detectors = crate::detectors::create_all_detectors(&init);
+        let pre = precompute_gd_startup(
+            &graph,
+            init.repo_path,
+            None,
+            &[],
+            None,
+            &detectors,
+        );
+        let resolver = crate::calibrate::ThresholdResolver::default();
+        let ctx = pre.to_context(&graph, &resolver);
+
+        // Verify key fields are wired through
+        assert!(ctx.functions.is_empty()); // no source files parsed
+        assert!(ctx.hmm_classifications.is_empty()); // no functions to classify
+        // Ensure the context is usable (repo_path comes from detector_context)
+        let _repo_path = ctx.repo_path();
     }
 }

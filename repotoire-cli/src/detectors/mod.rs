@@ -411,7 +411,7 @@ pub use file_index::{FileEntry, FileIndex};
 pub use file_provider::{FileProvider, SourceFiles};
 
 // Re-export engine
-pub use engine::{DetectorEngine, DetectorEngineBuilder, GdPrecomputed, precompute_gd_startup};
+pub use engine::{DetectorEngine, DetectorEngineBuilder, GdPrecomputed, PrecomputedAnalysis, precompute_gd_startup};
 
 // Re-export standalone runner functions
 pub use runner::{
