@@ -526,6 +526,12 @@ fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
+impl super::RegisteredDetector for LongParameterListDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("LongParameterListDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

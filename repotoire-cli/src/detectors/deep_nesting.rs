@@ -578,6 +578,12 @@ fn structural_braces_multiline(content: &str) -> Vec<Vec<char>> {
     result
 }
 
+impl super::RegisteredDetector for DeepNestingDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_resolver(init.repo_path, &init.resolver))
+    }
+}
+
 /// Extract only structural braces from a single line (for unit tests).
 /// Does not handle multi-line strings.
 #[cfg(test)]

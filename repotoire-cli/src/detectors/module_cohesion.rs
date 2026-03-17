@@ -561,6 +561,12 @@ impl Detector for ModuleCohesionDetector {
     }
 }
 
+impl super::RegisteredDetector for ModuleCohesionDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("ModuleCohesionDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -512,6 +512,12 @@ impl Detector for DegreeCentralityDetector {
     }
 }
 
+impl super::RegisteredDetector for DegreeCentralityDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("DegreeCentralityDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

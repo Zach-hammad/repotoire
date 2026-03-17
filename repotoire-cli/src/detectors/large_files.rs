@@ -265,6 +265,12 @@ impl Detector for LargeFilesDetector {
     }
 }
 
+impl super::RegisteredDetector for LargeFilesDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_resolver(init.repo_path, &init.resolver))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

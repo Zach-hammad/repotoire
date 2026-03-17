@@ -455,6 +455,12 @@ impl LongMethodsDetector {
     }
 }
 
+impl super::RegisteredDetector for LongMethodsDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.repo_path, init.config_for("long-methods")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

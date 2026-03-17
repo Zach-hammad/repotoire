@@ -518,6 +518,12 @@ impl Detector for PickleDeserializationDetector {
     }
 }
 
+impl super::RegisteredDetector for PickleDeserializationDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_repository_path(init.repo_path.to_path_buf()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

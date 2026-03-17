@@ -345,6 +345,12 @@ impl Detector for InfluentialCodeDetector {
     }
 }
 
+impl super::RegisteredDetector for InfluentialCodeDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("InfluentialCodeDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

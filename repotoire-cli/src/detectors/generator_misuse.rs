@@ -427,6 +427,12 @@ impl Detector for GeneratorMisuseDetector {
     }
 }
 
+impl super::RegisteredDetector for GeneratorMisuseDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_path(init.repo_path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

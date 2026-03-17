@@ -469,6 +469,12 @@ impl Detector for ShotgunSurgeryDetector {
     }
 }
 
+impl super::RegisteredDetector for ShotgunSurgeryDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("ShotgunSurgeryDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

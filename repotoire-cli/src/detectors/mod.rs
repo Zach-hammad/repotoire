@@ -115,13 +115,18 @@ const fn register<D: RegisteredDetector>() -> DetectorFactory {
 const DETECTOR_FACTORIES: &[DetectorFactory] = &[
     // Core graph-based detectors
     register::<CircularDependencyDetector>(),
+    register::<GodClassDetector>(),
+    register::<LongParameterListDetector>(),
     // Code smell detectors
+    register::<DataClumpsDetector>(),
     register::<DeadCodeDetector>(),
+    register::<FeatureEnvyDetector>(),
     register::<InappropriateIntimacyDetector>(),
     register::<LazyClassDetector>(),
     register::<MessageChainDetector>(),
     register::<MiddleManDetector>(),
     register::<RefusedBequestDetector>(),
+    register::<ShotgunSurgeryDetector>(),
     // AI watchdog detectors
     register::<AIBoilerplateDetector>(),
     register::<AIChurnDetector>(),
@@ -139,8 +144,16 @@ const DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<RequireGradTypoDetector>(),
     register::<DeprecatedTorchApiDetector>(),
     // Graph/architecture detectors
+    register::<ArchitecturalBottleneckDetector>(),
     register::<CoreUtilityDetector>(),
+    register::<DegreeCentralityDetector>(),
+    register::<InfluentialCodeDetector>(),
+    register::<ModuleCohesionDetector>(),
     // Security detectors (file scanning)
+    register::<EvalDetector>(),
+    register::<PickleDeserializationDetector>(),
+    register::<SQLInjectionDetector>(),
+    register::<UnsafeTemplateDetector>(),
     register::<UnusedImportsDetector>(),
     register::<SecretDetector>(),
     register::<PathTraversalDetector>(),
@@ -148,10 +161,16 @@ const DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<SsrfDetector>(),
     register::<RegexDosDetector>(),
     // Code quality detectors
+    register::<DeepNestingDetector>(),
     register::<EmptyCatchDetector>(),
+    register::<LargeFilesDetector>(),
+    register::<LongMethodsDetector>(),
     register::<TodoScanner>(),
     register::<MagicNumbersDetector>(),
     register::<MissingDocstringsDetector>(),
+    // Misc detectors
+    register::<GeneratorMisuseDetector>(),
+    register::<InfiniteLoopDetector>(),
     // Performance detectors
     register::<SyncInAsyncDetector>(),
     register::<NPlusOneDetector>(),
@@ -217,6 +236,7 @@ const DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<DepAuditDetector>(),
     // Predictive coding
     register::<HierarchicalSurprisalDetector>(),
+    register::<SurprisalDetector>(),
 ];
 
 /// Create all registered detectors from a unified init context.
@@ -1319,9 +1339,9 @@ mod tests {
     fn test_create_all_detectors_registry() {
         let init = DetectorInit::test_default();
         let detectors = create_all_detectors(&init);
-        // 81 detectors registered (zero-arg + new(repo_path) patterns).
+        // 100 detectors registered (all patterns including config-based, resolver-based, etc.).
         // Update this number when adding/removing detectors.
-        assert_eq!(detectors.len(), 81);
+        assert_eq!(detectors.len(), 100);
     }
 
     #[test]

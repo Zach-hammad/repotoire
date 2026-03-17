@@ -601,6 +601,12 @@ impl Detector for GodClassDetector {
     }
 }
 
+impl super::RegisteredDetector for GodClassDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("GodClassDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

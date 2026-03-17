@@ -621,6 +621,12 @@ impl Detector for FeatureEnvyDetector {
     }
 }
 
+impl super::RegisteredDetector for FeatureEnvyDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("FeatureEnvyDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

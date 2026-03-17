@@ -546,6 +546,12 @@ impl Detector for DataClumpsDetector {
     }
 }
 
+impl super::RegisteredDetector for DataClumpsDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("DataClumpsDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

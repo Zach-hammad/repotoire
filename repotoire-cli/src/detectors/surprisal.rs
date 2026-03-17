@@ -283,6 +283,13 @@ fn erf(x: f64) -> f64 {
     sign * y
 }
 
+impl super::RegisteredDetector for SurprisalDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        let model = init.ngram_model.cloned().unwrap_or_default();
+        std::sync::Arc::new(Self::new(init.repo_path, model))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

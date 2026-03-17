@@ -368,6 +368,12 @@ impl Detector for ArchitecturalBottleneckDetector {
     }
 }
 
+impl super::RegisteredDetector for ArchitecturalBottleneckDetector {
+    fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("ArchitecturalBottleneckDetector")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
