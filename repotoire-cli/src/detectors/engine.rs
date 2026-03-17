@@ -2225,7 +2225,8 @@ mod tests {
     #[test]
     fn test_split_detection_completeness() {
         // Verify every detector is either graph-independent or graph-dependent
-        let all_detectors = crate::detectors::default_detectors(std::path::Path::new("/tmp"));
+        let init = crate::detectors::DetectorInit::test_default();
+        let all_detectors = crate::detectors::create_all_detectors(&init);
         let gi_count = all_detectors
             .iter()
             .filter(|d| !d.requires_graph())

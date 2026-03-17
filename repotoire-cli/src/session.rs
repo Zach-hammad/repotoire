@@ -817,8 +817,13 @@ impl AnalysisSession {
         HashSet<String>,
     )> {
         let project_config = crate::config::load_project_config(&self.repo_path);
-        let detectors =
-            crate::detectors::default_detectors_with_config(&self.repo_path, &project_config);
+        let init = crate::detectors::DetectorInit {
+            repo_path: &self.repo_path,
+            project_config: &project_config,
+            resolver: crate::calibrate::ThresholdResolver::default(),
+            ngram_model: None,
+        };
+        let detectors = crate::detectors::create_all_detectors(&init);
 
         // Partition detectors by scope
         let mut file_local_detectors: Vec<Arc<dyn Detector>> = Vec::new();
@@ -883,9 +888,13 @@ impl AnalysisSession {
             // reflect new/removed entities).
             {
                 let project_config = crate::config::load_project_config(&self.repo_path);
-                let detectors = crate::detectors::default_detectors_with_config(
-                    &self.repo_path, &project_config,
-                );
+                let init = crate::detectors::DetectorInit {
+                    repo_path: &self.repo_path,
+                    project_config: &project_config,
+                    resolver: crate::calibrate::ThresholdResolver::default(),
+                    ngram_model: None,
+                };
+                let detectors = crate::detectors::create_all_detectors(&init);
                 self.cached_gd = Some(crate::detectors::precompute_gd_startup(
                     self.graph.as_ref(),
                     &self.repo_path,
@@ -1422,7 +1431,13 @@ fn run_all_detectors(
     let project_config = crate::config::load_project_config(repo_path);
 
     // Create detectors
-    let detectors = crate::detectors::default_detectors_with_config(repo_path, &project_config);
+    let init = crate::detectors::DetectorInit {
+        repo_path,
+        project_config: &project_config,
+        resolver: crate::calibrate::ThresholdResolver::default(),
+        ngram_model: None,
+    };
+    let detectors = crate::detectors::create_all_detectors(&init);
 
     // Build engine
     let mut engine = DetectorEngine::new(workers);

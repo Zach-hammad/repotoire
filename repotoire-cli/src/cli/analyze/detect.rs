@@ -146,14 +146,19 @@ pub(super) fn run_detectors(
         .with_timings(timings);
 
     // Wire adaptive threshold resolver into the engine for AnalysisContext propagation
-    engine.set_threshold_resolver(crate::detectors::build_threshold_resolver(style_profile));
+    let resolver = crate::detectors::build_threshold_resolver(style_profile);
+    engine.set_threshold_resolver(resolver.clone());
 
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
-    // Register default detectors
-    for detector in
-        crate::detectors::default_detectors_with_ngram(repo_path, project_config, style_profile, ngram_model)
-    {
+    // Register default detectors via registry
+    let init = crate::detectors::DetectorInit {
+        repo_path,
+        project_config,
+        resolver,
+        ngram_model: ngram_model.as_ref(),
+    };
+    for detector in crate::detectors::create_all_detectors(&init) {
         let name = detector.name();
         if !skip_set.contains(name) {
             engine.register(detector);
@@ -209,14 +214,16 @@ pub(super) fn run_gi_detectors(
         .with_timings(timings);
 
     // Wire adaptive threshold resolver into the engine
-    engine.set_threshold_resolver(crate::detectors::build_threshold_resolver(style_profile));
+    let resolver = crate::detectors::build_threshold_resolver(style_profile);
+    engine.set_threshold_resolver(resolver.clone());
 
-    for detector in crate::detectors::default_detectors_with_ngram(
+    let init = crate::detectors::DetectorInit {
         repo_path,
         project_config,
-        style_profile,
-        ngram_model,
-    ) {
+        resolver,
+        ngram_model: ngram_model.as_ref(),
+    };
+    for detector in crate::detectors::create_all_detectors(&init) {
         let name = detector.name();
         if !skip_set.contains(name) {
             engine.register(detector);
@@ -295,16 +302,18 @@ pub(super) fn run_detectors_speculative(
         .with_timings(timings);
 
     // Wire adaptive threshold resolver into the engine
-    engine.set_threshold_resolver(crate::detectors::build_threshold_resolver(style_profile));
+    let resolver = crate::detectors::build_threshold_resolver(style_profile);
+    engine.set_threshold_resolver(resolver.clone());
 
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
-    for detector in crate::detectors::default_detectors_with_ngram(
+    let init = crate::detectors::DetectorInit {
         repo_path,
         project_config,
-        style_profile,
-        ngram_model,
-    ) {
+        resolver,
+        ngram_model: ngram_model.as_ref(),
+    };
+    for detector in crate::detectors::create_all_detectors(&init) {
         let name = detector.name();
         if !skip_set.contains(name) {
             engine.register(detector);

@@ -17,7 +17,7 @@
 //! ```
 
 use crate::config::ProjectConfig;
-use crate::detectors::{default_detectors_with_config, Detector, DetectorEngine, FunctionContext};
+use crate::detectors::{Detector, DetectorEngine, FunctionContext};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -123,7 +123,15 @@ impl StreamingDetectorEngine {
         // Collect detectors
         let skip_set: HashSet<&str> = skip_detectors.iter().map(|s| s.as_str()).collect();
         let detectors: Vec<Arc<dyn Detector>> =
-            default_detectors_with_config(repo_path, project_config)
+            {
+                let init = crate::detectors::DetectorInit {
+                    repo_path,
+                    project_config,
+                    resolver: crate::calibrate::ThresholdResolver::default(),
+                    ngram_model: None,
+                };
+                crate::detectors::create_all_detectors(&init)
+            }
                 .into_iter()
                 .filter(|d| !skip_set.contains(d.name()))
                 .collect();

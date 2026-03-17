@@ -5,7 +5,6 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::detectors::default_detectors_with_ngram;
 use crate::mcp::state::HandlerState;
 use crate::mcp::params::GetFileParams;
 
@@ -137,34 +136,17 @@ pub fn handle_get_architecture(state: &mut HandlerState) -> Result<Value> {
 
 /// List all available detectors.
 ///
-/// Creates a confident dummy `NgramModel` (trained for 800 iterations so
-/// `SurprisalDetector` appears in the list) and builds the default
-/// detector set. Returns JSON with a `detectors` array (name, description,
-/// category) and a `count`.
+/// Uses the detector registry to create all detectors. Returns JSON with
+/// a `detectors` array (name, description, category) and a `count`.
 pub fn handle_list_detectors(state: &HandlerState) -> Result<Value> {
-    // Use a confident dummy model so SurprisalDetector appears in the list
-    let mut dummy_model = crate::calibrate::NgramModel::new();
-    for _ in 0..800 {
-        dummy_model.train_on_tokens(&[
-            "let".into(),
-            "<ID>".into(),
-            "=".into(),
-            "<ID>".into(),
-            ";".into(),
-            "<EOL>".into(),
-            "fn".into(),
-            "<ID>".into(),
-            "(".into(),
-            ")".into(),
-        ]);
-    }
-
-    let detectors = default_detectors_with_ngram(
-        &state.repo_path,
-        &crate::config::ProjectConfig::default(),
-        None,
-        Some(dummy_model),
-    );
+    let project_config = crate::config::ProjectConfig::default();
+    let init = crate::detectors::DetectorInit {
+        repo_path: &state.repo_path,
+        project_config: &project_config,
+        resolver: crate::calibrate::ThresholdResolver::default(),
+        ngram_model: None,
+    };
+    let detectors = crate::detectors::create_all_detectors(&init);
 
     let detector_info: Vec<Value> = detectors
         .iter()

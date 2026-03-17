@@ -574,7 +574,8 @@ mod tests {
     #[test]
     fn test_requires_graph_annotation_coverage() {
         let tmp = tempfile::tempdir().expect("create tempdir");
-        let detectors = crate::detectors::default_detectors(tmp.path());
+        let init = crate::detectors::DetectorInit::test_default();
+        let detectors = crate::detectors::create_all_detectors(&init);
 
         let graph_independent: Vec<_> = detectors
             .iter()

@@ -62,19 +62,17 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     let mut engine = crate::detectors::DetectorEngine::new(input.workers)
         .with_hmm_cache(hmm_cache_path.clone());
 
-    // Wire adaptive threshold resolver
-    engine.set_threshold_resolver(crate::detectors::build_threshold_resolver(
-        input.style_profile,
-    ));
+    // Build DetectorInit and create all detectors via the registry
+    let resolver = crate::detectors::build_threshold_resolver(input.style_profile);
+    engine.set_threshold_resolver(resolver.clone());
 
-    // Register default detectors (with ngram model for surprisal detector)
-    let ngram_clone = input.ngram_model.cloned();
-    for detector in crate::detectors::default_detectors_with_ngram(
-        input.repo_path,
-        input.project_config,
-        input.style_profile,
-        ngram_clone,
-    ) {
+    let init = crate::detectors::DetectorInit {
+        repo_path: input.repo_path,
+        project_config: input.project_config,
+        resolver,
+        ngram_model: input.ngram_model,
+    };
+    for detector in crate::detectors::create_all_detectors(&init) {
         let name = detector.name();
         if !skip_set.contains(name) {
             engine.register(detector);

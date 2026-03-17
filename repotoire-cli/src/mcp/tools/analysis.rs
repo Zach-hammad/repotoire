@@ -5,7 +5,7 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::detectors::{default_detectors_with_ngram, walk_source_files, DetectorEngineBuilder, SourceFiles};
+use crate::detectors::{walk_source_files, DetectorEngineBuilder, SourceFiles};
 use crate::mcp::state::HandlerState;
 use crate::mcp::params::{AnalyzeParams, DiffParams, GetFindingsParams, GetHotspotsParams, PredictDebtParams};
 use crate::models::FindingsSummary;
@@ -66,14 +66,16 @@ fn handle_analyze_oneshot(state: &mut HandlerState, repo_path: &std::path::Path)
     let project_config = crate::config::load_project_config(repo_path);
     let style_profile = crate::calibrate::StyleProfile::load(repo_path);
     let ngram = state.ngram_model();
+    let ngram_ref = ngram.as_ref();
+    let init = crate::detectors::DetectorInit {
+        repo_path,
+        project_config: &project_config,
+        resolver: crate::detectors::build_threshold_resolver(style_profile.as_ref()),
+        ngram_model: ngram_ref,
+    };
     let mut engine = DetectorEngineBuilder::new()
         .workers(4)
-        .detectors(default_detectors_with_ngram(
-            repo_path,
-            &project_config,
-            style_profile.as_ref(),
-            ngram,
-        ))
+        .detectors(crate::detectors::create_all_detectors(&init))
         .build();
 
     let all_files: Vec<std::path::PathBuf> = walk_source_files(repo_path, None).collect();
@@ -164,14 +166,16 @@ pub fn handle_get_findings(state: &mut HandlerState, params: &GetFindingsParams)
     let project_config = crate::config::load_project_config(&repo_path);
     let style_profile = crate::calibrate::StyleProfile::load(&repo_path);
     let ngram = state.ngram_model();
+    let ngram_ref = ngram.as_ref();
+    let init = crate::detectors::DetectorInit {
+        repo_path: &repo_path,
+        project_config: &project_config,
+        resolver: crate::detectors::build_threshold_resolver(style_profile.as_ref()),
+        ngram_model: ngram_ref,
+    };
     let mut engine = DetectorEngineBuilder::new()
         .workers(4)
-        .detectors(default_detectors_with_ngram(
-            &repo_path,
-            &project_config,
-            style_profile.as_ref(),
-            ngram,
-        ))
+        .detectors(crate::detectors::create_all_detectors(&init))
         .build();
 
     let all_files: Vec<std::path::PathBuf> = walk_source_files(&repo_path, None).collect();

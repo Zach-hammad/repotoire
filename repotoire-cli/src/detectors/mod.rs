@@ -547,253 +547,12 @@ pub use function_context::{
 // External tool wrappers removed — pure Rust detectors only
 // External tool wrappers removed — pure Rust detectors only
 
-use crate::config::ProjectConfig;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Create a default set of graph-based detectors
-///
-/// Returns detectors that only query the graph (no external tools required).
-/// The `repository_path` is used by file-scanning detectors (security, etc.)
-/// The `project_config` is used to apply per-project threshold overrides.
-pub fn default_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
-    default_detectors_with_config(repository_path, &ProjectConfig::default())
-}
-
-/// Create a default set of graph-based detectors with project configuration
-///
-/// This variant allows passing project-level configuration for threshold overrides.
-pub fn default_detectors_with_config(
-    repository_path: &Path,
-    project_config: &ProjectConfig,
-) -> Vec<Arc<dyn Detector>> {
-    default_detectors_with_profile(repository_path, project_config, None)
-}
-
-pub fn default_detectors_with_profile(
-    repository_path: &Path,
-    project_config: &ProjectConfig,
-    style_profile: Option<&crate::calibrate::StyleProfile>,
-) -> Vec<Arc<dyn Detector>> {
-    default_detectors_full(repository_path, project_config, style_profile, None)
-}
-
-pub fn default_detectors_with_ngram(
-    repository_path: &Path,
-    project_config: &ProjectConfig,
-    style_profile: Option<&crate::calibrate::StyleProfile>,
-    ngram_model: Option<crate::calibrate::NgramModel>,
-) -> Vec<Arc<dyn Detector>> {
-    default_detectors_full(repository_path, project_config, style_profile, ngram_model)
-}
-
-fn default_detectors_full(
-    repository_path: &Path,
-    project_config: &ProjectConfig,
-    style_profile: Option<&crate::calibrate::StyleProfile>,
-    ngram_model: Option<crate::calibrate::NgramModel>,
-) -> Vec<Arc<dyn Detector>> {
-    // Get project type for coupling/complexity multipliers
-    let project_type = project_config.project_type(repository_path);
-    tracing::info!(
-        "Detected project type: {:?} (coupling multiplier: {:.1}x)",
-        project_type,
-        project_type.coupling_multiplier()
-    );
-
-    // Build adaptive threshold resolver
-    let resolver = crate::calibrate::ThresholdResolver::new(style_profile.cloned());
-
-    // Helper to build detector config with adaptive resolver
-    let make_config = |name: &str| -> DetectorConfig {
-        DetectorConfig::from_project_config_with_type(name, project_config, repository_path)
-            .with_adaptive(resolver.clone())
-    };
-
-    let mut detectors: Vec<Arc<dyn Detector>> = vec![
-        // Core detectors (with project config support)
-        Arc::new(CircularDependencyDetector::new()),
-        Arc::new(GodClassDetector::with_config(make_config(
-            "GodClassDetector",
-        ))),
-        Arc::new(LongParameterListDetector::with_config(make_config(
-            "LongParameterListDetector",
-        ))),
-        // Code smell detectors
-        Arc::new(DataClumpsDetector::with_config(make_config(
-            "DataClumpsDetector",
-        ))),
-        Arc::new(DeadCodeDetector::new()),
-        Arc::new(FeatureEnvyDetector::with_config(make_config(
-            "FeatureEnvyDetector",
-        ))),
-        Arc::new(InappropriateIntimacyDetector::new()),
-        Arc::new(LazyClassDetector::new()),
-        Arc::new(MessageChainDetector::new(repository_path)),
-        Arc::new(MiddleManDetector::new()),
-        Arc::new(RefusedBequestDetector::new()),
-        // AI detectors
-        Arc::new(AIBoilerplateDetector::new()),
-        Arc::new(AIChurnDetector::new()),
-        Arc::new(AIComplexitySpikeDetector::new()),
-        Arc::new(AIDuplicateBlockDetector::new()),
-        Arc::new(AIMissingTestsDetector::new()),
-        Arc::new(AINamingPatternDetector::new()),
-        // ML/Data Science detectors (PyTorch, TensorFlow, Scikit-Learn, Pandas, NumPy)
-        Arc::new(TorchLoadUnsafeDetector::new(repository_path)),
-        Arc::new(NanEqualityDetector::new(repository_path)),
-        Arc::new(MissingZeroGradDetector::new(repository_path)),
-        Arc::new(ForwardMethodDetector::new(repository_path)),
-        Arc::new(MissingRandomSeedDetector::new(repository_path)),
-        Arc::new(ChainIndexingDetector::new(repository_path)),
-        Arc::new(RequireGradTypoDetector::new(repository_path)),
-        Arc::new(DeprecatedTorchApiDetector::new(repository_path)),
-        // Graph/architecture detectors
-        Arc::new(ArchitecturalBottleneckDetector::with_config(make_config(
-            "ArchitecturalBottleneckDetector",
-        ))),
-        Arc::new(CoreUtilityDetector::new()),
-        Arc::new(DegreeCentralityDetector::with_config(make_config(
-            "DegreeCentralityDetector",
-        ))),
-        Arc::new(InfluentialCodeDetector::with_config(make_config(
-            "InfluentialCodeDetector",
-        ))),
-        Arc::new(ModuleCohesionDetector::with_config(make_config(
-            "ModuleCohesionDetector",
-        ))),
-        Arc::new(ShotgunSurgeryDetector::with_config(make_config(
-            "ShotgunSurgeryDetector",
-        ))),
-        // Security detectors (need repository path for file scanning)
-        Arc::new(EvalDetector::with_repository_path(
-            repository_path.to_path_buf(),
-        )),
-        Arc::new(PickleDeserializationDetector::with_repository_path(
-            repository_path.to_path_buf(),
-        )),
-        Arc::new(SQLInjectionDetector::with_repository_path(
-            repository_path.to_path_buf(),
-        )),
-        Arc::new(UnsafeTemplateDetector::with_repository_path(
-            repository_path.to_path_buf(),
-        )),
-        // Misc detectors
-        Arc::new(GeneratorMisuseDetector::with_path(repository_path)),
-        Arc::new(InfiniteLoopDetector::with_path(repository_path)),
-        Arc::new(UnusedImportsDetector::new(repository_path)),
-        // New security detectors
-        Arc::new(SecretDetector::new(repository_path)),
-        Arc::new(PathTraversalDetector::new(repository_path)),
-        Arc::new(CommandInjectionDetector::new(repository_path)),
-        Arc::new(SsrfDetector::new(repository_path)),
-        Arc::new(RegexDosDetector::new(repository_path)),
-        // New code quality detectors
-        Arc::new(EmptyCatchDetector::new(repository_path)),
-        Arc::new(TodoScanner::new(repository_path)),
-        Arc::new(DeepNestingDetector::with_resolver(
-            repository_path,
-            &resolver,
-        )),
-        Arc::new(MagicNumbersDetector::new(repository_path)),
-        Arc::new(LargeFilesDetector::with_resolver(
-            repository_path,
-            &resolver,
-        )),
-        Arc::new(MissingDocstringsDetector::new(repository_path)),
-        // New performance detectors
-        Arc::new(SyncInAsyncDetector::new(repository_path)),
-        Arc::new(NPlusOneDetector::new(repository_path)),
-        // More security detectors
-        Arc::new(InsecureCryptoDetector::new(repository_path)),
-        Arc::new(XssDetector::new(repository_path)),
-        Arc::new(HardcodedIpsDetector::new(repository_path)),
-        Arc::new(InsecureRandomDetector::new(repository_path)),
-        Arc::new(CorsMisconfigDetector::new(repository_path)),
-        // More code quality detectors
-        Arc::new(DebugCodeDetector::new(repository_path)),
-        Arc::new(CommentedCodeDetector::new(repository_path)),
-        Arc::new(LongMethodsDetector::with_config(
-            repository_path,
-            make_config("long-methods"),
-        )),
-        Arc::new(DuplicateCodeDetector::new(repository_path)),
-        Arc::new(UnreachableCodeDetector::new(repository_path)),
-        Arc::new(StringConcatLoopDetector::new(repository_path)),
-        // Additional security
-        Arc::new(XxeDetector::new(repository_path)),
-        Arc::new(InsecureDeserializeDetector::new(repository_path)),
-        Arc::new(CleartextCredentialsDetector::new(repository_path)),
-        // Code quality
-        Arc::new(WildcardImportsDetector::new(repository_path)),
-        Arc::new(MutableDefaultArgsDetector::new(repository_path)),
-        Arc::new(GlobalVariablesDetector::new(repository_path)),
-        Arc::new(ImplicitCoercionDetector::new(repository_path)),
-        Arc::new(SingleCharNamesDetector::new(repository_path)),
-        // Async issues
-        Arc::new(MissingAwaitDetector::new(repository_path)),
-        Arc::new(UnhandledPromiseDetector::new(repository_path)),
-        Arc::new(CallbackHellDetector::new(repository_path)),
-        // Testing
-        Arc::new(TestInProductionDetector::new(repository_path)),
-        // More security
-        Arc::new(InsecureCookieDetector::new(repository_path)),
-        Arc::new(JwtWeakDetector::new(repository_path)),
-        Arc::new(PrototypePollutionDetector::new(repository_path)),
-        Arc::new(NosqlInjectionDetector::new(repository_path)),
-        Arc::new(LogInjectionDetector::new(repository_path)),
-        // More quality
-        Arc::new(BroadExceptionDetector::new(repository_path)),
-        Arc::new(BooleanTrapDetector::new(repository_path)),
-        Arc::new(InconsistentReturnsDetector::new(repository_path)),
-        Arc::new(DeadStoreDetector::new(repository_path)),
-        Arc::new(HardcodedTimeoutDetector::new(repository_path)),
-        // Performance
-        Arc::new(RegexInLoopDetector::new(repository_path)),
-        // Framework-specific
-        Arc::new(ReactHooksDetector::new(repository_path)),
-        Arc::new(DjangoSecurityDetector::new(repository_path)),
-        Arc::new(ExpressSecurityDetector::new(repository_path)),
-        // Rust-specific detectors
-        Arc::new(UnwrapWithoutContextDetector::new(repository_path)),
-        Arc::new(UnsafeWithoutSafetyCommentDetector::new(repository_path)),
-        Arc::new(CloneInHotPathDetector::new(repository_path)),
-        Arc::new(MissingMustUseDetector::new(repository_path)),
-        Arc::new(BoxDynTraitDetector::new(repository_path)),
-        Arc::new(MutexPoisoningRiskDetector::new(repository_path)),
-        Arc::new(PanicDensityDetector::new(repository_path)),
-        // CI/CD security
-        Arc::new(GHActionsInjectionDetector::new(repository_path)),
-        // TLS/Certificate validation
-        Arc::new(InsecureTlsDetector::new(repository_path)),
-        // Dependency vulnerability auditing
-        Arc::new(DepAuditDetector::new(repository_path)),
-    ];
-
-    // Predictive coding: hierarchical surprisal detector (always enabled, no n-gram dependency)
-    detectors.push(Arc::new(HierarchicalSurprisalDetector::new()));
-
-    // Legacy n-gram surprisal detector (still available when model is confident)
-    match ngram_model {
-        Some(model) if model.is_confident() => {
-            tracing::debug!("SurprisalDetector enabled (n-gram model is confident)");
-            detectors.push(Arc::new(SurprisalDetector::new(repository_path, model)));
-        }
-        Some(_) => {
-            tracing::debug!("SurprisalDetector skipped: n-gram model not confident");
-        }
-        None => {
-            tracing::debug!("SurprisalDetector skipped: no n-gram model available");
-        }
-    }
-
-    detectors
-}
-
 /// Build an adaptive `ThresholdResolver` from an optional style profile.
 ///
-/// This creates the same resolver used internally by `default_detectors_full()`
-/// so callers can pass it to `DetectorEngine::set_threshold_resolver()` for
+/// Callers pass this to `DetectorEngine::set_threshold_resolver()` for
 /// propagation into `AnalysisContext`.
 pub fn build_threshold_resolver(
     style_profile: Option<&crate::calibrate::StyleProfile>,
@@ -806,9 +565,16 @@ pub fn build_threshold_resolver(
 /// Convenience function for quickly setting up detection.
 #[allow(dead_code)] // Public API - may be used by external callers
 pub fn create_default_engine(workers: usize, repository_path: &Path) -> DetectorEngine {
+    let project_config = crate::config::ProjectConfig::default();
+    let init = DetectorInit {
+        repo_path: repository_path,
+        project_config: &project_config,
+        resolver: crate::calibrate::ThresholdResolver::default(),
+        ngram_model: None,
+    };
     DetectorEngineBuilder::new()
         .workers(workers)
-        .detectors(default_detectors(repository_path))
+        .detectors(create_all_detectors(&init))
         .build()
 }
 
@@ -1192,8 +958,8 @@ mod tests {
 
     #[test]
     fn all_detectors_have_scope() {
-        let tmp = tempfile::tempdir().expect("create tempdir");
-        let detectors = default_detectors(tmp.path());
+        let init = DetectorInit::test_default();
+        let detectors = create_all_detectors(&init);
         for d in &detectors {
             let scope = d.detector_scope();
             // Exhaustive match ensures we handle all variants
