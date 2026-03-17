@@ -256,8 +256,6 @@ pub mod file_cache;
 pub mod file_index;
 pub mod file_provider;
 pub mod runner;
-pub mod streaming_engine;
-
 // Context classification using HMM
 pub mod context_hmm;
 

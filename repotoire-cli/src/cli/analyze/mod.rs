@@ -16,11 +16,7 @@ mod export;
 pub(crate) mod files;
 pub(crate) mod graph;
 pub(crate) mod output;
-mod parse;
 pub(crate) mod postprocess;
-mod scoring;
-mod setup;
-
 use output::{cache_results, check_fail_threshold, format_and_output};
 
 use anyhow::Result;

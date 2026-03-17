@@ -7,7 +7,6 @@
 //! The remaining functions are legacy from the old `run()` pipeline.
 #![allow(dead_code)]
 
-use super::setup::{FileCollectionResult, SUPPORTED_EXTENSIONS};
 use crate::config::{glob_match, ExcludeConfig};
 use crate::detectors::IncrementalCache;
 use crate::models::Finding;
@@ -18,6 +17,30 @@ use ignore::{WalkBuilder, WalkState};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Supported file extensions for analysis
+pub(super) const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "py", "pyi", // Python
+    "ts", "tsx", // TypeScript
+    "js", "jsx", "mjs",  // JavaScript
+    "rs",   // Rust
+    "go",   // Go
+    "java", // Java
+    "c", "h", // C
+    "cpp", "hpp", "cc", // C++
+    "cs", // C#
+    "kt", "kts",   // Kotlin
+    "rb",    // Ruby
+    "php",   // PHP
+    "swift", // Swift
+];
+
+/// Result of file collection phase
+pub(super) struct FileCollectionResult {
+    pub all_files: Vec<PathBuf>,
+    pub files_to_parse: Vec<PathBuf>,
+    pub cached_findings: Vec<Finding>,
+}
 
 /// Maximum file size to accept for analysis (2MB, matching parser guardrail).
 const MAX_ANALYSIS_FILE_BYTES: u64 = 2 * 1024 * 1024;
