@@ -698,7 +698,7 @@ impl NPlusOneDetector {
             }
         }
 
-        for func in graph.get_functions_shared().iter() {
+        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
             if findings.len() >= self.max_findings {
                 break;
             }

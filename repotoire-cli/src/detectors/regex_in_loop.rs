@@ -74,7 +74,7 @@ impl RegexInLoopDetector {
         let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
         let ctx = Some(det_ctx);
 
-        for func in graph.get_functions_shared().iter() {
+        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
             let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
                 let path = std::path::Path::new(func.path(i));
                 // Try DetectorContext first, fall back to global_cache
@@ -315,7 +315,7 @@ impl Detector for RegexInLoopDetector {
         if !regex_funcs.is_empty() {
             let mut graph_file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
-            for func in graph.get_functions_shared().iter() {
+            for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
                 if findings.len() >= self.max_findings {
                     break;
                 }

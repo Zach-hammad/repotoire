@@ -50,7 +50,7 @@ fn build_tested_functions(ctx: &AnalysisContext<'_>) -> HashSet<String> {
     let mut queue: VecDeque<String> = VecDeque::new();
 
     // Seed: all test functions (from FunctionContextMap roles + name patterns)
-    for func in graph.get_functions_shared().iter() {
+    for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
         let qn = func.qn(i);
         let name = func.node_name(i);
         if ctx.is_test_function(qn)
@@ -175,7 +175,7 @@ impl Detector for AIMissingTestsDetector {
 
         let mut findings = Vec::new();
 
-        for func in graph.get_functions_shared().iter() {
+        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
             let qn = func.qn(i);
             let name = func.node_name(i);
             let file_path = func.path(i);

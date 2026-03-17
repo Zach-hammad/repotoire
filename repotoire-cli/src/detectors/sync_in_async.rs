@@ -79,7 +79,7 @@ impl SyncInAsyncDetector {
         let mut blocking_funcs = HashSet::new();
         let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
-        for func in graph.get_functions_shared().iter() {
+        for func in graph.functions_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
             let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
                 crate::cache::global_cache()
                     .masked_content(std::path::Path::new(func.path(i)))

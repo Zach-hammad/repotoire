@@ -202,7 +202,7 @@ impl Detector for MiddleManDetector {
         let i = graph.interner();
         let mut findings = Vec::new();
 
-        for class in graph.get_classes_shared().iter() {
+        for class in graph.classes_idx().iter().filter_map(|&idx| graph.node_idx(idx)) {
             // Skip interfaces
             if class.qn(i).contains("::interface::")
                 || class.qn(i).contains("::type::")
