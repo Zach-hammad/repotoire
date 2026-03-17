@@ -307,6 +307,9 @@ impl DetectorContext {
     ///
     /// Reads the call graph, inheritance edges, and file contents.
     /// Designed to run in parallel with other precompute work.
+    ///
+    /// Uses NodeIndex-based API when available (CodeGraph) to avoid
+    /// Vec<CodeNode> cloning and (StrKey, StrKey) pair allocation.
     pub fn build(
         graph: &dyn crate::graph::GraphQuery,
         source_files: &[PathBuf],
@@ -316,41 +319,93 @@ impl DetectorContext {
         let i = graph.interner();
         use rayon::prelude::*;
 
-        // Build callers/callees from call maps
-        let functions = graph.get_functions();
-        let (_qn_to_idx, callers_by_idx, callees_by_idx) = graph.build_call_maps_raw();
+        let func_idxs = graph.functions_idx();
 
-        let mut callers_by_qn: HashMap<String, Vec<String>> = HashMap::with_capacity(callers_by_idx.len());
-        let mut callees_by_qn: HashMap<String, Vec<String>> = HashMap::with_capacity(callees_by_idx.len());
+        // Build callers/callees maps
+        let mut callers_by_qn: HashMap<String, Vec<String>>;
+        let mut callees_by_qn: HashMap<String, Vec<String>>;
 
-        for (&callee_idx, caller_idxs) in &callers_by_idx {
-            if let Some(callee_qn) = functions.get(callee_idx).map(|f| f.qn(i).to_string()) {
-                let caller_qns: Vec<String> = caller_idxs
-                    .iter()
-                    .filter_map(|&ci| functions.get(ci).map(|f| f.qn(i).to_string()))
-                    .collect();
-                callers_by_qn.insert(callee_qn, caller_qns);
+        if !func_idxs.is_empty() {
+            // NodeIndex-based path (CodeGraph): iterate functions and their adjacency directly
+            callers_by_qn = HashMap::new();
+            callees_by_qn = HashMap::new();
+
+            for &func_idx in func_idxs {
+                let Some(func) = graph.node_idx(func_idx) else {
+                    continue;
+                };
+                let func_qn = func.qn(i).to_string();
+
+                let callee_idxs = graph.callees_idx(func_idx);
+                if !callee_idxs.is_empty() {
+                    let callee_qns: Vec<String> = callee_idxs
+                        .iter()
+                        .filter_map(|&ci| graph.node_idx(ci).map(|n| n.qn(i).to_string()))
+                        .collect();
+                    callees_by_qn.insert(func_qn.clone(), callee_qns);
+                }
+
+                let caller_idxs = graph.callers_idx(func_idx);
+                if !caller_idxs.is_empty() {
+                    let caller_qns: Vec<String> = caller_idxs
+                        .iter()
+                        .filter_map(|&ci| graph.node_idx(ci).map(|n| n.qn(i).to_string()))
+                        .collect();
+                    callers_by_qn.insert(func_qn, caller_qns);
+                }
+            }
+        } else {
+            // Fallback: old API for non-CodeGraph implementors
+            let functions = graph.get_functions();
+            let (_qn_to_idx, callers_by_idx, callees_by_idx) = graph.build_call_maps_raw();
+
+            callers_by_qn = HashMap::with_capacity(callers_by_idx.len());
+            callees_by_qn = HashMap::with_capacity(callees_by_idx.len());
+
+            for (&callee_idx, caller_idxs) in &callers_by_idx {
+                if let Some(callee_qn) = functions.get(callee_idx).map(|f| f.qn(i).to_string()) {
+                    let caller_qns: Vec<String> = caller_idxs
+                        .iter()
+                        .filter_map(|&ci| functions.get(ci).map(|f| f.qn(i).to_string()))
+                        .collect();
+                    callers_by_qn.insert(callee_qn, caller_qns);
+                }
+            }
+
+            for (&caller_idx, callee_idxs) in &callees_by_idx {
+                if let Some(caller_qn) = functions.get(caller_idx).map(|f| f.qn(i).to_string()) {
+                    let callee_qns: Vec<String> = callee_idxs
+                        .iter()
+                        .filter_map(|&ci| functions.get(ci).map(|f| f.qn(i).to_string()))
+                        .collect();
+                    callees_by_qn.insert(caller_qn, callee_qns);
+                }
             }
         }
 
-        for (&caller_idx, callee_idxs) in &callees_by_idx {
-            if let Some(caller_qn) = functions.get(caller_idx).map(|f| f.qn(i).to_string()) {
-                let callee_qns: Vec<String> = callee_idxs
-                    .iter()
-                    .filter_map(|&ci| functions.get(ci).map(|f| f.qn(i).to_string()))
-                    .collect();
-                callees_by_qn.insert(caller_qn, callee_qns);
-            }
-        }
-
-        // Build class hierarchy
-        let inheritance = graph.get_inheritance();
+        // Build class hierarchy using NodeIndex-based API when available
+        let inherit_edges = graph.all_inheritance_edges();
         let mut class_children: HashMap<String, Vec<String>> = HashMap::new();
-        for (child, parent) in &inheritance {
-            class_children
-                .entry(i.resolve(*parent).to_string())
-                .or_default()
-                .push(i.resolve(*child).to_string());
+        if !inherit_edges.is_empty() {
+            for &(child_idx, parent_idx) in inherit_edges {
+                if let (Some(child), Some(parent)) =
+                    (graph.node_idx(child_idx), graph.node_idx(parent_idx))
+                {
+                    class_children
+                        .entry(parent.qn(i).to_string())
+                        .or_default()
+                        .push(child.qn(i).to_string());
+                }
+            }
+        } else {
+            // Fallback
+            let inheritance = graph.get_inheritance();
+            for (child, parent) in &inheritance {
+                class_children
+                    .entry(i.resolve(*parent).to_string())
+                    .or_default()
+                    .push(i.resolve(*child).to_string());
+            }
         }
 
         // Pre-load file contents and compute content flags in parallel (single pass)

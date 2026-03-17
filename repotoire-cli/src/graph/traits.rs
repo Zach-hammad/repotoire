@@ -3,6 +3,7 @@
 use super::CodeNode;
 use crate::graph::interner::{StrKey, StringInterner};
 use crate::graph::store_models::ExtraProps;
+use petgraph::stable_graph::NodeIndex;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -232,5 +233,126 @@ pub trait GraphQuery: Send + Sync {
             }
         }
         (adj, rev_adj, qn_to_idx)
+    }
+
+    // ==================== NodeIndex-based API ====================
+    //
+    // These methods provide zero-copy, O(1) access using petgraph NodeIndex.
+    // Default implementations return empty results so existing implementors
+    // (GraphStore, CachedGraphQuery) keep working without changes.
+    // CodeGraph overrides all of these with its pre-built indexes.
+    //
+    // Migration path: consumers can adopt these one file at a time.
+    // Once all consumers use the new API, the old String-based methods
+    // above will be removed in Phase D.
+
+    /// Get a node by its graph index.
+    fn node_idx(&self, _idx: NodeIndex) -> Option<&CodeNode> {
+        None
+    }
+
+    /// Look up a node by qualified name. Returns both index and reference.
+    fn node_by_name_idx(&self, _qn: &str) -> Option<(NodeIndex, &CodeNode)> {
+        None
+    }
+
+    /// All function NodeIndexes.
+    fn functions_idx(&self) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// All class NodeIndexes.
+    fn classes_idx(&self) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// All file NodeIndexes.
+    fn files_idx(&self) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Functions that call this node (incoming Calls edges).
+    fn callers_idx(&self, _idx: NodeIndex) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Functions this node calls (outgoing Calls edges).
+    fn callees_idx(&self, _idx: NodeIndex) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Modules/files that import this node (incoming Imports edges).
+    fn importers_idx(&self, _idx: NodeIndex) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Modules/files this node imports (outgoing Imports edges).
+    fn importees_idx(&self, _idx: NodeIndex) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Parent classes (outgoing Inherits edges).
+    fn parent_classes_idx(&self, _idx: NodeIndex) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Child classes (incoming Inherits edges).
+    fn child_classes_idx(&self, _idx: NodeIndex) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Number of callers (fan-in). O(1) on CodeGraph.
+    fn call_fan_in_idx(&self, idx: NodeIndex) -> usize {
+        self.callers_idx(idx).len()
+    }
+
+    /// Number of callees (fan-out). O(1) on CodeGraph.
+    fn call_fan_out_idx(&self, idx: NodeIndex) -> usize {
+        self.callees_idx(idx).len()
+    }
+
+    /// Functions in a file as NodeIndex slice.
+    fn functions_in_file_idx(&self, _file_path: &str) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Classes in a file as NodeIndex slice.
+    fn classes_in_file_idx(&self, _file_path: &str) -> &[NodeIndex] {
+        &[]
+    }
+
+    /// Find the function containing a line in a file (returns NodeIndex).
+    fn function_at_idx(&self, _file_path: &str, _line: u32) -> Option<NodeIndex> {
+        None
+    }
+
+    /// All call edges as (caller, callee) NodeIndex pairs.
+    fn all_call_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        &[]
+    }
+
+    /// All import edges as (importer, importee) NodeIndex pairs.
+    fn all_import_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        &[]
+    }
+
+    /// All inheritance edges as (child, parent) NodeIndex pairs.
+    fn all_inheritance_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        &[]
+    }
+
+    /// Import cycle groups. Each inner Vec contains NodeIndexes of nodes in the cycle.
+    fn import_cycles_idx(&self) -> &[Vec<NodeIndex>] {
+        &[]
+    }
+
+    /// Edge fingerprint for topology change detection.
+    fn edge_fingerprint_idx(&self) -> u64 {
+        0
+    }
+
+    /// Extra properties for a node by qualified_name StrKey (returns reference).
+    fn extra_props_ref(&self, _qn: StrKey) -> Option<&ExtraProps> {
+        None
     }
 }

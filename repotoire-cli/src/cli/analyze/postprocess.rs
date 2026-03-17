@@ -364,9 +364,7 @@ fn downgrade_non_production_security(findings: &mut [Finding]) {
 /// back to the heuristic classifier. Findings are sorted in descending order
 /// so the most actionable findings appear first.
 pub(crate) fn rank_findings(findings: &mut Vec<Finding>, graph: &dyn crate::graph::GraphQuery) {
-    use crate::graph::CachedGraphQuery;
-    let cached = CachedGraphQuery::new(graph);
-    let graph: &dyn crate::graph::GraphQuery = &cached;
+    // CodeGraph has built-in indexes — no CachedGraphQuery wrapper needed.
 
     // Try user model, then seed model
     let model_path = dirs::data_dir()
@@ -431,12 +429,8 @@ fn filter_false_positives(
     graph: &dyn crate::graph::GraphQuery,
 ) {
     use crate::classifier::{CategoryThresholds, DetectorCategory};
-    use crate::graph::CachedGraphQuery;
 
-    // Wrap in CachedGraphQuery so expensive ops (find_import_cycles, call maps)
-    // are computed once and reused across all findings.
-    let cached = CachedGraphQuery::new(graph);
-    let graph: &dyn crate::graph::GraphQuery = &cached;
+    // CodeGraph has built-in indexes — no CachedGraphQuery wrapper needed.
 
     let thresholds = CategoryThresholds::default();
 

@@ -5,10 +5,8 @@
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
-use crate::graph::{EdgeKind, GraphStore, NodeKind};
 use crate::graph::interner::StrKey;
-use petgraph::algo::dijkstra;
-use petgraph::graph::NodeIndex;
+use crate::graph::GraphQuery;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use tracing::{debug, info};
@@ -148,11 +146,23 @@ impl<'a> FunctionContextBuilder<'a> {
         self
     }
 
-    /// Build context map for all functions
+    /// Build context map for all functions.
+    ///
+    /// Uses NodeIndex-based API when available (CodeGraph): iterates
+    /// `functions_idx()` and reads callers/callees via `callers_idx()`/`callees_idx()`,
+    /// avoiding Vec<CodeNode> cloning and the (StrKey, StrKey) call edge scan.
     pub fn build(&self) -> FunctionContextMap {
         let i = self.graph.interner();
         let start = std::time::Instant::now();
 
+        let func_node_idxs = self.graph.functions_idx();
+
+        // Use NodeIndex-based path when available (non-empty slice = CodeGraph)
+        if !func_node_idxs.is_empty() {
+            return self.build_indexed(func_node_idxs, i);
+        }
+
+        // Fallback: old API for non-CodeGraph implementors
         let functions = self.graph.get_functions_shared();
         let func_count = functions.len();
 
@@ -160,20 +170,130 @@ impl<'a> FunctionContextBuilder<'a> {
             return HashMap::new();
         }
 
-        info!("Building function context for {} functions", func_count);
+        info!("Building function context for {} functions (legacy path)", func_count);
 
-        // Build adjacency and reverse adjacency for call edges
-        // CachedGraphQuery overrides this to reuse pre-built index maps,
-        // avoiding cloning millions of (String, String) call edge pairs.
         let (adj, rev_adj, qn_to_idx) = self.graph.get_call_adjacency();
-
-        // Pre-extract file paths for module lookups (indexed by adjacency index)
         let file_paths: Vec<&str> = functions.iter().map(|f| f.path(i)).collect();
+        let betweenness = self.calculate_betweenness(&adj);
+        let max_betweenness = betweenness.iter().cloned().fold(0.0_f64, f64::max);
+        let normalized_betweenness: Vec<f64> = if max_betweenness > 0.0 {
+            betweenness.iter().map(|b| b / max_betweenness).collect()
+        } else {
+            vec![0.0; betweenness.len()]
+        };
+        let call_depths = self.calculate_call_depths(&adj, &qn_to_idx);
+
+        let contexts: Vec<FunctionContext> = functions
+            .par_iter()
+            .enumerate()
+            .map(|(idx, func)| {
+                let qn = func.qn(i);
+                let in_degree = rev_adj[idx].len();
+                let out_degree = adj[idx].len();
+                let caller_modules: HashSet<_> = rev_adj[idx]
+                    .iter()
+                    .map(|&caller_idx| self.extract_module(file_paths[caller_idx]))
+                    .collect();
+                let callee_modules: HashSet<_> = adj[idx]
+                    .iter()
+                    .map(|&callee_idx| self.extract_module(file_paths[callee_idx]))
+                    .collect();
+                let betweenness_score = qn_to_idx
+                    .get(&func.qualified_name)
+                    .and_then(|&idx| normalized_betweenness.get(idx))
+                    .copied()
+                    .unwrap_or(0.0);
+                let call_depth = call_depths.get(&func.qualified_name).copied().unwrap_or(0);
+                let is_test = self.is_test_path(func.path(i))
+                    || self.has_test_decorator(func.qualified_name, i);
+                let is_in_utility_module = self.is_utility_module(func.path(i));
+                let is_exported = func.get_bool("is_exported").unwrap_or(false)
+                    || func.get_bool("is_public").unwrap_or(false);
+                let role = self.infer_role(
+                    in_degree, out_degree, caller_modules.len(), betweenness_score,
+                    is_exported, is_test, is_in_utility_module, call_depth,
+                );
+                FunctionContext {
+                    qualified_name: qn.to_string(),
+                    name: func.node_name(i).to_string(),
+                    file_path: func.path(i).to_string(),
+                    module: self.extract_module(func.path(i)),
+                    in_degree, out_degree,
+                    betweenness: betweenness_score,
+                    caller_modules: caller_modules.len(),
+                    callee_modules: callee_modules.len(),
+                    call_depth, role, is_exported, is_test, is_in_utility_module,
+                    complexity: func.complexity_opt(),
+                    loc: func.loc(),
+                }
+            })
+            .collect();
+
+        let result: FunctionContextMap = contexts
+            .into_iter()
+            .map(|ctx| (ctx.qualified_name.clone(), ctx))
+            .collect();
+        let elapsed = start.elapsed();
+        info!("Built function context in {:?}", elapsed);
+        result
+    }
+
+    /// NodeIndex-based build path (CodeGraph). Zero Vec<CodeNode> cloning.
+    fn build_indexed(
+        &self,
+        func_node_idxs: &[petgraph::stable_graph::NodeIndex],
+        i: &crate::graph::interner::StringInterner,
+    ) -> FunctionContextMap {
+        let start = std::time::Instant::now();
+        let func_count = func_node_idxs.len();
+        if func_count == 0 {
+            return HashMap::new();
+        }
+
+        info!("Building function context for {} functions (indexed path)", func_count);
+
+        // Build a local NodeIndex -> usize map for adjacency arrays
+        let ni_to_local: HashMap<petgraph::stable_graph::NodeIndex, usize> = func_node_idxs
+            .iter()
+            .enumerate()
+            .map(|(local, &ni)| (ni, local))
+            .collect();
+
+        // Build adjacency arrays from NodeIndex adjacency
+        let mut adj: Vec<Vec<usize>> = vec![vec![]; func_count];
+        let mut rev_adj: Vec<Vec<usize>> = vec![vec![]; func_count];
+
+        for (local_idx, &ni) in func_node_idxs.iter().enumerate() {
+            for &callee_ni in self.graph.callees_idx(ni) {
+                if let Some(&callee_local) = ni_to_local.get(&callee_ni) {
+                    adj[local_idx].push(callee_local);
+                    rev_adj[callee_local].push(local_idx);
+                }
+            }
+        }
+
+        // Build qn_to_idx (StrKey -> local index) for call_depths
+        let qn_to_idx: HashMap<StrKey, usize> = func_node_idxs
+            .iter()
+            .enumerate()
+            .filter_map(|(local, &ni)| {
+                self.graph.node_idx(ni).map(|n| (n.qualified_name, local))
+            })
+            .collect();
+
+        // Pre-extract file paths
+        let file_paths: Vec<&str> = func_node_idxs
+            .iter()
+            .map(|&ni| {
+                self.graph
+                    .node_idx(ni)
+                    .map(|n| n.path(i))
+                    .unwrap_or("")
+            })
+            .collect();
 
         // Calculate betweenness centrality (parallelized)
         let betweenness = self.calculate_betweenness(&adj);
-
-        // Normalize betweenness
         let max_betweenness = betweenness.iter().cloned().fold(0.0_f64, f64::max);
         let normalized_betweenness: Vec<f64> = if max_betweenness > 0.0 {
             betweenness.iter().map(|b| b / max_betweenness).collect()
@@ -184,52 +304,42 @@ impl<'a> FunctionContextBuilder<'a> {
         // Build call depth map
         let call_depths = self.calculate_call_depths(&adj, &qn_to_idx);
 
-        // Build context for each function using pre-built adjacency lists (zero graph queries)
-        let contexts: Vec<FunctionContext> = functions
+        // Build context for each function
+        let contexts: Vec<FunctionContext> = func_node_idxs
             .par_iter()
             .enumerate()
-            .map(|(idx, func)| {
+            .filter_map(|(local_idx, &ni)| {
+                let func = self.graph.node_idx(ni)?;
                 let qn = func.qn(i);
 
-                // Derive metrics from adjacency lists — no per-function graph queries
-                let in_degree = rev_adj[idx].len();
-                let out_degree = adj[idx].len();
+                let in_degree = rev_adj[local_idx].len();
+                let out_degree = adj[local_idx].len();
 
-                // Calculate module spread from adjacency lists
-                let caller_modules: HashSet<_> = rev_adj[idx]
+                let caller_modules: HashSet<_> = rev_adj[local_idx]
                     .iter()
-                    .map(|&caller_idx| self.extract_module(file_paths[caller_idx]))
+                    .map(|&caller_local| self.extract_module(file_paths[caller_local]))
                     .collect();
-                let callee_modules: HashSet<_> = adj[idx]
+                let callee_modules: HashSet<_> = adj[local_idx]
                     .iter()
-                    .map(|&callee_idx| self.extract_module(file_paths[callee_idx]))
+                    .map(|&callee_local| self.extract_module(file_paths[callee_local]))
                     .collect();
 
                 let caller_module_count = caller_modules.len();
                 let callee_module_count = callee_modules.len();
 
-                // Get betweenness for this function
-                let betweenness_score = qn_to_idx
-                    .get(&func.qualified_name)
-                    .and_then(|&idx| normalized_betweenness.get(idx))
+                let betweenness_score = normalized_betweenness
+                    .get(local_idx)
                     .copied()
                     .unwrap_or(0.0);
 
-                // Get call depth
                 let call_depth = call_depths.get(&func.qualified_name).copied().unwrap_or(0);
 
-                // Detect test function: file-path heuristic OR #[test] decorator
                 let is_test = self.is_test_path(func.path(i))
                     || self.has_test_decorator(func.qualified_name, i);
-
-                // Detect utility module
                 let is_in_utility_module = self.is_utility_module(func.path(i));
-
-                // Check if exported
                 let is_exported = func.get_bool("is_exported").unwrap_or(false)
                     || func.get_bool("is_public").unwrap_or(false);
 
-                // Infer role
                 let role = self.infer_role(
                     in_degree,
                     out_degree,
@@ -241,7 +351,7 @@ impl<'a> FunctionContextBuilder<'a> {
                     call_depth,
                 );
 
-                FunctionContext {
+                Some(FunctionContext {
                     qualified_name: qn.to_string(),
                     name: func.node_name(i).to_string(),
                     file_path: func.path(i).to_string(),
@@ -258,7 +368,7 @@ impl<'a> FunctionContextBuilder<'a> {
                     is_in_utility_module,
                     complexity: func.complexity_opt(),
                     loc: func.loc(),
-                }
+                })
             })
             .collect();
 
@@ -521,7 +631,13 @@ impl<'a> FunctionContextBuilder<'a> {
 
     /// Check if function has a test decorator (#[test], @pytest.mark, etc.)
     fn has_test_decorator(&self, qn: crate::graph::interner::StrKey, i: &crate::graph::interner::StringInterner) -> bool {
-        if let Some(ep) = self.graph.extra_props(qn) {
+        // Try NodeIndex-based API first (zero-copy reference)
+        let ep = self.graph.extra_props_ref(qn).or_else(|| {
+            // Fallback: old API (returns owned clone)
+            // Box leak would be bad here; just use the owned version via extra_props
+            None
+        });
+        if let Some(ep) = ep {
             if let Some(decos_key) = ep.decorators {
                 let decos = i.resolve(decos_key);
                 return decos.split(',').any(|d| {
@@ -529,6 +645,21 @@ impl<'a> FunctionContextBuilder<'a> {
                     d == "test"
                         || d == "cfg(test)"
                         || d.ends_with("::test") // tokio::test, actix_rt::test, etc.
+                        || d.starts_with("pytest.mark")
+                        || d.starts_with("rstest")
+                });
+            }
+            return false;
+        }
+        // Fallback to owned extra_props
+        if let Some(ep) = self.graph.extra_props(qn) {
+            if let Some(decos_key) = ep.decorators {
+                let decos = i.resolve(decos_key);
+                return decos.split(',').any(|d| {
+                    let d = d.trim();
+                    d == "test"
+                        || d == "cfg(test)"
+                        || d.ends_with("::test")
                         || d.starts_with("pytest.mark")
                         || d.starts_with("rstest")
                 });

@@ -447,13 +447,24 @@ impl<'a> GraphScorer<'a> {
         }
     }
 
-    /// Compute all graph metrics
+    /// Compute all graph metrics.
+    ///
+    /// Uses NodeIndex-based API when available (CodeGraph), avoiding
+    /// Vec<CodeNode> cloning and (StrKey, StrKey) pair allocation.
     fn compute_graph_metrics(&self) -> GraphMetrics {
         let i = self.graph.interner();
+        let func_idxs = self.graph.functions_idx();
+        let file_idxs = self.graph.files_idx();
+
+        // Use NodeIndex-based path when available (non-empty = CodeGraph)
+        if !func_idxs.is_empty() || !file_idxs.is_empty() {
+            return self.compute_graph_metrics_indexed(i, func_idxs, file_idxs);
+        }
+
+        // Fallback: old API for non-CodeGraph implementors
         let functions = self.graph.get_functions();
         let files = self.graph.get_files();
 
-        // Count modules (unique directories)
         let modules: HashSet<String> = files
             .iter()
             .filter_map(|f| {
@@ -462,8 +473,6 @@ impl<'a> GraphScorer<'a> {
             })
             .collect();
 
-        // Compute coupling stats from call edges.
-        // For each call edge, compare the file_path parent dirs of source and target.
         let (total_calls, cross_module_calls) = {
             let calls = self.graph.get_calls();
             let mut total = 0usize;
@@ -485,6 +494,65 @@ impl<'a> GraphScorer<'a> {
             (total, cross)
         };
 
+        let avg_coupling = if total_calls == 0 { 0.0 } else { cross_module_calls as f64 / total_calls as f64 };
+        let intra_module_calls = total_calls - cross_module_calls;
+        let avg_cohesion = if total_calls == 0 { 1.0 } else { intra_module_calls as f64 / total_calls as f64 };
+        let import_cycles = self.graph.find_import_cycles();
+        let cycle_count = import_cycles.len();
+        let simple_count = functions.iter().filter(|f| f.complexity_opt().unwrap_or(1) <= 10).count();
+        let simple_ratio = if functions.is_empty() { 1.0 } else { simple_count as f64 / functions.len() as f64 };
+        let test_files = files.iter().filter(|f| self.is_test_file(f.path(i))).count();
+        let test_ratio = if files.is_empty() { 0.0 } else { test_files as f64 / files.len() as f64 };
+        let total_loc: usize = files.iter().map(|f| f.get_i64("loc").unwrap_or(0) as usize).sum();
+
+        GraphMetrics {
+            module_count: modules.len(),
+            avg_coupling,
+            avg_cohesion,
+            cycle_count,
+            simple_function_ratio: simple_ratio,
+            test_file_ratio: test_ratio,
+            total_functions: functions.len(),
+            total_files: files.len(),
+            total_loc,
+        }
+    }
+
+    /// NodeIndex-based graph metrics implementation for CodeGraph.
+    fn compute_graph_metrics_indexed(
+        &self,
+        i: &crate::graph::interner::StringInterner,
+        func_idxs: &[petgraph::stable_graph::NodeIndex],
+        file_idxs: &[petgraph::stable_graph::NodeIndex],
+    ) -> GraphMetrics {
+        // Count modules (unique directories)
+        let modules: HashSet<String> = file_idxs
+            .iter()
+            .filter_map(|&idx| {
+                let f = self.graph.node_idx(idx)?;
+                let path = std::path::Path::new(f.path(i));
+                path.parent().map(|p| p.to_string_lossy().to_string())
+            })
+            .collect();
+
+        // Compute coupling stats from call edges (zero-copy: NodeIndex pairs).
+        let call_edges = self.graph.all_call_edges();
+        let total_calls = call_edges.len();
+        let cross_module_calls = call_edges
+            .iter()
+            .filter(|&&(src_idx, tgt_idx)| {
+                if let (Some(src), Some(tgt)) =
+                    (self.graph.node_idx(src_idx), self.graph.node_idx(tgt_idx))
+                {
+                    let src_mod = std::path::Path::new(i.resolve(src.file_path)).parent();
+                    let dst_mod = std::path::Path::new(i.resolve(tgt.file_path)).parent();
+                    src_mod != dst_mod
+                } else {
+                    false
+                }
+            })
+            .count();
+
         debug!(
             "Call graph: {} total calls, {} cross-module, {} modules",
             total_calls,
@@ -498,10 +566,9 @@ impl<'a> GraphScorer<'a> {
             cross_module_calls as f64 / total_calls as f64
         };
 
-        // Calculate cohesion (intra-module calls / total calls)
         let intra_module_calls = total_calls - cross_module_calls;
         let avg_cohesion = if total_calls == 0 {
-            1.0 // No calls = perfectly cohesive (trivially)
+            1.0
         } else {
             intra_module_calls as f64 / total_calls as f64
         };
@@ -512,37 +579,35 @@ impl<'a> GraphScorer<'a> {
             avg_cohesion * 100.0
         );
 
-        // Count import cycles (architectural dependency cycles).
-        // Call cycles (mutual recursion) are normal and not penalized.
-        // Skipping find_call_cycles() avoids expensive Tarjan SCC on the full call graph.
-        let import_cycles = self.graph.find_import_cycles();
-        let cycle_count = import_cycles.len();
+        let cycle_count = self.graph.import_cycles_idx().len();
 
-        // Simple function ratio (complexity <= 10)
-        let simple_count = functions
+        let func_count = func_idxs.len();
+        let simple_count = func_idxs
             .iter()
+            .filter_map(|&idx| self.graph.node_idx(idx))
             .filter(|f| f.complexity_opt().unwrap_or(1) <= 10)
             .count();
-        let simple_ratio = if functions.is_empty() {
+        let simple_ratio = if func_count == 0 {
             1.0
         } else {
-            simple_count as f64 / functions.len() as f64
+            simple_count as f64 / func_count as f64
         };
 
-        // Test file ratio
-        let test_files = files
+        let file_count = file_idxs.len();
+        let test_files = file_idxs
             .iter()
+            .filter_map(|&idx| self.graph.node_idx(idx))
             .filter(|f| self.is_test_file(f.path(i)))
             .count();
-        let test_ratio = if files.is_empty() {
+        let test_ratio = if file_count == 0 {
             0.0
         } else {
-            test_files as f64 / files.len() as f64
+            test_files as f64 / file_count as f64
         };
 
-        // Total LOC from file nodes
-        let total_loc: usize = files
+        let total_loc: usize = file_idxs
             .iter()
+            .filter_map(|&idx| self.graph.node_idx(idx))
             .map(|f| f.get_i64("loc").unwrap_or(0) as usize)
             .sum();
 
@@ -553,8 +618,8 @@ impl<'a> GraphScorer<'a> {
             cycle_count,
             simple_function_ratio: simple_ratio,
             test_file_ratio: test_ratio,
-            total_functions: functions.len(),
-            total_files: files.len(),
+            total_functions: func_count,
+            total_files: file_count,
             total_loc,
         }
     }

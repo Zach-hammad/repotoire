@@ -13,11 +13,21 @@ pub struct ReachabilityIndex {
 
 impl ReachabilityIndex {
     /// Build reachability from all entry points (exported or zero fan-in functions).
+    ///
+    /// Uses NodeIndex-based API when available (CodeGraph), avoiding
+    /// Vec<CodeNode> cloning in per-function callee lookups.
     pub fn build(graph: &dyn GraphQuery) -> Self {
         let interner = graph.interner();
+        let func_idxs = graph.functions_idx();
+
+        // Fast path: use NodeIndex-based API if available (returns non-empty for CodeGraph)
+        if !func_idxs.is_empty() {
+            return Self::build_indexed(graph, interner, func_idxs);
+        }
+
+        // Fallback: old API for non-CodeGraph implementors
         let functions = graph.get_functions_shared();
 
-        // Entry points: exported, or has zero callers (could be main/init/handler)
         let mut queue: VecDeque<String> = VecDeque::new();
         for func in functions.iter() {
             let qn = func.qn(interner);
@@ -26,7 +36,6 @@ impl ReachabilityIndex {
             }
         }
 
-        // BFS from all entry points
         let mut reachable = HashSet::new();
         while let Some(qn) = queue.pop_front() {
             if !reachable.insert(qn.clone()) {
@@ -39,6 +48,48 @@ impl ReachabilityIndex {
                 }
             }
         }
+
+        Self { reachable }
+    }
+
+    /// Build using NodeIndex-based API (zero-copy BFS).
+    fn build_indexed(
+        graph: &dyn GraphQuery,
+        interner: &crate::graph::interner::StringInterner,
+        func_idxs: &[petgraph::stable_graph::NodeIndex],
+    ) -> Self {
+        use petgraph::stable_graph::NodeIndex;
+
+        // Entry points: exported, or has zero callers
+        let mut queue: VecDeque<NodeIndex> = VecDeque::new();
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
+
+        for &idx in func_idxs {
+            if let Some(func) = graph.node_idx(idx) {
+                if func.is_exported() || graph.call_fan_in_idx(idx) == 0 {
+                    queue.push_back(idx);
+                }
+            }
+        }
+
+        // BFS from all entry points
+        while let Some(idx) = queue.pop_front() {
+            if !visited.insert(idx) {
+                continue;
+            }
+            for &callee_idx in graph.callees_idx(idx) {
+                if !visited.contains(&callee_idx) {
+                    queue.push_back(callee_idx);
+                }
+            }
+        }
+
+        // Convert to string set for the public API
+        let reachable: HashSet<String> = visited
+            .iter()
+            .filter_map(|&idx| graph.node_idx(idx))
+            .map(|n| n.qn(interner).to_string())
+            .collect();
 
         Self { reachable }
     }
@@ -62,18 +113,42 @@ impl ReachabilityIndex {
 }
 
 /// Build a set of exported/public function and class qualified names.
+///
+/// Uses NodeIndex-based API when available (CodeGraph).
 pub fn build_public_api(graph: &dyn GraphQuery) -> HashSet<String> {
     let interner = graph.interner();
     let mut api = HashSet::new();
 
-    for func in graph.get_functions_shared().iter() {
-        if func.is_exported() || func.is_public() {
-            api.insert(func.qn(interner).to_string());
+    for &idx in graph.functions_idx() {
+        if let Some(func) = graph.node_idx(idx) {
+            if func.is_exported() || func.is_public() {
+                api.insert(func.qn(interner).to_string());
+            }
         }
     }
-    for class in graph.get_classes_shared().iter() {
-        if class.is_exported() || class.is_public() {
-            api.insert(class.qn(interner).to_string());
+    for &idx in graph.classes_idx() {
+        if let Some(class) = graph.node_idx(idx) {
+            if class.is_exported() || class.is_public() {
+                api.insert(class.qn(interner).to_string());
+            }
+        }
+    }
+
+    // Fallback: if NodeIndex API returned nothing, try old API
+    if api.is_empty() && (!graph.functions_idx().is_empty() || !graph.classes_idx().is_empty()) {
+        return api; // Indexes available but empty — genuinely no public API
+    }
+    if graph.functions_idx().is_empty() {
+        // Old implementor: use legacy API
+        for func in graph.get_functions_shared().iter() {
+            if func.is_exported() || func.is_public() {
+                api.insert(func.qn(interner).to_string());
+            }
+        }
+        for class in graph.get_classes_shared().iter() {
+            if class.is_exported() || class.is_public() {
+                api.insert(class.qn(interner).to_string());
+            }
         }
     }
     api
@@ -82,24 +157,51 @@ pub fn build_public_api(graph: &dyn GraphQuery) -> HashSet<String> {
 /// Build a pre-parsed decorator index from graph ExtraProps.
 ///
 /// Maps function qualified names to their parsed decorator lists.
+/// Uses NodeIndex-based API when available (CodeGraph).
 pub fn build_decorator_index(graph: &dyn GraphQuery) -> HashMap<String, Vec<String>> {
     let interner = graph.interner();
-    let functions = graph.get_functions_shared();
+    let func_idxs = graph.functions_idx();
     let mut index = HashMap::new();
 
-    for func in functions.iter() {
-        if func.has_decorators() {
-            let qn = func.qn(interner);
-            if let Some(props) = graph.extra_props(func.qualified_name) {
-                if let Some(decs) = &props.decorators {
-                    let dec_str = interner.resolve(*decs);
-                    let parsed: Vec<String> = dec_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    if !parsed.is_empty() {
-                        index.insert(qn.to_string(), parsed);
+    if !func_idxs.is_empty() {
+        // NodeIndex-based path (CodeGraph)
+        for &idx in func_idxs {
+            if let Some(func) = graph.node_idx(idx) {
+                if func.has_decorators() {
+                    let qn = func.qn(interner);
+                    if let Some(props) = graph.extra_props_ref(func.qualified_name) {
+                        if let Some(decs) = &props.decorators {
+                            let dec_str = interner.resolve(*decs);
+                            let parsed: Vec<String> = dec_str
+                                .split(',')
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            if !parsed.is_empty() {
+                                index.insert(qn.to_string(), parsed);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Fallback: old API
+        let functions = graph.get_functions_shared();
+        for func in functions.iter() {
+            if func.has_decorators() {
+                let qn = func.qn(interner);
+                if let Some(props) = graph.extra_props(func.qualified_name) {
+                    if let Some(decs) = &props.decorators {
+                        let dec_str = interner.resolve(*decs);
+                        let parsed: Vec<String> = dec_str
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if !parsed.is_empty() {
+                            index.insert(qn.to_string(), parsed);
+                        }
                     }
                 }
             }

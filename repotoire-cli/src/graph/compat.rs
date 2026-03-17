@@ -789,6 +789,97 @@ impl super::traits::GraphQuery for CodeGraph {
     ) {
         self.get_call_adjacency_compat()
     }
+
+    // ==================== NodeIndex-based overrides ====================
+    // These delegate to the efficient indexed implementations on CodeGraph.
+
+    fn node_idx(&self, idx: NodeIndex) -> Option<&CodeNode> {
+        self.node(idx)
+    }
+
+    fn node_by_name_idx(&self, qn: &str) -> Option<(NodeIndex, &CodeNode)> {
+        self.node_by_name(qn)
+    }
+
+    fn functions_idx(&self) -> &[NodeIndex] {
+        self.functions()
+    }
+
+    fn classes_idx(&self) -> &[NodeIndex] {
+        self.classes()
+    }
+
+    fn files_idx(&self) -> &[NodeIndex] {
+        self.files()
+    }
+
+    fn callers_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.callers(idx)
+    }
+
+    fn callees_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.callees(idx)
+    }
+
+    fn importers_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.importers(idx)
+    }
+
+    fn importees_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.importees(idx)
+    }
+
+    fn parent_classes_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.parent_classes(idx)
+    }
+
+    fn child_classes_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.child_classes(idx)
+    }
+
+    fn call_fan_in_idx(&self, idx: NodeIndex) -> usize {
+        CodeGraph::call_fan_in(self, idx)
+    }
+
+    fn call_fan_out_idx(&self, idx: NodeIndex) -> usize {
+        CodeGraph::call_fan_out(self, idx)
+    }
+
+    fn functions_in_file_idx(&self, file_path: &str) -> &[NodeIndex] {
+        self.functions_in_file(file_path)
+    }
+
+    fn classes_in_file_idx(&self, file_path: &str) -> &[NodeIndex] {
+        self.classes_in_file(file_path)
+    }
+
+    fn function_at_idx(&self, file_path: &str, line: u32) -> Option<NodeIndex> {
+        self.function_at(file_path, line)
+    }
+
+    fn all_call_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        CodeGraph::all_call_edges(self)
+    }
+
+    fn all_import_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        CodeGraph::all_import_edges(self)
+    }
+
+    fn all_inheritance_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        CodeGraph::all_inheritance_edges(self)
+    }
+
+    fn import_cycles_idx(&self) -> &[Vec<NodeIndex>] {
+        self.import_cycles()
+    }
+
+    fn edge_fingerprint_idx(&self) -> u64 {
+        self.edge_fingerprint()
+    }
+
+    fn extra_props_ref(&self, qn: StrKey) -> Option<&super::store_models::ExtraProps> {
+        CodeGraph::extra_props(self, qn)
+    }
 }
 
 // Also implement for Arc<CodeGraph> to match the existing Arc<GraphStore> impl.
@@ -944,6 +1035,96 @@ impl super::traits::GraphQuery for std::sync::Arc<CodeGraph> {
         std::collections::HashMap<StrKey, usize>,
     ) {
         <CodeGraph as super::traits::GraphQuery>::get_call_adjacency(self)
+    }
+
+    // ==================== NodeIndex-based overrides ====================
+
+    fn node_idx(&self, idx: NodeIndex) -> Option<&CodeNode> {
+        <CodeGraph as super::traits::GraphQuery>::node_idx(self, idx)
+    }
+
+    fn node_by_name_idx(&self, qn: &str) -> Option<(NodeIndex, &CodeNode)> {
+        <CodeGraph as super::traits::GraphQuery>::node_by_name_idx(self, qn)
+    }
+
+    fn functions_idx(&self) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::functions_idx(self)
+    }
+
+    fn classes_idx(&self) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::classes_idx(self)
+    }
+
+    fn files_idx(&self) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::files_idx(self)
+    }
+
+    fn callers_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::callers_idx(self, idx)
+    }
+
+    fn callees_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::callees_idx(self, idx)
+    }
+
+    fn importers_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::importers_idx(self, idx)
+    }
+
+    fn importees_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::importees_idx(self, idx)
+    }
+
+    fn parent_classes_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::parent_classes_idx(self, idx)
+    }
+
+    fn child_classes_idx(&self, idx: NodeIndex) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::child_classes_idx(self, idx)
+    }
+
+    fn call_fan_in_idx(&self, idx: NodeIndex) -> usize {
+        <CodeGraph as super::traits::GraphQuery>::call_fan_in_idx(self, idx)
+    }
+
+    fn call_fan_out_idx(&self, idx: NodeIndex) -> usize {
+        <CodeGraph as super::traits::GraphQuery>::call_fan_out_idx(self, idx)
+    }
+
+    fn functions_in_file_idx(&self, file_path: &str) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::functions_in_file_idx(self, file_path)
+    }
+
+    fn classes_in_file_idx(&self, file_path: &str) -> &[NodeIndex] {
+        <CodeGraph as super::traits::GraphQuery>::classes_in_file_idx(self, file_path)
+    }
+
+    fn function_at_idx(&self, file_path: &str, line: u32) -> Option<NodeIndex> {
+        <CodeGraph as super::traits::GraphQuery>::function_at_idx(self, file_path, line)
+    }
+
+    fn all_call_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        <CodeGraph as super::traits::GraphQuery>::all_call_edges(self)
+    }
+
+    fn all_import_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        <CodeGraph as super::traits::GraphQuery>::all_import_edges(self)
+    }
+
+    fn all_inheritance_edges(&self) -> &[(NodeIndex, NodeIndex)] {
+        <CodeGraph as super::traits::GraphQuery>::all_inheritance_edges(self)
+    }
+
+    fn import_cycles_idx(&self) -> &[Vec<NodeIndex>] {
+        <CodeGraph as super::traits::GraphQuery>::import_cycles_idx(self)
+    }
+
+    fn edge_fingerprint_idx(&self) -> u64 {
+        <CodeGraph as super::traits::GraphQuery>::edge_fingerprint_idx(self)
+    }
+
+    fn extra_props_ref(&self, qn: StrKey) -> Option<&super::store_models::ExtraProps> {
+        <CodeGraph as super::traits::GraphQuery>::extra_props_ref(self, qn)
     }
 }
 

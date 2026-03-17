@@ -38,14 +38,23 @@ impl ModuleMetrics {
 /// Build per-module metrics from the call graph.
 ///
 /// A "module" is the parent directory of a file.
+/// Uses NodeIndex-based API when available (CodeGraph) to avoid
+/// Vec<CodeNode> cloning in per-function callee lookups.
 pub fn build_module_metrics(graph: &dyn GraphQuery) -> HashMap<String, ModuleMetrics> {
     let interner = graph.interner();
+    let func_idxs = graph.functions_idx();
+
+    // Use NodeIndex-based path when available (non-empty = CodeGraph)
+    if !func_idxs.is_empty() {
+        return build_module_metrics_indexed(graph, interner);
+    }
+
+    // Fallback: old API
     let functions = graph.get_functions_shared();
     let classes = graph.get_classes_shared();
 
     let mut metrics: HashMap<String, ModuleMetrics> = HashMap::new();
 
-    // Count functions per module
     for func in functions.iter() {
         let path = func.path(interner);
         let module = extract_module(path);
@@ -59,7 +68,6 @@ pub fn build_module_metrics(graph: &dyn GraphQuery) -> HashMap<String, ModuleMet
         entry.function_count += 1;
     }
 
-    // Count classes per module
     for class in classes.iter() {
         let path = class.path(interner);
         let module = extract_module(path);
@@ -73,11 +81,78 @@ pub fn build_module_metrics(graph: &dyn GraphQuery) -> HashMap<String, ModuleMet
         entry.class_count += 1;
     }
 
-    // Count call edges per module
     for func in functions.iter() {
         let caller_module = extract_module(func.path(interner));
         let qn = func.qn(interner);
         for callee in graph.get_callees(qn) {
+            let callee_module = extract_module(callee.path(interner));
+            if caller_module == callee_module {
+                if let Some(m) = metrics.get_mut(&caller_module) {
+                    m.internal_calls += 1;
+                }
+            } else {
+                if let Some(m) = metrics.get_mut(&caller_module) {
+                    m.outgoing_calls += 1;
+                }
+                if let Some(m) = metrics.get_mut(&callee_module) {
+                    m.incoming_calls += 1;
+                }
+            }
+        }
+    }
+
+    metrics
+}
+
+/// NodeIndex-based implementation for CodeGraph.
+fn build_module_metrics_indexed(
+    graph: &dyn GraphQuery,
+    interner: &crate::graph::interner::StringInterner,
+) -> HashMap<String, ModuleMetrics> {
+    let func_idxs = graph.functions_idx();
+    let class_idxs = graph.classes_idx();
+
+    let mut metrics: HashMap<String, ModuleMetrics> = HashMap::new();
+
+    for &idx in func_idxs {
+        if let Some(func) = graph.node_idx(idx) {
+            let path = func.path(interner);
+            let module = extract_module(path);
+            let entry = metrics.entry(module).or_insert(ModuleMetrics {
+                function_count: 0,
+                class_count: 0,
+                incoming_calls: 0,
+                outgoing_calls: 0,
+                internal_calls: 0,
+            });
+            entry.function_count += 1;
+        }
+    }
+
+    for &idx in class_idxs {
+        if let Some(class) = graph.node_idx(idx) {
+            let path = class.path(interner);
+            let module = extract_module(path);
+            let entry = metrics.entry(module).or_insert(ModuleMetrics {
+                function_count: 0,
+                class_count: 0,
+                incoming_calls: 0,
+                outgoing_calls: 0,
+                internal_calls: 0,
+            });
+            entry.class_count += 1;
+        }
+    }
+
+    for &func_idx in func_idxs {
+        let Some(func) = graph.node_idx(func_idx) else {
+            continue;
+        };
+        let caller_module = extract_module(func.path(interner));
+        for &callee_idx in graph.callees_idx(func_idx) {
+            let Some(callee) = graph.node_idx(callee_idx) else {
+                continue;
+            };
             let callee_module = extract_module(callee.path(interner));
             if caller_module == callee_module {
                 if let Some(m) = metrics.get_mut(&caller_module) {
@@ -104,8 +179,20 @@ pub fn build_module_metrics(graph: &dyn GraphQuery) -> HashMap<String, ModuleMet
 /// if one calls the other. Returns a normalized score:
 /// - 1.0 = perfectly cohesive (single connected component, or 0-1 methods)
 /// - Higher values = less cohesive (more disconnected method groups)
+///
+/// Uses NodeIndex-based API when available (CodeGraph) to avoid
+/// Vec<CodeNode> cloning for both per-file function lookups and
+/// per-method callee lookups.
 pub fn build_class_cohesion(graph: &dyn GraphQuery) -> HashMap<String, f64> {
     let interner = graph.interner();
+    let class_idxs = graph.classes_idx();
+
+    // Use NodeIndex-based path when available (non-empty = CodeGraph)
+    if !class_idxs.is_empty() {
+        return build_class_cohesion_indexed(graph, interner);
+    }
+
+    // Fallback: old API
     let classes = graph.get_classes_shared();
     let mut cohesion = HashMap::new();
 
@@ -113,7 +200,6 @@ pub fn build_class_cohesion(graph: &dyn GraphQuery) -> HashMap<String, f64> {
         let file_path = class.path(interner);
         let class_qn = class.qn(interner);
 
-        // Find methods within this class's line range
         let methods: Vec<_> = graph
             .get_functions_in_file(file_path)
             .into_iter()
@@ -125,7 +211,6 @@ pub fn build_class_cohesion(graph: &dyn GraphQuery) -> HashMap<String, f64> {
             continue;
         }
 
-        // Union-find for connected components
         let n = methods.len();
         let mut parent: Vec<usize> = (0..n).collect();
 
@@ -144,7 +229,6 @@ pub fn build_class_cohesion(graph: &dyn GraphQuery) -> HashMap<String, f64> {
             }
         }
 
-        // Connect methods that call each other
         for (i, m1) in methods.iter().enumerate() {
             let m1_qn = m1.qn(interner);
             let m1_callees = graph.get_callees(m1_qn);
@@ -154,7 +238,6 @@ pub fn build_class_cohesion(graph: &dyn GraphQuery) -> HashMap<String, f64> {
                 }
                 let m2_qn = m2.qn(interner);
                 let m2_callees = graph.get_callees(m2_qn);
-                // Check if m1 calls m2 or m2 calls m1
                 if m1_callees.iter().any(|c| c.qn(interner) == m2_qn)
                     || m2_callees.iter().any(|c| c.qn(interner) == m1_qn)
                 {
@@ -163,7 +246,78 @@ pub fn build_class_cohesion(graph: &dyn GraphQuery) -> HashMap<String, f64> {
             }
         }
 
-        // Count distinct components
+        let components = (0..n)
+            .map(|i| find(&mut parent, i))
+            .collect::<HashSet<_>>()
+            .len();
+        let lcom = components as f64 / n as f64;
+        cohesion.insert(class_qn.to_string(), lcom);
+    }
+
+    cohesion
+}
+
+/// NodeIndex-based class cohesion implementation for CodeGraph.
+fn build_class_cohesion_indexed(
+    graph: &dyn GraphQuery,
+    interner: &crate::graph::interner::StringInterner,
+) -> HashMap<String, f64> {
+    let class_idxs = graph.classes_idx();
+    let mut cohesion = HashMap::new();
+
+    for &class_idx in class_idxs {
+        let Some(class) = graph.node_idx(class_idx) else {
+            continue;
+        };
+        let file_path = class.path(interner);
+        let class_qn = class.qn(interner);
+
+        let method_idxs: Vec<_> = graph
+            .functions_in_file_idx(file_path)
+            .iter()
+            .copied()
+            .filter(|&idx| {
+                graph
+                    .node_idx(idx)
+                    .is_some_and(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
+            })
+            .collect();
+
+        if method_idxs.len() <= 1 {
+            cohesion.insert(class_qn.to_string(), 1.0);
+            continue;
+        }
+
+        let n = method_idxs.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+
+        fn find(parent: &mut [usize], i: usize) -> usize {
+            if parent[i] != i {
+                parent[i] = find(parent, parent[i]);
+            }
+            parent[i]
+        }
+
+        fn union(parent: &mut [usize], a: usize, b: usize) {
+            let ra = find(parent, a);
+            let rb = find(parent, b);
+            if ra != rb {
+                parent[ra] = rb;
+            }
+        }
+
+        for i in 0..n {
+            let m1_callees = graph.callees_idx(method_idxs[i]);
+            for j in (i + 1)..n {
+                let m2_idx = method_idxs[j];
+                let m1_idx = method_idxs[i];
+                let m2_callees = graph.callees_idx(m2_idx);
+                if m1_callees.contains(&m2_idx) || m2_callees.contains(&m1_idx) {
+                    union(&mut parent, i, j);
+                }
+            }
+        }
+
         let components = (0..n)
             .map(|i| find(&mut parent, i))
             .collect::<HashSet<_>>()

@@ -8,7 +8,7 @@ use crate::detectors::{
     run_detectors, sort_findings_deterministic, DetectorInit, PrecomputedAnalysis,
 };
 use crate::engine::ProgressFn;
-use crate::graph::{CachedGraphQuery, GraphQuery};
+use crate::graph::GraphQuery;
 use crate::models::Finding;
 use crate::values::store::ValueStore;
 use anyhow::Result;
@@ -79,8 +79,8 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     let detectors_run = detectors.len();
     let detectors_skipped = skip_set.len();
 
-    // Wrap graph in CachedGraphQuery for memoized expensive lookups
-    let cached_graph = CachedGraphQuery::new(input.graph);
+    // CodeGraph has built-in indexes — no need for CachedGraphQuery wrapper.
+    let graph = input.graph;
 
     // Precompute GD data (contexts, HMM, taint, etc.)
     let precompute_start = Instant::now();
@@ -88,7 +88,7 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     let vs_clone = input.value_store.cloned();
 
     let precomputed = precompute_gd_startup(
-        &cached_graph,
+        graph,
         input.repo_path,
         Some(&hmm_cache_path),
         input.source_files,
@@ -101,7 +101,7 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     inject_taint_precomputed(&detectors, &precomputed.taint_results);
 
     // Build analysis context from precomputed data
-    let ctx = precomputed.to_context(&cached_graph, &resolver);
+    let ctx = precomputed.to_context(graph, &resolver);
 
     // Run all detectors in parallel
     let mut findings = run_detectors(&detectors, &ctx, input.workers);
