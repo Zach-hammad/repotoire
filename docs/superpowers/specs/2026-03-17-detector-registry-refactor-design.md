@@ -128,7 +128,7 @@ const DETECTOR_FACTORIES: &[Factory] = &[
     register::<AIDuplicateBlockDetector>(),
     register::<AIMissingTestsDetector>(),
     register::<AINamingPatternDetector>(),
-    // ... all 102 detectors, alphabetical within category
+    // ... all 100 detectors, alphabetical within category
     // Predictive
     register::<HierarchicalSurprisalDetector>(),
     register::<SurprisalDetector>(),
@@ -148,6 +148,19 @@ pub fn create_all_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
 ### What Each Detector File Changes
 
 Each detector gets a `RegisteredDetector` impl with a `create()` method that wraps its existing construction logic. Existing constructors are preserved for tests.
+
+**Example — zero-argument detector:**
+
+```rust
+// circular_dependency.rs:
+impl RegisteredDetector for CircularDependencyDetector {
+    fn create(_init: &DetectorInit) -> Arc<dyn Detector> {
+        Arc::new(Self::new())
+    }
+}
+```
+
+~15 detectors use this pattern (CircularDependency, DeadCode, InappropriateIntimacy, LazyClass, MiddleMan, RefusedBequest, CoreUtility, all 6 AI detectors, HierarchicalSurprisal).
 
 **Example — simple detector (new(repo_path) pattern):**
 
@@ -220,11 +233,10 @@ impl RegisteredDetector for SurprisalDetector {
 fn test_all_detectors_registered() {
     let init = DetectorInit::test_default();
     let detectors = create_all_detectors(&init);
-    // Count includes all detectors: 100 in the main vec + HierarchicalSurprisal
-    // + Surprisal (now unconditional) = 102.
+    // 98 in the main vec + HierarchicalSurprisal + Surprisal (now unconditional) = 100.
     // Update this number when adding/removing detectors.
     assert_eq!(
-        detectors.len(), 102,
+        detectors.len(), 100,
         "Detector count changed. Did you add a detector to DETECTOR_FACTORIES?"
     );
 }
@@ -292,6 +304,16 @@ Every call site that constructs detectors via `default_detectors*()` must switch
 
 **Note on `handle_list_detectors`:** The current code trains a dummy NgramModel (800 iterations) so SurprisalDetector appears in the list. With the new always-instantiate approach, this hack is unnecessary — remove the dummy model construction and pass `ngram_model: None`. SurprisalDetector will appear in the list regardless.
 
+### Constructor Upgrade Policy
+
+Several detectors are currently constructed with `::new()` even though they have `with_config()` methods that would benefit from adaptive thresholds (InappropriateIntimacy, DeadCode, LazyClass, MiddleMan, RefusedBequest, CoreUtility).
+
+**Policy: preserve existing constructor behavior in `create()`.** The `create()` method should call the same constructor as the current `default_detectors_full()`. If a detector is currently `::new()`, its `create()` calls `Self::new()`. Upgrading detectors to use `with_config()` is a separate concern that can be done incrementally after the registry migration, with before/after finding comparisons.
+
+### Session Caller Guidance
+
+Session callers (`session.rs`) should build `DetectorInit` fresh on each detection pass (not cache it across incremental updates), because `ProjectConfig` may be reloaded between runs.
+
 ### Preserved Public Functions
 
 `build_threshold_resolver(style_profile: Option<&StyleProfile>) -> ThresholdResolver` is preserved unchanged. It serves a different purpose from detector construction — callers like `detect_stage` use it to set the engine's threshold resolver independently.
@@ -352,9 +374,10 @@ impl DetectorInit<'_> {
 
 ### Phase 3: Switch callers
 
-- Update `detect_stage`, MCP, and any other callers to use `create_all_detectors()`
-- Remove `default_detectors_full()` and its delegation chain
-- Clean up unused `pub use` re-exports
+- Update `detect_stage`, MCP handlers, `session.rs` (3 call sites), `streaming_engine.rs`, `create_default_engine`, and test call sites to use `create_all_detectors()`
+- Remove `handle_list_detectors` dummy NgramModel hack in `mcp/tools/files.rs`
+- Remove `default_detectors_full()` and its 4 delegation wrappers
+- Clean up unused `pub use` re-exports (grep-based audit: for each `pub use FooDetector`, check if `crate::detectors::FooDetector` is referenced outside `mod.rs`; the compiler won't warn about unused `pub use` of public types)
 
 ### Phase 4: Verification
 
