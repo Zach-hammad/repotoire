@@ -23,7 +23,7 @@ pub fn finding_id(detector: &str, file: &str, line: u32) -> String {
 use std::collections::HashMap;
 
 /// Describes how much of the codebase a detector needs to produce findings.
-/// Used by AnalysisSession to decide which detectors to re-run on incremental updates.
+/// Used by the analysis engine to decide which detectors to re-run on incremental updates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DetectorScope {
     /// Only reads file content. No graph queries. Can run on a single file in isolation.

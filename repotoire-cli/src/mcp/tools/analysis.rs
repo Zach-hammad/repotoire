@@ -63,7 +63,7 @@ pub fn handle_analyze(state: &mut HandlerState, params: &AnalyzeParams) -> Resul
     }
 }
 
-/// Legacy one-shot analysis (fallback when session creation fails).
+/// Legacy one-shot analysis (fallback when engine creation fails).
 fn handle_analyze_oneshot(state: &mut HandlerState, repo_path: &std::path::Path) -> Result<Value> {
     let graph = state.graph()?;
 

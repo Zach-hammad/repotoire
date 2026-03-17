@@ -181,7 +181,7 @@ impl FileCache {
 
     /// Evict specific files from the cache.
     ///
-    /// Used by `AnalysisSession::update()` to invalidate stale entries for
+    /// Used by `AnalysisEngine::update()` to invalidate stale entries for
     /// changed files before re-running detectors.
     pub fn evict(&self, paths: &[PathBuf]) {
         for path in paths {

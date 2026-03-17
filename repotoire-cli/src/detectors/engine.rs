@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 /// `to_context()`.
 ///
 /// All fields are `Arc`-wrapped, so `Clone` is a cheap reference-count bump (~ns).
-/// This allows `AnalysisSession` to cache and re-inject the data on incremental runs,
+/// This allows `AnalysisEngine` to cache and re-inject the data on incremental runs,
 /// avoiding the ~3.9s precomputation overhead.
 pub struct PrecomputedAnalysis {
     pub contexts: Arc<FunctionContextMap>,
