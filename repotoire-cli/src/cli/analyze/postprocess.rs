@@ -24,7 +24,82 @@ use crate::models::{Finding, Severity};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use super::detect::{apply_detector_overrides, update_incremental_cache};
+// ── Functions moved from detect.rs ───────────────────────────────────────────
+
+/// Apply detector config overrides from project config
+pub(super) fn apply_detector_overrides(
+    findings: &mut Vec<Finding>,
+    project_config: &ProjectConfig,
+) {
+    if project_config.detectors.is_empty() {
+        return;
+    }
+
+    let detector_configs = &project_config.detectors;
+
+    // Filter out disabled detectors
+    findings.retain(|f| {
+        let detector_name = crate::config::normalize_detector_name(&f.detector);
+        if let Some(config) = detector_configs.get(&detector_name) {
+            if let Some(false) = config.enabled {
+                return false;
+            }
+        }
+        true
+    });
+
+    // Apply severity overrides
+    for finding in findings.iter_mut() {
+        let detector_name = crate::config::normalize_detector_name(&finding.detector);
+        if let Some(config) = detector_configs.get(&detector_name) {
+            if let Some(ref sev) = config.severity {
+                finding.severity = parse_severity(sev);
+            }
+        }
+    }
+}
+
+/// Update incremental cache with new findings
+pub(super) fn update_incremental_cache(
+    is_incremental_mode: bool,
+    incremental_cache: &mut IncrementalCache,
+    files: &[PathBuf],
+    findings: &[Finding],
+    repo_path: &Path,
+) {
+    if !is_incremental_mode {
+        return;
+    }
+
+    for file_path in files {
+        let rel_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
+        let file_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| {
+                f.affected_files
+                    .iter()
+                    .any(|af| af == file_path || af == rel_path)
+            })
+            .cloned()
+            .collect();
+        incremental_cache.cache_findings(file_path, &file_findings);
+    }
+
+    if let Err(e) = incremental_cache.save_cache() {
+        tracing::warn!("Failed to save incremental cache: {}", e);
+    }
+}
+
+/// Parse a severity string
+fn parse_severity(s: &str) -> Severity {
+    match s.to_lowercase().as_str() {
+        "critical" => Severity::Critical,
+        "high" => Severity::High,
+        "medium" => Severity::Medium,
+        "low" => Severity::Low,
+        _ => Severity::Info,
+    }
+}
 
 /// Run the full post-processing pipeline on findings.
 pub fn postprocess_findings(

@@ -8,7 +8,7 @@
 //! Uses index-based maps internally: callers/callees store `Vec<usize>` indices
 //! into the cached functions Vec, avoiding 11M+ CodeNode clones on large repos.
 //!
-//! Used by DetectorEngine to avoid redundant graph scans across multiple
+//! Used by the detector runner to avoid redundant graph scans across multiple
 //! detectors in the same analysis run.
 
 use super::interner::{StrKey, StringInterner};

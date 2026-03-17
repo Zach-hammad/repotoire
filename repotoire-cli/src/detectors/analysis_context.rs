@@ -170,6 +170,32 @@ impl<'g> AnalysisContext<'g> {
         self.resolver.warn(kind, default)
     }
 
+    // ── Minimal constructor ──────────────────────────────────────────
+
+    /// Create a minimal `AnalysisContext` with only a graph and file index.
+    ///
+    /// All other fields are set to sensible empty/default values. Useful for
+    /// FileLocal-only detection paths where graph-derived data is not available.
+    pub fn minimal(graph: &'g dyn GraphQuery, files: Arc<FileIndex>) -> Self {
+        Self {
+            graph,
+            files,
+            functions: Arc::new(HashMap::new()),
+            taint: Arc::new(CentralizedTaintResults {
+                cross_function: HashMap::new(),
+                intra_function: HashMap::new(),
+            }),
+            detector_ctx: Arc::new(DetectorContext::empty()),
+            hmm_classifications: Arc::new(HashMap::new()),
+            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
+            reachability: Arc::new(ReachabilityIndex::empty()),
+            public_api: Arc::new(HashSet::new()),
+            module_metrics: Arc::new(HashMap::new()),
+            class_cohesion: Arc::new(HashMap::new()),
+            decorator_index: Arc::new(HashMap::new()),
+        }
+    }
+
     // ── Test constructors ────────────────────────────────────────────
 
     /// Create a minimal `AnalysisContext` for unit tests.

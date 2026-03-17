@@ -5,7 +5,11 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::detectors::{walk_source_files, DetectorEngineBuilder, SourceFiles};
+use crate::detectors::{
+    walk_source_files,
+    inject_taint_precomputed, run_detectors, apply_hmm_context_filter,
+    filter_test_file_findings, sort_findings_deterministic,
+};
 use crate::mcp::state::HandlerState;
 use crate::mcp::params::{AnalyzeParams, DiffParams, GetFindingsParams, GetHotspotsParams, PredictDebtParams};
 use crate::models::FindingsSummary;
@@ -73,14 +77,20 @@ fn handle_analyze_oneshot(state: &mut HandlerState, repo_path: &std::path::Path)
         resolver: crate::detectors::build_threshold_resolver(style_profile.as_ref()),
         ngram_model: ngram_ref,
     };
-    let mut engine = DetectorEngineBuilder::new()
-        .workers(4)
-        .detectors(crate::detectors::create_all_detectors(&init))
-        .build();
-
+    let detectors = crate::detectors::create_all_detectors(&init);
     let all_files: Vec<std::path::PathBuf> = walk_source_files(repo_path, None).collect();
-    let source_files = SourceFiles::new(all_files, repo_path.to_path_buf());
-    let findings = engine.run(&graph, &source_files)?;
+
+    let precomputed = crate::detectors::precompute_gd_startup(
+        graph.as_ref(), repo_path, None, &all_files, None, &detectors,
+    );
+    inject_taint_precomputed(&detectors, &precomputed.taint_results);
+    let resolver = crate::detectors::build_threshold_resolver(style_profile.as_ref());
+    let ctx = precomputed.to_context(graph.as_ref(), &resolver);
+
+    let findings_raw = run_detectors(&detectors, &ctx, 4);
+    let mut findings = apply_hmm_context_filter(findings_raw, &ctx);
+    filter_test_file_findings(&mut findings);
+    sort_findings_deterministic(&mut findings);
 
     let summary = FindingsSummary::from_findings(&findings);
 
@@ -173,14 +183,21 @@ pub fn handle_get_findings(state: &mut HandlerState, params: &GetFindingsParams)
         resolver: crate::detectors::build_threshold_resolver(style_profile.as_ref()),
         ngram_model: ngram_ref,
     };
-    let mut engine = DetectorEngineBuilder::new()
-        .workers(4)
-        .detectors(crate::detectors::create_all_detectors(&init))
-        .build();
-
+    let detectors = crate::detectors::create_all_detectors(&init);
     let all_files: Vec<std::path::PathBuf> = walk_source_files(&repo_path, None).collect();
-    let source_files = SourceFiles::new(all_files, repo_path.to_path_buf());
-    let mut findings = engine.run(&graph, &source_files)?;
+
+    let precomputed = crate::detectors::precompute_gd_startup(
+        graph.as_ref(), &repo_path, None, &all_files, None, &detectors,
+    );
+    inject_taint_precomputed(&detectors, &precomputed.taint_results);
+    let resolver = crate::detectors::build_threshold_resolver(style_profile.as_ref());
+    let ctx = precomputed.to_context(graph.as_ref(), &resolver);
+
+    let findings_raw = run_detectors(&detectors, &ctx, 4);
+    let findings_hmm = apply_hmm_context_filter(findings_raw, &ctx);
+    let mut findings = findings_hmm;
+    filter_test_file_findings(&mut findings);
+    sort_findings_deterministic(&mut findings);
 
     // Apply filters
     if let Some(ref sev) = severity {

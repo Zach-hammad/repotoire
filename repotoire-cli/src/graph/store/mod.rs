@@ -49,7 +49,7 @@ pub struct GraphStore {
     /// O(1) lookup instead of O(degree) graph scan per insertion.
     edge_set: Mutex<HashSet<(NodeIndex, NodeIndex, EdgeKind)>>,
     /// Cached call maps from build_call_maps_raw() — computed once, reused by
-    /// both DetectorEngine (CachedGraphQuery) and postprocess (FP filter).
+    /// both the detector runner (CachedGraphQuery) and postprocess (FP filter).
     call_maps_cache: RwLock<Option<CallMapsRaw>>,
     /// Persistence layer (optional) — uses redb (ACID, well-maintained)
     db: Option<redb::Database>,

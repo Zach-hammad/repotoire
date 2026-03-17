@@ -519,7 +519,7 @@ impl AnalysisEngine {
             None
         };
 
-        // Stage 6: Detect — run all detectors (reusing GdPrecomputed when topology is stable)
+        // Stage 6: Detect — run all detectors (reusing PrecomputedAnalysis when topology is stable)
         let detect_out = timed(&mut timings, "detect", || {
             detect::detect_stage(&detect::DetectInput {
                 graph: graph_out.graph.as_ref(),
@@ -668,7 +668,7 @@ impl AnalysisEngine {
     /// Reads `engine_session.json` and `graph.bin` from `session_path`,
     /// validates version compatibility, and reconstructs the engine state.
     ///
-    /// Transient fields (GdPrecomputed, ValueStore, NgramModel, StyleProfile)
+    /// Transient fields (PrecomputedAnalysis, ValueStore, NgramModel, StyleProfile)
     /// are left empty and rebuilt on the next `analyze()` call.
     pub fn load(session_path: &Path, repo_path: &Path) -> anyhow::Result<Self> {
         let repo_path = repo_path.canonicalize()?;

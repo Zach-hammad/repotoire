@@ -1,6 +1,6 @@
 //! Standalone detector runner — pure functions, no engine struct.
 //!
-//! Extracted from `DetectorEngine` to enable a stateless execution model:
+//! Stateless detector execution — pure functions, no engine struct.
 //! callers build an `AnalysisContext`, hand it to `run_detectors()`, and
 //! get findings back.
 //!

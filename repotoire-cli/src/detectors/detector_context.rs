@@ -78,7 +78,7 @@ impl ContentFlags {
 ///
 /// Called once per file during `DetectorContext::build()` (in parallel via rayon).
 /// Each category uses simple `str::contains()` checks -- no aho-corasick needed.
-pub(super) fn compute_content_flags(content: &str) -> ContentFlags {
+pub(crate) fn compute_content_flags(content: &str) -> ContentFlags {
     let mut flags = ContentFlags::default();
 
     // FILE_OPS

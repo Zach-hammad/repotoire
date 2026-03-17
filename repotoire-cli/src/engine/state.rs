@@ -19,7 +19,7 @@ pub(crate) const SESSION_VERSION: u32 = 3;
 /// Serializable snapshot of `EngineState` — written to `engine_session.json`.
 ///
 /// Contains everything needed to reconstruct an `EngineState` without re-running
-/// analysis. Transient fields (GdPrecomputed, ValueStore, NgramModel) are omitted
+/// analysis. Transient fields (PrecomputedAnalysis, ValueStore, NgramModel) are omitted
 /// and rebuilt lazily on the next `analyze()` call.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SessionMeta {

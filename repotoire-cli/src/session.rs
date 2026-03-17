@@ -21,7 +21,11 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use crate::detectors::{Detector, DetectorEngine, DetectorScope, GdPrecomputed, SourceFiles};
+use crate::detectors::{
+    Detector, DetectorScope, PrecomputedAnalysis,
+    inject_taint_precomputed, run_detectors as runner_run_detectors,
+    apply_hmm_context_filter, filter_test_file_findings, sort_findings_deterministic,
+};
 use crate::graph::store::GraphStore;
 use crate::graph::store_models::{
     CodeEdge, CodeNode, ExtraProps, NodeKind, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS,
@@ -101,7 +105,7 @@ pub struct AnalysisSession {
 
     // Cached detector precomputed data (taint, HMM, contexts, etc.)
     // Avoids ~3.9s rebuild on each incremental run.
-    cached_gd: Option<GdPrecomputed>,
+    cached_gd: Option<PrecomputedAnalysis>,
 
     // Config
     repo_path: PathBuf,
@@ -853,21 +857,23 @@ impl AnalysisSession {
                 .filter(|p| p.is_absolute())
                 .cloned()
                 .collect();
-            let source = SourceFiles::new(changed_files.clone(), self.repo_path.clone());
-            let mut engine = DetectorEngine::new(self.workers);
-            for d in &file_local_detectors {
-                engine.register(Arc::clone(d));
-            }
-            // Inject precomputed data to skip expensive graph-derived computation.
-            // With cached_gd: inject everything (fast path, ~0ms).
-            // Without cached_gd: inject minimal data (FileIndex + empty contexts)
-            // to skip DetectorContext::build() (~3.6s on CPython).
-            if let Some(ref gd) = self.cached_gd {
-                engine.inject_for_incremental(gd, &changed_files, &self.repo_path);
+            // Build AnalysisContext for FileLocal detectors.
+            // With cached_gd: clone precomputed data but override FileIndex with changed files only.
+            // Without cached_gd: build minimal context with empty graph-derived data.
+            let changed_file_index = build_file_index_from_paths(&changed_files);
+            let resolver = crate::calibrate::ThresholdResolver::default();
+            let ctx = if let Some(ref gd) = self.cached_gd {
+                inject_taint_precomputed(&file_local_detectors, &gd.taint_results);
+                let mut c = gd.to_context(self.graph.as_ref(), &resolver);
+                c.files = changed_file_index;
+                c
             } else {
-                engine.inject_minimal_for_file_local(&changed_files, &self.repo_path);
-            }
-            changed_file_findings = engine.run(self.graph.as_ref(), &source)?;
+                crate::detectors::AnalysisContext::minimal(self.graph.as_ref(), changed_file_index)
+            };
+            let mut fl_findings = runner_run_detectors(&file_local_detectors, &ctx, self.workers);
+            filter_test_file_findings(&mut fl_findings);
+            sort_findings_deterministic(&mut fl_findings);
+            changed_file_findings = fl_findings;
             // Filter to keep only findings for changed files.
             // Some FileLocal detectors iterate graph.get_functions() internally
             // and produce findings for ALL files — we only want changed-file findings.
@@ -905,30 +911,33 @@ impl AnalysisSession {
                 ));
             }
 
-            let source = SourceFiles::new(self.source_files.clone(), self.repo_path.clone());
+            // Build context from cached precomputed data (or minimal fallback)
+            let resolver = crate::calibrate::ThresholdResolver::default();
+            let fsg_gw_ctx = if let Some(ref gd) = self.cached_gd {
+                gd.to_context(self.graph.as_ref(), &resolver)
+            } else {
+                let fi = build_file_index_from_paths(&self.source_files);
+                crate::detectors::AnalysisContext::minimal(self.graph.as_ref(), fi)
+            };
 
             if !file_scoped_graph_detectors.is_empty() {
-                let mut engine = DetectorEngine::new(self.workers);
-                for d in &file_scoped_graph_detectors {
-                    engine.register(Arc::clone(d));
-                }
                 if let Some(ref gd) = self.cached_gd {
-                    engine.inject_gd_precomputed(gd.clone());
+                    inject_taint_precomputed(&file_scoped_graph_detectors, &gd.taint_results);
                 }
-                let fsg_findings = engine.run(self.graph.as_ref(), &source)?;
+                let mut fsg_findings = runner_run_detectors(&file_scoped_graph_detectors, &fsg_gw_ctx, self.workers);
+                filter_test_file_findings(&mut fsg_findings);
+                let fsg_findings = apply_hmm_context_filter(fsg_findings, &fsg_gw_ctx);
                 changed_file_findings.extend(fsg_findings);
                 fsg_ran = true;
             }
 
             if !graph_wide_detectors.is_empty() {
-                let mut engine = DetectorEngine::new(self.workers);
-                for d in &graph_wide_detectors {
-                    engine.register(Arc::clone(d));
-                }
                 if let Some(ref gd) = self.cached_gd {
-                    engine.inject_gd_precomputed(gd.clone());
+                    inject_taint_precomputed(&graph_wide_detectors, &gd.taint_results);
                 }
-                let gw_findings = engine.run(self.graph.as_ref(), &source)?;
+                let mut gw_findings = runner_run_detectors(&graph_wide_detectors, &fsg_gw_ctx, self.workers);
+                filter_test_file_findings(&mut gw_findings);
+                let gw_findings = apply_hmm_context_filter(gw_findings, &fsg_gw_ctx);
                 for finding in gw_findings {
                     graph_wide_findings
                         .entry(finding.detector.clone())
@@ -1421,40 +1430,62 @@ fn siphash_content(bytes: &[u8]) -> u64 {
 
 // ─── Detection ────────────────────────────────────────────────────────────────
 
+/// Build a `FileIndex` by reading files from disk (parallel via rayon).
+fn build_file_index_from_paths(paths: &[PathBuf]) -> Arc<crate::detectors::FileIndex> {
+    use crate::detectors::detector_context::compute_content_flags;
+
+    let file_data: Vec<(PathBuf, Arc<str>, crate::detectors::ContentFlags)> = paths
+        .par_iter()
+        .filter_map(|f| {
+            std::fs::read_to_string(f).ok().map(|c| {
+                let flags = compute_content_flags(&c);
+                (f.clone(), Arc::from(c.as_str()), flags)
+            })
+        })
+        .collect();
+    Arc::new(crate::detectors::FileIndex::new(file_data))
+}
+
 /// Run all detectors on the graph.
 fn run_all_detectors(
     graph: &Arc<GraphStore>,
     repo_path: &Path,
     source_files: &[PathBuf],
     workers: usize,
-) -> Result<(Vec<Finding>, Option<GdPrecomputed>)> {
+) -> Result<(Vec<Finding>, Option<PrecomputedAnalysis>)> {
     let project_config = crate::config::load_project_config(repo_path);
 
     // Create detectors
+    let resolver = crate::calibrate::ThresholdResolver::default();
     let init = crate::detectors::DetectorInit {
         repo_path,
         project_config: &project_config,
-        resolver: crate::calibrate::ThresholdResolver::default(),
+        resolver: resolver.clone(),
         ngram_model: None,
     };
     let detectors = crate::detectors::create_all_detectors(&init);
 
-    // Build engine
-    let mut engine = DetectorEngine::new(workers);
-    for detector in detectors {
-        engine.register(detector);
-    }
-
-    // Build file provider
-    let source = SourceFiles::new(source_files.to_vec(), repo_path.to_path_buf());
+    // Precompute graph-derived data and build context
+    let precomputed = crate::detectors::precompute_gd_startup(
+        graph.as_ref(),
+        repo_path,
+        None,
+        source_files,
+        None,
+        &detectors,
+    );
+    inject_taint_precomputed(&detectors, &precomputed.taint_results);
+    let ctx = precomputed.to_context(graph.as_ref(), &resolver);
 
     // Run all detectors
-    let findings = engine.run(graph.as_ref(), &source)?;
+    let findings_raw = runner_run_detectors(&detectors, &ctx, workers);
 
-    // Extract precomputed data for caching in the session
-    let cached_gd = engine.extract_precomputed();
+    // Post-filters
+    let mut findings = apply_hmm_context_filter(findings_raw, &ctx);
+    filter_test_file_findings(&mut findings);
+    sort_findings_deterministic(&mut findings);
 
-    Ok((findings, cached_gd))
+    Ok((findings, Some(precomputed)))
 }
 
 // ─── Postprocessing ───────────────────────────────────────────────────────────

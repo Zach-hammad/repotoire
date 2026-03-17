@@ -17,7 +17,7 @@
 //! ```
 
 use crate::config::ProjectConfig;
-use crate::detectors::{Detector, DetectorEngine, FunctionContext};
+use crate::detectors::{Detector, FunctionContext};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -140,10 +140,6 @@ impl StreamingDetectorEngine {
         let _ = run_external;
 
         let total_detectors = detectors.len();
-
-        // Build a minimal engine just for context building
-        let mut context_engine = DetectorEngine::new(self.workers);
-        let _contexts = context_engine.get_or_build_contexts(graph);
 
         // Process detectors in batches
         for (batch_idx, batch) in detectors.chunks(self.batch_size).enumerate() {

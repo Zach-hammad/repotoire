@@ -6,7 +6,7 @@
 //! # Architecture
 //!
 //! ```text
-//! DetectorEngine → Detector trait → detect(graph) → Vec<Finding>
+//! run_detectors() → Detector trait → detect(ctx) → Vec<Finding>
 //! ```
 //!
 //! Detectors run in parallel via rayon. Each receives the code graph
@@ -411,7 +411,7 @@ pub use file_index::{FileEntry, FileIndex};
 pub use file_provider::{FileProvider, SourceFiles};
 
 // Re-export engine
-pub use engine::{DetectorEngine, DetectorEngineBuilder, GdPrecomputed, PrecomputedAnalysis, precompute_gd_startup};
+pub use engine::{PrecomputedAnalysis, precompute_gd_startup};
 
 // Re-export standalone runner functions
 pub use runner::{
@@ -559,30 +559,12 @@ use std::sync::Arc;
 
 /// Build an adaptive `ThresholdResolver` from an optional style profile.
 ///
-/// Callers pass this to `DetectorEngine::set_threshold_resolver()` for
+/// Callers pass this to `PrecomputedAnalysis::to_context()` for
 /// propagation into `AnalysisContext`.
 pub fn build_threshold_resolver(
     style_profile: Option<&crate::calibrate::StyleProfile>,
 ) -> crate::calibrate::ThresholdResolver {
     crate::calibrate::ThresholdResolver::new(style_profile.cloned())
-}
-
-/// Create a detector engine with all default detectors
-///
-/// Convenience function for quickly setting up detection.
-#[allow(dead_code)] // Public API - may be used by external callers
-pub fn create_default_engine(workers: usize, repository_path: &Path) -> DetectorEngine {
-    let project_config = crate::config::ProjectConfig::default();
-    let init = DetectorInit {
-        repo_path: repository_path,
-        project_config: &project_config,
-        resolver: crate::calibrate::ThresholdResolver::default(),
-        ngram_model: None,
-    };
-    DetectorEngineBuilder::new()
-        .workers(workers)
-        .detectors(create_all_detectors(&init))
-        .build()
 }
 
 /// Create a file walker that respects .gitignore and .repotoireignore

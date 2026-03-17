@@ -12,7 +12,6 @@
 //! - `postprocess` — finding deduplication, suppression, and filtering
 //! - `output` — report formatting and caching
 
-mod detect;
 mod export;
 pub(crate) mod files;
 pub(crate) mod graph;
