@@ -218,8 +218,8 @@ impl Detector for SinglePointOfFailureDetector {
 }
 
 impl super::RegisteredDetector for SinglePointOfFailureDetector {
-    fn create(_init: &super::DetectorInit) -> Arc<dyn Detector> {
-        Arc::new(Self::new())
+    fn create(init: &super::DetectorInit) -> Arc<dyn Detector> {
+        Arc::new(Self::with_config(init.config_for("SinglePointOfFailureDetector")))
     }
 }
 

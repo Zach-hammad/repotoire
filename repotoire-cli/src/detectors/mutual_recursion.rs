@@ -201,8 +201,8 @@ impl Detector for MutualRecursionDetector {
 }
 
 impl super::RegisteredDetector for MutualRecursionDetector {
-    fn create(_init: &super::DetectorInit) -> Arc<dyn Detector> {
-        Arc::new(Self::new())
+    fn create(init: &super::DetectorInit) -> Arc<dyn Detector> {
+        Arc::new(Self::with_config(init.config_for("MutualRecursionDetector")))
     }
 }
 

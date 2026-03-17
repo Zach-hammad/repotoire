@@ -186,8 +186,8 @@ impl Detector for StructuralBridgeRiskDetector {
 }
 
 impl super::RegisteredDetector for StructuralBridgeRiskDetector {
-    fn create(_init: &super::DetectorInit) -> Arc<dyn Detector> {
-        Arc::new(Self::new())
+    fn create(init: &super::DetectorInit) -> Arc<dyn Detector> {
+        Arc::new(Self::with_config(init.config_for("StructuralBridgeRiskDetector")))
     }
 }
 

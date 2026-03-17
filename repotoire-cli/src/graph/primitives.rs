@@ -61,6 +61,8 @@ impl GraphPrimitives {
             return Self::default();
         }
 
+        let _span = tracing::info_span!("graph_primitives", functions = functions.len(), call_edges = all_call_edges.len()).entered();
+
         // 1. SCCs first (needed by dominator for disconnected SCC handling)
         let call_cycles = compute_call_cycles(all_call_edges, graph);
 
