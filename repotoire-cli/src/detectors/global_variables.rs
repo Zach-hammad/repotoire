@@ -79,9 +79,11 @@ impl GlobalVariablesDetector {
 
         // Look for imports of this module
         let gi = graph.interner();
-        for (_, import_target) in graph.get_imports() {
-            if gi.resolve(import_target).contains(module_name) {
-                return true;
+        for &(_, dst_idx) in graph.all_import_edges() {
+            if let Some(dst_node) = graph.node_idx(dst_idx) {
+                if dst_node.qn(gi).contains(module_name) {
+                    return true;
+                }
             }
         }
         false

@@ -584,7 +584,7 @@ impl DeadCodeDetector {
                 .then_with(|| a.qualified_name.cmp(&b.qualified_name))
         });
 
-        let imports = graph.get_imports();
+        let import_edges = graph.all_import_edges();
 
         for class in classes {
             let name = class.node_name(i);
@@ -653,12 +653,16 @@ impl DeadCodeDetector {
 
             // Check if class's file is imported by other files
             let class_file = file_path.to_lowercase();
-            let file_is_imported = imports.iter().any(|(_, target)| {
-                let target_lower = i.resolve(*target).to_lowercase();
-                class_file.ends_with(&target_lower)
-                    || target_lower
-                        .ends_with(&class_file.replace("/tmp/", "").replace("/home/", ""))
-                    || class_file.split('/').next_back() == target_lower.split('/').next_back()
+            let file_is_imported = import_edges.iter().any(|&(_, dst_idx)| {
+                if let Some(dst_node) = graph.node_idx(dst_idx) {
+                    let target_lower = dst_node.qn(i).to_lowercase();
+                    class_file.ends_with(&target_lower)
+                        || target_lower
+                            .ends_with(&class_file.replace("/tmp/", "").replace("/home/", ""))
+                        || class_file.split('/').next_back() == target_lower.split('/').next_back()
+                } else {
+                    false
+                }
             });
             if file_is_imported {
                 continue;

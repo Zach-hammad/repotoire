@@ -71,13 +71,16 @@ impl CircularDependencyDetector {
 
             // Count imports between these files
             let gi = graph.interner();
-            let imports = graph.get_imports();
-            let strength = imports
+            let strength = graph.all_import_edges()
                 .iter()
-                .filter(|(src_key, dst_key)| {
-                    let src = gi.resolve(*src_key);
-                    let dst = gi.resolve(*dst_key);
-                    (src == from || src.ends_with(&format!("/{}", from))) && (dst == to || dst.ends_with(&format!("/{}", to)))
+                .filter(|&&(src_idx, dst_idx)| {
+                    if let (Some(src_node), Some(dst_node)) = (graph.node_idx(src_idx), graph.node_idx(dst_idx)) {
+                        let src = src_node.qn(gi);
+                        let dst = dst_node.qn(gi);
+                        (src == from || src.ends_with(&format!("/{}", from))) && (dst == to || dst.ends_with(&format!("/{}", to)))
+                    } else {
+                        false
+                    }
                 })
                 .count()
                 .max(1); // At least 1 if there's an edge
@@ -117,16 +120,17 @@ impl CircularDependencyDetector {
         let scc_set: std::collections::HashSet<&str> =
             scc_files.iter().map(|s| s.as_str()).collect();
         let gi = graph.interner();
-        let imports = graph.get_imports();
 
         let mut external_imports: HashMap<String, usize> = HashMap::new();
 
-        for (src_key, dst_key) in &imports {
-            let src = gi.resolve(*src_key);
-            let dst = gi.resolve(*dst_key);
-            // Count how many times a file in the SCC is imported from OUTSIDE the SCC
-            if !scc_set.contains(src) && scc_set.contains(dst) {
-                *external_imports.entry(dst.to_string()).or_insert(0) += 1;
+        for &(src_idx, dst_idx) in graph.all_import_edges() {
+            if let (Some(src_node), Some(dst_node)) = (graph.node_idx(src_idx), graph.node_idx(dst_idx)) {
+                let src = src_node.qn(gi);
+                let dst = dst_node.qn(gi);
+                // Count how many times a file in the SCC is imported from OUTSIDE the SCC
+                if !scc_set.contains(src) && scc_set.contains(dst) {
+                    *external_imports.entry(dst.to_string()).or_insert(0) += 1;
+                }
             }
         }
 
