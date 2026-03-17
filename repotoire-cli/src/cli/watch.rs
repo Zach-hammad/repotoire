@@ -1,7 +1,7 @@
 //! `repotoire watch` — live analysis on file changes
 //!
-//! Watches your codebase and re-analyzes changed files in real-time using
-//! `AnalysisSession` for full incremental analysis with cross-file context.
+//! Watches your codebase and re-analyzes on file changes using
+//! `AnalysisEngine` for incremental analysis with cross-file context.
 
 use anyhow::Result;
 use console::style;
@@ -12,14 +12,77 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::models::Severity;
-use crate::session::{AnalysisDelta, AnalysisSession};
+use crate::engine::{AnalysisConfig, AnalysisEngine, AnalysisResult};
+use crate::models::{Finding, Severity};
 
 /// Supported source file extensions
 const WATCH_EXTENSIONS: &[&str] = &[
     "rs", "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "go", "java", "c", "h", "cpp",
     "cc", "cxx", "hpp", "cs", "kt", "kts",
 ];
+
+/// Delta between two consecutive analysis results.
+struct WatchDelta {
+    new_findings: Vec<Finding>,
+    fixed_findings: Vec<Finding>,
+    total_findings: usize,
+    score: Option<f64>,
+    score_delta: Option<f64>,
+}
+
+/// Compute the delta between a new result and an optional previous result.
+fn compute_delta(result: &AnalysisResult, prev: Option<&AnalysisResult>) -> WatchDelta {
+    let score = Some(result.score.overall);
+    let total_findings = result.findings.len();
+
+    let Some(prev) = prev else {
+        // No previous result — everything is "new"
+        return WatchDelta {
+            new_findings: Vec::new(),
+            fixed_findings: Vec::new(),
+            total_findings,
+            score,
+            score_delta: None,
+        };
+    };
+
+    let score_delta = Some(result.score.overall - prev.score.overall);
+
+    // Build sets of finding fingerprints for comparison.
+    // A finding is identified by (detector, file, line_start).
+    let fingerprint = |f: &Finding| -> (String, Option<PathBuf>, Option<u32>) {
+        (
+            f.detector.clone(),
+            f.affected_files.first().cloned(),
+            f.line_start,
+        )
+    };
+
+    let prev_set: HashSet<_> = prev.findings.iter().map(|f| fingerprint(f)).collect();
+    let curr_set: HashSet<_> = result.findings.iter().map(|f| fingerprint(f)).collect();
+
+    let new_findings: Vec<Finding> = result
+        .findings
+        .iter()
+        .filter(|f| !prev_set.contains(&fingerprint(f)))
+        .cloned()
+        .collect();
+
+    let fixed_findings: Vec<Finding> = prev
+        .findings
+        .iter()
+        .filter(|f| !curr_set.contains(&fingerprint(f)))
+        .cloned()
+        .collect();
+
+    WatchDelta {
+        new_findings,
+        fixed_findings,
+        total_findings,
+        score,
+        score_delta,
+    }
+}
 
 pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()> {
     let repo_path = std::fs::canonicalize(path)?;
@@ -35,6 +98,12 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
         println!("  {} Press Ctrl+C to stop\n", style("→").dim());
     }
 
+    let config = AnalysisConfig {
+        workers: 8,
+        no_git: false,
+        ..Default::default()
+    };
+
     // Cold analysis on startup
     let start = std::time::Instant::now();
     if !quiet {
@@ -43,21 +112,26 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
             style("⏳").dim()
         );
     }
-    let mut session = AnalysisSession::new(&repo_path, 8)?;
+    let mut engine = AnalysisEngine::new(&repo_path)?;
+    let initial_result = engine.analyze(&config)?;
     let cold_elapsed = start.elapsed();
 
     if !quiet {
-        let findings = session.findings();
-        let score = session.score();
         println!(
             "  {} Initial analysis: {} findings, score {:.1} ({:.2}s)",
             style("✓").green(),
-            findings.len(),
-            score.unwrap_or(0.0),
+            initial_result.findings.len(),
+            initial_result.score.overall,
             cold_elapsed.as_secs_f64()
         );
         println!();
     }
+
+    // Persist engine state periodically
+    let session_dir = crate::cache::cache_dir(&repo_path).join("session");
+
+    // Save initial state
+    let _ = engine.save(&session_dir);
 
     // Set up file watcher with debouncing
     let (tx, rx) = mpsc::channel();
@@ -75,6 +149,8 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
     debouncer.watch(&repo_path, RecursiveMode::Recursive)?;
 
     let mut total_catches = 0u32;
+    let mut last_result = Some(initial_result);
+    let mut iteration = 0u32;
 
     // Main event loop
     while let Ok(events) = rx.recv() {
@@ -98,10 +174,16 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
             continue;
         }
 
-        // Incremental update via session
+        // Clear per-run caches so detectors read fresh content
+        crate::parsers::clear_structural_fingerprint_cache();
+
+        // Re-analyze via engine (automatically handles incremental)
         let start = std::time::Instant::now();
-        let delta = session.update(&changed_files)?;
+        let result = engine.analyze(&config)?;
         let elapsed = start.elapsed();
+
+        // Compute delta against previous result
+        let delta = compute_delta(&result, last_result.as_ref());
 
         // Filter by severity if relaxed mode
         let delta = if relaxed {
@@ -113,7 +195,18 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
         // Display results
         total_catches += delta.new_findings.len() as u32;
         display_delta(&delta, &changed_files, &repo_path, elapsed, no_emoji, quiet);
+
+        last_result = Some(result);
+        iteration += 1;
+
+        // Persist every 10 iterations
+        if iteration % 10 == 0 {
+            let _ = engine.save(&session_dir);
+        }
     }
+
+    // Save final state
+    let _ = engine.save(&session_dir);
 
     println!(
         "\n{} Caught {} issues during watch session.",
@@ -123,9 +216,9 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
     Ok(())
 }
 
-/// Filter an AnalysisDelta to only show High/Critical findings (relaxed mode).
-fn filter_delta_relaxed(delta: AnalysisDelta) -> AnalysisDelta {
-    AnalysisDelta {
+/// Filter a WatchDelta to only show High/Critical findings (relaxed mode).
+fn filter_delta_relaxed(delta: WatchDelta) -> WatchDelta {
+    WatchDelta {
         new_findings: delta
             .new_findings
             .into_iter()
@@ -144,7 +237,7 @@ fn filter_delta_relaxed(delta: AnalysisDelta) -> AnalysisDelta {
 
 /// Display the results of an incremental update.
 fn display_delta(
-    delta: &AnalysisDelta,
+    delta: &WatchDelta,
     changed_files: &[PathBuf],
     repo_path: &Path,
     elapsed: Duration,
@@ -244,7 +337,7 @@ fn display_delta(
 }
 
 /// Format a score delta suffix for the compact summary line.
-fn score_suffix(delta: &AnalysisDelta) -> String {
+fn score_suffix(delta: &WatchDelta) -> String {
     match (delta.score, delta.score_delta) {
         (Some(score), Some(d)) if d.abs() > 0.05 => {
             format!(", score {:.1} ({:+.1})", score, d)
