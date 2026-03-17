@@ -428,7 +428,7 @@ impl AnalysisEngine {
             source_files: all_files,
             graph: graph_out.graph,
             edge_fingerprint: graph_out.edge_fingerprint,
-            gd_precomputed: Some(detect_out.gd_precomputed),
+            precomputed: Some(detect_out.precomputed),
             style_profile: calibrate_out.style_profile,
             ngram_model: calibrate_out.ngram_model,
             findings_by_file: detect_out.findings_by_file,
@@ -507,14 +507,14 @@ impl AnalysisEngine {
         };
 
         // Detect topology change by comparing edge fingerprints.
-        // After load() from disk, gd_precomputed is None — treat as topology changed
+        // After load() from disk, precomputed is None — treat as topology changed
         // since process-local Spur values make fingerprint comparison unreliable.
-        let topology_changed = prev_state.gd_precomputed.is_none()
+        let topology_changed = prev_state.precomputed.is_none()
             || prev_state.edge_fingerprint != graph_out.edge_fingerprint;
 
-        // Reuse GdPrecomputed when topology is stable
+        // Reuse precomputed data when topology is stable
         let cached_gd = if !topology_changed {
-            prev_state.gd_precomputed.as_ref()
+            prev_state.precomputed.as_ref()
         } else {
             None
         };
@@ -602,7 +602,7 @@ impl AnalysisEngine {
             source_files: all_files,
             graph: graph_out.graph,
             edge_fingerprint: graph_out.edge_fingerprint,
-            gd_precomputed: Some(detect_out.gd_precomputed),
+            precomputed: Some(detect_out.precomputed),
             style_profile,
             ngram_model,
             findings_by_file: detect_out.findings_by_file,
@@ -710,7 +710,7 @@ impl AnalysisEngine {
             source_files: meta.source_files,
             graph: Arc::new(graph),
             edge_fingerprint: meta.edge_fingerprint,
-            gd_precomputed: None,
+            precomputed: None,
             style_profile: crate::calibrate::StyleProfile {
                 version: crate::calibrate::StyleProfile::VERSION,
                 generated_at: String::new(),

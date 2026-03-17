@@ -2,9 +2,13 @@
 
 use crate::calibrate::{NgramModel, StyleProfile};
 use crate::config::ProjectConfig;
-use crate::detectors::GdPrecomputed;
+use crate::detectors::{
+    apply_hmm_context_filter, build_threshold_resolver, create_all_detectors,
+    filter_test_file_findings, inject_taint_precomputed, precompute_gd_startup,
+    run_detectors, sort_findings_deterministic, DetectorInit, PrecomputedAnalysis,
+};
 use crate::engine::ProgressFn;
-use crate::graph::GraphQuery;
+use crate::graph::{CachedGraphQuery, GraphQuery};
 use crate::models::Finding;
 use crate::values::store::ValueStore;
 use anyhow::Result;
@@ -29,7 +33,7 @@ pub struct DetectInput<'a> {
     // Incremental optimization hints (engine provides these)
     pub changed_files: Option<&'a [PathBuf]>,
     pub topology_changed: bool,
-    pub cached_gd_precomputed: Option<&'a GdPrecomputed>,
+    pub cached_gd_precomputed: Option<&'a PrecomputedAnalysis>,
     pub cached_file_findings: Option<&'a HashMap<PathBuf, Vec<Finding>>>,
     pub cached_graph_wide_findings: Option<&'a HashMap<String, Vec<Finding>>>,
 }
@@ -46,7 +50,7 @@ pub struct DetectStats {
 /// Output from the detect stage.
 pub struct DetectOutput {
     pub findings: Vec<Finding>,
-    pub gd_precomputed: GdPrecomputed,
+    pub precomputed: PrecomputedAnalysis,
     pub findings_by_file: HashMap<PathBuf, Vec<Finding>>,
     /// Keyed by detector name for selective invalidation on incremental runs.
     pub graph_wide_findings: HashMap<String, Vec<Finding>>,
@@ -57,61 +61,57 @@ pub struct DetectOutput {
 pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     let skip_set: HashSet<&str> = input.skip_detectors.iter().map(|s| s.as_str()).collect();
 
-    // Build the detector engine
-    let hmm_cache_path = input.repo_path.join(".repotoire");
-    let mut engine = crate::detectors::DetectorEngine::new(input.workers)
-        .with_hmm_cache(hmm_cache_path.clone());
-
     // Build DetectorInit and create all detectors via the registry
-    let resolver = crate::detectors::build_threshold_resolver(input.style_profile);
-    engine.set_threshold_resolver(resolver.clone());
+    let resolver = build_threshold_resolver(input.style_profile);
 
-    let init = crate::detectors::DetectorInit {
+    let init = DetectorInit {
         repo_path: input.repo_path,
         project_config: input.project_config,
-        resolver,
+        resolver: resolver.clone(),
         ngram_model: input.ngram_model,
     };
-    for detector in crate::detectors::create_all_detectors(&init) {
-        let name = detector.name();
-        if !skip_set.contains(name) {
-            engine.register(detector);
-        }
-    }
 
-    // Build file provider
-    let source_files = crate::detectors::SourceFiles::new(
-        input.source_files.to_vec(),
-        input.repo_path.to_path_buf(),
-    );
+    let detectors: Vec<Arc<dyn crate::detectors::Detector>> = create_all_detectors(&init)
+        .into_iter()
+        .filter(|d| !skip_set.contains(d.name()))
+        .collect();
+
+    let detectors_run = detectors.len();
+    let detectors_skipped = skip_set.len();
+
+    // Wrap graph in CachedGraphQuery for memoized expensive lookups
+    let cached_graph = CachedGraphQuery::new(input.graph);
 
     // Precompute GD data (contexts, HMM, taint, etc.)
     let precompute_start = Instant::now();
+    let hmm_cache_path = input.repo_path.join(".repotoire");
     let vs_clone = input.value_store.cloned();
-    let detectors_ref = engine.detectors();
-    let gd_precomputed = crate::detectors::precompute_gd_startup(
-        input.graph,
+
+    let precomputed = precompute_gd_startup(
+        &cached_graph,
         input.repo_path,
         Some(&hmm_cache_path),
         input.source_files,
         vs_clone,
-        detectors_ref,
+        &detectors,
     );
     let precompute_duration = precompute_start.elapsed();
 
-    // Inject precomputed data and run GI + GD phases
-    let gi_findings = engine.run_graph_independent(input.graph, &source_files)?;
-    let gi_count = gi_findings.len();
+    // Inject pre-computed taint results into security detectors
+    inject_taint_precomputed(&detectors, &precomputed.taint_results);
 
-    engine.inject_gd_precomputed(gd_precomputed.clone());
-    let gd_findings = engine.run_graph_dependent(input.graph, &source_files)?;
-    let gd_count = gd_findings.len();
+    // Build analysis context from precomputed data
+    let ctx = precomputed.to_context(&cached_graph, &resolver);
 
-    let detectors_run = engine.detector_count();
+    // Run all detectors in parallel
+    let mut findings = run_detectors(&detectors, &ctx, input.workers);
 
-    // Merge findings
-    let mut findings = gi_findings;
-    findings.extend(gd_findings);
+    let total_findings = findings.len();
+
+    // Post-detection filters
+    findings = apply_hmm_context_filter(findings, &ctx);
+    filter_test_file_findings(&mut findings);
+    sort_findings_deterministic(&mut findings);
 
     // Partition findings into per-file and graph-wide
     let mut findings_by_file: HashMap<PathBuf, Vec<Finding>> = HashMap::new();
@@ -137,14 +137,14 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
 
     Ok(DetectOutput {
         findings,
-        gd_precomputed,
+        precomputed,
         findings_by_file,
         graph_wide_findings,
         stats: DetectStats {
             detectors_run,
-            detectors_skipped: 0,
-            gi_findings: gi_count,
-            gd_findings: gd_count,
+            detectors_skipped,
+            gi_findings: 0,       // unified run — no GI/GD split
+            gd_findings: total_findings, // all findings from unified run
             precompute_duration,
         },
     })

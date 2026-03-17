@@ -1,7 +1,7 @@
 //! Internal engine state — cached between analyze() calls.
 
 use crate::calibrate::{NgramModel, StyleProfile};
-use crate::detectors::GdPrecomputed;
+use crate::detectors::PrecomputedAnalysis;
 use crate::graph::GraphStore;
 use crate::models::Finding;
 
@@ -63,7 +63,7 @@ pub(crate) struct EngineState {
 
     /// Expensive precomputed data (~3.9s to rebuild).
     /// Option because it's not persisted — rebuilt on first analyze() after load().
-    pub gd_precomputed: Option<GdPrecomputed>,
+    pub precomputed: Option<PrecomputedAnalysis>,
 
     /// Calibration profile (stable across incremental runs).
     pub style_profile: StyleProfile,
