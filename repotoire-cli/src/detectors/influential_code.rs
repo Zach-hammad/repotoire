@@ -1,23 +1,22 @@
 //! Influential code detector using PageRank
 //!
-//! Uses PageRank to identify truly important code components based on
-//! incoming dependencies. Now enhanced with function context for smarter detection.
+//! Uses pre-computed PageRank from graph primitives to identify truly important
+//! code components based on transitive dependency weight. Enhanced with function
+//! context for smarter role-aware detection.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
-use crate::graph::GraphStore;
+use crate::detectors::function_context::FunctionRole;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
-use rayon::prelude::*;
-use std::sync::Arc;
 use tracing::debug;
 
-/// Detects influential code and potential bloated code using PageRank.
+/// Detects influential code using PageRank from graph primitives.
 ///
-/// PageRank measures the importance of a function/class based on how many
+/// PageRank measures the importance of a function based on how many
 /// other components depend on it (and how important those dependents are).
+/// Unlike simple fan-in, PageRank accounts for transitive influence.
 ///
-/// Now uses FunctionContext to make smarter decisions:
+/// Uses FunctionContext to make smarter decisions:
 /// - Utilities: High influence is expected, only flag if also complex
 /// - Hubs: Genuinely important, flag with appropriate severity
 /// - Test functions: Skipped entirely
@@ -27,8 +26,9 @@ pub struct InfluentialCodeDetector {
     high_complexity_threshold: u32,
     /// Lines of code threshold for being "large"
     high_loc_threshold: u32,
-    /// Minimum fan-in to consider influential
-    min_fan_in: usize,
+    /// PageRank percentile threshold (0.0-1.0) for flagging as influential.
+    /// Functions above this percentile are considered influential.
+    pagerank_percentile_threshold: f64,
 }
 
 impl InfluentialCodeDetector {
@@ -38,35 +38,36 @@ impl InfluentialCodeDetector {
             config: DetectorConfig::new(),
             high_complexity_threshold: 15,
             high_loc_threshold: 100,
-            min_fan_in: 8,
+            pagerank_percentile_threshold: 0.90,
         }
     }
 
     /// Create with custom config
     pub fn with_config(config: DetectorConfig) -> Self {
-        let min_fan_in = config.get_option_or("min_fan_in", 8);
+        let pagerank_percentile_threshold: f64 =
+            config.get_option_or("pagerank_percentile_threshold", 90) as f64 / 100.0;
         Self {
             high_complexity_threshold: config.get_option_or("high_complexity_threshold", 15),
             high_loc_threshold: config.get_option_or("high_loc_threshold", 100),
-            min_fan_in,
+            pagerank_percentile_threshold,
             config,
         }
     }
 
-    /// Calculate severity based on metrics and function role
+    /// Calculate severity based on metrics and function role.
+    ///
+    /// `pagerank_pct` is the node's percentile position (0.0..1.0).
     fn calculate_severity(
         &self,
-        fan_in: usize,
+        pagerank_pct: f64,
         complexity: usize,
         loc: usize,
         role: FunctionRole,
     ) -> Severity {
-        // Base severity from raw metrics
-        // HIGH requires both significant fan-in AND high complexity
-        let high_fan_in = self.min_fan_in.max(15);
-        let base_severity = if fan_in >= high_fan_in && complexity >= 20 {
+        // Base severity from PageRank percentile + complexity
+        let base_severity = if pagerank_pct >= 0.99 && complexity >= 20 {
             Severity::High
-        } else if fan_in >= self.min_fan_in
+        } else if pagerank_pct >= 0.95
             && (complexity >= self.high_complexity_threshold as usize
                 || loc >= self.high_loc_threshold as usize)
         {
@@ -99,68 +100,6 @@ impl InfluentialCodeDetector {
         }
     }
 
-    /// Legacy name-based skip check (fallback when no context available)
-    fn should_skip_by_name(&self, name: &str) -> bool {
-        const SKIP_NAMES: &[&str] = &[
-            "new",
-            "default",
-            "from",
-            "into",
-            "create",
-            "build",
-            "make",
-            "with",
-            "get",
-            "set",
-            "run",
-            "main",
-            "init",
-            "setup",
-            "start",
-            "execute",
-            "handle",
-            "process",
-            "parse",
-            "format",
-            "render",
-            "display",
-            "detect",
-            "find",
-            "map",
-            "filter",
-            "collect",
-            "contains",
-            "push",
-            "insert",
-            "remove",
-            "unwrap",
-            "expect",
-            "read",
-            "write",
-            "lock",
-            "send",
-            "is_",
-            "has_",
-            "check_",
-            "validate_",
-            "should_",
-            "can_",
-            "find_",
-            "calculate_",
-            "compute_",
-            "scan_",
-            "extract_",
-            "normalize_",
-        ];
-
-        let name_lower = name.to_lowercase();
-        SKIP_NAMES.iter().any(|&skip| {
-            name_lower == skip
-                || name_lower.starts_with(&format!("{}_", skip))
-                || name_lower.starts_with(skip)
-        })
-    }
-
     /// Create a finding
     fn create_finding(
         &self,
@@ -168,13 +107,15 @@ impl InfluentialCodeDetector {
         file_path: &str,
         line_start: u32,
         line_end: u32,
+        page_rank: f64,
+        pagerank_pct: f64,
         fan_in: usize,
         complexity: usize,
         loc: usize,
         role: FunctionRole,
         betweenness: Option<f64>,
     ) -> Finding {
-        let severity = self.calculate_severity(fan_in, complexity, loc, role);
+        let severity = self.calculate_severity(pagerank_pct, complexity, loc, role);
 
         let role_note = match role {
             FunctionRole::Utility => " (utility - high influence expected)",
@@ -186,13 +127,22 @@ impl InfluentialCodeDetector {
         let title = format!("Influential Code: {}{}", name, role_note);
 
         let mut description = format!(
-            "Function '{}' influences {} dependents with complexity {} and {} LOC. \
-            High-impact code.\n\n\
+            "Function '{}' has high transitive influence (PageRank p{:.0}) with \
+            complexity {} and {} LOC. High-impact code.\n\n\
             **Metrics:**\n\
+            - PageRank: {:.6} (p{:.0})\n\
             - Callers (fan-in): {}\n\
             - Complexity: {}\n\
             - Lines of code: {}",
-            name, fan_in, complexity, loc, fan_in, complexity, loc
+            name,
+            pagerank_pct * 100.0,
+            complexity,
+            loc,
+            page_rank,
+            pagerank_pct * 100.0,
+            fan_in,
+            complexity,
+            loc
         );
 
         if let Some(b) = betweenness {
@@ -264,14 +214,37 @@ impl Detector for InfluentialCodeDetector {
         let contexts = &ctx.functions;
         let i = graph.interner();
         let mut findings = Vec::new();
-        let funcs = graph.get_functions_shared();
+        let func_idxs = graph.functions_idx();
 
         debug!(
-            "InfluentialCodeDetector: analyzing {} functions with context",
-            funcs.len()
+            "InfluentialCodeDetector: analyzing {} functions with PageRank",
+            func_idxs.len()
         );
 
-        for func in funcs.iter() {
+        // Collect PageRank values for percentile computation
+        let mut pagerank_values: Vec<f64> = func_idxs
+            .iter()
+            .map(|&idx| graph.page_rank_idx(idx))
+            .collect();
+        pagerank_values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let total = pagerank_values.len();
+        if total == 0 {
+            return Ok(findings);
+        }
+
+        // Helper: compute percentile rank for a given PageRank value
+        let percentile_of = |pr: f64| -> f64 {
+            if total <= 1 {
+                return 1.0;
+            }
+            let rank = pagerank_values.partition_point(|&v| v < pr);
+            rank as f64 / total as f64
+        };
+
+        for &func_idx in func_idxs {
+            let Some(func) = graph.node_idx(func_idx) else { continue };
+
             let fctx = contexts.get(func.qn(i));
 
             // Skip test functions
@@ -279,6 +252,14 @@ impl Detector for InfluentialCodeDetector {
                 if c.is_test || c.role == FunctionRole::Test {
                     continue;
                 }
+            }
+
+            let page_rank = graph.page_rank_idx(func_idx);
+            let pagerank_pct = percentile_of(page_rank);
+
+            // Skip functions below the PageRank percentile threshold
+            if pagerank_pct < self.pagerank_percentile_threshold {
+                continue;
             }
 
             let (fan_in, complexity, loc, role, betweenness) = if let Some(c) = fctx {
@@ -290,38 +271,34 @@ impl Detector for InfluentialCodeDetector {
                     Some(c.betweenness),
                 )
             } else {
-                let fan_in = graph.call_fan_in(func.qn(i));
+                let fan_in = graph.call_fan_in_idx(func_idx);
                 let complexity = func.complexity_opt().unwrap_or(1) as usize;
                 let loc = func.loc() as usize;
-                (fan_in, complexity, loc, FunctionRole::Unknown, None)
+                let raw_b = graph.betweenness_idx(func_idx);
+                let betweenness = if raw_b > 0.0 { Some(raw_b) } else { None };
+                (fan_in, complexity, loc, FunctionRole::Unknown, betweenness)
             };
 
-            // Role-aware filtering
+            // Role-aware filtering: still require complexity or size to flag
             let should_flag = match role {
                 FunctionRole::Utility => {
-                    // Utilities can have high fan-in
-                    // Only flag if complexity is extreme
-                    fan_in >= self.min_fan_in * 2
-                        && complexity >= self.high_complexity_threshold as usize * 2
+                    // Utilities can have high PageRank. Only flag if complexity is extreme.
+                    complexity >= self.high_complexity_threshold as usize * 2
                 }
                 FunctionRole::Hub => {
-                    // Hubs are important - flag with normal threshold
-                    fan_in >= self.min_fan_in
-                        && (complexity >= self.high_complexity_threshold as usize
-                            || loc >= self.high_loc_threshold as usize)
+                    // Hubs are important - flag if complex or large
+                    complexity >= self.high_complexity_threshold as usize
+                        || loc >= self.high_loc_threshold as usize
                 }
                 FunctionRole::EntryPoint => {
-                    // Entry points are expected to be influential
-                    // Only flag if very complex
-                    fan_in >= self.min_fan_in
-                        && complexity >= self.high_complexity_threshold as usize * 2
+                    // Entry points are expected to be influential. Only flag if very complex.
+                    complexity >= self.high_complexity_threshold as usize * 2
                 }
                 FunctionRole::Test => false,
                 FunctionRole::Leaf | FunctionRole::Orchestrator | FunctionRole::Unknown => {
-                    // Default threshold
-                    fan_in >= self.min_fan_in
-                        && (complexity >= self.high_complexity_threshold as usize
-                            || loc >= self.high_loc_threshold as usize)
+                    // Default: require complexity or size
+                    complexity >= self.high_complexity_threshold as usize
+                        || loc >= self.high_loc_threshold as usize
                 }
             };
 
@@ -331,6 +308,8 @@ impl Detector for InfluentialCodeDetector {
                     func.path(i),
                     func.line_start,
                     func.line_end,
+                    page_rank,
+                    pagerank_pct,
                     fan_in,
                     complexity,
                     loc,
@@ -360,30 +339,48 @@ mod tests {
         let detector = InfluentialCodeDetector::new();
 
         // Utility with moderate complexity = Low (expected behavior)
-        let sev = detector.calculate_severity(20, 10, 50, FunctionRole::Utility);
+        let sev = detector.calculate_severity(0.99, 10, 50, FunctionRole::Utility);
         assert_eq!(sev, Severity::Low);
 
         // Utility with extreme complexity = Medium (capped)
-        let sev = detector.calculate_severity(20, 40, 200, FunctionRole::Utility);
+        let sev = detector.calculate_severity(0.99, 40, 200, FunctionRole::Utility);
         assert_eq!(sev, Severity::Medium);
 
-        // Hub with high metrics = High
-        let sev = detector.calculate_severity(20, 25, 100, FunctionRole::Hub);
+        // Hub with high PageRank + high complexity = High
+        let sev = detector.calculate_severity(0.99, 25, 100, FunctionRole::Hub);
         assert_eq!(sev, Severity::High);
+
+        // Low PageRank percentile = Low severity regardless
+        let sev = detector.calculate_severity(0.50, 25, 100, FunctionRole::Hub);
+        assert_eq!(sev, Severity::Low);
     }
 
     #[test]
-    fn test_skip_by_name() {
+    fn test_severity_thresholds() {
         let detector = InfluentialCodeDetector::new();
 
-        // These should be skipped
-        assert!(detector.should_skip_by_name("is_valid"));
-        assert!(detector.should_skip_by_name("new"));
-        assert!(detector.should_skip_by_name("check_pattern"));
-        assert!(detector.should_skip_by_name("process_orders")); // "process" prefix
+        // p99 + complexity >= 20 => High
+        assert_eq!(
+            detector.calculate_severity(0.99, 20, 50, FunctionRole::Unknown),
+            Severity::High
+        );
 
-        // These should NOT be skipped
-        assert!(!detector.should_skip_by_name("order_processor")); // not a prefix
-        assert!(!detector.should_skip_by_name("transform_data"));
+        // p95 + complexity >= 15 => Medium
+        assert_eq!(
+            detector.calculate_severity(0.96, 15, 50, FunctionRole::Unknown),
+            Severity::Medium
+        );
+
+        // p95 + low complexity => Low
+        assert_eq!(
+            detector.calculate_severity(0.96, 5, 50, FunctionRole::Unknown),
+            Severity::Low
+        );
+    }
+
+    #[test]
+    fn test_default_percentile_threshold() {
+        let detector = InfluentialCodeDetector::new();
+        assert!((detector.pagerank_percentile_threshold - 0.90).abs() < f64::EPSILON);
     }
 }
