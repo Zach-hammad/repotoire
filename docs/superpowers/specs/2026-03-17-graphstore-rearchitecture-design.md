@@ -149,6 +149,11 @@ struct GraphIndexes {
     all_nodes_by_file: HashMap<StrKey, Vec<NodeIndex>>,
     function_spatial: HashMap<StrKey, Vec<(u32, u32, NodeIndex)>>,
 
+    // Pre-computed bulk edge lists (for consumers that iterate all edges of a kind)
+    all_call_edges: Vec<(NodeIndex, NodeIndex)>,
+    all_import_edges: Vec<(NodeIndex, NodeIndex)>,
+    all_inheritance_edges: Vec<(NodeIndex, NodeIndex)>,
+
     // Pre-computed expensive analyses
     import_cycles: Vec<Vec<NodeIndex>>,
     edge_fingerprint: u64,
@@ -213,6 +218,8 @@ impl GraphBuilder {
                     indexes.uses_sources.entry(tgt).or_default().push(src);
                 }
                 EdgeKind::ModifiedIn => {
+                    // One-directional: entity → commit only.
+                    // Commit → entity direction is not needed (no consumer queries it).
                     indexes.modified_in.entry(src).or_default().push(tgt);
                 }
             }
@@ -312,13 +319,16 @@ pub trait GraphQuery: Send + Sync {
     /// Graph statistics.
     fn stats(&self) -> BTreeMap<String, i64>;
 
-    // ── Bulk edge access (for consumers that need all edges of a kind) ─
+    // ── Bulk edge access (pre-computed during freeze, O(1) slice) ────
+
+    /// All call edges as (caller, callee) NodeIndex pairs.
+    fn all_call_edges(&self) -> &[(NodeIndex, NodeIndex)];
 
     /// All import edges as (importer, importee) NodeIndex pairs.
-    fn all_import_edges(&self) -> Vec<(NodeIndex, NodeIndex)>;
+    fn all_import_edges(&self) -> &[(NodeIndex, NodeIndex)];
 
     /// All inheritance edges as (child, parent) NodeIndex pairs.
-    fn all_inheritance_edges(&self) -> Vec<(NodeIndex, NodeIndex)>;
+    fn all_inheritance_edges(&self) -> &[(NodeIndex, NodeIndex)];
 
     // ── Cold properties ──────────────────────────────────────
 
@@ -326,12 +336,19 @@ pub trait GraphQuery: Send + Sync {
     /// Returns a reference (frozen graph) — callers needing owned data use .cloned().
     fn extra_props(&self, qn: StrKey) -> Option<&ExtraProps>;
 
-    // ── Raw graph access for advanced traversals ─────────────
+}
 
+// raw_graph() is on CodeGraph directly, NOT the trait — avoids coupling
+// all trait implementors to petgraph's concrete StableGraph type.
+impl CodeGraph {
     /// Direct access to the underlying petgraph for custom traversals
     /// (BFS, DFS, Dijkstra, etc.) that don't fit the indexed query API.
-    fn raw_graph(&self) -> &StableGraph<CodeNode, CodeEdge>;
+    /// Only available on the concrete type, not through &dyn GraphQuery.
+    pub fn raw_graph(&self) -> &StableGraph<CodeNode, CodeEdge> {
+        &self.graph
+    }
 }
+```
 ```
 
 **What's removed from the old trait:**
@@ -378,15 +395,54 @@ impl CodeGraph {
 
 These bridges enable gradual migration. Consumers are updated one file at a time. Once all consumers use the new API, bridges are deleted.
 
-**Note on `extra_props()`:** The return type changes from `Option<ExtraProps>` (owned) to `Option<&ExtraProps>` (reference). The bridge method clones for backward compat:
-```rust
-#[deprecated]
-pub fn get_extra_props_compat(&self, qn: StrKey) -> Option<ExtraProps> {
-    self.extra_props(qn).cloned()
-}
-```
+**Complete bridge method inventory** (every old method → bridge):
 
-**Note on adjacency sort order:** All adjacency vectors are sorted by `NodeIndex` during `freeze()` for deterministic iteration order. This matches the current behavior where query results are sorted by qualified name.
+| Old method | Bridge delegates to | Notes |
+|-----------|-------------------|-------|
+| `get_functions() -> Vec<CodeNode>` | `functions()` + `node()` | Clones nodes |
+| `get_classes() -> Vec<CodeNode>` | `classes()` + `node()` | Clones nodes |
+| `get_files() -> Vec<CodeNode>` | `files()` + `node()` | Clones nodes |
+| `get_functions_shared() -> Arc<[CodeNode]>` | `functions()` + `node()` | Builds Arc |
+| `get_classes_shared() -> Arc<[CodeNode]>` | `classes()` + `node()` | Builds Arc |
+| `get_files_shared() -> Arc<[CodeNode]>` | `files()` + `node()` | Builds Arc |
+| `get_callers(qn) -> Vec<CodeNode>` | `node_by_name()` + `callers()` + `node()` | |
+| `get_callees(qn) -> Vec<CodeNode>` | `node_by_name()` + `callees()` + `node()` | |
+| `get_importers(qn) -> Vec<CodeNode>` | `node_by_name()` + `importers()` + `node()` | |
+| `get_child_classes(qn) -> Vec<CodeNode>` | `node_by_name()` + `child_classes()` + `node()` | |
+| `get_node(qn) -> Option<CodeNode>` | `node_by_name()` | Clones |
+| `get_functions_in_file(path) -> Vec<CodeNode>` | `functions_in_file()` + `node()` | |
+| `get_classes_in_file(path) -> Vec<CodeNode>` | `classes_in_file()` + `node()` | |
+| `find_function_at(path, line) -> Option<CodeNode>` | `function_at()` + `node()` | |
+| `call_fan_in(qn) -> usize` | `node_by_name()` + `call_fan_in(idx)` | |
+| `call_fan_out(qn) -> usize` | `node_by_name()` + `call_fan_out(idx)` | |
+| `get_calls() -> Vec<(StrKey, StrKey)>` | Iterate `callees()` per function, resolve QNs | O(E) |
+| `get_calls_shared() -> Arc<[(StrKey, StrKey)]>` | Same, wrapped in Arc | O(E) |
+| `get_imports() -> Vec<(StrKey, StrKey)>` | Iterate `importees()` per node, resolve QNs | O(E) |
+| `get_inheritance() -> Vec<(StrKey, StrKey)>` | Iterate `parent_classes()` per class, resolve QNs | O(E) |
+| `build_call_maps_raw()` | Build from `callers()`/`callees()` per function | O(N) |
+| `get_call_adjacency()` | Build from `callers()`/`callees()` per function | O(N) |
+| `find_import_cycles() -> Vec<Vec<String>>` | `import_cycles()` + resolve QNs | Pre-computed |
+| `is_in_import_cycle(path)` | `import_cycles()` + resolve + contains check | |
+| `stats() -> BTreeMap<String, i64>` | Direct — same signature | |
+| `extra_props(qn) -> Option<ExtraProps>` | `extra_props(qn).cloned()` | Clones for owned return |
+| `caller_file_spread(qn) -> usize` | `callers()` + `node()` → unique files | |
+| `caller_module_spread(qn) -> usize` | `callers()` + `node()` → unique parent dirs | |
+| `count_external_callers_of(qn, ...)` | `callers()` + `node()` → filter by file/line | |
+| `get_complex_functions(min) -> Vec<CodeNode>` | `functions()` + filter by complexity | |
+| `get_long_param_functions(min) -> Vec<CodeNode>` | `functions()` + filter by params | |
+| `compute_coupling_stats()` | Iterate callers/callees, check cross-file edges | Method on `CodeGraph` |
+| `compute_edge_fingerprint()` | `edge_fingerprint()` | Pre-computed during freeze |
+| `find_minimal_cycle(qn, kind)` | Use `raw_graph()` for BFS | Method on `CodeGraph` |
+| `get_edges_by_kind(kind)` | Iterate adjacency index for that kind | Method on `CodeGraph` |
+| `get_all_edges()` | Iterate all adjacency indexes | Method on `CodeGraph` |
+
+**Note on `extra_props()`:** Return type changes from `Option<ExtraProps>` (owned) to `Option<&ExtraProps>` (reference). Bridge clones for backward compat.
+
+**Note on adjacency sort order:** Adjacency vectors are sorted by **resolved qualified name** during `freeze()`, matching the current behavior where `get_callers`/`get_callees` sort by QN. This ensures deterministic iteration order and identical results during migration.
+
+**Note on `compute_coupling_stats()` and `find_minimal_cycle()`:** These are NOT on the `GraphQuery` trait (they weren't before either). They are methods on `CodeGraph` directly, computed from adjacency indexes + `raw_graph()`. `GraphScorer` receives `&CodeGraph` (concrete type, not trait object).
+
+**Note on `MetricsCache` and `GraphScorer`:** `GraphScorer::new()` currently takes `&GraphStore`. After migration, it takes `(&CodeGraph, &MetricsCache)`. This constructor change is part of Phase C.
 
 ### Consumer Migration Pattern
 
