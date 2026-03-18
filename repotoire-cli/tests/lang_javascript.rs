@@ -4,8 +4,8 @@
 //! with intentional issues (Express security, insecure random, empty catch,
 //! deep nesting, debug code, regex DoS).
 //!
-//! Note: CorsMisconfigDetector does not fire on `.js` files because tree-sitter
-//! string masking replaces the wildcard `'*'` before the regex runs.
+//! Note: CorsMisconfigDetector does not fire on this fixture because the
+//! masked-content filter considers the CORS lines as pure-string content.
 //! MagicNumbersDetector may not fire due to adaptive threshold calibration
 //! on small single-file repos.
 

@@ -139,23 +139,19 @@ fn test_csharp_magic_numbers_detected() {
     );
 }
 
-// NOTE: CommentedCodeDetector does not include "cs" in its internal scan loop
-// (commented_code.rs line 144), so it won't fire on C# files. This is a known
-// gap — the fixture contains large commented-out code blocks that *would* trigger
-// the detector if "cs" were added to its extension list.
 #[test]
-fn test_csharp_commented_code_known_gap() {
+fn test_csharp_commented_code_detected() {
     let (stdout, _, _) = analyze_csharp_fixture();
     let findings = parse_findings(&stdout);
     let detectors = detector_names(&findings);
 
-    let has_commented_code = detectors.iter().any(|d| d.contains("commented-code"));
-    eprintln!(
-        "CommentedCodeDetector fired on C#: {} (expected: false, known gap)",
-        has_commented_code
+    assert!(
+        detectors
+            .iter()
+            .any(|d| d.contains("CommentedCode") || d.contains("commented-code")),
+        "Should detect commented-out code blocks. Detectors found: {:?}",
+        detectors
     );
-    // If this starts passing in the future (detector adds "cs" support), great!
-    // For now, document the gap rather than assert on it.
 }
 
 #[test]
