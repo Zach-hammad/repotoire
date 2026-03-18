@@ -7,6 +7,7 @@
 
 use petgraph::algo::{dominators, tarjan_scc};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
+use petgraph::visit::EdgeRef;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -1134,13 +1135,57 @@ fn build_weighted_overlay(
 }
 
 fn compute_weighted_page_rank(
-    _overlay: &StableGraph<NodeIndex, f32>,
-    _iterations: usize,
-    _damping: f64,
-    _tolerance: f64,
+    overlay: &StableGraph<NodeIndex, f32>,
+    iterations: usize,
+    damping: f64,
+    tolerance: f64,
 ) -> HashMap<NodeIndex, f64> {
-    // Stub: implemented in Task 5.
-    HashMap::new()
+    let _span = tracing::info_span!("weighted_page_rank").entered();
+    let node_count = overlay.node_count();
+    if node_count == 0 {
+        return HashMap::new();
+    }
+
+    let init = 1.0 / node_count as f64;
+    let mut rank: HashMap<NodeIndex, f64> =
+        overlay.node_indices().map(|n| (n, init)).collect();
+
+    for _ in 0..iterations {
+        let mut new_rank: HashMap<NodeIndex, f64> = overlay
+            .node_indices()
+            .map(|n| (n, (1.0 - damping) / node_count as f64))
+            .collect();
+
+        for src in overlay.node_indices() {
+            let out_edges: Vec<_> = overlay.edges(src).collect();
+            let total_weight: f64 = out_edges.iter().map(|e| *e.weight() as f64).sum();
+            if total_weight == 0.0 {
+                continue;
+            }
+            let src_rank = rank[&src];
+            for edge in &out_edges {
+                let fraction = *edge.weight() as f64 / total_weight;
+                *new_rank.get_mut(&edge.target()).unwrap() += damping * src_rank * fraction;
+            }
+        }
+
+        let diff: f64 = overlay
+            .node_indices()
+            .map(|n| (new_rank[&n] - rank[&n]).abs())
+            .sum();
+        rank = new_rank;
+        if diff < tolerance {
+            break;
+        }
+    }
+
+    // Map overlay NodeIndex → original NodeIndex stored as node weight
+    let mut result = HashMap::new();
+    for n in overlay.node_indices() {
+        let original_idx = overlay[n]; // node weight is the original NodeIndex
+        result.insert(original_idx, rank[&n]);
+    }
+    result
 }
 
 fn compute_weighted_betweenness(
@@ -1910,6 +1955,79 @@ mod tests {
         assert!(
             (hc_w - expected_boost).abs() < 1e-6,
             "Hidden coupling weight should be {expected_boost}, got {hc_w}"
+        );
+    }
+
+    // ── Weighted PageRank tests ──
+
+    #[test]
+    fn test_weighted_page_rank_uniform_weights() {
+        // 3-node cycle with all edges weight=1.0
+        // a → b → c → a
+        // With uniform weights, all ranks should be approximately equal.
+        let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
+        let orig_a = NodeIndex::new(100);
+        let orig_b = NodeIndex::new(101);
+        let orig_c = NodeIndex::new(102);
+
+        let a = overlay.add_node(orig_a);
+        let b = overlay.add_node(orig_b);
+        let c = overlay.add_node(orig_c);
+
+        overlay.add_edge(a, b, 1.0);
+        overlay.add_edge(b, c, 1.0);
+        overlay.add_edge(c, a, 1.0);
+
+        let pr = compute_weighted_page_rank(&overlay, 20, 0.85, 1e-6);
+
+        assert_eq!(pr.len(), 3, "Should have 3 entries");
+        let rank_a = pr[&orig_a];
+        let rank_b = pr[&orig_b];
+        let rank_c = pr[&orig_c];
+
+        // In a symmetric cycle, all ranks should converge to 1/3
+        assert!(
+            (rank_a - rank_b).abs() < 0.01,
+            "Ranks should be ~equal in uniform cycle: a={rank_a}, b={rank_b}"
+        );
+        assert!(
+            (rank_b - rank_c).abs() < 0.01,
+            "Ranks should be ~equal in uniform cycle: b={rank_b}, c={rank_c}"
+        );
+        assert!(
+            (rank_a - 1.0 / 3.0).abs() < 0.01,
+            "Each rank should be ~1/3: got {rank_a}"
+        );
+    }
+
+    #[test]
+    fn test_weighted_page_rank_heavy_edge() {
+        // a has two out-edges: heavy to b (weight 5.0), light to c (weight 1.0).
+        // b and c each feed back to a. Node a distributes rank proportionally:
+        // 5/6 to b, 1/6 to c. Therefore b should accumulate higher rank than c.
+        let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
+        let orig_a = NodeIndex::new(200);
+        let orig_b = NodeIndex::new(201);
+        let orig_c = NodeIndex::new(202);
+
+        let a = overlay.add_node(orig_a);
+        let b = overlay.add_node(orig_b);
+        let c = overlay.add_node(orig_c);
+
+        overlay.add_edge(a, b, 5.0); // heavy edge
+        overlay.add_edge(a, c, 1.0); // light edge
+        overlay.add_edge(b, a, 1.0); // feedback
+        overlay.add_edge(c, a, 1.0); // feedback
+
+        let pr = compute_weighted_page_rank(&overlay, 20, 0.85, 1e-6);
+
+        assert_eq!(pr.len(), 3, "Should have 3 entries");
+        let rank_b = pr[&orig_b];
+        let rank_c = pr[&orig_c];
+
+        assert!(
+            rank_b > rank_c,
+            "b should have higher rank than c due to heavy edge: b={rank_b}, c={rank_c}"
         );
     }
 }
