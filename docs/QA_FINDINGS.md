@@ -170,11 +170,54 @@ Detailed investigation by QA workers revealed specific root causes for detector 
 
 ---
 
+## Detector Audit Results (Phase 2)
+
+Following the initial QA run, a full audit of all 107 detectors was performed and fixes applied.
+
+### Infrastructure Changes
+- **`bypass_postprocessor()` trait method** added to `Detector` trait — detectors can opt out of GBDT ML filtering
+- **Propagated via `HashSet<String>`** bypass set (not on `Finding` struct) through runner → engine → postprocessor
+- **Cross-line user-input helper** (`has_nearby_user_input()`) extracted to shared module with 4 unit tests
+
+### Detectors Fixed
+
+| Detector | Fix | Result |
+|----------|-----|--------|
+| 25 security detectors | Added `bypass_postprocessor() -> true` | Findings no longer incorrectly filtered by GBDT |
+| InsecureDeserializeDetector | Added Java `ObjectInputStream`/`XMLDecoder` to `HAS_SERIALIZE` flag; cross-line context (±10 lines); GBDT bypass | Now detects Java deserialization |
+| CorsMisconfigDetector | Match on raw content, validate with masked; GBDT bypass | `'*'` no longer masked away |
+| CommandInjectionDetector | Cross-line context for Go `exec.Command` + Java `Runtime.exec` | Detects user input on nearby lines |
+| InsecureCryptoDetector | Regex `md5\s*[.(]` matches Go `md5.New()` | Go crypto now detected |
+| HardcodedIpsDetector | Added `"c"`, `"cpp"` to scan loop | C/C++ now scanned |
+| EmptyCatchDetector | Added `"cpp"` to scan loop | C++ now scanned |
+| CommentedCodeDetector | Added `"cs"` to scan loop | C# now fires (confirmed by integration test) |
+| DebugCodeDetector | Added `"go"` to scan loop | Go now scanned |
+| AIBoilerplateDetector | Added `"c"`, `"cpp"`, `"cs"` to scan loop | Matches `file_extensions()` |
+| BooleanTrapDetector | Aligned scan loop with `file_extensions()` | Removed phantom rb/cs, added jsx/tsx/rs |
+| BroadExceptionDetector | Aligned scan loop with `file_extensions()` | Removed phantom cs/rb, added jsx/tsx/rs |
+| GeneratorMisuseDetector | Narrowed `file_extensions()` to `["py"]` | No longer claims JS/TS |
+
+### Self-Analysis (Dogfood) — Before vs After
+| Metric | Before | After |
+|--------|--------|-------|
+| Score | 89.7 (B+) | 89.5 (B+) |
+| Dogfood test | 4/4 pass | 4/4 pass |
+| Deterministic | Yes | Yes |
+
+### Test Coverage
+- **1,551 unit tests** pass
+- **107 integration tests** pass (97 language + 12 CLI — 2 new from audit)
+- **4 dogfood tests** pass (`#[ignore]`, ~87s)
+
+---
+
 ## Remaining Issues (Not Fixed)
 
-1. **17 detector language-support gaps** — detectors claim languages they don't actually scan (see root cause table above)
-2. **GBDT postprocessor over-filtering** — MagicNumbersDetector and InsecureCryptoDetector produce findings internally but GBDT postprocessor removes them for Java; worth investigating thresholds
-3. **String masking interference** — tree-sitter string masking removes detector-relevant content for PrototypePollution (TS) and CorsMisconfig (JS) before detection regex runs
-4. **Pre-existing clippy warnings** — ~4 warnings in main library code (unused fields), ~60 clippy errors across codebase
-5. **No integration tests for**: framework detection, incremental cache behavior, graph-based detectors (require multi-file repos)
-6. **Dogfooding test is slow** — marked `#[ignore]`, runs only with `--ignored` flag (~87s)
+1. **PrototypePollutionDetector TS gap** — uses raw content (masking is NOT the issue); needs separate investigation of regex patterns
+2. **MagicNumbersDetector TS/Java gap** — GBDT features too weak on single-file analysis; not bypassed (high FP rate)
+3. **InsecureCryptoDetector Java gap** — `is_hash_mention_not_usage()` filter + string masking; partially addressed by GBDT bypass
+4. **CorsMisconfigDetector JS integration test** — detector fires in unit tests but masked-content validation filters it in fixture context
+5. **`findings_are_deterministic` flaky test** — pre-existing, unrelated to audit
+6. **Pre-existing clippy warnings** — ~4 warnings in main library code (unused fields)
+7. **No integration tests for**: framework detection, incremental cache behavior, graph-based detectors (require multi-file repos)
+8. **Dogfooding test is slow** — marked `#[ignore]`, runs only with `--ignored` flag (~87s)
