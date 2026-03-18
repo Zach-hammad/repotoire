@@ -100,7 +100,7 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
 
     let config = AnalysisConfig {
         workers: 8,
-        no_git: false,
+        no_git: !repo_path.join(".git").exists(),
         ..Default::default()
     };
 
