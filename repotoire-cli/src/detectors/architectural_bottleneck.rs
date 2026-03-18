@@ -6,11 +6,9 @@
 //! Now enhanced with function context for smarter role-based detection.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
-use crate::graph::GraphStore;
+use crate::detectors::function_context::FunctionRole;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
-use std::sync::Arc;
 use tracing::debug;
 
 /// Detects architectural bottlenecks using graph metrics and function context.
@@ -329,10 +327,12 @@ impl Detector for ArchitecturalBottleneckDetector {
                     Some(c.betweenness),
                 )
             } else {
-                // Fall back to graph queries
+                // Fall back to graph queries + pre-computed betweenness
                 let fan_in = graph.call_fan_in_idx(func_idx);
                 let complexity = func.complexity_opt().unwrap_or(1) as usize;
-                (fan_in, complexity, FunctionRole::Unknown, None)
+                let raw_b = graph.betweenness_idx(func_idx);
+                let betweenness = if raw_b > 0.0 { Some(raw_b) } else { None };
+                (fan_in, complexity, FunctionRole::Unknown, betweenness)
             };
 
             // Bottleneck: high fan-in AND high complexity

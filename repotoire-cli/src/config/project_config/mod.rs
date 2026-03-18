@@ -159,6 +159,39 @@ use super::project_type_scoring::{
     score_mobile_markers, score_web_markers,
 };
 
+/// Co-change analysis configuration from repotoire.toml `[co_change]` section.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CoChangeConfigToml {
+    /// Exponential decay half-life in days (default: 90)
+    #[serde(default)]
+    pub half_life_days: Option<f64>,
+    /// Minimum co-change weight to keep (default: 0.1)
+    #[serde(default)]
+    pub min_weight: Option<f32>,
+    /// Skip commits touching more files than this (default: 30)
+    #[serde(default)]
+    pub max_files_per_commit: Option<usize>,
+    /// Maximum commits to analyze (default: 5000)
+    #[serde(default)]
+    pub max_commits: Option<usize>,
+}
+
+impl CoChangeConfigToml {
+    /// Convert TOML config (all optional) to runtime config (all required),
+    /// filling in defaults for any unset fields.
+    pub fn to_runtime(&self) -> crate::git::co_change::CoChangeConfig {
+        let defaults = crate::git::co_change::CoChangeConfig::default();
+        crate::git::co_change::CoChangeConfig {
+            half_life_days: self.half_life_days.unwrap_or(defaults.half_life_days),
+            min_weight: self.min_weight.unwrap_or(defaults.min_weight),
+            max_files_per_commit: self
+                .max_files_per_commit
+                .unwrap_or(defaults.max_files_per_commit),
+            max_commits: self.max_commits.unwrap_or(defaults.max_commits),
+        }
+    }
+}
+
 /// Project-level configuration loaded from repotoire.toml or similar
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProjectConfig {
@@ -181,6 +214,10 @@ pub struct ProjectConfig {
     /// Default CLI flags
     #[serde(default)]
     pub defaults: CliDefaults,
+
+    /// Co-change analysis configuration
+    #[serde(default)]
+    pub co_change: CoChangeConfigToml,
 
     /// Cached auto-detected project type (not serialized)
     #[serde(skip)]

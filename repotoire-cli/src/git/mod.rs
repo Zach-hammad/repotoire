@@ -27,6 +27,7 @@
 //! ```
 
 pub mod blame;
+pub mod co_change;
 pub mod enrichment;
 pub mod history;
 

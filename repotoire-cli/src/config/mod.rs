@@ -12,7 +12,7 @@ mod project_type_scoring;
 mod user_config;
 
 pub use project_config::{
-    glob_match, load_project_config, normalize_detector_name, CliDefaults,
+    glob_match, load_project_config, normalize_detector_name, CliDefaults, CoChangeConfigToml,
     DetectorConfigOverride, ExcludeConfig, PillarWeights, ProjectConfig, ProjectType,
     ScoringConfig, ThresholdValue, DEFAULT_EXCLUDE_PATTERNS,
 };

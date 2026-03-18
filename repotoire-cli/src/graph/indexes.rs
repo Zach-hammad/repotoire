@@ -13,6 +13,7 @@ use std::hash::{Hash, Hasher};
 
 use super::interner::{global_interner, StrKey};
 use super::store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
+use crate::git::co_change::CoChangeMatrix;
 
 /// All pre-built indexes, computed once during `freeze()`.
 ///
@@ -58,6 +59,7 @@ pub struct GraphIndexes {
     // ── Pre-computed expensive analyses ──
     pub(crate) import_cycles: Vec<Vec<NodeIndex>>,
     pub(crate) edge_fingerprint: u64,
+    pub(crate) primitives: super::primitives::GraphPrimitives,
 }
 
 impl Default for GraphIndexes {
@@ -86,9 +88,11 @@ impl Default for GraphIndexes {
             all_inheritance_edges: Vec::new(),
             import_cycles: Vec::new(),
             edge_fingerprint: 0,
+            primitives: super::primitives::GraphPrimitives::default(),
         }
     }
 }
+
 
 impl GraphIndexes {
     /// Build all indexes from a graph and node_index in one pass.
@@ -101,6 +105,7 @@ impl GraphIndexes {
     pub fn build(
         graph: &StableGraph<CodeNode, CodeEdge>,
         _node_index: &HashMap<StrKey, NodeIndex>,
+        co_change: Option<&CoChangeMatrix>,
     ) -> Self {
         let mut indexes = Self::default();
         let si = global_interner();
@@ -248,6 +253,19 @@ impl GraphIndexes {
 
         // ── Step 6: Compute edge fingerprint ──
         indexes.edge_fingerprint = compute_edge_fingerprint(graph);
+
+        // ── Step 7-9: Compute graph primitives ──
+        indexes.primitives = super::primitives::GraphPrimitives::compute(
+            graph,
+            &indexes.functions,
+            &indexes.files,
+            &indexes.all_call_edges,
+            &indexes.all_import_edges,
+            &indexes.call_callers,
+            &indexes.call_callees,
+            indexes.edge_fingerprint,
+            co_change,
+        );
 
         indexes
     }
@@ -402,7 +420,7 @@ mod tests {
     fn test_build_empty_graph() {
         let graph = StableGraph::new();
         let node_index = HashMap::new();
-        let indexes = GraphIndexes::build(&graph, &node_index);
+        let indexes = GraphIndexes::build(&graph, &node_index, None);
         assert!(indexes.functions.is_empty());
         assert!(indexes.classes.is_empty());
         assert!(indexes.files.is_empty());
@@ -426,7 +444,7 @@ mod tests {
         node_index.insert(si.intern("a.py::MyClass"), c1);
         node_index.insert(si.intern("a.py"), file);
 
-        let indexes = GraphIndexes::build(&graph, &node_index);
+        let indexes = GraphIndexes::build(&graph, &node_index, None);
         assert_eq!(indexes.functions.len(), 2);
         assert_eq!(indexes.classes.len(), 1);
         assert_eq!(indexes.files.len(), 1);
@@ -440,7 +458,7 @@ mod tests {
         graph.add_edge(f1, f2, CodeEdge::calls());
 
         let node_index = HashMap::new();
-        let indexes = GraphIndexes::build(&graph, &node_index);
+        let indexes = GraphIndexes::build(&graph, &node_index, None);
 
         // f1 calls f2
         assert_eq!(indexes.call_callees.get(&f1).map(|v| v.len()), Some(1));
@@ -468,7 +486,7 @@ mod tests {
         graph.add_edge(c, a, CodeEdge::imports());
 
         let node_index = HashMap::new();
-        let indexes = GraphIndexes::build(&graph, &node_index);
+        let indexes = GraphIndexes::build(&graph, &node_index, None);
 
         assert_eq!(indexes.import_cycles.len(), 1);
         assert_eq!(indexes.import_cycles[0].len(), 3);
@@ -490,7 +508,7 @@ mod tests {
         let _ = (f1, f2);
 
         let node_index = HashMap::new();
-        let indexes = GraphIndexes::build(&graph, &node_index);
+        let indexes = GraphIndexes::build(&graph, &node_index, None);
 
         let spatial = indexes.function_spatial.get(&fp).unwrap();
         // Should be sorted by line_start

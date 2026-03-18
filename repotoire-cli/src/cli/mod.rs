@@ -91,7 +91,6 @@ Examples:
   repotoire analyze . --severity high                Only show high/critical findings
   repotoire analyze . --since main                   Only files changed since main branch
   repotoire analyze . --fail-on high                 Exit code 1 if high+ findings (CI mode)
-  repotoire analyze . --lite                         Fast mode for huge repos (skips graph + git)
   repotoire analyze . --explain-score                Show full scoring breakdown")]
     Analyze {
         /// Output format: text, json, sarif, html, markdown (or md)
@@ -134,21 +133,9 @@ Examples:
         #[arg(long)]
         relaxed: bool,
 
-        /// Skip git history enrichment (faster for large repos)
-        #[arg(long)]
-        no_git: bool,
-
-        /// Skip graph building (faster, uses simpler file-level analysis)
-        #[arg(long)]
-        skip_graph: bool,
-
         /// Maximum files to analyze (0 = unlimited, useful for huge repos)
         #[arg(long, default_value = "0")]
         max_files: usize,
-
-        /// Lite mode: --skip-graph --no-git --max-files=10000 (fast analysis for huge repos)
-        #[arg(long)]
-        lite: bool,
 
         /// Exit with code 1 if findings at this severity or higher exist
         /// Values: critical, high, medium, low (default: none - always exit 0)
@@ -470,10 +457,7 @@ pub fn run(cli: Cli) -> Result<()> {
             thorough,
             external: _,
             relaxed,
-            no_git,
-            skip_graph,
             max_files,
-            lite,
             fail_on,
             no_emoji,
             explain_score,
@@ -498,13 +482,8 @@ pub fn run(cli: Cli) -> Result<()> {
                 severity
             };
 
-            // Lite mode: fast analysis for huge repos
-            let effective_max_files = if lite && max_files == 0 { 10000 } else { max_files };
-            let (effective_no_git, _effective_skip_graph) = if lite {
-                (true, true)
-            } else {
-                (no_git, skip_graph)
-            };
+            // Auto-detect git: skip git enrichment if no .git directory exists
+            let no_git = !cli.path.join(".git").exists();
 
             // Resolve min_confidence: CLI flag > config fallback > None
             let effective_min_confidence = min_confidence;
@@ -519,8 +498,8 @@ pub fn run(cli: Cli) -> Result<()> {
             let analysis_config = crate::engine::AnalysisConfig {
                 workers: cli.workers,
                 skip_detectors,
-                max_files: effective_max_files,
-                no_git: effective_no_git,
+                max_files,
+                no_git,
                 verify,
             };
 

@@ -485,6 +485,12 @@ fn filter_false_positives(
         let keep_mask: Vec<bool> = findings
             .par_iter()
             .map(|f| {
+                // Deterministic detectors use provable graph algorithms
+                // (dominator trees, SCCs, articulation points). Their findings
+                // should not be filtered by a statistical model.
+                if f.deterministic {
+                    return true;
+                }
                 let features = extractor.extract(f, Some(graph), None, None);
                 let prediction = classifier.predict(&features);
                 let category = DetectorCategory::from_detector(&f.detector);
