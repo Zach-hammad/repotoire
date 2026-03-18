@@ -439,6 +439,12 @@ pub trait Detector: Send + Sync {
         false
     }
 
+    /// Whether this detector's findings should bypass GBDT postprocessor filtering.
+    /// High-precision pattern-based detectors should return true.
+    fn bypass_postprocessor(&self) -> bool {
+        false
+    }
+
 }
 
 /// Progress callback for detector execution

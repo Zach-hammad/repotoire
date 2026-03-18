@@ -55,6 +55,8 @@ pub struct DetectOutput {
     pub findings_by_file: HashMap<PathBuf, Vec<Finding>>,
     /// Keyed by detector name for selective invalidation on incremental runs.
     pub graph_wide_findings: HashMap<String, Vec<Finding>>,
+    /// Detector names that opt out of GBDT postprocessor filtering.
+    pub bypass_set: HashSet<String>,
     pub stats: DetectStats,
 }
 
@@ -104,7 +106,7 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     let ctx = precomputed.to_context(graph, &resolver);
 
     // Run all detectors in parallel
-    let mut findings = run_detectors(&detectors, &ctx, input.workers);
+    let (mut findings, bypass_set) = run_detectors(&detectors, &ctx, input.workers);
 
     let total_findings = findings.len();
 
@@ -153,6 +155,7 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
         precomputed,
         findings_by_file,
         graph_wide_findings,
+        bypass_set,
         stats: DetectStats {
             detectors_run,
             detectors_skipped,

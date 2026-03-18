@@ -21,7 +21,7 @@ use crate::detectors::taint::centralized::CentralizedTaintResults;
 use crate::graph::CodeNode;
 use crate::models::Finding;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -42,20 +42,28 @@ pub fn run_detectors(
     detectors: &[Arc<dyn Detector>],
     ctx: &AnalysisContext<'_>,
     workers: usize,
-) -> Vec<Finding> {
+) -> (Vec<Finding>, HashSet<String>) {
     if detectors.is_empty() {
-        return Vec::new();
+        return (Vec::new(), HashSet::new());
     }
+
+    // Build the bypass set: detector names that opt out of GBDT postprocessor filtering
+    let bypass_set: HashSet<String> = detectors
+        .iter()
+        .filter(|d| d.bypass_postprocessor())
+        .map(|d| d.name().to_string())
+        .collect();
 
     // Partition into independent / dependent
     let (independent, dependent): (Vec<_>, Vec<_>) =
         detectors.iter().partition(|d| !d.is_dependent());
 
     info!(
-        "run_detectors: {} independent, {} dependent, {} workers",
+        "run_detectors: {} independent, {} dependent, {} workers, {} bypass postprocessor",
         independent.len(),
         dependent.len(),
         workers,
+        bypass_set.len(),
     );
 
     let pool = match rayon::ThreadPoolBuilder::new()
@@ -66,7 +74,7 @@ pub fn run_detectors(
         Ok(p) => p,
         Err(e) => {
             error!("Failed to build rayon pool: {e}");
-            return Vec::new();
+            return (Vec::new(), bypass_set);
         }
     };
 
@@ -106,7 +114,7 @@ pub fn run_detectors(
         );
     }
 
-    all_findings
+    (all_findings, bypass_set)
 }
 
 /// Execute a single detector with catch_unwind, timing, and max_findings.
@@ -355,8 +363,9 @@ mod tests {
     fn test_run_detectors_empty() {
         let graph = GraphStore::in_memory();
         let ctx = AnalysisContext::test(&graph);
-        let findings = run_detectors(&[], &ctx, 1);
+        let (findings, bypass_set) = run_detectors(&[], &ctx, 1);
         assert!(findings.is_empty());
+        assert!(bypass_set.is_empty());
     }
 
     #[test]

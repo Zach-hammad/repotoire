@@ -425,6 +425,7 @@ impl AnalysisEngine {
                 all_files: &all_files,
                 repo_path: &self.repo_path,
                 verify: config.verify,
+                bypass_set: detect_out.bypass_set,
             })
         })?;
 
@@ -613,6 +614,7 @@ impl AnalysisEngine {
                 all_files: &all_files,
                 repo_path: &self.repo_path,
                 verify: config.verify,
+                bypass_set: detect_out.bypass_set,
             })
         })?;
 

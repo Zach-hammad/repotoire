@@ -116,6 +116,7 @@ pub fn postprocess_findings(
     min_confidence: Option<f64>,
     show_all: bool,
     repo_path: &Path,
+    bypass_set: &HashSet<String>,
 ) {
     // Step 0: Replace random UUIDs with deterministic IDs for cache dedup (#73)
     for finding in findings.iter_mut() {
@@ -192,7 +193,7 @@ pub fn postprocess_findings(
     downgrade_non_production_security(findings);
 
     // Step 7: FP filtering with category-aware thresholds
-    filter_false_positives(findings, graph);
+    filter_false_positives(findings, graph, bypass_set);
 
     // Step 8: Clamp confidence to [0.0, 1.0] (#35)
     for finding in findings.iter_mut() {
@@ -425,6 +426,7 @@ pub(crate) fn rank_findings(findings: &mut Vec<Finding>, graph: &dyn crate::grap
 fn filter_false_positives(
     findings: &mut Vec<Finding>,
     graph: &dyn crate::graph::GraphQuery,
+    bypass_set: &HashSet<String>,
 ) {
     use crate::classifier::{CategoryThresholds, DetectorCategory};
 
@@ -488,7 +490,8 @@ fn filter_false_positives(
                 // Deterministic detectors use provable graph algorithms
                 // (dominator trees, SCCs, articulation points). Their findings
                 // should not be filtered by a statistical model.
-                if f.deterministic {
+                // Detectors that opt out via bypass_postprocessor() are also skipped.
+                if f.deterministic || bypass_set.contains(&f.detector) {
                     return true;
                 }
                 let features = extractor.extract(f, Some(graph), None, None);

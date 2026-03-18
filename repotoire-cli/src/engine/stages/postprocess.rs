@@ -4,6 +4,7 @@ use crate::config::ProjectConfig;
 use crate::graph::GraphQuery;
 use crate::models::Finding;
 use anyhow::Result;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Input for the postprocess stage. Takes ownership of findings.
@@ -14,6 +15,8 @@ pub struct PostprocessInput<'a> {
     pub all_files: &'a [PathBuf],
     pub repo_path: &'a Path,
     pub verify: bool,
+    /// Detector names that opt out of GBDT postprocessor filtering.
+    pub bypass_set: HashSet<String>,
 }
 
 /// Statistics from the postprocess stage.
@@ -61,6 +64,7 @@ pub fn postprocess_stage(input: PostprocessInput) -> Result<PostprocessOutput> {
         None,   // min_confidence — no threshold filtering in postprocess
         false,  // show_all — irrelevant when min_confidence is None
         input.repo_path,
+        &input.bypass_set,
     );
 
     let output_count = findings.len();
