@@ -308,4 +308,72 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty(), "Empty graph should produce no findings");
     }
+
+    #[test]
+    fn test_positive_star_topology_bottleneck() {
+        // Build a star topology with 25 leaf nodes and 1 hub. Co-change data
+        // amplifies the hub's betweenness. With 26 functions and p97 threshold,
+        // only the top ~1 function should be flagged.
+        let mut builder = GraphBuilder::new();
+
+        let hub = builder.add_node(CodeNode::function("hub", "src/core/hub.py"));
+        let hub_file = builder.add_node(CodeNode::file("src/core/hub.py"));
+        builder.add_edge(hub_file, hub, CodeEdge::contains());
+
+        let mut leaf_paths = Vec::new();
+        for i in 0..25 {
+            let fname = format!("leaf_{i}");
+            let path = format!("src/modules/mod{i}.py");
+            let leaf = builder.add_node(CodeNode::function(&fname, &path));
+            let file = builder.add_node(CodeNode::file(&path));
+            builder.add_edge(file, leaf, CodeEdge::contains());
+            // Star: every leaf calls the hub
+            builder.add_edge(leaf, hub, CodeEdge::calls());
+            leaf_paths.push(path);
+        }
+
+        // Co-change: hub file co-changes with every leaf file (amplifies betweenness)
+        let now = chrono::Utc::now();
+        let config = crate::git::co_change::CoChangeConfig {
+            min_weight: 0.01,
+            ..Default::default()
+        };
+        let mut commits = Vec::new();
+        for leaf_path in &leaf_paths {
+            for _ in 0..5 {
+                commits.push((
+                    now,
+                    vec![
+                        "src/core/hub.py".to_string(),
+                        leaf_path.clone(),
+                    ],
+                ));
+            }
+        }
+
+        let co_change =
+            crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
+        let graph = builder.freeze_with_co_change(&co_change);
+
+        // Use a lower percentile threshold to make detection more likely
+        // with our 26-node graph (p90 = top ~3 nodes).
+        let config = DetectorConfig::new()
+            .with_option("percentile_threshold", serde_json::json!(90));
+        let detector = TemporalBottleneckDetector::with_config(config);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            !findings.is_empty(),
+            "Star topology with heavy co-change should produce at least one \
+             temporal bottleneck finding"
+        );
+        for f in &findings {
+            assert_eq!(f.detector, "temporal-bottleneck");
+            assert!(
+                f.severity == Severity::Medium || f.severity == Severity::High,
+                "Temporal bottleneck findings should be Medium or High severity"
+            );
+        }
+    }
 }

@@ -2701,4 +2701,26 @@ mod tests {
             p.hidden_coupling.len(),
         );
     }
+
+    #[test]
+    fn test_weighted_page_rank_sums_to_one() {
+        // 3-node cycle with varying weights — total rank should sum to ~1.0
+        let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
+        let a = NodeIndex::new(0);
+        let b = NodeIndex::new(1);
+        let c = NodeIndex::new(2);
+        let na = overlay.add_node(a);
+        let nb = overlay.add_node(b);
+        let nc = overlay.add_node(c);
+        overlay.add_edge(na, nb, 3.0);
+        overlay.add_edge(nb, nc, 1.0);
+        overlay.add_edge(nc, na, 2.0);
+
+        let pr = compute_weighted_page_rank(&overlay, 100, 0.85, 1e-10);
+        let sum: f64 = pr.values().sum();
+        assert!(
+            (sum - 1.0).abs() < 0.01,
+            "Weighted PageRank should sum to ~1.0, got {sum}"
+        );
+    }
 }

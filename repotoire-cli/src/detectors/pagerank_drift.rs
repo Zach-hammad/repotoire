@@ -365,4 +365,48 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
+
+    #[test]
+    fn test_default_threshold_no_findings_without_co_change() {
+        // Uses PageRankDriftDetector::new() (default min_percentile_drift=60)
+        // on a graph without co-change data. Should produce no findings because
+        // all weighted PageRank values are 0.0 and the detector bails early.
+        let mut builder = GraphBuilder::new();
+
+        let f1 = builder.add_node(CodeNode::function("entry", "src/main.py"));
+        let file1 = builder.add_node(CodeNode::file("src/main.py"));
+        let f2 = builder.add_node(CodeNode::function("handler", "src/api.py"));
+        let file2 = builder.add_node(CodeNode::file("src/api.py"));
+        let f3 = builder.add_node(CodeNode::function("query", "src/db.py"));
+        let file3 = builder.add_node(CodeNode::file("src/db.py"));
+        let f4 = builder.add_node(CodeNode::function("validate", "src/validate.py"));
+        let file4 = builder.add_node(CodeNode::file("src/validate.py"));
+
+        builder.add_edge(file1, f1, CodeEdge::contains());
+        builder.add_edge(file2, f2, CodeEdge::contains());
+        builder.add_edge(file3, f3, CodeEdge::contains());
+        builder.add_edge(file4, f4, CodeEdge::contains());
+        builder.add_edge(f1, f2, CodeEdge::calls());
+        builder.add_edge(f2, f3, CodeEdge::calls());
+        builder.add_edge(f2, f4, CodeEdge::calls());
+
+        let graph = builder.freeze();
+
+        // Default detector — no custom config, exercises the default threshold of 60
+        let detector = PageRankDriftDetector::new();
+        assert_eq!(
+            detector.min_percentile_drift, 60,
+            "Default min_percentile_drift should be 60"
+        );
+
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Default-threshold detector should produce no findings without co-change data. \
+             Got {} findings.",
+            findings.len()
+        );
+    }
 }
