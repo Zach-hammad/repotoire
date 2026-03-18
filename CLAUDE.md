@@ -8,7 +8,7 @@ Repotoire is a graph-powered code health platform that analyzes codebases using 
 - **Structural analysis** (tree-sitter AST parsing across 9 languages)
 - **Relational patterns** (graph algorithms via petgraph)
 
-This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. All 100 detectors are pure Rust — no external tool dependencies.
+This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. All 107 detectors are pure Rust — no external tool dependencies.
 
 ## Development Rules
 
@@ -76,12 +76,9 @@ repotoire calibrate /path/to/repo
 
 # Clean cached analysis data
 repotoire clean /path/to/repo
-
-# Start MCP server
-repotoire serve
 ```
 
-### CLI Commands (17 total)
+### CLI Commands (16 total)
 
 | Command | Description |
 |---------|-------------|
@@ -98,7 +95,6 @@ repotoire serve
 | `calibrate` | Calibrate adaptive thresholds from your codebase |
 | `clean` | Remove cached analysis data |
 | `version` | Show version info |
-| `serve` | Start MCP server for AI assistant integration |
 | `config` | Manage configuration (init, show, set) |
 | `feedback` | Label findings as true/false positives |
 | `train` | Train the classifier on labeled data |
@@ -109,69 +105,15 @@ repotoire serve
 - `--log-level` (default: `info`) — Log level: error, warn, info, debug, trace
 - `--workers` (default: `8`) — Number of parallel workers (1-64)
 
-### MCP Server (Claude Code Integration)
-
-Repotoire provides an MCP server (built on the rmcp SDK, protocol version MCP 2025-06-18) for use with Claude Code, Cursor, and other MCP-compatible AI assistants. The server follows an **Open Core** model:
-
-| Tier | Features | Requirements |
-|------|----------|--------------|
-| **Free** | Analysis, graph queries, architecture, hotspots, evolution | Local CLI only |
-| **Pro** | Semantic search, RAG Q&A | `REPOTOIRE_API_KEY` |
-| **AI/BYOK** | AI-powered fix generation | Any LLM API key |
-
-**Start the MCP server:**
-```bash
-# Default: stdio transport
-repotoire serve
-
-# Streamable HTTP transport on a custom port
-repotoire serve --http-port 8080
-```
-
-**Configure in Claude Code** (`~/.claude.json`):
-```json
-{
-  "mcpServers": {
-    "repotoire": {
-      "type": "stdio",
-      "command": "repotoire",
-      "args": ["serve"],
-      "env": {
-        "REPOTOIRE_API_KEY": "${REPOTOIRE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-**Available tools (14):**
-
-| Tool | Tier | Description |
-|------|------|-------------|
-| `repotoire_analyze` | FREE | Run code analysis, return findings by severity |
-| `repotoire_get_findings` | FREE | Get findings with filtering and pagination |
-| `repotoire_get_hotspots` | FREE | Get files ranked by issue density |
-| `repotoire_diff` | FREE | Compare findings between refs (new, fixed, score delta) |
-| `repotoire_query_graph` | FREE | Query code entities (functions, classes, files, callers, callees) |
-| `repotoire_trace_dependencies` | FREE | Multi-hop graph traversal (call chains, imports, inheritance) |
-| `repotoire_analyze_impact` | FREE | Change impact analysis (what breaks if I modify X?) |
-| `repotoire_get_file` | FREE | Read file content with line range |
-| `repotoire_get_architecture` | FREE | Codebase structure overview |
-| `repotoire_list_detectors` | FREE | List available detectors |
-| `repotoire_query_evolution` | FREE | Git history queries (churn, blame, commits, ownership) |
-| `repotoire_search_code` | PRO | Semantic code search with embeddings |
-| `repotoire_ask` | PRO | RAG-powered Q&A about the codebase |
-| `repotoire_generate_fix` | AI/BYOK | AI-powered fix generation |
-
-See [repotoire-cli/docs/MCP.md](repotoire-cli/docs/MCP.md) for complete documentation.
-
 ## Architecture
 
 ### Core Pipeline Flow
 
 ```
-AnalysisEngine.analyze() → Collect → Parse → Graph (Builder→Freeze) → Git Enrich → Calibrate → Detect → Postprocess → Score → AnalysisResult
+AnalysisEngine.analyze() → Collect → Parse → Graph (Builder→Freeze) → Git Enrich (+ CoChange) → Calibrate → Detect → Postprocess → Score → AnalysisResult
 ```
+
+During **Freeze**, `GraphPrimitives::compute()` runs Phase A algorithms (dominator trees, articulation points, PageRank, betweenness, SCCs) and Phase B weighted algorithms (weighted overlay, weighted PageRank, weighted betweenness, Louvain communities) in parallel via rayon. All results are immutable and O(1)-accessible by detectors.
 
 ### System Components
 
@@ -181,15 +123,15 @@ AnalysisEngine.analyze() → Collect → Parse → Graph (Builder→Freeze) → 
 
 1. **Parsers** (`repotoire-cli/src/parsers/`): 9 tree-sitter parsers — Python, TypeScript/JavaScript (with TSX), Rust, Go, Java, C#, C, C++, plus a lightweight fallback parser. Cross-language nesting depth enrichment via brace/indent counting. 2MB file size guardrail. Header file (`.h`) dispatch heuristic for C vs C++.
 
-2. **Graph Layer** (`repotoire-cli/src/graph/`): Two-phase graph: `GraphBuilder` (mutable, used during parse/build/git-enrich) → `CodeGraph` (frozen, immutable, O(1) indexed queries via pre-built `GraphIndexes`). `GraphStore` is legacy/test-only. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. Compact node types (`CompactNode` at ~32 bytes vs ~200 bytes for `CodeNode`) defined in `interner.rs` for future large-repo support. `GraphQuery` trait (19 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection.
+2. **Graph Layer** (`repotoire-cli/src/graph/`): Two-phase graph: `GraphBuilder` (mutable, used during parse/build/git-enrich) → `CodeGraph` (frozen, immutable, O(1) indexed queries via pre-built `GraphIndexes`). `GraphStore` is legacy/test-only. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. Compact node types (`CompactNode` at ~32 bytes vs ~200 bytes for `CodeNode`) defined in `interner.rs` for future large-repo support. `GraphQuery` trait (24 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection. `GraphPrimitives` (computed once during freeze) provides pre-computed dominator trees, articulation points, PageRank, betweenness centrality, call-graph SCCs, weighted PageRank, weighted betweenness, and Louvain community detection — all O(1) lookups from detectors.
 
 3. **Engine** (`repotoire-cli/src/engine/`): `AnalysisEngine` is the primary analysis orchestrator. Runs 8 stages in order: collect, parse, graph, git_enrich, calibrate, detect, postprocess, score. Returns `AnalysisResult` (findings + score + stats). Stateful: supports cold, cached, and incremental modes. Persistence via `save()`/`load()` for cross-process incremental analysis. `AnalysisConfig` controls analysis parameters; `OutputOptions` handles presentation. Stage implementations live in `engine/stages/`.
 
-4. **Detectors** (`repotoire-cli/src/detectors/`): 100 pure Rust detectors across 14 categories. No external tool dependencies — all analysis runs in-process. `RegisteredDetector` trait + compile-time `DETECTOR_FACTORIES` registry. `create_all_detectors()` instantiates all detectors from a `DetectorInit` context. `run_detectors()` (in `runner.rs`) executes them in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs.
+4. **Detectors** (`repotoire-cli/src/detectors/`): 107 pure Rust detectors across 14 categories. No external tool dependencies — all analysis runs in-process. `RegisteredDetector` trait + compile-time `DETECTOR_FACTORIES` registry. `create_all_detectors()` instantiates all detectors from a `DetectorInit` context. `run_detectors()` (in `runner.rs`) executes them in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs. Graph-primitive detectors read pre-computed algorithms at O(1) via `GraphQuery`.
 
 5. **Scoring** (`repotoire-cli/src/scoring/`): Three-pillar scoring — Structure (40%), Quality (30%), Architecture (30%). Density-based penalty normalization (penalties scaled by kLOC). Graph-derived bonuses (modularity, cohesion, clean deps, complexity distribution, test coverage). Compound smell escalation. 13 grade levels (A+ through F). Score floor at 5.0, cap at 99.9 with medium+ findings. Security multiplier (default 3x).
 
-6. **CLI** (`repotoire-cli/src/cli/`): clap 4 with derive, 17 commands. Progress bars via indicatif. Terminal styling via console.
+6. **CLI** (`repotoire-cli/src/cli/`): clap 4 with derive, 16 commands. Progress bars via indicatif. Terminal styling via console. Git presence auto-detected (no `--no-git` flag).
 
 7. **Reporters** (`repotoire-cli/src/reporters/`): 5 output formats — text (default, colored terminal), JSON, HTML (standalone), SARIF 2.1.0 (GitHub Code Scanning compatible), Markdown.
 
@@ -199,9 +141,11 @@ AnalysisEngine.analyze() → Collect → Parse → Graph (Builder→Freeze) → 
 
 10. **Models** (`repotoire-cli/src/models.rs`): `Finding` (with severity, CWE IDs, confidence, affected files), `Severity` levels (Critical, High, Medium, Low, Info).
 
-11. **Predictive Coding** (`repotoire-cli/src/predictive/`): Hierarchical predictive coding engine applying Friston's free energy formalism to code analysis. Five hierarchy levels independently model "what's normal" and compute prediction errors (z-scores): L1 Token (per-language n-gram), L2 Structural (Mahalanobis distance on function feature vectors), L1.5 Dependency Chain (surprisal along call-graph paths), L3 Relational (per-edge-type node2vec embeddings + kNN cosine distance), L4 Architectural (module-level distributional outlier detection). Severity driven by concordance (how many levels agree something is surprising) with precision-weighted aggregation.
+11. **Git Co-Change** (`repotoire-cli/src/git/co_change.rs`): `CoChangeMatrix` computes decay-weighted file-pair co-change frequencies from git history. Exponential decay with configurable half-life (default 90 days). Used by `GraphPrimitives` to build a weighted overlay graph for Phase B algorithms (weighted PageRank, weighted betweenness, Louvain communities). Configured via `[co_change]` section in `repotoire.toml`.
 
-### Detector Suite (100 Pure Rust Detectors)
+12. **Predictive Coding** (`repotoire-cli/src/predictive/`): Hierarchical predictive coding engine applying Friston's free energy formalism to code analysis. Five hierarchy levels independently model "what's normal" and compute prediction errors (z-scores): L1 Token (per-language n-gram), L2 Structural (Mahalanobis distance on function feature vectors), L1.5 Dependency Chain (surprisal along call-graph paths), L3 Relational (per-edge-type node2vec embeddings + kNN cosine distance), L4 Architectural (module-level distributional outlier detection). Severity driven by concordance (how many levels agree something is surprising) with precision-weighted aggregation.
+
+### Detector Suite (107 Pure Rust Detectors)
 
 All detectors are built-in Rust with zero external dependencies. Grouped by category:
 
@@ -209,8 +153,8 @@ All detectors are built-in Rust with zero external dependencies. Grouped by cate
 |----------|-------|---------|
 | **Security** | 23 | SQL injection, XSS, SSRF, command injection, path traversal, secrets, insecure crypto, JWT weak, CORS misconfig, NoSQL injection, log injection, XXE, prototype pollution, insecure TLS, cleartext credentials |
 | **Code Quality** | 25 | Empty catch, deep nesting, magic numbers, dead store, debug code, commented code, duplicate code, unreachable code, mutable default args, broad exceptions, boolean traps, inconsistent returns |
-| **Code Smells** (graph-based) | 11 | God class, feature envy, data clumps, inappropriate intimacy, lazy class, message chain, middle man, refused bequest, dead code, long parameters, circular dependencies |
-| **Architecture** (graph-based) | 6 | Architectural bottleneck, degree centrality, influential code, module cohesion, core utility, shotgun surgery |
+| **Code Smells** (graph-based) | 12 | God class, feature envy, data clumps, inappropriate intimacy, lazy class, message chain, middle man, refused bequest, dead code, long parameters, circular dependencies, mutual recursion |
+| **Architecture** (graph-based) | 12 | Architectural bottleneck, degree centrality, influential code, module cohesion, core utility, shotgun surgery, single point of failure, structural bridge risk, hidden coupling, community misplacement, PageRank drift, temporal bottleneck |
 | **AI-Specific** | 6 | AI boilerplate, AI churn, AI complexity spike, AI duplicate block, AI missing tests, AI naming pattern |
 | **ML/Data Science** | 8 | Unsafe torch.load, NaN equality, missing zero_grad, deprecated PyTorch API, chained indexing, missing random seed |
 | **Rust-Specific** | 7 | Unwrap without context, unsafe without SAFETY comment, clone in hot path, missing #[must_use], unnecessary Box\<dyn\>, mutex poisoning risk, panic density |
@@ -324,9 +268,11 @@ lean/
 
 ### Adding a New Detector
 1. Create `repotoire-cli/src/detectors/{detector_name}.rs`
-2. Implement the `Detector` trait: `fn name()`, `fn detect(&self, graph, files) -> Vec<Finding>`
-3. Register in `repotoire-cli/src/detectors/mod.rs` — add `mod`, `pub use`, and add to `default_detectors_full()`
-4. Add tests as inline `#[test]` modules
+2. Implement `Detector` trait + `RegisteredDetector` trait (with `create()` factory using `DetectorConfig`)
+3. Register in `repotoire-cli/src/detectors/mod.rs` — add `mod`, `pub use`, and add `register::<YourDetector>()` to `DETECTOR_FACTORIES`
+4. Set `detector_scope()` → `PerFile` or `GraphWide`, `is_deterministic()` → `true` for graph-based detectors
+5. For graph-primitive detectors: read pre-computed data via `ctx.graph` (`&dyn GraphQuery`) — see `hidden_coupling.rs` or `mutual_recursion.rs` as templates
+6. Add tests as inline `#[test]` modules
 
 ### Adding a New Report Format
 1. Create `repotoire-cli/src/reporters/{format}.rs`
@@ -368,21 +314,22 @@ cargo test detectors::god_class
 - petgraph in-memory graph with redb persistence
 - String interning via lasso for memory efficiency
 - 9 tree-sitter language parsers (Python, TypeScript/JavaScript, Rust, Go, Java, C#, C, C++, lightweight fallback)
-- 100 pure Rust detectors across 14 categories — zero external tool dependencies
+- 107 pure Rust detectors across 14 categories — zero external tool dependencies
 - SSA-based taint analysis for security detectors
 - Three-pillar health scoring with density normalization and graph-derived bonuses
 - Compound smell escalation (arXiv:2509.03896)
 - Adaptive threshold calibration with n-gram surprisal
 - Findings-level incremental cache with auto-detection
 - 5 report formats (text, JSON, HTML, SARIF 2.1.0, Markdown)
-- MCP server (rmcp SDK, stdio + HTTP transports, 14 tools)
-- Git history integration via git2 (churn, blame, commits)
+- Git history integration via git2 (churn, blame, commits, co-change)
 - File watching with real-time re-analysis
 - Inline suppression (`repotoire:ignore` / `repotoire:ignore[detector]`)
 - Cross-detector analysis (voting engine, risk analyzer, root cause analyzer, health delta calculator)
 - Project type detection with framework-aware detector thresholds
 - `.repotoireignore` support
 - Formal verification of scoring algorithms (Lean 4)
+- **Graph Primitives Engine (Phase A)**: Pre-computed dominator trees, articulation points, PageRank, betweenness centrality, call-graph SCCs, BFS call depths — all O(1) from detectors. 3 detectors: SPOF, mutual recursion, bridge risk.
+- **Weighted Graph Engine (Phase B)**: Git co-change temporal weights (`CoChangeMatrix`), weighted overlay graph, weighted PageRank, Dijkstra-based weighted betweenness, Louvain community detection. 4 detectors: hidden coupling, community misplacement, PageRank drift, temporal bottleneck.
 
 ### Planned
 - Web dashboard
@@ -405,12 +352,6 @@ cargo test detectors::god_class
 ### Parsing
 - **tree-sitter** (0.25): Incremental parsing framework
 - **tree-sitter-python** (0.25), **tree-sitter-javascript** (0.25), **tree-sitter-typescript** (0.23), **tree-sitter-rust** (0.24), **tree-sitter-go** (0.25), **tree-sitter-java** (0.23), **tree-sitter-c-sharp** (0.23), **tree-sitter-c** (0.24), **tree-sitter-cpp** (0.23)
-
-### MCP Server
-- **rmcp** (0.16): MCP protocol SDK (server, macros, stdio + HTTP transport)
-- **tokio** (1): Async runtime
-- **axum** (0.8): HTTP framework for streamable HTTP transport
-- **schemars** (1.0): JSON Schema generation for MCP tool parameters
 
 ### Git
 - **git2** (0.20): libgit2 bindings for git history analysis
@@ -452,10 +393,6 @@ cargo test detectors::god_class
 
 ## Security Considerations
 
-### MCP Path Traversal Protection
-- The MCP `get_file` handler (`repotoire-cli/src/mcp/tools/files.rs`) validates that requested file paths stay within the repository boundary
-- Prevents directory traversal attacks via `../` in MCP tool calls
-
 ### Parser Guardrails
 - Files larger than 2MB are silently skipped during parsing (`repotoire-cli/src/parsers/mod.rs`)
 - Built-in exclusions: vendor, node_modules, dist, third-party, minified files
@@ -471,11 +408,9 @@ cargo test detectors::god_class
 - [redb Documentation](https://docs.rs/redb/)
 - [Tree-sitter](https://tree-sitter.github.io/)
 - [clap Framework](https://docs.rs/clap/)
-- [rmcp (MCP SDK)](https://docs.rs/rmcp/)
 - [rayon (Data Parallelism)](https://docs.rs/rayon/)
 
 ---
 
 **For user-facing documentation**, see [README.md](README.md).
-**For MCP server details**, see [repotoire-cli/docs/MCP.md](repotoire-cli/docs/MCP.md).
 **For formal verification**, see [docs/VERIFICATION.md](docs/VERIFICATION.md).
