@@ -96,6 +96,10 @@ impl Detector for CorsMisconfigDetector {
         false
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn file_extensions(&self) -> &'static [&'static str] {
         &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java"]
     }
@@ -125,26 +129,38 @@ impl Detector for CorsMisconfigDetector {
                 continue;
             }
 
-            if let Some(content) = files.masked_content(path) {
-                let lines: Vec<&str> = content.lines().collect();
+            // Use raw content for pattern matching (tree-sitter masking strips '*' from strings)
+            // and masked content to filter out lines that are entirely comments/strings.
+            let masked = match files.masked_content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            {
+                let raw_lines: Vec<&str> = raw.lines().collect();
+                let masked_lines: Vec<&str> = masked.lines().collect();
 
-                for (i, line) in lines.iter().enumerate() {
-                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                for (i, line) in raw_lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(raw_lines[i - 1]) } else { None };
                     if crate::detectors::is_line_suppressed(line, prev_line) {
                         continue;
                     }
 
                     if CORS_PATTERN.is_match(line) {
+                        // Verify the line contains real code (not entirely a comment/string)
+                        let masked_line = masked_lines.get(i).copied().unwrap_or("");
+                        if masked_line.trim().is_empty() {
+                            continue;
+                        }
                         let line_num = (i + 1) as u32;
 
                         // Get surrounding context
                         let start = i.saturating_sub(10);
-                        let end = (i + 10).min(lines.len());
-                        let surrounding = &lines[start..end];
+                        let end = (i + 10).min(raw_lines.len());
+                        let surrounding = &raw_lines[start..end];
 
                         // Check various risk factors
                         let is_dev_only = Self::is_dev_only_path(&path_str);
-                        let has_credentials = Self::allows_credentials(&lines, i);
+                        let has_credentials = Self::allows_credentials(&raw_lines, i);
                         let is_sensitive = Self::involves_sensitive_data(line, surrounding);
                         let containing_func =
                             graph.find_function_at(&path_str, line_num).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
