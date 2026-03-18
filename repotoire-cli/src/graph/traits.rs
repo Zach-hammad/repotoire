@@ -364,4 +364,11 @@ pub trait GraphQuery: Send + Sync {
     fn page_rank_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
     fn betweenness_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
     fn call_depth_idx(&self, _idx: NodeIndex) -> usize { 0 }
+
+    // ── Phase B: Weighted graph primitives ──
+    fn weighted_page_rank_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
+    fn weighted_betweenness_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
+    fn community_idx(&self, _idx: NodeIndex) -> Option<usize> { None }
+    fn modularity(&self) -> f64 { 0.0 }
+    fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32)] { &[] }
 }

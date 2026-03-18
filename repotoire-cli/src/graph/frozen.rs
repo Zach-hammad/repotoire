@@ -360,6 +360,26 @@ impl CodeGraph {
         self.indexes.primitives.call_depth.get(&idx).copied().unwrap_or(0)
     }
 
+    pub fn weighted_page_rank(&self, idx: NodeIndex) -> f64 {
+        self.indexes.primitives.weighted_page_rank.get(&idx).copied().unwrap_or(0.0)
+    }
+
+    pub fn weighted_betweenness(&self, idx: NodeIndex) -> f64 {
+        self.indexes.primitives.weighted_betweenness.get(&idx).copied().unwrap_or(0.0)
+    }
+
+    pub fn community(&self, idx: NodeIndex) -> Option<usize> {
+        self.indexes.primitives.community.get(&idx).copied()
+    }
+
+    pub fn graph_modularity(&self) -> f64 {
+        self.indexes.primitives.modularity
+    }
+
+    pub fn hidden_coupling(&self) -> &[(NodeIndex, NodeIndex, f32)] {
+        &self.indexes.primitives.hidden_coupling
+    }
+
     /// Graph statistics (BTreeMap for deterministic key order).
     pub fn stats(&self) -> BTreeMap<String, i64> {
         let mut stats = BTreeMap::new();
