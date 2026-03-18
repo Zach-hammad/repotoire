@@ -1115,12 +1115,13 @@ fn build_weighted_overlay(
 
         let co_change_boost = weight.min(2.0);
 
-        // Add overlay edges between function pairs spanning these files
-        for &fa in funcs_a {
-            for &fb in funcs_b {
-                if let (Some(&ov_a), Some(&ov_b)) = (idx_map.get(&fa), idx_map.get(&fb)) {
-                    overlay.add_edge(ov_a, ov_b, co_change_boost);
-                }
+        // Add at most ONE representative overlay edge per hidden-coupling file pair.
+        // Pick the first function (by NodeIndex) in each file to avoid O(|f_a|×|f_b|) explosion.
+        let rep_a = funcs_a.iter().copied().min();
+        let rep_b = funcs_b.iter().copied().min();
+        if let (Some(fa), Some(fb)) = (rep_a, rep_b) {
+            if let (Some(&ov_a), Some(&ov_b)) = (idx_map.get(&fa), idx_map.get(&fb)) {
+                overlay.add_edge(ov_a, ov_b, co_change_boost);
             }
         }
 
