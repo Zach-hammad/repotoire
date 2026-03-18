@@ -115,9 +115,13 @@ pub fn run_engine(
     output::filter_findings(&mut findings, &output.severity_filter, output.top);
     let all_findings = findings.clone();
 
-    // Paginate
+    // Paginate — structured formats (JSON, SARIF) default to all findings
+    let effective_per_page = match output.format.as_str() {
+        "json" | "sarif" if output.per_page == 20 => 0, // override default pagination
+        _ => output.per_page,
+    };
     let (paginated_findings, pagination_info) =
-        output::paginate_findings(findings, output.page, output.per_page);
+        output::paginate_findings(findings, output.page, effective_per_page);
 
     // Build HealthReport from engine results
     let findings_summary = crate::models::FindingsSummary::from_findings(&paginated_findings);
