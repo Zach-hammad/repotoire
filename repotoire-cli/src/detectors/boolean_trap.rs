@@ -67,7 +67,7 @@ impl Detector for BooleanTrapDetector {
         // First pass: collect all boolean trap calls and count per function
         let mut trap_calls: Vec<(PathBuf, u32, String, usize)> = Vec::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "cs"]) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]) {
             // Cheap pre-filter: skip files without boolean literals
             let raw = match files.content(path) {
                 Some(c) => c,

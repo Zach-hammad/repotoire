@@ -146,7 +146,7 @@ impl Detector for BroadExceptionDetector {
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "cs", "rb", "go"]) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]) {
             if findings.len() >= self.max_findings {
                 break;
             }

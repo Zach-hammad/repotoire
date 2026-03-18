@@ -594,7 +594,7 @@ impl Detector for AIBoilerplateDetector {
         let files = &ctx.as_file_provider();
         use rayon::prelude::*;
 
-        let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"];
+        let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"];
 
         // Collect file paths + content upfront
         let file_data: Vec<_> = files
