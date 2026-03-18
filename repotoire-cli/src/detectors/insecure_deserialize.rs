@@ -15,7 +15,13 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
+use super::user_input::has_nearby_user_input;
+
 static DESERIALIZE_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(JSON\.parse|yaml\.load|yaml\.safe_load|unserialize|ObjectInputStream|Marshal\.load|eval\s*\()").expect("valid regex"));
+
+static JAVA_DESERIALIZE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:ObjectInputStream|XMLDecoder|readObject|readUnshared)\s*\(").expect("valid regex")
+});
 
 /// Categorize the deserialization method
 fn categorize_deserialize(line: &str) -> (&'static str, &'static str, Severity) {
@@ -149,6 +155,10 @@ impl Detector for InsecureDeserializeDetector {
         super::detector_context::ContentFlags::HAS_SERIALIZE
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
@@ -175,17 +185,12 @@ impl Detector for InsecureDeserializeDetector {
                         continue;
                     }
 
-                    if DESERIALIZE_PATTERN.is_match(line) {
-                        let has_user_input = line.contains("req.")
-                            || line.contains("request")
-                            || line.contains("body")
-                            || line.contains("input")
-                            || line.contains("params")
-                            || line.contains("data")
-                            || line.contains("payload");
+                    let is_deserialize = DESERIALIZE_PATTERN.is_match(line)
+                        || (path_str.ends_with(".java") && JAVA_DESERIALIZE.is_match(line));
 
-                        // Skip if no user input indicator
-                        if !has_user_input {
+                    if is_deserialize {
+                        // Skip if no user input indicator within ±10 lines
+                        if !has_nearby_user_input(&lines, i, 10) {
                             continue;
                         }
 
@@ -372,7 +377,7 @@ mod tests {
         let store = GraphStore::in_memory();
         let detector = InsecureDeserializeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("config_loader.py", "import yaml\n\ndef load_config(data):\n    config = yaml.load(data)\n    return config\n"),
+            ("config_loader.py", "import yaml\nfrom flask import request\n\ndef load_config():\n    payload = request.get_json()\n    config = yaml.load(payload)\n    return config\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect yaml.load without SafeLoader");
@@ -381,6 +386,17 @@ mod tests {
             "Finding should mention YAML. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_detects_java_object_input_stream() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureDeserializeDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("Handler.java", "import java.io.*;\nimport javax.servlet.*;\n\npublic class Handler {\n    public void handle(HttpServletRequest request) {\n        InputStream in = request.getInputStream();\n        ObjectInputStream ois = new ObjectInputStream(in);\n        Object obj = ois.readObject();\n    }\n}\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(!findings.is_empty(), "Should detect ObjectInputStream deserialization");
     }
 
     #[test]

@@ -202,6 +202,9 @@ pub(crate) fn compute_content_flags(content: &str) -> ContentFlags {
         || content.contains("yaml.load")
         || content.contains("json.loads")
         || content.contains("deserialize")
+        || content.contains("ObjectInputStream")
+        || content.contains("readObject")
+        || content.contains("XMLDecoder")
     {
         flags.set(ContentFlags::HAS_SERIALIZE);
     }
