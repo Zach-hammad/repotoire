@@ -138,6 +138,10 @@ impl Detector for NosqlInjectionDetector {
         "Detects NoSQL injection risks"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     crate::detectors::impl_taint_precompute!();
 
     fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {

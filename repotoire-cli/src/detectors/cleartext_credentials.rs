@@ -115,6 +115,10 @@ impl Detector for CleartextCredentialsDetector {
         "Detects credentials in logs"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn file_extensions(&self) -> &'static [&'static str] {
         &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs"]
     }

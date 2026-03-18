@@ -80,6 +80,10 @@ impl Detector for DjangoSecurityDetector {
         "Detects Django security issues"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn file_extensions(&self) -> &'static [&'static str] {
         &["py"]
     }

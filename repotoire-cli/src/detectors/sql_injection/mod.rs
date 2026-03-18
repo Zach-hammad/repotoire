@@ -793,6 +793,10 @@ impl Detector for SQLInjectionDetector {
         "Detects potential SQL injection vulnerabilities from string interpolation in queries"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn category(&self) -> &'static str {
         "security"
     }

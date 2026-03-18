@@ -117,6 +117,10 @@ impl Detector for ReactHooksDetector {
         "Detects React hooks rules violations"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn requires_graph(&self) -> bool {
         false
     }

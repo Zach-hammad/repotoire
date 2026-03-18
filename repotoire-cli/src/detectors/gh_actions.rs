@@ -280,6 +280,10 @@ impl Detector for GHActionsInjectionDetector {
         "Detects command injection vulnerabilities in GitHub Actions workflows"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn requires_graph(&self) -> bool {
         false
     }

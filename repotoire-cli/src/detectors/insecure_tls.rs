@@ -409,6 +409,9 @@ impl Detector for InsecureTlsDetector {
     fn description(&self) -> &'static str {
         "Detects disabled TLS/certificate verification (CWE-295)"
     }
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
     fn detect(&self, _ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
         debug!("Starting insecure TLS detection");
         let findings = self.scan_files();

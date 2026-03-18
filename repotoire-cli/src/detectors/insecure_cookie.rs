@@ -97,6 +97,10 @@ impl Detector for InsecureCookieDetector {
         "Detects cookies without security flags"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn requires_graph(&self) -> bool {
         false
     }

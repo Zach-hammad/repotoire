@@ -383,6 +383,10 @@ impl Detector for SecretDetector {
         "Detects hardcoded secrets, API keys, and passwords"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn file_extensions(&self) -> &'static [&'static str] {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "env", "yml", "yaml", "json", "toml", "cfg", "ini", "conf"]
     }

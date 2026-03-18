@@ -139,6 +139,10 @@ impl Detector for ExpressSecurityDetector {
         "Detects Express.js security issues"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn file_extensions(&self) -> &'static [&'static str] {
         &["js", "ts"]
     }

@@ -608,6 +608,10 @@ impl Detector for EvalDetector {
         "Detects dangerous code execution patterns (eval, exec, shell=True, etc.)"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn category(&self) -> &'static str {
         "security"
     }

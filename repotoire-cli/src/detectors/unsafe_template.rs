@@ -654,6 +654,10 @@ impl Detector for UnsafeTemplateDetector {
         "Detects XSS and template injection vulnerabilities (Jinja2, React, Vue, innerHTML)"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn category(&self) -> &'static str {
         "security"
     }

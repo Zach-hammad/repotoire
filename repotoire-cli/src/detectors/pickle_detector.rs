@@ -483,6 +483,10 @@ impl Detector for PickleDeserializationDetector {
         "Detects unsafe deserialization patterns (pickle, torch.load, yaml.load, etc.)"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn category(&self) -> &'static str {
         "security"
     }

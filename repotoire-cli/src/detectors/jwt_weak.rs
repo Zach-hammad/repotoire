@@ -214,6 +214,10 @@ impl Detector for JwtWeakDetector {
         "Detects weak JWT algorithms and configurations"
     }
 
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
     fn file_extensions(&self) -> &'static [&'static str] {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"]
     }
