@@ -9,6 +9,8 @@ use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+use super::user_input::has_nearby_user_input;
+
 // Be specific about shell execution patterns - avoid matching RegExp.exec(), String.prototype.exec(), etc.
 // Pattern must match actual shell execution APIs:
 // - Python: os.system, os.popen, subprocess.*
@@ -57,6 +59,10 @@ impl Detector for CommandInjectionDetector {
     }
     fn description(&self) -> &'static str {
         "Detects command injection vulnerabilities"
+    }
+
+    fn bypass_postprocessor(&self) -> bool {
+        true
     }
 
     crate::detectors::impl_taint_precompute!();
@@ -402,19 +408,7 @@ impl Detector for CommandInjectionDetector {
 
                     // Check for Go exec.Command with user input
                     if GO_EXEC.is_match(line) {
-                        let has_user_input = line.contains("r.")
-                            || line.contains("req.")
-                            || line.contains("request.")
-                            || line.contains("c.")
-                            || line.contains("ctx.")
-                            || line.contains("Param")
-                            || line.contains("Query")
-                            || line.contains("FormValue")
-                            || line.contains("PostForm")
-                            || line.contains("userInput")
-                            || line.contains("input")
-                            || line.contains("cmd")
-                            || line.contains("command");
+                        let has_user_input = has_nearby_user_input(&lines, i, 10);
 
                         // Also flag if variable names suggest user input
                         let has_risky_var = line.to_lowercase().contains("userinput")
@@ -448,14 +442,7 @@ impl Detector for CommandInjectionDetector {
 
                     // Check for Java Runtime.exec / ProcessBuilder with user input
                     if JAVA_EXEC.is_match(line) {
-                        let has_user_input = line.contains("request.")
-                            || line.contains("getParameter")
-                            || line.contains("getHeader")
-                            || line.contains("getInputStream")
-                            || line.contains("userInput")
-                            || line.contains("input")
-                            || line.contains("cmd")
-                            || line.contains("command");
+                        let has_user_input = has_nearby_user_input(&lines, i, 10);
 
                         if has_user_input {
                             let (severity, description) = check_taint(
