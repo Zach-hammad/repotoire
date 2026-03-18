@@ -29,8 +29,6 @@ pub struct TemporalBottleneckDetector {
     config: DetectorConfig,
     /// Percentile threshold above which a function is flagged (0-100).
     percentile_threshold: usize,
-    /// Amplification factor: weighted_bw must exceed this multiple of unweighted_bw for High severity.
-    amplification_factor: f64,
 }
 
 impl TemporalBottleneckDetector {
@@ -39,7 +37,6 @@ impl TemporalBottleneckDetector {
         Self {
             config: DetectorConfig::new(),
             percentile_threshold: 95,
-            amplification_factor: 2.0,
         }
     }
 
@@ -47,11 +44,9 @@ impl TemporalBottleneckDetector {
     #[allow(dead_code)]
     pub fn with_config(config: DetectorConfig) -> Self {
         let percentile_threshold = config.get_option_or("percentile_threshold", 95);
-        let amplification_factor = config.get_option_or("amplification_factor", 2.0);
         Self {
             config,
             percentile_threshold,
-            amplification_factor,
         }
     }
 }
@@ -115,26 +110,52 @@ impl Detector for TemporalBottleneckDetector {
             return Ok(vec![]);
         }
 
-        // Step 4: Sort values, compute p95 and p99 thresholds.
-        let mut sorted_values: Vec<f64> = entries.iter().map(|&(_, w)| w).collect();
-        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = entries.len();
 
-        let n = sorted_values.len();
-        let p_threshold_idx = (n * self.percentile_threshold) / 100;
-        let p99_idx = (n * 99) / 100;
-        let p_threshold_value = sorted_values[p_threshold_idx.min(n - 1)];
-        let p99_value = sorted_values[p99_idx.min(n - 1)];
+        // Step 4: Compute percentile ranks for weighted betweenness.
+        let mut weighted_order: Vec<usize> = (0..n).collect();
+        weighted_order.sort_by(|&a, &b| {
+            entries[a]
+                .1
+                .partial_cmp(&entries[b].1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut weighted_percentiles = vec![0usize; n];
+        for (rank, &orig_idx) in weighted_order.iter().enumerate() {
+            weighted_percentiles[orig_idx] = (rank * 100) / n;
+        }
+
+        // Compute percentile ranks for unweighted (structural) betweenness.
+        let unweighted_entries: Vec<f64> = entries
+            .iter()
+            .map(|&(idx, _)| graph.betweenness_idx(idx))
+            .collect();
+        let mut unweighted_order: Vec<usize> = (0..n).collect();
+        unweighted_order.sort_by(|&a, &b| {
+            unweighted_entries[a]
+                .partial_cmp(&unweighted_entries[b])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut unweighted_percentiles = vec![0usize; n];
+        for (rank, &orig_idx) in unweighted_order.iter().enumerate() {
+            unweighted_percentiles[orig_idx] = (rank * 100) / n;
+        }
+
+        let p95_threshold = self.percentile_threshold;
 
         debug!(
-            "TemporalBottleneckDetector: {} functions, p{} threshold={:.6}, p99={:.6}",
-            n, self.percentile_threshold, p_threshold_value, p99_value
+            "TemporalBottleneckDetector: {} functions, p{} threshold (percentile-based)",
+            n, p95_threshold
         );
 
         // Step 5: Build findings for functions above the percentile threshold.
         let mut findings = Vec::new();
 
-        for &(func_idx, weighted_bw) in &entries {
-            if weighted_bw <= p_threshold_value {
+        for (i, &(func_idx, _weighted_bw)) in entries.iter().enumerate() {
+            let weighted_pct = weighted_percentiles[i];
+            let unweighted_pct = unweighted_percentiles[i];
+
+            if weighted_pct < p95_threshold {
                 continue;
             }
 
@@ -146,18 +167,10 @@ impl Detector for TemporalBottleneckDetector {
             let func_name = node.qn(gi);
             let file_path = node.path(gi);
 
-            // Compute the function's percentile rank.
-            let rank = sorted_values
-                .partition_point(|&v| v < weighted_bw);
-            let percentile = (rank * 100) / n;
+            let pct_gap = weighted_pct as isize - unweighted_pct as isize;
 
-            let unweighted_bw = graph.betweenness_idx(func_idx);
-            let ratio = weighted_bw / unweighted_bw.max(0.001);
-
-            if weighted_bw > p99_value
-                && weighted_bw > self.amplification_factor * unweighted_bw.max(0.001)
-            {
-                // High severity: temporal bottleneck amplified vs structural
+            if weighted_pct > 99 && pct_gap > 30 {
+                // High severity: much more important temporally than structurally
                 findings.push(Finding {
                     id: String::new(),
                     detector: "temporal-bottleneck".to_string(),
@@ -165,14 +178,14 @@ impl Detector for TemporalBottleneckDetector {
                     confidence: Some(0.85),
                     deterministic: true,
                     title: format!(
-                        "Temporal bottleneck: {} (p{}, {:.1}\u{00d7} structural)",
-                        func_name, percentile, ratio
+                        "Temporal bottleneck: {} (weighted p{}, structural p{}, +{} gap)",
+                        func_name, weighted_pct, unweighted_pct, pct_gap
                     ),
                     description: format!(
-                        "`{}` is on the critical path of change propagation \
-                         (weighted betweenness: p{}). Changes here cascade at {:.1}\u{00d7} \
-                         the rate suggested by static structure.",
-                        func_name, percentile, ratio
+                        "`{}` ranks at p{} by change-weighted betweenness but only p{} by \
+                         structural betweenness (+{} percentile gap). Changes cascade through \
+                         this function far more than static structure would predict.",
+                        func_name, weighted_pct, unweighted_pct, pct_gap
                     ),
                     affected_files: vec![PathBuf::from(file_path)],
                     line_start: Some(node.line_start),
@@ -194,7 +207,7 @@ impl Detector for TemporalBottleneckDetector {
                     ..Default::default()
                 });
             } else {
-                // Medium severity: high weighted betweenness but not amplified
+                // Medium severity: high weighted betweenness
                 findings.push(Finding {
                     id: String::new(),
                     detector: "temporal-bottleneck".to_string(),
@@ -203,12 +216,12 @@ impl Detector for TemporalBottleneckDetector {
                     deterministic: true,
                     title: format!(
                         "Temporal bottleneck: {} (p{} weighted betweenness)",
-                        func_name, percentile
+                        func_name, weighted_pct
                     ),
                     description: format!(
-                        "`{}` has high weighted betweenness centrality, indicating it sits \
+                        "`{}` has high weighted betweenness centrality (p{}), indicating it sits \
                          on frequently-used change propagation paths.",
-                        func_name
+                        func_name, weighted_pct
                     ),
                     affected_files: vec![PathBuf::from(file_path)],
                     line_start: Some(node.line_start),

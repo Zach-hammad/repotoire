@@ -114,6 +114,20 @@ impl Detector for HiddenCouplingDetector {
                 .map(|n| n.path(gi).to_string())
                 .unwrap_or_default();
 
+            // Skip test↔source pairs — tests always co-change with source, not interesting
+            fn is_test_file(path: &str) -> bool {
+                let lower = path.to_lowercase();
+                lower.contains("/test")
+                    || lower.contains("test_")
+                    || lower.contains("_test.")
+                    || lower.contains("/tests/")
+                    || lower.contains("/spec/")
+                    || lower.contains(".test.")
+            }
+            if is_test_file(&file_a) || is_test_file(&file_b) {
+                continue;
+            }
+
             findings.push(Finding {
                 id: String::new(),
                 detector: "hidden-coupling".to_string(),
