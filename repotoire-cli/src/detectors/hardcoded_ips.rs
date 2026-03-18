@@ -96,7 +96,7 @@ impl Detector for HardcodedIpsDetector {
         }
         let mut matches: Vec<IpMatch> = Vec::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "php", "cs"]) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "php", "cs", "c", "cpp"]) {
             // Skip config files where this is expected
             let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if fname.contains("config")

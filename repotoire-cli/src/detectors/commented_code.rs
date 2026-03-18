@@ -141,7 +141,7 @@ impl Detector for CommentedCodeDetector {
         let all_func_names: HashSet<String> =
             graph.get_functions_shared().iter().map(|f| f.node_name(i).to_string()).collect();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp", "cs"]) {
             if findings.len() >= self.max_findings {
                 break;
             }

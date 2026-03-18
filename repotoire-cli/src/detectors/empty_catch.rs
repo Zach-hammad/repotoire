@@ -400,7 +400,7 @@ impl Detector for EmptyCatchDetector {
             .map(|f| (f.node_name(gi).to_string(), f.qn(gi).to_string()))
             .collect();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "cs"]) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "cs", "cpp"]) {
             if findings.len() >= self.max_findings {
                 break;
             }

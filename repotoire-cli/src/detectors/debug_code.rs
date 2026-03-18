@@ -84,7 +84,7 @@ impl Detector for DebugCodeDetector {
         let mut findings = vec![];
         let mut debug_per_file: HashMap<String, usize> = HashMap::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rb", "java"]) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"]) {
             if findings.len() >= self.max_findings {
                 break;
             }

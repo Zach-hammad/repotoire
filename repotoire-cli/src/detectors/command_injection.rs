@@ -19,6 +19,8 @@ use std::sync::LazyLock;
 static SHELL_EXEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).expect("valid regex"));
 // Go exec patterns: exec.Command, exec.CommandContext
 static GO_EXEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).expect("valid regex"));
+// Java exec patterns: Runtime.getRuntime().exec(), ProcessBuilder
+static JAVA_EXEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?:Runtime\.getRuntime\(\)\.exec|ProcessBuilder)\s*\("#).expect("valid regex"));
 // Direct exec() call pattern for JavaScript - matches exec( but not .exec( to avoid RegExp.exec
 // This catches: exec(something), execSync(something), execAsync(something)
 static JS_EXEC_DIRECT: LazyLock<Regex> = LazyLock::new(|| {
@@ -110,6 +112,7 @@ impl Detector for CommandInjectionDetector {
                 && !raw.contains("execSync") && !raw.contains("execAsync")
                 && !raw.contains("spawnSync") && !raw.contains("shell_exec")
                 && !raw.contains("proc_open") && !raw.contains("exec.Command")
+                && !raw.contains("Runtime.getRuntime") && !raw.contains("ProcessBuilder")
                 && !raw.contains("shell=True") && !raw.contains("shell: true")
             {
                 continue;
@@ -438,6 +441,41 @@ impl Detector for CommandInjectionDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-78".to_string()),
                                 why_it_matters: Some("Go's exec.Command runs system commands. If user input controls the command or arguments, attackers can execute arbitrary commands.".to_string()),
+                                ..Default::default()
+                            });
+                        }
+                    }
+
+                    // Check for Java Runtime.exec / ProcessBuilder with user input
+                    if JAVA_EXEC.is_match(line) {
+                        let has_user_input = line.contains("request.")
+                            || line.contains("getParameter")
+                            || line.contains("getHeader")
+                            || line.contains("getInputStream")
+                            || line.contains("userInput")
+                            || line.contains("input")
+                            || line.contains("cmd")
+                            || line.contains("command");
+
+                        if has_user_input {
+                            let (severity, description) = check_taint(
+                                "Runtime.exec or ProcessBuilder called with potentially user-controlled input. This allows arbitrary command execution."
+                            );
+
+                            findings.push(Finding {
+                                id: String::new(),
+                                detector: "CommandInjectionDetector".to_string(),
+                                severity,
+                                title: "Potential command injection via Java Runtime.exec/ProcessBuilder".to_string(),
+                                description,
+                                affected_files: vec![self.relative_path(path)],
+                                line_start: Some(line_num),
+                                line_end: Some(line_num),
+                                suggested_fix: Some("Never pass raw user input to Runtime.exec() or ProcessBuilder. Use a whitelist of allowed commands.".to_string()),
+                                estimated_effort: Some("1 hour".to_string()),
+                                category: Some("security".to_string()),
+                                cwe_id: Some("CWE-78".to_string()),
+                                why_it_matters: Some("Java's Runtime.exec() runs system commands. If user input controls the command, attackers can execute arbitrary commands.".to_string()),
                                 ..Default::default()
                             });
                         }

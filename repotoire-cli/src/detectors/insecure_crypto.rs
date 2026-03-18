@@ -8,7 +8,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-static WEAK_HASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)(?:^|[^_\w])(md5|sha1|sha-1)\s*\(|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex"));
+static WEAK_HASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)(?:^|[^_\w])(md5|sha1|sha-1)\s*[\.(]|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex"));
 static WEAK_CIPHER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").expect("valid regex"));
 
 /// Check if a line is merely mentioning a weak hash (in comments, strings, etc.)
