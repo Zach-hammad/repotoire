@@ -215,7 +215,7 @@ fn test_no_emoji_clean_output() {
 #[test]
 fn test_json_stdout_clean() {
     let dir = setup_test_repo("json_clean");
-    let (_, stdout) = run_analyze(dir.path(), &["--format", "json", "--no-git"]);
+    let (_, stdout) = run_analyze(dir.path(), &["--format", "json"]);
     let trimmed = stdout.trim();
     assert!(
         trimmed.starts_with('{'),

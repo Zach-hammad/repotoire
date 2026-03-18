@@ -134,16 +134,6 @@ fn default_detector_weights() -> HashMap<String, DetectorWeight> {
         ("ShotgunSurgeryDetector", 1.0, 0.85),
         ("InappropriateIntimacyDetector", 1.0, 0.80),
         ("ArchitecturalBottleneckDetector", 1.1, 0.90),
-        // Hybrid detectors (external tool + graph)
-        ("RuffLintDetector", 1.3, 0.98),
-        ("RuffImportDetector", 1.2, 0.95),
-        ("MypyDetector", 1.3, 0.99),
-        ("BanditDetector", 1.1, 0.85),
-        ("SemgrepDetector", 1.2, 0.90),
-        ("RadonDetector", 1.0, 0.95),
-        ("JscpdDetector", 1.1, 0.90),
-        ("VultureDetector", 0.9, 0.75),
-        ("PylintDetector", 1.0, 0.85),
     ];
 
     let mut map = HashMap::new();
@@ -362,17 +352,17 @@ impl VotingEngine {
             "circular_dependency"
         } else if detector.contains("god") || detector.contains("class") {
             "god_class"
-        } else if detector.contains("dead") || detector.contains("vulture") {
+        } else if detector.contains("dead") {
             "dead_code"
-        } else if detector.contains("security") || detector.contains("bandit") {
+        } else if detector.contains("security") {
             "security"
-        } else if detector.contains("complexity") || detector.contains("radon") {
+        } else if detector.contains("complexity") {
             "complexity"
         } else if detector.contains("duplicate") || detector.contains("clone") {
             "duplication"
-        } else if detector.contains("type") || detector.contains("mypy") {
+        } else if detector.contains("type") {
             "type_error"
-        } else if detector.contains("lint") || detector.contains("ruff") {
+        } else if detector.contains("lint") {
             "lint"
         } else {
             "other"
@@ -856,7 +846,7 @@ mod tests {
 
         // One finding from a high-accuracy detector (should pass confidence threshold)
         let findings = vec![make_finding(
-            "RuffLintDetector",
+            "CircularDependencyDetector",
             "src/lint.py",
             42,
             Severity::Medium,
@@ -865,7 +855,7 @@ mod tests {
         let (results, stats) = engine.vote(findings);
 
         assert_eq!(stats.single_detector_findings, 1);
-        // RuffLintDetector has accuracy 0.98, well above default threshold 0.6
+        // CircularDependencyDetector has accuracy 0.95, well above default threshold 0.6
         assert_eq!(
             results.len(),
             1,

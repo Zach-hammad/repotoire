@@ -12,6 +12,13 @@ pub struct ReachabilityIndex {
 }
 
 impl ReachabilityIndex {
+    /// Create an empty index (no functions reachable).
+    pub fn empty() -> Self {
+        Self {
+            reachable: HashSet::new(),
+        }
+    }
+
     /// Build reachability from all entry points (exported or zero fan-in functions).
     ///
     /// Uses NodeIndex-based API when available (CodeGraph), avoiding
@@ -92,13 +99,6 @@ impl ReachabilityIndex {
             .collect();
 
         Self { reachable }
-    }
-
-    /// Create an empty index (for tests or when no graph is available).
-    pub fn empty() -> Self {
-        Self {
-            reachable: HashSet::new(),
-        }
     }
 
     /// Check if a function is reachable from any entry point.

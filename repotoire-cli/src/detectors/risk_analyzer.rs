@@ -15,8 +15,6 @@
 //! and security vulnerabilities represent critical risk that requires immediate
 //! attention.
 
-#![allow(dead_code)] // Module under development - structs/helpers used in tests only
-
 use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -86,8 +84,8 @@ fn severity_index(s: Severity) -> usize {
 ///
 /// Correlates findings from:
 /// - ArchitecturalBottleneckDetector (centrality, coupling)
-/// - RadonDetector (complexity metrics)
-/// - BanditDetector (security vulnerabilities)
+/// - Complexity detectors (deep nesting, god class, etc.)
+/// - Security detectors (injection, XSS, secrets, etc.)
 ///
 /// And escalates severity when multiple risk factors combine.
 pub struct RiskAnalyzer {
@@ -125,17 +123,17 @@ impl RiskAnalyzer {
     pub fn analyze(
         &self,
         bottleneck_findings: &[Finding],
-        radon_findings: Option<&[Finding]>,
-        bandit_findings: Option<&[Finding]>,
+        complexity_findings: Option<&[Finding]>,
+        security_findings: Option<&[Finding]>,
         other_findings: Option<&[Finding]>,
     ) -> (Vec<Finding>, Vec<RiskAssessment>) {
-        let radon = radon_findings.unwrap_or(&[]);
-        let bandit = bandit_findings.unwrap_or(&[]);
+        let complexity = complexity_findings.unwrap_or(&[]);
+        let security = security_findings.unwrap_or(&[]);
         let other = other_findings.unwrap_or(&[]);
 
         // Index findings by affected entities for fast lookup
-        let complexity_by_entity = self.index_by_entity(radon);
-        let security_by_entity = self.index_by_entity(bandit);
+        let complexity_by_entity = self.index_by_entity(complexity);
+        let security_by_entity = self.index_by_entity(security);
         let other_by_entity = self.index_by_entity(other);
 
         let mut assessments: Vec<RiskAssessment> = Vec::new();
@@ -263,7 +261,7 @@ impl RiskAnalyzer {
                     if complexity_finding.severity >= Severity::Medium {
                         let factor = RiskFactor {
                             factor_type: "high_complexity".to_string(),
-                            detector: "RadonDetector".to_string(),
+                            detector: complexity_finding.detector.clone(),
                             severity: complexity_finding.severity,
                             confidence: 0.95,
                             evidence: vec![format!(
@@ -301,7 +299,7 @@ impl RiskAnalyzer {
                     ) {
                         let factor = RiskFactor {
                             factor_type: "security_vulnerability".to_string(),
-                            detector: "BanditDetector".to_string(),
+                            detector: security_finding.detector.clone(),
                             severity: security_finding.severity,
                             confidence: 0.8,
                             evidence: vec![security_finding.title.clone()],
@@ -349,11 +347,11 @@ impl RiskAnalyzer {
     /// Determine risk factor type from detector name
     fn determine_factor_type(&self, detector_name: &str) -> String {
         let detector_lower = detector_name.to_lowercase();
-        if detector_lower.contains("dead") || detector_lower.contains("vulture") {
+        if detector_lower.contains("dead") {
             "dead_code".to_string()
-        } else if detector_lower.contains("complexity") || detector_lower.contains("radon") {
+        } else if detector_lower.contains("complexity") || detector_lower.contains("nesting") {
             "high_complexity".to_string()
-        } else if detector_lower.contains("security") || detector_lower.contains("bandit") {
+        } else if detector_lower.contains("security") || detector_lower.contains("injection") {
             "security_vulnerability".to_string()
         } else {
             "other".to_string()
@@ -507,18 +505,18 @@ pub fn analyze_compound_risks(
 ) -> (Vec<Finding>, Vec<RiskAssessment>) {
     // Separate findings by detector type
     let mut bottleneck_findings = Vec::new();
-    let mut radon_findings = Vec::new();
-    let mut bandit_findings = Vec::new();
+    let mut complexity_findings = Vec::new();
+    let mut security_findings = Vec::new();
     let mut other_findings = Vec::new();
 
     for finding in all_findings {
         let detector_lower = finding.detector.to_lowercase();
         if detector_lower.contains("bottleneck") || detector_lower.contains("centrality") {
             bottleneck_findings.push(finding.clone());
-        } else if detector_lower.contains("radon") || detector_lower.contains("complexity") {
-            radon_findings.push(finding.clone());
-        } else if detector_lower.contains("bandit") || detector_lower.contains("security") {
-            bandit_findings.push(finding.clone());
+        } else if detector_lower.contains("complexity") || detector_lower.contains("nesting") {
+            complexity_findings.push(finding.clone());
+        } else if detector_lower.contains("security") || detector_lower.contains("injection") {
+            security_findings.push(finding.clone());
         } else {
             other_findings.push(finding.clone());
         }
@@ -529,8 +527,8 @@ pub fn analyze_compound_risks(
 
     analyzer.analyze(
         &bottleneck_findings,
-        Some(&radon_findings),
-        Some(&bandit_findings),
+        Some(&complexity_findings),
+        Some(&security_findings),
         Some(&other_findings),
     )
 }
@@ -585,13 +583,13 @@ mod tests {
             Severity::Medium,
             "test.py",
         )];
-        let radon = vec![create_test_finding(
-            "RadonDetector",
+        let complexity = vec![create_test_finding(
+            "DeepNestingDetector",
             Severity::High,
             "test.py",
         )];
 
-        let (modified, assessments) = analyzer.analyze(&bottlenecks, Some(&radon), None, None);
+        let (modified, assessments) = analyzer.analyze(&bottlenecks, Some(&complexity), None, None);
 
         assert_eq!(assessments[0].risk_factors.len(), 2);
         // Should escalate by 1 level
@@ -607,19 +605,19 @@ mod tests {
             Severity::High,
             "test.py",
         )];
-        let radon = vec![create_test_finding(
-            "RadonDetector",
+        let complexity = vec![create_test_finding(
+            "DeepNestingDetector",
             Severity::High,
             "test.py",
         )];
-        let bandit = vec![create_test_finding(
-            "BanditDetector",
+        let security = vec![create_test_finding(
+            "SqlInjectionDetector",
             Severity::High,
             "test.py",
         )];
 
         let (modified, assessments) =
-            analyzer.analyze(&bottlenecks, Some(&radon), Some(&bandit), None);
+            analyzer.analyze(&bottlenecks, Some(&complexity), Some(&security), None);
 
         // Should be critical with 3 factor types
         assert!(assessments[0].is_critical_risk());

@@ -10,9 +10,9 @@
 
 use crate::detectors::context_hmm::{ContextClassifier, FunctionContext, FunctionFeatures, FunctionMetrics};
 use crate::detectors::function_context::{FunctionContextBuilder, FunctionContextMap};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 // ── PrecomputedAnalysis ──────────────────────────────────────────────────────
 
@@ -169,17 +169,48 @@ pub fn precompute_gd_startup(
             HashMap::new()
         };
 
+        let empty_taint = || crate::detectors::taint::centralized::CentralizedTaintResults {
+            cross_function: HashMap::new(),
+            intra_function: HashMap::new(),
+        };
         let taint = taint_handle
-            .map(|h| h.join().expect("taint thread panicked"))
-            .unwrap_or_else(|| crate::detectors::taint::centralized::CentralizedTaintResults {
-                cross_function: HashMap::new(),
-                intra_function: HashMap::new(),
-            });
-        let (hmm, hmm_conf) = hmm_handle.join().expect("HMM thread panicked");
-        let (det_ctx, file_index) = ctx_handle.join().expect("DetectorContext thread panicked");
-        let reachability = reachability_handle.join().expect("reachability thread panicked");
+            .map(|h| match h.join() {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("taint thread panicked: {:?}", e);
+                    empty_taint()
+                }
+            })
+            .unwrap_or_else(empty_taint);
+        let (hmm, hmm_conf) = match hmm_handle.join() {
+            Ok(result) => result,
+            Err(e) => {
+                error!("HMM thread panicked: {:?}", e);
+                (HashMap::new(), HashMap::new())
+            }
+        };
+        let (det_ctx, file_index) = match ctx_handle.join() {
+            Ok(result) => result,
+            Err(e) => {
+                error!("DetectorContext thread panicked: {:?}", e);
+                (Arc::new(super::DetectorContext::empty()), Arc::new(super::FileIndex::new(vec![])))
+            }
+        };
+        let reachability = match reachability_handle.join() {
+            Ok(result) => result,
+            Err(e) => {
+                error!("reachability thread panicked: {:?}", e);
+                super::reachability::ReachabilityIndex::empty()
+            }
+        };
         let (public_api, module_metrics, class_cohesion, decorator_index) =
-            enrichment_handle.join().expect("enrichment thread panicked");
+            match enrichment_handle.join() {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("enrichment thread panicked: {:?}", e);
+                    (HashSet::new(), HashMap::new(), HashMap::new(), HashMap::new())
+                }
+            };
         (
             ctx, hmm, hmm_conf, taint, det_ctx, file_index,
             reachability, public_api, module_metrics, class_cohesion, decorator_index,

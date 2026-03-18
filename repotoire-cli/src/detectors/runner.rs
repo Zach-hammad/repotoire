@@ -71,7 +71,7 @@ pub fn run_detectors(
     };
 
     // ── Independent (parallel) ──────────────────────────────────────────
-    let mut results: Vec<(String, Vec<Finding>)> = pool.install(|| {
+    let mut results: Vec<(String, Vec<Finding>, bool)> = pool.install(|| {
         independent
             .par_iter()
             .map(|detector| run_one(detector, ctx))
@@ -82,21 +82,38 @@ pub fn run_detectors(
     results.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut all_findings: Vec<Finding> = Vec::new();
-    for (_name, findings) in results {
+    let mut skipped_count: usize = 0;
+    for (_name, findings, skipped) in results {
+        if skipped {
+            skipped_count += 1;
+        }
         all_findings.extend(findings);
     }
 
     // ── Dependent (sequential) ──────────────────────────────────────────
     for detector in dependent {
-        let (_name, findings) = run_one(detector, ctx);
+        let (_name, findings, skipped) = run_one(detector, ctx);
+        if skipped {
+            skipped_count += 1;
+        }
         all_findings.extend(findings);
+    }
+
+    if skipped_count > 0 {
+        warn!(
+            "{} detector(s) skipped due to errors (see warnings above)",
+            skipped_count,
+        );
     }
 
     all_findings
 }
 
 /// Execute a single detector with catch_unwind, timing, and max_findings.
-fn run_one(detector: &Arc<dyn Detector>, ctx: &AnalysisContext<'_>) -> (String, Vec<Finding>) {
+///
+/// Returns `(name, findings, skipped)` where `skipped` is `true` when the
+/// detector could not run (query error or panic).
+fn run_one(detector: &Arc<dyn Detector>, ctx: &AnalysisContext<'_>) -> (String, Vec<Finding>, bool) {
     let name = detector.name().to_string();
     let start = Instant::now();
 
@@ -122,12 +139,12 @@ fn run_one(detector: &Arc<dyn Detector>, ctx: &AnalysisContext<'_>) -> (String, 
                 findings.len(),
                 elapsed_ms,
             );
-            (name, findings)
+            (name, findings, false)
         }
         // detect() returned an error (query error, missing graph property, etc.)
         Ok(Err(e)) => {
-            debug!("{} skipped (query error): {}", name, e);
-            (name, Vec::new())
+            warn!("{} skipped (query error): {}", name, e);
+            (name, Vec::new(), true)
         }
         // Detector panicked
         Err(panic_info) => {
@@ -139,7 +156,7 @@ fn run_one(detector: &Arc<dyn Detector>, ctx: &AnalysisContext<'_>) -> (String, 
                 "Unknown panic".to_string()
             };
             error!("{} panicked: {}", name, panic_msg);
-            (name, Vec::new())
+            (name, Vec::new(), true)
         }
     }
 }
