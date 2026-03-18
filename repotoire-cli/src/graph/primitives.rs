@@ -9,7 +9,8 @@ use petgraph::algo::{dominators, tarjan_scc};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::EdgeRef;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use super::interner::{global_interner, StrKey};
 use super::store_models::{CodeEdge, CodeNode};
@@ -1188,13 +1189,168 @@ fn compute_weighted_page_rank(
     result
 }
 
+/// Dijkstra-based Brandes algorithm for weighted betweenness centrality.
+///
+/// Brandes (2001) "A Faster Algorithm for Betweenness Centrality" — weighted variant.
+/// Uses `1.0 / weight` as Dijkstra distance so that higher edge weight (stronger
+/// coupling) means shorter distance (closer in the shortest-path sense).
+///
+/// Returns a map from original `NodeIndex` (stored as overlay node weight) to
+/// betweenness score, normalized by sampling ratio.
 fn compute_weighted_betweenness(
-    _overlay: &StableGraph<NodeIndex, f32>,
-    _sample_size: usize,
-    _edge_fingerprint: u64,
+    overlay: &StableGraph<NodeIndex, f32>,
+    sample_size: usize,
+    edge_fingerprint: u64,
 ) -> HashMap<NodeIndex, f64> {
-    // Stub: implemented in Task 6.
-    HashMap::new()
+    let _span = tracing::info_span!("weighted_betweenness").entered();
+
+    let node_count = overlay.node_count();
+    if node_count == 0 {
+        return HashMap::new();
+    }
+
+    // Collect overlay node indices sorted for deterministic sampling
+    let mut nodes: Vec<petgraph::stable_graph::NodeIndex> =
+        overlay.node_indices().collect();
+    nodes.sort_by_key(|n| n.index());
+
+    let actual_sample = sample_size.min(node_count);
+
+    // Deterministic sampling: select every (node_count / sample_size)-th node
+    // starting at fingerprint % step
+    let sources: Vec<petgraph::stable_graph::NodeIndex> = if actual_sample >= node_count {
+        nodes.clone()
+    } else {
+        let step = node_count / actual_sample;
+        let start = (edge_fingerprint as usize) % step;
+        nodes
+            .iter()
+            .skip(start)
+            .step_by(step)
+            .take(actual_sample)
+            .copied()
+            .collect()
+    };
+
+    // Map overlay NodeIndex → local dense index for array-based accumulation
+    let node_to_local: HashMap<petgraph::stable_graph::NodeIndex, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, &n)| (n, i))
+        .collect();
+
+    // Parallel Brandes: each source computes partial betweenness via Dijkstra
+    let partial_results: Vec<Vec<f64>> = sources
+        .par_iter()
+        .map(|&source| {
+            let n = node_count;
+            let mut delta = vec![0.0f64; n];
+            let mut sigma = vec![0.0f64; n]; // shortest-path counts
+            let mut dist = vec![f64::INFINITY; n];
+            let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
+            let mut stack: Vec<usize> = Vec::new(); // nodes in order of discovery
+
+            let s_local = node_to_local[&source];
+            sigma[s_local] = 1.0;
+            dist[s_local] = 0.0;
+
+            // Min-heap: (Reverse(distance), local_index)
+            // Using u64 bits of f64 for total ordering via Reverse
+            let mut heap: BinaryHeap<Reverse<(OrderedF64, usize)>> = BinaryHeap::new();
+            heap.push(Reverse((OrderedF64(0.0), s_local)));
+
+            // Dijkstra phase
+            while let Some(Reverse((OrderedF64(d_v), v))) = heap.pop() {
+                // Skip stale entries
+                if d_v > dist[v] {
+                    continue;
+                }
+                stack.push(v);
+
+                let v_overlay = nodes[v];
+                for edge in overlay.edges(v_overlay) {
+                    let w_overlay = edge.target();
+                    if let Some(&w) = node_to_local.get(&w_overlay) {
+                        let edge_weight = *edge.weight() as f64;
+                        // Higher weight = stronger coupling = shorter distance
+                        let edge_dist = if edge_weight > 0.0 {
+                            1.0 / edge_weight
+                        } else {
+                            f64::INFINITY
+                        };
+                        let new_dist = d_v + edge_dist;
+
+                        if new_dist < dist[w] - 1e-10 {
+                            // Found a strictly shorter path
+                            dist[w] = new_dist;
+                            sigma[w] = sigma[v];
+                            predecessors[w].clear();
+                            predecessors[w].push(v);
+                            heap.push(Reverse((OrderedF64(new_dist), w)));
+                        } else if (new_dist - dist[w]).abs() < 1e-10 {
+                            // Found an equal-length shortest path
+                            sigma[w] += sigma[v];
+                            predecessors[w].push(v);
+                        }
+                    }
+                }
+            }
+
+            // Accumulation phase (reverse order of discovery)
+            while let Some(w) = stack.pop() {
+                for &v in &predecessors[w] {
+                    if sigma[w] > 0.0 {
+                        let contrib = (sigma[v] / sigma[w]) * (1.0 + delta[w]);
+                        delta[v] += contrib;
+                    }
+                }
+            }
+
+            delta
+        })
+        .collect();
+
+    // Aggregate partial results
+    let mut betweenness = vec![0.0f64; node_count];
+    for partial in &partial_results {
+        for (i, &val) in partial.iter().enumerate() {
+            betweenness[i] += val;
+        }
+    }
+
+    // Normalization: scale by (node_count / actual_sample) to approximate full computation
+    let scale = if actual_sample > 0 {
+        node_count as f64 / actual_sample as f64
+    } else {
+        1.0
+    };
+
+    // Map back to original NodeIndex (stored as overlay node weight)
+    let mut result = HashMap::with_capacity(node_count);
+    for (i, &overlay_node) in nodes.iter().enumerate() {
+        let original_idx = overlay[overlay_node];
+        result.insert(original_idx, betweenness[i] * scale);
+    }
+    result
+}
+
+/// Wrapper for f64 that implements Ord for use in BinaryHeap.
+/// Uses total_cmp for consistent ordering (NaN-safe).
+#[derive(Clone, Copy, PartialEq)]
+struct OrderedF64(f64);
+
+impl Eq for OrderedF64 {}
+
+impl PartialOrd for OrderedF64 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedF64 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
+    }
 }
 
 fn compute_communities(
@@ -2028,6 +2184,65 @@ mod tests {
         assert!(
             rank_b > rank_c,
             "b should have higher rank than c due to heavy edge: b={rank_b}, c={rank_c}"
+        );
+    }
+
+    // ── Weighted betweenness centrality tests ──
+
+    #[test]
+    fn test_weighted_betweenness_center_node() {
+        // Star topology: a→center, b→center, center→c, center→d
+        // With uniform weights, center should have the highest betweenness
+        // because all shortest paths between {a,b} and {c,d} pass through it.
+        let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
+        let orig_a = NodeIndex::new(300);
+        let orig_b = NodeIndex::new(301);
+        let orig_center = NodeIndex::new(302);
+        let orig_c = NodeIndex::new(303);
+        let orig_d = NodeIndex::new(304);
+
+        let a = overlay.add_node(orig_a);
+        let b = overlay.add_node(orig_b);
+        let center = overlay.add_node(orig_center);
+        let c = overlay.add_node(orig_c);
+        let d = overlay.add_node(orig_d);
+
+        // Uniform weight edges
+        overlay.add_edge(a, center, 1.0);
+        overlay.add_edge(b, center, 1.0);
+        overlay.add_edge(center, c, 1.0);
+        overlay.add_edge(center, d, 1.0);
+
+        // sample_size=200 > node_count=5, so all nodes are sampled
+        let bc = compute_weighted_betweenness(&overlay, 200, 42);
+
+        assert_eq!(bc.len(), 5, "Should have betweenness for all 5 nodes");
+
+        let bc_center = bc[&orig_center];
+        let bc_a = bc[&orig_a];
+        let bc_b = bc[&orig_b];
+        let bc_c = bc[&orig_c];
+        let bc_d = bc[&orig_d];
+
+        assert!(
+            bc_center > bc_a,
+            "Center ({bc_center}) should have higher betweenness than a ({bc_a})"
+        );
+        assert!(
+            bc_center > bc_b,
+            "Center ({bc_center}) should have higher betweenness than b ({bc_b})"
+        );
+        assert!(
+            bc_center > bc_c,
+            "Center ({bc_center}) should have higher betweenness than c ({bc_c})"
+        );
+        assert!(
+            bc_center > bc_d,
+            "Center ({bc_center}) should have higher betweenness than d ({bc_d})"
+        );
+        assert!(
+            bc_center > 0.0,
+            "Center betweenness should be positive, got {bc_center}"
         );
     }
 }
