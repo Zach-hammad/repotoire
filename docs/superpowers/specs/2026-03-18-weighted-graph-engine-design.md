@@ -87,6 +87,7 @@ Uses `StrKey` (lasso interned strings) — same interner as graph node paths. Ze
 half_life_days = 90       # Exponential decay half-life (default: 90)
 min_weight = 0.1          # Drop pairs below this threshold
 max_files_per_commit = 30 # Skip large commits (merges, bulk renames)
+max_commits = 5000        # Cap iteration depth for very long histories
 ```
 
 **Pipeline threading:** `CoChangeMatrix` returned from `git_enrich_stage()` alongside enriched graph. Stored on `AnalysisEngine`, passed into `GraphIndexes::build()` → `GraphPrimitives::compute()` as new parameter.
@@ -183,10 +184,12 @@ fn compute_communities(
 
 **Parallelism:** All three weighted algorithms run in parallel via rayon:
 ```rust
-rayon::join3(
+rayon::join(
     || compute_weighted_page_rank(&overlay, ...),
-    || compute_weighted_betweenness(&overlay, ...),
-    || compute_communities(&overlay, ...),
+    || rayon::join(
+        || compute_weighted_betweenness(&overlay, ...),
+        || compute_communities(&overlay, ...),
+    ),
 )
 ```
 
@@ -203,6 +206,7 @@ pub(crate) community: HashMap<NodeIndex, usize>,
 pub(crate) modularity: f64,
 
 // ── Hidden coupling (co-change without structural edge) ──
+// NodeIndex values are File-level node indices (matching co-change granularity).
 pub(crate) hidden_coupling: Vec<(NodeIndex, NodeIndex, f32)>,
 ```
 
@@ -217,6 +221,14 @@ fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32)];
 ```
 
 Follows Phase A's pattern exactly: trait definition in `traits.rs`, implementation on `CodeGraph` delegating to `self.indexes.primitives.*`, implementation on `Arc<CodeGraph>` delegating to inner.
+
+**`GraphIndexes::build()` signature change:** Add `Option<&CoChangeMatrix>` parameter. Four call sites need updating:
+- `graph/builder.rs` (`GraphBuilder::freeze()`) — pass `None` (builder path has no git context)
+- `graph/store/mod.rs` (`GraphStore::to_code_graph()`) — pass the engine-provided `CoChangeMatrix`
+- `graph/persistence.rs` (deserialization path) — pass `None` (loaded from cache, no git context)
+- `graph/indexes.rs` (tests) — pass `None`
+
+Using `Option` means only the engine pipeline path (via `GraphStore::to_code_graph()`) provides co-change data. All other callers pass `None` and get empty weighted primitives.
 
 ### Component 5: Four New Detectors
 
@@ -289,21 +301,25 @@ All four detectors follow the Phase A pattern: implement `Detector` trait, `Regi
 
 ### Component 6: CLI Flag Cleanup
 
-Remove three escape-hatch flags that degrade Repotoire's competitive advantage:
+Remove three escape-hatch CLI flags that degrade Repotoire's competitive advantage:
 
-- `--no-git` — Skips git enrichment. With Phase B, git data is core, not optional.
-- `--skip-graph` — Skips graph building. Without the graph, Repotoire is a dumb linter.
-- `--lite` — Alias for `--skip-graph --no-git --max-files=10000`. Removed with its components.
+- `--no-git` CLI flag — removed from clap derive struct
+- `--skip-graph` CLI flag — removed from clap derive struct
+- `--lite` CLI flag — removed (was alias for `--skip-graph --no-git --max-files=10000`)
 
 `--max-files` stays (legitimate guard for huge repos).
 
-**Affected files:** `cli/analyze/mod.rs` (flag definitions), `engine/mod.rs` (conditional logic), `CLAUDE.md` (documentation).
+**Internal `no_git` auto-detection replaces the flag:** The `AnalysisConfig.no_git` field stays as an internal-only boolean, but is no longer user-facing. The engine auto-detects "no git repo present" (e.g., temp directories in tests, non-git directories) and sets `no_git = true` internally. This preserves all existing engine test behavior (tests use temp dirs with no `.git`) without requiring test infrastructure changes.
+
+**`skip_graph` removed entirely:** No internal equivalent. Graph building is always on. The `AnalysisConfig.skip_graph` field is removed along with all conditional paths that check it.
+
+**Affected files:** `cli/analyze/mod.rs` (flag removal), `engine/mod.rs` (auto-detect logic, remove skip_graph paths), `engine/stages/*.rs` (remove skip_graph conditionals), `CLAUDE.md` (documentation).
 
 ## Performance Budget
 
 | Operation | 50k-node graph | Notes |
 |-----------|---------------|-------|
-| Co-change matrix | ~200ms | O(commits × avg_files²), dominated by git iteration |
+| Co-change matrix | ~200ms | O(commits × avg_files²), capped at 5000 commits max |
 | Overlay construction | ~10ms | Single pass over edges + matrix |
 | Weighted PageRank | ~30ms | Same as unweighted, different transition |
 | Weighted betweenness | ~200ms | Dijkstra vs BFS, 200 samples |
