@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::interner::global_interner;
 use super::store_models::{CodeEdge, CodeNode};
+use crate::git::co_change::CoChangeMatrix;
 
 // SAFETY: GraphPrimitives contains only HashMap, HashSet, Vec, and f64 —
 // all Send + Sync. Adding it to GraphIndexes (inside CodeGraph) does not
@@ -56,6 +57,7 @@ impl GraphPrimitives {
         call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
         call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
         edge_fingerprint: u64,
+        _co_change: Option<&CoChangeMatrix>,
     ) -> Self {
         if functions.is_empty() || all_call_edges.is_empty() {
             return Self::default();
@@ -934,7 +936,7 @@ mod tests {
     fn test_compute_empty_graph_returns_default() {
         let graph = StableGraph::new();
         let p = GraphPrimitives::compute(
-            &graph, &[], &[], &[], &[], &HashMap::new(), &HashMap::new(), 0,
+            &graph, &[], &[], &[], &[], &HashMap::new(), &HashMap::new(), 0, None,
         );
         assert!(p.idom.is_empty());
         assert!(p.page_rank.is_empty());
@@ -1318,6 +1320,7 @@ mod tests {
             &call_callers,
             &call_callees,
             12345,
+            None,
         );
 
         // No cycles in a DAG
@@ -1426,6 +1429,7 @@ mod tests {
             &call_callers,
             &call_callees,
             99999,
+            None,
         );
 
         // ── PageRank ──

@@ -1,5 +1,6 @@
 //! Stage 3: Graph construction, patching, and freeze.
 
+use crate::git::co_change::CoChangeMatrix;
 use crate::graph::frozen::CodeGraph;
 use crate::graph::GraphStore;
 use crate::parsers::ParseResult;
@@ -78,8 +79,12 @@ pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
 ///
 /// Call this AFTER git enrichment and all other mutations are complete.
 /// Converts the `GraphStore` to a `CodeGraph` and computes the edge fingerprint.
-pub fn freeze_graph(mutable_graph: &GraphStore, value_store: Option<Arc<ValueStore>>) -> FrozenGraphOutput {
-    let code_graph = mutable_graph.to_code_graph();
+pub fn freeze_graph(
+    mutable_graph: &GraphStore,
+    value_store: Option<Arc<ValueStore>>,
+    co_change: Option<&CoChangeMatrix>,
+) -> FrozenGraphOutput {
+    let code_graph = mutable_graph.to_code_graph(co_change);
     let edge_fingerprint = code_graph.edge_fingerprint();
 
     FrozenGraphOutput {

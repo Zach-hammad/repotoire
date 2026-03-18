@@ -1475,7 +1475,7 @@ impl GraphStore {
     ///
     /// Use this after all mutations (graph build, git enrichment) are complete,
     /// to transition from the mutable build phase to the immutable query phase.
-    pub fn to_code_graph(&self) -> super::frozen::CodeGraph {
+    pub fn to_code_graph(&self, co_change: Option<&crate::git::co_change::CoChangeMatrix>) -> super::frozen::CodeGraph {
         use super::indexes::GraphIndexes;
 
         // Clone graph under lock
@@ -1492,7 +1492,7 @@ impl GraphStore {
             .collect();
 
         // Build indexes
-        let indexes = GraphIndexes::build(&graph, &node_index);
+        let indexes = GraphIndexes::build(&graph, &node_index, co_change);
 
         super::frozen::CodeGraph::from_parts(graph, node_index, extra_props, indexes)
     }

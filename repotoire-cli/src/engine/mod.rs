@@ -364,18 +364,24 @@ impl AnalysisEngine {
         })?;
 
         // Stage 4: Git enrich — add churn/blame/commit data to mutable graph nodes
-        if !config.no_git {
+        let git_out = if !config.no_git {
             timed(&mut timings, "git_enrich", || {
                 git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
                     repo_path: &self.repo_path,
                     graph: &graph_out.mutable_graph,
                 })
-            })?;
-        }
+            })?
+        } else {
+            git_enrich::GitEnrichOutput::skipped()
+        };
 
         // Freeze: convert mutable GraphStore → immutable CodeGraph with indexes
         let frozen = timed(&mut timings, "freeze", || {
-            graph::freeze_graph(&graph_out.mutable_graph, graph_out.value_store)
+            graph::freeze_graph(
+                &graph_out.mutable_graph,
+                graph_out.value_store,
+                Some(&git_out.co_change_matrix),
+            )
         });
 
         // Stage 5: Calibrate — learn adaptive thresholds from the codebase
@@ -530,18 +536,24 @@ impl AnalysisEngine {
         })?;
 
         // Stage 4: Git enrich — enrich the patched mutable graph
-        if !config.no_git {
+        let git_out = if !config.no_git {
             timed(&mut timings, "git_enrich", || {
                 git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
                     repo_path: &self.repo_path,
                     graph: &graph_out.mutable_graph,
                 })
-            })?;
-        }
+            })?
+        } else {
+            git_enrich::GitEnrichOutput::skipped()
+        };
 
         // Freeze: convert mutable GraphStore → immutable CodeGraph with indexes
         let frozen = timed(&mut timings, "freeze", || {
-            graph::freeze_graph(&graph_out.mutable_graph, graph_out.value_store)
+            graph::freeze_graph(
+                &graph_out.mutable_graph,
+                graph_out.value_store,
+                Some(&git_out.co_change_matrix),
+            )
         });
 
         // Stage 5: Calibrate — reuse cached style_profile, rebuild ngram if None

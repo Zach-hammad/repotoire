@@ -1,5 +1,6 @@
 //! Stage 4: Git history enrichment (impure — mutates graph nodes).
 
+use crate::git::co_change::{CoChangeConfig, CoChangeMatrix};
 use crate::graph::GraphStore;
 use anyhow::Result;
 use std::path::Path;
@@ -15,6 +16,7 @@ pub struct GitEnrichOutput {
     pub functions_enriched: usize,
     pub classes_enriched: usize,
     pub cache_hits: usize,
+    pub co_change_matrix: CoChangeMatrix,
 }
 
 impl GitEnrichOutput {
@@ -24,6 +26,7 @@ impl GitEnrichOutput {
             functions_enriched: 0,
             classes_enriched: 0,
             cache_hits: 0,
+            co_change_matrix: CoChangeMatrix::empty(),
         }
     }
 }
@@ -39,9 +42,19 @@ pub fn git_enrich_stage(input: &GitEnrichInput) -> Result<GitEnrichOutput> {
         None, // repo_id — not needed for local analysis
     )?;
 
+    let co_change_matrix = crate::git::co_change::compute_from_repo(
+        input.repo_path,
+        &CoChangeConfig::default(),
+    )
+    .unwrap_or_else(|e| {
+        tracing::warn!("Co-change analysis failed: {e}");
+        CoChangeMatrix::empty()
+    });
+
     Ok(GitEnrichOutput {
         functions_enriched: stats.functions_enriched,
         classes_enriched: stats.classes_enriched,
         cache_hits: stats.cache_hits,
+        co_change_matrix,
     })
 }

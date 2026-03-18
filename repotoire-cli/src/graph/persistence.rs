@@ -179,7 +179,7 @@ impl CodeGraph {
         }
 
         // Rebuild indexes from the graph
-        let indexes = GraphIndexes::build(&graph, &node_index);
+        let indexes = GraphIndexes::build(&graph, &node_index, None);
 
         tracing::info!("Loaded CodeGraph cache ({} nodes)", node_index.len());
         Some(CodeGraph::from_parts(graph, node_index, extra_props, indexes))

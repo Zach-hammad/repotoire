@@ -519,7 +519,7 @@ impl GraphBuilder {
     /// This is the transition from the mutable build phase to the immutable
     /// query phase. All indexes are built in one pass during this call.
     pub fn freeze(self) -> CodeGraph {
-        let indexes = GraphIndexes::build(&self.graph, &self.node_index);
+        let indexes = GraphIndexes::build(&self.graph, &self.node_index, None);
         CodeGraph::from_parts(self.graph, self.node_index, self.extra_props, indexes)
     }
 
