@@ -176,6 +176,22 @@ pub struct CoChangeConfigToml {
     pub max_commits: Option<usize>,
 }
 
+impl CoChangeConfigToml {
+    /// Convert TOML config (all optional) to runtime config (all required),
+    /// filling in defaults for any unset fields.
+    pub fn to_runtime(&self) -> crate::git::co_change::CoChangeConfig {
+        let defaults = crate::git::co_change::CoChangeConfig::default();
+        crate::git::co_change::CoChangeConfig {
+            half_life_days: self.half_life_days.unwrap_or(defaults.half_life_days),
+            min_weight: self.min_weight.unwrap_or(defaults.min_weight),
+            max_files_per_commit: self
+                .max_files_per_commit
+                .unwrap_or(defaults.max_files_per_commit),
+            max_commits: self.max_commits.unwrap_or(defaults.max_commits),
+        }
+    }
+}
+
 /// Project-level configuration loaded from repotoire.toml or similar
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProjectConfig {

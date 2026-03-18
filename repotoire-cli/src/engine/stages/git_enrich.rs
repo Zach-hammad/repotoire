@@ -9,6 +9,7 @@ use std::path::Path;
 pub struct GitEnrichInput<'a> {
     pub repo_path: &'a Path,
     pub graph: &'a GraphStore,
+    pub co_change_config: CoChangeConfig,
 }
 
 /// Output from the git enrichment stage.
@@ -44,7 +45,7 @@ pub fn git_enrich_stage(input: &GitEnrichInput) -> Result<GitEnrichOutput> {
 
     let co_change_matrix = crate::git::co_change::compute_from_repo(
         input.repo_path,
-        &CoChangeConfig::default(),
+        &input.co_change_config,
     )
     .unwrap_or_else(|e| {
         tracing::warn!("Co-change analysis failed: {e}");

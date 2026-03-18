@@ -369,6 +369,7 @@ impl AnalysisEngine {
                 git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
                     repo_path: &self.repo_path,
                     graph: &graph_out.mutable_graph,
+                    co_change_config: self.project_config.co_change.to_runtime(),
                 })
             })?
         } else {
@@ -541,6 +542,7 @@ impl AnalysisEngine {
                 git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
                     repo_path: &self.repo_path,
                     graph: &graph_out.mutable_graph,
+                    co_change_config: self.project_config.co_change.to_runtime(),
                 })
             })?
         } else {

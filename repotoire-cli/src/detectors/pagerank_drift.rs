@@ -154,7 +154,7 @@ impl Detector for PageRankDriftDetector {
 
             let drift = (static_pct as isize - weighted_pct as isize).unsigned_abs();
 
-            if drift <= self.min_percentile_drift as usize {
+            if drift <= self.min_percentile_drift {
                 continue;
             }
 

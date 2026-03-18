@@ -10,7 +10,7 @@ use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::EdgeRef;
 use rayon::prelude::*;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque};
 
 use super::interner::{global_interner, StrKey};
 use super::store_models::{CodeEdge, CodeNode};
@@ -1157,6 +1157,19 @@ fn compute_weighted_page_rank(
             .map(|n| (n, (1.0 - damping) / node_count as f64))
             .collect();
 
+        // Accumulate dangling node mass (nodes with zero out-weight)
+        let mut dangling_sum = 0.0;
+        for src in overlay.node_indices() {
+            let total_weight: f64 = overlay.edges(src).map(|e| *e.weight() as f64).sum();
+            if total_weight == 0.0 {
+                dangling_sum += rank[&src];
+            }
+        }
+        let dangling_contribution = damping * dangling_sum / node_count as f64;
+        for r in new_rank.values_mut() {
+            *r += dangling_contribution;
+        }
+
         for src in overlay.node_indices() {
             let out_edges: Vec<_> = overlay.edges(src).collect();
             let total_weight: f64 = out_edges.iter().map(|e| *e.weight() as f64).sum();
@@ -1166,7 +1179,7 @@ fn compute_weighted_page_rank(
             let src_rank = rank[&src];
             for edge in &out_edges {
                 let fraction = *edge.weight() as f64 / total_weight;
-                *new_rank.get_mut(&edge.target()).unwrap() += damping * src_rank * fraction;
+                *new_rank.get_mut(&edge.target()).expect("overlay node must exist in rank map") += damping * src_rank * fraction;
             }
         }
 
@@ -1378,7 +1391,7 @@ fn compute_communities(
         neighbor_weights.insert(*n, HashMap::new());
     }
     for edge_id in overlay.edge_indices() {
-        let (u, v) = overlay.edge_endpoints(edge_id).unwrap();
+        let (u, v) = overlay.edge_endpoints(edge_id).expect("edge must have endpoints");
         let w = overlay[edge_id] as f64;
         // Treat directed graph as undirected: each directed edge u→v with weight w
         // contributes w to both u's and v's neighborhoods.
@@ -1434,8 +1447,9 @@ fn compute_communities(
             let k_i = strength[&n];
             let current_comm = community[&n];
 
-            // Compute sum of weights from n to each neighboring community
-            let mut comm_weights: HashMap<usize, f64> = HashMap::new();
+            // Compute sum of weights from n to each neighboring community.
+            // BTreeMap ensures deterministic iteration order (by community ID).
+            let mut comm_weights: BTreeMap<usize, f64> = BTreeMap::new();
             if let Some(nw) = neighbor_weights.get(&n) {
                 for (&neighbor, &w) in nw {
                     let nc = community[&neighbor];
@@ -1464,7 +1478,11 @@ fn compute_communities(
                 let delta = (k_i_target - k_i_current) / m
                     - resolution * k_i * (sigma_tot_target - sigma_tot_current) / (2.0 * m * m);
 
-                if delta > best_delta {
+                // Deterministic tiebreaker: prefer strictly better delta,
+                // or on tie pick the smaller community ID.
+                if delta > best_delta
+                    || (delta == best_delta && target_comm < best_comm)
+                {
                     best_delta = delta;
                     best_comm = target_comm;
                 }
@@ -1534,7 +1552,7 @@ fn compute_modularity(
     // but contribute to both i-j directions, so add w for each directed edge where c_i == c_j)
     let mut internal_weight = 0.0;
     for edge_id in overlay.edge_indices() {
-        let (u, v) = overlay.edge_endpoints(edge_id).unwrap();
+        let (u, v) = overlay.edge_endpoints(edge_id).expect("edge must have endpoints");
         if community[&u] == community[&v] {
             // Each directed edge contributes w to the undirected sum
             // (the full A_ij matrix double-counts, and we sum over all i,j pairs)
