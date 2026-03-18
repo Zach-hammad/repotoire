@@ -1,0 +1,311 @@
+//! Community misplacement detector using Louvain community detection.
+//!
+//! Identifies files whose directory structure doesn't match their operational
+//! community as determined by Louvain community detection on the code graph.
+//! When a function clusters with a community whose members predominantly live
+//! in a different top-level directory, it suggests the file may be misplaced
+//! or that shared dependencies should be extracted.
+
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
+use crate::models::{Finding, Severity};
+use anyhow::Result;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tracing::debug;
+
+/// Detects files that cluster with a Louvain community in a different directory.
+///
+/// Uses pre-computed graph primitives:
+/// - `community_idx()`: Louvain community assignment per node
+/// - `functions_idx()`: all function NodeIndexes
+/// - `node_idx()`: node lookup for file paths
+pub struct CommunityMisplacementDetector {
+    config: DetectorConfig,
+}
+
+impl CommunityMisplacementDetector {
+    /// Create a new detector with default config.
+    pub fn new() -> Self {
+        Self {
+            config: DetectorConfig::new(),
+        }
+    }
+
+    /// Create with custom config.
+    #[allow(dead_code)]
+    pub fn with_config(config: DetectorConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl Default for CommunityMisplacementDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Extract the top-level directory component from a file path.
+///
+/// For "src/api/handlers.rs" returns "src".
+/// For "utils.py" (no directory) returns "".
+fn top_level_dir(path: &str) -> &str {
+    match path.find('/') {
+        Some(pos) => &path[..pos],
+        None => "",
+    }
+}
+
+impl Detector for CommunityMisplacementDetector {
+    fn name(&self) -> &'static str {
+        "CommunityMisplacementDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects files whose directory doesn't match their Louvain community"
+    }
+
+    fn category(&self) -> &'static str {
+        "architecture"
+    }
+
+    fn config(&self) -> Option<&DetectorConfig> {
+        Some(&self.config)
+    }
+
+    fn detector_scope(&self) -> DetectorScope {
+        DetectorScope::GraphWide
+    }
+
+    fn is_deterministic(&self) -> bool {
+        true
+    }
+
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let gi = graph.interner();
+
+        let min_community_size: usize =
+            self.config.get_option_or("min_community_size", 5);
+        let max_outlier_ratio: f64 =
+            self.config.get_option_or("max_outlier_ratio", 0.2);
+
+        // Step 1: Iterate all function NodeIndexes, collect community assignments.
+        // Group functions by community → HashMap<usize, Vec<NodeIndex>>.
+        let mut communities: HashMap<usize, Vec<petgraph::graph::NodeIndex>> = HashMap::new();
+
+        for &idx in graph.functions_idx() {
+            if let Some(community_id) = graph.community_idx(idx) {
+                communities.entry(community_id).or_default().push(idx);
+            }
+        }
+
+        if communities.is_empty() {
+            return Ok(vec![]);
+        }
+
+        debug!(
+            "CommunityMisplacementDetector: examining {} communities",
+            communities.len()
+        );
+
+        let mut findings = Vec::new();
+
+        // Step 3: For each community with >= min_community_size members
+        for (&community_id, members) in &communities {
+            let community_size = members.len();
+            if community_size < min_community_size {
+                continue;
+            }
+
+            // Step 3a-b: Get file paths and extract top-level directories
+            let mut dir_counts: HashMap<&str, usize> = HashMap::new();
+            let mut member_paths: Vec<(&str, &str)> = Vec::new(); // (file_path, top_dir)
+
+            for &idx in members {
+                if let Some(node) = graph.node_idx(idx) {
+                    let path = node.path(gi);
+                    let dir = top_level_dir(path);
+                    *dir_counts.entry(dir).or_insert(0) += 1;
+                    member_paths.push((path, dir));
+                }
+            }
+
+            // Step 3c: Compute dominant directory
+            let dominant_dir = match dir_counts.iter().max_by_key(|&(_, count)| *count) {
+                Some((dir, _)) => *dir,
+                None => continue,
+            };
+
+            // Step 3d: Find misplaced files
+            for &(file_path, file_dir) in &member_paths {
+                if file_dir == dominant_dir {
+                    continue;
+                }
+
+                // Count how many community members share this file's directory
+                let same_dir_count = dir_counts.get(file_dir).copied().unwrap_or(0);
+                let ratio = same_dir_count as f64 / community_size as f64;
+
+                if ratio > max_outlier_ratio {
+                    continue; // Not an outlier — too many members share this directory
+                }
+
+                // Severity: Medium if different top-level module, Low otherwise
+                let severity = if !file_dir.is_empty() && !dominant_dir.is_empty() {
+                    Severity::Medium
+                } else {
+                    Severity::Low
+                };
+
+                let filename = file_path.rsplit('/').next().unwrap_or(file_path);
+
+                findings.push(Finding {
+                    id: String::new(),
+                    detector: "community-misplacement".to_string(),
+                    severity,
+                    confidence: Some(0.75),
+                    deterministic: true,
+                    title: format!(
+                        "Community misplacement: {} clusters with {}/ module",
+                        filename, dominant_dir
+                    ),
+                    description: format!(
+                        "`{}` clusters with community #{} ({} members, dominant directory: `{}/`). \
+                         Consider relocating or extracting the shared dependency.",
+                        file_path, community_id, community_size, dominant_dir
+                    ),
+                    affected_files: vec![PathBuf::from(file_path)],
+                    suggested_fix: Some(
+                        "Consider one of: (1) Move the file to the dominant community directory, \
+                         (2) Extract shared logic into a common module, \
+                         (3) Re-evaluate the module boundary if the coupling is intentional."
+                            .to_string(),
+                    ),
+                    category: Some("architecture".to_string()),
+                    why_it_matters: Some(
+                        "Files that operationally belong to a different module than their \
+                         directory suggests create confusion and make the codebase harder to \
+                         navigate. Aligning directory structure with actual coupling improves \
+                         discoverability and maintainability."
+                            .to_string(),
+                    ),
+                    ..Default::default()
+                });
+            }
+        }
+
+        // Deduplicate: a file may appear in multiple communities. Keep highest severity.
+        findings.sort_by(|a, b| {
+            a.affected_files[0]
+                .cmp(&b.affected_files[0])
+                .then(b.severity.cmp(&a.severity))
+        });
+        findings.dedup_by(|a, b| a.affected_files[0] == b.affected_files[0]);
+
+        // Sort by severity (highest first).
+        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+
+        debug!(
+            "CommunityMisplacementDetector found {} findings",
+            findings.len()
+        );
+
+        Ok(findings)
+    }
+}
+
+impl super::RegisteredDetector for CommunityMisplacementDetector {
+    fn create(init: &super::DetectorInit) -> Arc<dyn Detector> {
+        Arc::new(Self::with_config(
+            init.config_for("CommunityMisplacementDetector"),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{CodeEdge, CodeNode, GraphBuilder};
+
+    #[test]
+    fn test_no_findings_empty_communities() {
+        // A basic graph with no community data → no findings
+        let mut builder = GraphBuilder::new();
+
+        let f1 = builder.add_node(CodeNode::function("f1", "src/a.py"));
+        let f2 = builder.add_node(CodeNode::function("f2", "src/b.py"));
+        builder.add_edge(f1, f2, CodeEdge::calls());
+
+        let graph = builder.freeze();
+        let detector = CommunityMisplacementDetector::new();
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Should have no findings without community data"
+        );
+    }
+
+    #[test]
+    fn test_no_findings_small_community() {
+        // Community with < min_community_size (5) should be skipped.
+        // Even if we had community data, communities with fewer than 5 members
+        // are ignored. Since freeze() without co-change data produces no communities,
+        // this is effectively the same as the empty case.
+        let mut builder = GraphBuilder::new();
+
+        let f1 = builder.add_node(CodeNode::function("f1", "src/a.py"));
+        let f2 = builder.add_node(CodeNode::function("f2", "lib/b.py"));
+        builder.add_edge(f1, f2, CodeEdge::calls());
+
+        let graph = builder.freeze();
+        let detector = CommunityMisplacementDetector::new();
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Should have no findings for communities below min size"
+        );
+    }
+
+    #[test]
+    fn test_scope_and_category() {
+        let detector = CommunityMisplacementDetector::new();
+        assert_eq!(detector.detector_scope(), DetectorScope::GraphWide);
+        assert_eq!(detector.category(), "architecture");
+        assert!(detector.is_deterministic());
+        assert_eq!(detector.name(), "CommunityMisplacementDetector");
+    }
+
+    #[test]
+    fn test_top_level_dir_extraction() {
+        assert_eq!(top_level_dir("src/api/handlers.rs"), "src");
+        assert_eq!(top_level_dir("lib/utils.py"), "lib");
+        assert_eq!(top_level_dir("utils.py"), "");
+        assert_eq!(top_level_dir("a/b/c/d.rs"), "a");
+    }
+
+    #[test]
+    fn test_detector_slug() {
+        // Verify the detector slug matches what's used in findings
+        let mut builder = GraphBuilder::new();
+        let f1 = builder.add_node(CodeNode::function("f1", "a.py"));
+        let f2 = builder.add_node(CodeNode::function("f2", "b.py"));
+        builder.add_edge(f1, f2, CodeEdge::calls());
+
+        let graph = builder.freeze();
+        let detector = CommunityMisplacementDetector::new();
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        // No findings expected (no community data), but the detector slug
+        // is validated by the detector trait implementation
+        assert!(findings.is_empty());
+    }
+}

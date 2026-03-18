@@ -242,6 +242,7 @@ const DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<StructuralBridgeRiskDetector>(),
     register::<MutualRecursionDetector>(),
     register::<HiddenCouplingDetector>(),
+    register::<CommunityMisplacementDetector>(),
 ];
 
 /// Create all registered detectors from a unified init context.
@@ -300,7 +301,8 @@ mod influential_code;
 mod module_cohesion;
 mod shotgun_surgery;
 
-// Graph primitives detectors (dominator trees, articulation points, call-graph SCCs)
+// Graph primitives detectors (dominator trees, articulation points, call-graph SCCs, communities)
+mod community_misplacement;
 mod hidden_coupling;
 mod mutual_recursion;
 mod single_point_of_failure;
@@ -474,6 +476,7 @@ pub use module_cohesion::ModuleCohesionDetector;
 pub use shotgun_surgery::ShotgunSurgeryDetector;
 
 // Re-export graph primitives detectors
+pub use community_misplacement::CommunityMisplacementDetector;
 pub use hidden_coupling::HiddenCouplingDetector;
 pub use mutual_recursion::MutualRecursionDetector;
 pub use single_point_of_failure::SinglePointOfFailureDetector;
@@ -1109,9 +1112,9 @@ mod tests {
     fn test_create_all_detectors_registry() {
         let init = DetectorInit::test_default();
         let detectors = create_all_detectors(&init);
-        // 104 detectors registered (all patterns including config-based, resolver-based, etc.).
+        // 105 detectors registered (all patterns including config-based, resolver-based, etc.).
         // Update this number when adding/removing detectors.
-        assert_eq!(detectors.len(), 104);
+        assert_eq!(detectors.len(), 105);
     }
 
     #[test]
