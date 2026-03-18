@@ -483,7 +483,7 @@ impl<'a> FunctionContextBuilder<'a> {
     /// Check if function has a test decorator (#[test], @pytest.mark, etc.)
     fn has_test_decorator(&self, qn: crate::graph::interner::StrKey, i: &crate::graph::interner::StringInterner) -> bool {
         // Try NodeIndex-based API first (zero-copy reference)
-        let ep = self.graph.extra_props_ref(qn).or_else(|| {
+        let ep = self.graph.extra_props_ref(qn).or({
             // Fallback: old API (returns owned clone)
             // Box leak would be bad here; just use the owned version via extra_props
             None

@@ -1303,7 +1303,7 @@ impl GraphStore {
                     Some((
                         self.interner().resolve(src.qualified_name).to_string(),
                         self.interner().resolve(dst.qualified_name).to_string(),
-                        e.weight().clone(),
+                        *e.weight(),
                     ))
                 })
                 .collect();
@@ -1399,7 +1399,10 @@ impl GraphStore {
     /// StableGraph allows safe node removal without invalidating other indexes.
     pub fn remove_file_entities(&self, files: &[std::path::PathBuf]) {
         let mut graph = self.write_graph();
-        let mut edge_set = self.edge_set.lock().unwrap();
+        let mut edge_set = self
+            .edge_set
+            .lock()
+            .expect("edge_set lock poisoned — a thread panicked while holding this lock");
 
         for file in files {
             let file_str = file.to_string_lossy();
@@ -1686,7 +1689,10 @@ impl GraphStore {
         // Rebuild edge_set from graph edges
         {
             let graph = store.read_graph();
-            let mut edge_set = store.edge_set.lock().unwrap();
+            let mut edge_set = store
+                .edge_set
+                .lock()
+                .expect("edge_set lock poisoned — a thread panicked while holding this lock");
             for edge_ref in graph.edge_references() {
                 edge_set.insert((edge_ref.source(), edge_ref.target(), edge_ref.weight().kind));
             }
@@ -1702,7 +1708,10 @@ impl GraphStore {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let graph = self.graph.read().unwrap();
+        let graph = self
+            .graph
+            .read()
+            .expect("graph lock poisoned — a thread panicked while holding this lock");
         let mut edges: Vec<(u32, u32, u8)> = graph
             .edge_references()
             .filter(|e| {

@@ -127,12 +127,10 @@ fn find_fix_commit_files(repo: &git2::Repository) -> HashSet<String> {
 
     let fix_keywords = ["fix", "bug", "patch", "hotfix", "resolve"];
 
-    let mut count = 0;
-    for oid in revwalk {
+    for (count, oid) in revwalk.enumerate() {
         if count >= MAX_REVWALK_COMMITS {
             break;
         }
-        count += 1;
 
         let oid = match oid {
             Ok(o) => o,
@@ -206,12 +204,10 @@ fn find_stable_files(repo: &git2::Repository) -> HashSet<String> {
     let mut latest_modification: std::collections::HashMap<String, i64> =
         std::collections::HashMap::new();
 
-    let mut count = 0;
-    for oid in revwalk {
+    for (count, oid) in revwalk.enumerate() {
         if count >= MAX_REVWALK_COMMITS {
             break;
         }
-        count += 1;
 
         let oid = match oid {
             Ok(o) => o,

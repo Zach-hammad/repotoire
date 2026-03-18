@@ -385,7 +385,7 @@ impl Detector for InsecureCryptoDetector {
             if masked.is_none() {
                 continue;
             }
-            let masked = masked.unwrap();
+            let masked = masked.expect("masked_content checked non-None above");
             let masked_lines: Vec<&str> = masked.lines().collect();
             let raw_lines: Vec<&str> = raw.lines().collect();
             {

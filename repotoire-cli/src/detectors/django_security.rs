@@ -97,7 +97,7 @@ impl Detector for DjangoSecurityDetector {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses Django
         let has_django = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).map_or(false, |c| {
+            files.content(p).is_some_and(|c| {
                 c.contains("django")
                     || c.contains("ALLOWED_HOSTS")
                     || c.contains("SECRET_KEY")

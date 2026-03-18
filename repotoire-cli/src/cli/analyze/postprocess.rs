@@ -6,9 +6,9 @@
 //! 0.7. Confidence threshold filter (--min-confidence, skipped with --show-all)
 //! 1. Incremental cache update
 //! 2. Detector overrides from project config
-//! 2.5. Path exclusion filtering
-//! 2.6. File-level suppression (`repotoire:ignore-file`)
-//! 2.7. Auto-suppress detector test fixtures
+//!    2.5. Path exclusion filtering
+//!    2.6. File-level suppression (`repotoire:ignore-file`)
+//!    2.7. Auto-suppress detector test fixtures
 //! 3. Max-files filtering
 //! 4. De-duplicate overlapping dead-code findings
 //! 5. Compound smell escalation
@@ -708,13 +708,17 @@ fn detector_name_to_path_slug(name: &str) -> String {
             // - OR next char is lowercase and previous was uppercase (end of acronym like "SQL")
             if i > 0 {
                 let prev_upper = chars[i - 1].is_uppercase();
-                let next_lower = chars.get(i + 1).map_or(false, |c| c.is_lowercase());
+                let next_lower = chars.get(i + 1).is_some_and(|c| c.is_lowercase());
 
                 if !prev_upper || next_lower {
                     slug.push('_');
                 }
             }
-            slug.push(ch.to_lowercase().next().unwrap());
+            slug.push(
+                ch.to_lowercase()
+                    .next()
+                    .expect("to_lowercase always yields at least one char"),
+            );
         } else {
             slug.push(ch);
         }

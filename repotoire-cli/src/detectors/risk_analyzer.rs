@@ -89,6 +89,8 @@ fn severity_index(s: Severity) -> usize {
 ///
 /// And escalates severity when multiple risk factors combine.
 pub struct RiskAnalyzer {
+    // Reserved for future use: threshold above which complexity is flagged as a risk factor.
+    #[allow(dead_code)]
     complexity_threshold: i32,
     security_severity_threshold: Severity,
 }

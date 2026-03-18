@@ -92,21 +92,21 @@ impl<'g> AnalysisContext<'g> {
     pub fn is_test_function(&self, qn: &str) -> bool {
         self.functions
             .get(qn)
-            .map_or(false, |fc| fc.role == FunctionRole::Test || fc.is_test)
+            .is_some_and(|fc| fc.role == FunctionRole::Test || fc.is_test)
     }
 
     /// Check if function is a utility function.
     pub fn is_utility_function(&self, qn: &str) -> bool {
         self.functions
             .get(qn)
-            .map_or(false, |fc| fc.role == FunctionRole::Utility)
+            .is_some_and(|fc| fc.role == FunctionRole::Utility)
     }
 
     /// Check if function is a hub function.
     pub fn is_hub_function(&self, qn: &str) -> bool {
         self.functions
             .get(qn)
-            .map_or(false, |fc| fc.role == FunctionRole::Hub)
+            .is_some_and(|fc| fc.role == FunctionRole::Hub)
     }
 
     // ── Reachability & public API accessors ──────────────────────────
@@ -155,7 +155,7 @@ impl<'g> AnalysisContext<'g> {
 
     /// Check if function is an HMM-classified handler.
     pub fn is_handler(&self, qn: &str) -> bool {
-        self.hmm_role(qn).map_or(false, |(role, conf)| {
+        self.hmm_role(qn).is_some_and(|(role, conf)| {
             role == crate::detectors::context_hmm::FunctionContext::Handler && conf > 0.5
         })
     }

@@ -19,6 +19,7 @@ use crate::git::co_change::CoChangeMatrix;
 ///
 /// Every field is immutable after construction. Query methods on `CodeGraph`
 /// read directly from these indexes — no locks, no scans.
+#[derive(Default)]
 pub struct GraphIndexes {
     // ── Kind indexes: which nodes are functions/classes/files ──
     pub(crate) functions: Vec<NodeIndex>,
@@ -62,36 +63,6 @@ pub struct GraphIndexes {
     pub(crate) primitives: super::primitives::GraphPrimitives,
 }
 
-impl Default for GraphIndexes {
-    fn default() -> Self {
-        Self {
-            functions: Vec::new(),
-            classes: Vec::new(),
-            files: Vec::new(),
-            call_callers: HashMap::new(),
-            call_callees: HashMap::new(),
-            import_sources: HashMap::new(),
-            import_targets: HashMap::new(),
-            inherit_parents: HashMap::new(),
-            inherit_children: HashMap::new(),
-            contains_children: HashMap::new(),
-            contains_parent: HashMap::new(),
-            uses_targets: HashMap::new(),
-            uses_sources: HashMap::new(),
-            modified_in: HashMap::new(),
-            functions_by_file: HashMap::new(),
-            classes_by_file: HashMap::new(),
-            all_nodes_by_file: HashMap::new(),
-            function_spatial: HashMap::new(),
-            all_call_edges: Vec::new(),
-            all_import_edges: Vec::new(),
-            all_inheritance_edges: Vec::new(),
-            import_cycles: Vec::new(),
-            edge_fingerprint: 0,
-            primitives: super::primitives::GraphPrimitives::default(),
-        }
-    }
-}
 
 
 impl GraphIndexes {

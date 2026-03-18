@@ -747,7 +747,7 @@ fn display_rule_fix(
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("No file path in finding"))?;
 
-            display_apply_result(&term, apply_rule_fix(path, file_path, finding, rule_fix))?;
+            display_apply_result(term, apply_rule_fix(path, file_path, finding, rule_fix))?;
         }
     } else if !should_apply {
         // AI upgrade suggestion for non-applicable fixes

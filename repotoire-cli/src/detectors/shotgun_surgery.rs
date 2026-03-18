@@ -279,7 +279,7 @@ impl ShotgunSurgeryDetector {
                 continue;
             }
 
-            let analysis = match self.analyze_class_impact(graph, &class, det_ctx, analysis_ctx) {
+            let analysis = match self.analyze_class_impact(graph, class, det_ctx, analysis_ctx) {
                 Some(a) => a,
                 None => continue,
             };

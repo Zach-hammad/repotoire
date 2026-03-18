@@ -70,15 +70,14 @@ pub(crate) fn precompute_test_context(lines: &[&str]) -> Vec<bool> {
         let trimmed = line.trim();
 
         // Detect test region start
-        if test_brace_depth.is_none() {
-            if trimmed.contains("#[cfg(test)]")
+        if test_brace_depth.is_none()
+            && (trimmed.contains("#[cfg(test)]")
                 || trimmed.starts_with("mod tests")
-                || trimmed.contains("#[test]")
+                || trimmed.contains("#[test]"))
             {
                 test_brace_depth = Some(brace_depth);
                 is_test[i] = true;
             }
-        }
 
         // Update brace depth
         for ch in line.chars() {

@@ -513,7 +513,7 @@ impl LazyClassDetector {
                     // that were previously matched by name patterns.
                     let has_important_method = methods.iter().any(|m| {
                         let mq = m.qn(i);
-                        ctx.functions.get(mq).map_or(false, |fc| {
+                        ctx.functions.get(mq).is_some_and(|fc| {
                             fc.betweenness > 0.05 || fc.role == FunctionRole::Hub
                         })
                     });
@@ -532,7 +532,7 @@ impl LazyClassDetector {
                     let handler_methods = methods
                         .iter()
                         .filter(|m| {
-                            ctx.hmm_role(m.qn(i)).map_or(false, |(role, conf)| {
+                            ctx.hmm_role(m.qn(i)).is_some_and(|(role, conf)| {
                                 role == crate::detectors::context_hmm::FunctionContext::Handler
                                     && conf > 0.5
                             })

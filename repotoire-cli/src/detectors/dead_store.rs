@@ -286,7 +286,7 @@ impl DeadStoreDetector {
                 // ── Find the line of the next assignment to the same variable
                 let assignment_line = assignment.line as usize;
                 // Convert to 0-indexed offset within function lines
-                if assignment_line == 0 || (assignment_line as usize) < func.line_start as usize {
+                if assignment_line == 0 || assignment_line < func.line_start as usize {
                     continue;
                 }
                 let func_relative_line = assignment_line.saturating_sub(func.line_start as usize);

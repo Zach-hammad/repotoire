@@ -327,7 +327,7 @@ fn find_function_at_line<'a>(
 /// Canonical sort: severity (desc), affected_files, line_start, detector, title.
 ///
 /// Ensures deterministic output across runs.
-pub fn sort_findings_deterministic(findings: &mut Vec<Finding>) {
+pub fn sort_findings_deterministic(findings: &mut [Finding]) {
     findings.sort_by(|a, b| {
         b.severity
             .cmp(&a.severity)

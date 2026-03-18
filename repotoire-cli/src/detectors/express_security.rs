@@ -155,7 +155,7 @@ impl Detector for ExpressSecurityDetector {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses Express
         let has_express = files.files_with_extensions(&["js", "ts"]).iter().any(|p| {
-            files.content(p).map_or(false, |c| c.contains("express"))
+            files.content(p).is_some_and(|c| c.contains("express"))
         });
         if !has_express {
             return Ok(vec![]);

@@ -58,8 +58,8 @@ fn compute_delta(result: &AnalysisResult, prev: Option<&AnalysisResult>) -> Watc
         )
     };
 
-    let prev_set: HashSet<_> = prev.findings.iter().map(|f| fingerprint(f)).collect();
-    let curr_set: HashSet<_> = result.findings.iter().map(|f| fingerprint(f)).collect();
+    let prev_set: HashSet<_> = prev.findings.iter().map(&fingerprint).collect();
+    let curr_set: HashSet<_> = result.findings.iter().map(&fingerprint).collect();
 
     let new_findings: Vec<Finding> = result
         .findings
@@ -200,7 +200,7 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
         iteration += 1;
 
         // Persist every 10 iterations
-        if iteration % 10 == 0 {
+        if iteration.is_multiple_of(10) {
             let _ = engine.save(&session_dir);
         }
     }

@@ -102,7 +102,7 @@ fn severity_weight(sev: Severity) -> f64 {
 /// * `findings`  - All findings from the analysis run.
 /// * `graph`     - Graph store implementing [`GraphQuery`].
 /// * `git_churn` - Map of file path to `(churn_score, author_count, age_days)`.
-///                 Pass an empty map when git data is unavailable.
+///   Pass an empty map when git data is unavailable.
 /// * `weights`   - Component weights (use [`DebtWeights::default()`] for defaults).
 ///
 /// Returns a vector of [`FileDebt`] sorted by `risk_score` descending.

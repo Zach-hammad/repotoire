@@ -62,7 +62,7 @@ impl Detector for MissingRandomSeedDetector {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses ML libraries
         let has_ml = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).map_or(false, |c| c.contains("torch") || c.contains("tensorflow") || c.contains("sklearn"))
+            files.content(p).is_some_and(|c| c.contains("torch") || c.contains("tensorflow") || c.contains("sklearn"))
         });
         if !has_ml {
             return Ok(vec![]);
@@ -184,7 +184,7 @@ impl Detector for ChainIndexingDetector {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses pandas
         let has_pandas = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).map_or(false, |c| c.contains("pandas") || c.contains("import pd"))
+            files.content(p).is_some_and(|c| c.contains("pandas") || c.contains("import pd"))
         });
         if !has_pandas {
             return Ok(vec![]);
@@ -301,7 +301,7 @@ impl Detector for RequireGradTypoDetector {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).map_or(false, |c| c.contains("torch") || c.contains("require_grad"))
+            files.content(p).is_some_and(|c| c.contains("torch") || c.contains("require_grad"))
         });
         if !has_torch {
             return Ok(vec![]);
@@ -426,7 +426,7 @@ impl Detector for DeprecatedTorchApiDetector {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).map_or(false, |c| c.contains("torch"))
+            files.content(p).is_some_and(|c| c.contains("torch"))
         });
         if !has_torch {
             return Ok(vec![]);

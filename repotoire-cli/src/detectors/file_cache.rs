@@ -47,6 +47,12 @@ impl FileContentCache {
     pub fn len(&self) -> usize {
         self.cache.len()
     }
+
+    /// Returns true if the cache is empty
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
 }
 
 impl Default for FileContentCache {

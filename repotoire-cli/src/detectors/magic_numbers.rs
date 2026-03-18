@@ -163,11 +163,10 @@ impl MagicNumbersDetector {
         if match_start > 0 {
             let prev = line.as_bytes()[match_start - 1];
             // "3.14" — the "14" part
-            if prev == b'.' {
-                if match_start >= 2 && line.as_bytes()[match_start - 2].is_ascii_digit() {
+            if prev == b'.'
+                && match_start >= 2 && line.as_bytes()[match_start - 2].is_ascii_digit() {
                     return true;
                 }
-            }
             // "1e10" — the "10" part
             if prev == b'e' || prev == b'E' {
                 return true;
@@ -299,7 +298,7 @@ impl MagicNumbersDetector {
             return true;
         }
         // Year constants (1900-2100)
-        if _num >= 1900 && _num <= 2100 {
+        if (1900..=2100).contains(&_num) {
             return true;
         }
         // Date strings or patterns

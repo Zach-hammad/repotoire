@@ -610,7 +610,7 @@ fn extract_class_methods(
             let is_async = func.kind() == "async_function_definition"
                 || func
                     .utf8_text(source)
-                    .map_or(false, |t| t.trim_start().starts_with("async"));
+                    .is_ok_and(|t| t.trim_start().starts_with("async"));
             let Some(name_node) = func.child_by_field_name("name") else {
                 continue;
             };

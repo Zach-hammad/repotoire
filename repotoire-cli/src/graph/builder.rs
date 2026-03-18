@@ -466,7 +466,7 @@ impl GraphBuilder {
                 .filter(|&idx| {
                     self.graph
                         .node_weight(idx)
-                        .map_or(false, |n| n.file_path == file_key)
+                        .is_some_and(|n| n.file_path == file_key)
                 })
                 .collect();
 

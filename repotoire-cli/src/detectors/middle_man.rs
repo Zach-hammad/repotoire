@@ -216,7 +216,7 @@ impl Detector for MiddleManDetector {
             }
 
             // Analyze delegation pattern
-            let analysis = match self.analyze_delegation(graph, &class) {
+            let analysis = match self.analyze_delegation(graph, class) {
                 Some(a) => a,
                 None => continue,
             };

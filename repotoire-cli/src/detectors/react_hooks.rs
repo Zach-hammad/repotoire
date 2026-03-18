@@ -138,7 +138,7 @@ impl Detector for ReactHooksDetector {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses React
         let has_react = files.files_with_extensions(&["jsx", "tsx", "js", "ts"]).iter().any(|p| {
-            files.content(p).map_or(false, |c| c.contains("react") || c.contains("React") || c.contains("useState") || c.contains("useEffect"))
+            files.content(p).is_some_and(|c| c.contains("react") || c.contains("React") || c.contains("useState") || c.contains("useEffect"))
         });
         if !has_react {
             return Ok(vec![]);

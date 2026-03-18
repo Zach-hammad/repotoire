@@ -68,17 +68,8 @@ pub(crate) fn get_ts_language(lang: Language) -> Option<tree_sitter::Language> {
     }
 }
 
-/// Helper: create a tree-sitter parser for the given language.
-/// Returns `None` if the language is unsupported or the parser fails to initialize.
-fn make_parser(lang: Language) -> Option<(Parser, tree_sitter::Language)> {
-    let ts_lang = get_ts_language(lang)?;
-    let mut parser = Parser::new();
-    parser.set_language(&ts_lang).ok()?;
-    Some((parser, ts_lang))
-}
-
-/// Thread-local cache of tree-sitter parsers keyed by Language discriminant.
-/// Avoids re-creating Parser objects per file in rayon parallel iterators.
+// Thread-local cache of tree-sitter parsers keyed by Language discriminant.
+// Avoids re-creating Parser objects per file in rayon parallel iterators.
 thread_local! {
     static TS_PARSER_CACHE: std::cell::RefCell<std::collections::HashMap<u8, Parser>> =
         std::cell::RefCell::new(std::collections::HashMap::new());

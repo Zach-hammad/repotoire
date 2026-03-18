@@ -36,6 +36,8 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
 /// Detects unsafe deserialization vulnerabilities
 pub struct PickleDeserializationDetector {
     config: DetectorConfig,
+    // Stored for potential future per-repo customization; not read yet.
+    #[allow(dead_code)]
     repository_path: PathBuf,
     max_findings: usize,
     exclude_patterns: Vec<String>,

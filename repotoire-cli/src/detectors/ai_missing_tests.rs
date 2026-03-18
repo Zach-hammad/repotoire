@@ -74,7 +74,9 @@ fn build_tested_functions(ctx: &AnalysisContext<'_>) -> HashSet<String> {
     while !queue.is_empty() && depth < MAX_BFS_DEPTH {
         let level_size = queue.len();
         for _ in 0..level_size {
-            let func_qn = queue.pop_front().unwrap();
+            let func_qn = queue
+                .pop_front()
+                .expect("queue checked non-empty in while condition");
             for callee in graph.get_callees(&func_qn) {
                 let callee_qn = callee.qn(i).to_string();
                 if tested.insert(callee_qn.clone()) {

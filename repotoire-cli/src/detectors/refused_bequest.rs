@@ -410,7 +410,7 @@ impl Detector for RefusedBequestDetector {
                                 "Class '{}' inherits from '{}' but may not use inherited behavior properly.\n\n\
                                  {} of {} methods appear to override without using parent.{}",
                                 child.node_name(i),
-                                parent_qn.rsplit("::").next().unwrap_or(&parent_qn),
+                                parent_qn.rsplit("::").next().unwrap_or(parent_qn),
                                 potential_refusals.len(),
                                 child_methods.len(),
                                 graph_notes

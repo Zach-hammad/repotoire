@@ -35,7 +35,11 @@ pub fn parse_stage(input: &ParseInput) -> Result<ParseOutput> {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(input.workers.max(1))
         .build()
-        .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+        .unwrap_or_else(|_| {
+            rayon::ThreadPoolBuilder::new()
+                .build()
+                .expect("failed to build fallback rayon thread pool")
+        });
 
     let results: Vec<Option<(PathBuf, Arc<ParseResult>)>> = pool.install(|| {
         input

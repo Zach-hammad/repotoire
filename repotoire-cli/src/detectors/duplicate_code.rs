@@ -130,7 +130,7 @@ impl DuplicateCodeDetector {
             return false;
         }
         containing_funcs.iter().all(|f| {
-            f.map_or(false, |qn_key| {
+            f.is_some_and(|qn_key| {
                 let qn = interner.resolve(qn_key);
                 Self::is_trait_impl(qn)
             })
@@ -148,7 +148,7 @@ impl DuplicateCodeDetector {
             return false;
         }
         containing_funcs.iter().all(|f| {
-            f.map_or(false, |qn_key| {
+            f.is_some_and(|qn_key| {
                 let qn = interner.resolve(qn_key);
                 ctx.is_infrastructure(qn)
             })
@@ -166,7 +166,7 @@ impl DuplicateCodeDetector {
             return false;
         }
         containing_funcs.iter().all(|f| {
-            f.map_or(false, |qn_key| {
+            f.is_some_and(|qn_key| {
                 let qn = interner.resolve(qn_key);
                 ctx.is_test_function(qn)
             })
@@ -330,7 +330,7 @@ impl Detector for DuplicateCodeDetector {
                     // Pre-normalize all lines once (avoids re-normalizing per window position)
                     let normalized: Vec<String> = content
                         .lines()
-                        .map(|l| Self::normalize_line(l))
+                        .map(Self::normalize_line)
                         .collect();
                     let mut file_blocks = Vec::new();
                     for i in 0..normalized.len().saturating_sub(min_lines) {
