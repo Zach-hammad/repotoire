@@ -244,6 +244,7 @@ const DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<HiddenCouplingDetector>(),
     register::<CommunityMisplacementDetector>(),
     register::<PageRankDriftDetector>(),
+    register::<TemporalBottleneckDetector>(),
 ];
 
 /// Create all registered detectors from a unified init context.
@@ -309,6 +310,7 @@ mod mutual_recursion;
 mod pagerank_drift;
 mod single_point_of_failure;
 mod structural_bridge_risk;
+mod temporal_bottleneck;
 
 // Security detectors
 mod eval_detector;
@@ -484,6 +486,7 @@ pub use mutual_recursion::MutualRecursionDetector;
 pub use pagerank_drift::PageRankDriftDetector;
 pub use single_point_of_failure::SinglePointOfFailureDetector;
 pub use structural_bridge_risk::StructuralBridgeRiskDetector;
+pub use temporal_bottleneck::TemporalBottleneckDetector;
 
 // Re-export security detectors
 pub use eval_detector::EvalDetector;
@@ -1115,9 +1118,9 @@ mod tests {
     fn test_create_all_detectors_registry() {
         let init = DetectorInit::test_default();
         let detectors = create_all_detectors(&init);
-        // 106 detectors registered (all patterns including config-based, resolver-based, etc.).
+        // 107 detectors registered (all patterns including config-based, resolver-based, etc.).
         // Update this number when adding/removing detectors.
-        assert_eq!(detectors.len(), 106);
+        assert_eq!(detectors.len(), 107);
     }
 
     #[test]
