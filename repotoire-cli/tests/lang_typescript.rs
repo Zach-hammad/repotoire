@@ -180,10 +180,11 @@ fn test_ts_debug_code() {
     let dir = setup_fixture_workspace(&["smells.ts"]);
     let findings = run_analyze(dir.path(), &["--format", "json"]);
 
-    // DebugCodeDetector does not currently support TypeScript
+    // DebugCodeDetector now fires on TypeScript (masked_content fallback fixed)
     assert!(
-        !has_detector(&findings, "DebugCodeDetector"),
-        "DebugCodeDetector does not yet support TypeScript"
+        has_detector(&findings, "DebugCodeDetector"),
+        "DebugCodeDetector should detect console.log in TypeScript. Found: {:?}",
+        detector_names(&findings)
     );
 }
 

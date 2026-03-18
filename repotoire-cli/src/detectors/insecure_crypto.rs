@@ -371,12 +371,25 @@ impl Detector for InsecureCryptoDetector {
             if !raw_lower.contains("md5") && !raw_lower.contains("sha1")
                 && !raw_lower.contains("sha-1") && !raw_lower.contains("hashlib")
                 && !raw_lower.contains("messagedigest")
+                && !raw_lower.contains("cipher") && !raw_lower.contains("des")
+                && !raw_lower.contains("rc4") && !raw_lower.contains("ecb")
+                && !raw_lower.contains("blowfish")
             {
                 continue;
             }
 
-            if let Some(content) = files.masked_content(path) {
-                let lines: Vec<&str> = content.lines().collect();
+            // Use masked content for hash detection (matches function names),
+            // but raw content for cipher detection (cipher names are inside string literals
+            // like Cipher.getInstance("DES") which get masked to spaces)
+            let masked = files.masked_content(path);
+            if masked.is_none() {
+                continue;
+            }
+            let masked = masked.unwrap();
+            let masked_lines: Vec<&str> = masked.lines().collect();
+            let raw_lines: Vec<&str> = raw.lines().collect();
+            {
+                let lines = &masked_lines;
                 let mut in_non_crypto_func = false;
                 let mut func_indent: usize = 0;
                 for (i, line) in lines.iter().enumerate() {
@@ -460,8 +473,10 @@ impl Detector for InsecureCryptoDetector {
                             ..Default::default()
                         });
                     }
-                    // Check for weak cipher usage, but skip mere mentions
-                    if WEAK_CIPHER.is_match(line) && !is_cipher_mention_not_usage(line) {
+                    // Check for weak cipher usage on RAW content (cipher names like "DES"
+                    // are inside string literals that get masked to spaces)
+                    let raw_line = raw_lines.get(i).unwrap_or(&"");
+                    if WEAK_CIPHER.is_match(raw_line) && !is_cipher_mention_not_usage(raw_line) {
                         findings.push(Finding {
                             id: String::new(),
                             detector: "InsecureCryptoDetector".to_string(),
@@ -483,6 +498,10 @@ impl Detector for InsecureCryptoDetector {
             }
         }
         Ok(findings)
+    }
+
+    fn bypass_postprocessor(&self) -> bool {
+        true
     }
 }
 
@@ -653,6 +672,20 @@ mod tests {
             findings.is_empty(),
             "Should not flag hashes in release/build scripts. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_detects_java_des_cipher() {
+        let store = GraphStore::in_memory();
+        let detector = InsecureCryptoDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("CryptoUtil.java", "import javax.crypto.*;\n\npublic class CryptoUtil {\n    public byte[] encrypt(byte[] data) throws Exception {\n        Cipher cipher = Cipher.getInstance(\"DES\");\n        return cipher.doFinal(data);\n    }\n}\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect Cipher.getInstance(\"DES\") as weak cipher"
         );
     }
 }

@@ -100,10 +100,11 @@ fn java_detects_sql_injection() {
 fn java_detects_insecure_crypto() {
     let (report, _) = analyze_java();
     let detectors = detector_names(&report);
-    // InsecureCryptoDetector does not currently support Java
+    // InsecureCryptoDetector now fires on Java (DES/MD5/ECB detection)
     assert!(
-        !detectors.iter().any(|d| d.contains("crypto") || d.contains("Crypto")),
-        "InsecureCryptoDetector does not yet support Java"
+        detectors.iter().any(|d| d.contains("crypto") || d.contains("Crypto")),
+        "InsecureCryptoDetector should detect DES/MD5/ECB in Java. Found: {:?}",
+        detectors
     );
 }
 

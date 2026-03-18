@@ -359,21 +359,13 @@ impl<'a> crate::detectors::file_provider::FileProvider for AnalysisContextFilePr
         if cached.is_some() {
             return cached;
         }
-        // Fall back to basic string masking from FileIndex for tests/edge cases
-        // where global cache isn't populated.
-        #[cfg(test)]
-        {
-            return self.ctx.files.get(path).map(|e| {
-                let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
-                if matches!(ext, "py" | "pyi") {
-                    Arc::new(crate::detectors::file_provider::mask_python_strings(&e.content))
-                } else {
-                    Arc::new(e.content.to_string())
-                }
-            });
-        }
-        #[cfg(not(test))]
-        None
+        // Fall back to computing masked content from FileIndex content.
+        // This handles cases where the global cache can't read the file
+        // (e.g., relative paths from FileIndex that differ from cache keys).
+        self.ctx.files.get(path).map(|e| {
+            let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            Arc::new(crate::cache::masking::mask_non_code(&e.content, ext))
+        })
     }
 
     fn repo_path(&self) -> &Path {
