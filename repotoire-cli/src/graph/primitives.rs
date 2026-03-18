@@ -1354,11 +1354,201 @@ impl Ord for OrderedF64 {
 }
 
 fn compute_communities(
-    _overlay: &StableGraph<NodeIndex, f32>,
-    _resolution: f64,
+    overlay: &StableGraph<NodeIndex, f32>,
+    resolution: f64,
 ) -> (HashMap<NodeIndex, usize>, f64) {
-    // Stub: implemented in Task 7.
-    (HashMap::new(), 0.0)
+    let _span = tracing::info_span!("louvain_communities").entered();
+
+    let node_indices: Vec<NodeIndex> = {
+        let mut v: Vec<_> = overlay.node_indices().collect();
+        v.sort();
+        v
+    };
+
+    if node_indices.is_empty() {
+        return (HashMap::new(), 0.0);
+    }
+
+    // Treat as undirected: for each directed edge (u->v, w), both u and v get
+    // weight w contributed. We pre-compute symmetric neighbor weights.
+    // neighbor_weights[n] = map of neighbor overlay NodeIndex → sum of weights
+    // between n and that neighbor (both directions).
+    let mut neighbor_weights: HashMap<NodeIndex, HashMap<NodeIndex, f64>> = HashMap::new();
+    for n in &node_indices {
+        neighbor_weights.insert(*n, HashMap::new());
+    }
+    for edge_id in overlay.edge_indices() {
+        let (u, v) = overlay.edge_endpoints(edge_id).unwrap();
+        let w = overlay[edge_id] as f64;
+        // Treat directed graph as undirected: each directed edge u→v with weight w
+        // contributes w to both u's and v's neighborhoods.
+        *neighbor_weights.entry(u).or_default().entry(v).or_insert(0.0) += w;
+        *neighbor_weights.entry(v).or_default().entry(u).or_insert(0.0) += w;
+    }
+
+    // node strength k_i = sum of all incident edge weights (undirected treatment).
+    // k_i = sum of neighbor_weights[i] values.
+    let mut strength: HashMap<NodeIndex, f64> = HashMap::new();
+    for &n in &node_indices {
+        let k: f64 = neighbor_weights
+            .get(&n)
+            .map(|nw| nw.values().sum())
+            .unwrap_or(0.0);
+        strength.insert(n, k);
+    }
+
+    // Standard modularity identity: 2m = Σ k_i = total undirected edge weight.
+    // Each directed edge (u→v, w) contributes w to both k_u and k_v, so
+    // Σ k_i = 2 * (sum of directed edge weights).
+    let total_2m: f64 = strength.values().sum();
+
+    if total_2m <= 0.0 {
+        // No edges: each node is its own community, modularity 0
+        let mut community_map = HashMap::new();
+        for (i, &n) in node_indices.iter().enumerate() {
+            community_map.insert(overlay[n], i);
+        }
+        return (community_map, 0.0);
+    }
+
+    let m = total_2m / 2.0;
+
+    // Community assignment: overlay NodeIndex → community ID
+    let mut community: HashMap<NodeIndex, usize> = HashMap::new();
+    for (i, &n) in node_indices.iter().enumerate() {
+        community.insert(n, i);
+    }
+
+    // sigma_tot[c] = sum of strengths of all nodes in community c
+    let mut sigma_tot: HashMap<usize, f64> = HashMap::new();
+    for &n in &node_indices {
+        let c = community[&n];
+        *sigma_tot.entry(c).or_insert(0.0) += strength[&n];
+    }
+
+    // Phase 1: Local moves until convergence
+    loop {
+        let mut improved = false;
+
+        for &n in &node_indices {
+            let k_i = strength[&n];
+            let current_comm = community[&n];
+
+            // Compute sum of weights from n to each neighboring community
+            let mut comm_weights: HashMap<usize, f64> = HashMap::new();
+            if let Some(nw) = neighbor_weights.get(&n) {
+                for (&neighbor, &w) in nw {
+                    let nc = community[&neighbor];
+                    *comm_weights.entry(nc).or_insert(0.0) += w;
+                }
+            }
+
+            // Weight from n to its own community (excluding self)
+            let k_i_current = comm_weights.get(&current_comm).copied().unwrap_or(0.0);
+
+            // Remove node from its current community for delta computation
+            let sigma_tot_current = sigma_tot[&current_comm] - k_i;
+
+            // Evaluate moving to each neighboring community
+            let mut best_comm = current_comm;
+            let mut best_delta = 0.0;
+
+            for (&target_comm, &k_i_target) in &comm_weights {
+                if target_comm == current_comm {
+                    continue;
+                }
+                let sigma_tot_target = sigma_tot[&target_comm];
+
+                // Delta Q = [k_i_target / m - resolution * sigma_tot_target * k_i / (2 * m^2)]
+                //         - [k_i_current / m - resolution * sigma_tot_current * k_i / (2 * m^2)]
+                let delta = (k_i_target - k_i_current) / m
+                    - resolution * k_i * (sigma_tot_target - sigma_tot_current) / (2.0 * m * m);
+
+                if delta > best_delta {
+                    best_delta = delta;
+                    best_comm = target_comm;
+                }
+            }
+
+            if best_comm != current_comm {
+                // Move node n from current_comm to best_comm
+                sigma_tot.entry(current_comm).and_modify(|v| *v -= k_i);
+                *sigma_tot.entry(best_comm).or_insert(0.0) += k_i;
+                community.insert(n, best_comm);
+                improved = true;
+            }
+        }
+
+        if !improved {
+            break;
+        }
+    }
+
+    // Compute final modularity Q
+    let modularity = compute_modularity(overlay, &community, &strength, m, resolution);
+
+    // Map from overlay NodeIndex → original NodeIndex (stored as node weight),
+    // and renumber communities to be contiguous 0..k
+    let mut comm_renumber: HashMap<usize, usize> = HashMap::new();
+    let mut next_id = 0usize;
+    let mut result: HashMap<NodeIndex, usize> = HashMap::new();
+    // Process in sorted order for deterministic renumbering
+    for &n in &node_indices {
+        let c = community[&n];
+        let new_c = *comm_renumber.entry(c).or_insert_with(|| {
+            let id = next_id;
+            next_id += 1;
+            id
+        });
+        let original_idx = overlay[n];
+        result.insert(original_idx, new_c);
+    }
+
+    (result, modularity)
+}
+
+/// Compute modularity Q for a given community assignment.
+fn compute_modularity(
+    overlay: &StableGraph<NodeIndex, f32>,
+    community: &HashMap<NodeIndex, usize>,
+    strength: &HashMap<NodeIndex, f64>,
+    m: f64,
+    resolution: f64,
+) -> f64 {
+    // Q = (1/2m) * Σ_ij [A_ij - resolution * k_i * k_j / (2m)] * δ(c_i, c_j)
+    // We compute this edge-by-edge for efficiency.
+    let two_m = 2.0 * m;
+
+    // Sum of (k_i * k_j / 2m) for all pairs in same community
+    // = Σ_c (Σ_{i in c} k_i)^2 / (2m)
+    let mut sigma_sq_sum = 0.0;
+    let mut comm_sigma: HashMap<usize, f64> = HashMap::new();
+    for (&n, &c) in community {
+        *comm_sigma.entry(c).or_insert(0.0) += strength[&n];
+    }
+    for &s in comm_sigma.values() {
+        sigma_sq_sum += s * s;
+    }
+
+    // Sum of A_ij for pairs in same community (undirected: count each directed edge once,
+    // but contribute to both i-j directions, so add w for each directed edge where c_i == c_j)
+    let mut internal_weight = 0.0;
+    for edge_id in overlay.edge_indices() {
+        let (u, v) = overlay.edge_endpoints(edge_id).unwrap();
+        if community[&u] == community[&v] {
+            // Each directed edge contributes w to the undirected sum
+            // (the full A_ij matrix double-counts, and we sum over all i,j pairs)
+            internal_weight += overlay[edge_id] as f64;
+        }
+    }
+
+    // Q = internal_weight / (2m) - resolution * sigma_sq_sum / (2m)^2
+    // Note: internal_weight counts each directed edge once. In the undirected A_ij matrix,
+    // A_ij = A_ji, so the sum over all ordered pairs (i,j) where i!=j gives 2 * directed_sum.
+    // But the modularity formula sums over all ordered (i,j) pairs including both directions.
+    // Since our directed edges represent one direction, and we add both u->v and v->u neighbor
+    // weights, the sum Σ_{ij} A_ij δ(c_i,c_j) = 2 * internal_weight.
+    (2.0 * internal_weight) / two_m - resolution * sigma_sq_sum / (two_m * two_m)
 }
 
 #[cfg(test)]
@@ -2244,5 +2434,111 @@ mod tests {
             bc_center > 0.0,
             "Center betweenness should be positive, got {bc_center}"
         );
+    }
+
+    // ── Louvain community detection tests ──
+
+    #[test]
+    fn test_two_cliques_two_communities() {
+        // Two disconnected 3-node cliques with bidirectional edges.
+        // Clique 1: nodes 0,1,2. Clique 2: nodes 3,4,5.
+        // Louvain should detect exactly 2 communities.
+        let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
+        let orig_0 = NodeIndex::new(0);
+        let orig_1 = NodeIndex::new(1);
+        let orig_2 = NodeIndex::new(2);
+        let orig_3 = NodeIndex::new(3);
+        let orig_4 = NodeIndex::new(4);
+        let orig_5 = NodeIndex::new(5);
+
+        let n0 = overlay.add_node(orig_0);
+        let n1 = overlay.add_node(orig_1);
+        let n2 = overlay.add_node(orig_2);
+        let n3 = overlay.add_node(orig_3);
+        let n4 = overlay.add_node(orig_4);
+        let n5 = overlay.add_node(orig_5);
+
+        // Clique 1: bidirectional edges between 0, 1, 2
+        overlay.add_edge(n0, n1, 1.0);
+        overlay.add_edge(n1, n0, 1.0);
+        overlay.add_edge(n0, n2, 1.0);
+        overlay.add_edge(n2, n0, 1.0);
+        overlay.add_edge(n1, n2, 1.0);
+        overlay.add_edge(n2, n1, 1.0);
+
+        // Clique 2: bidirectional edges between 3, 4, 5
+        overlay.add_edge(n3, n4, 1.0);
+        overlay.add_edge(n4, n3, 1.0);
+        overlay.add_edge(n3, n5, 1.0);
+        overlay.add_edge(n5, n3, 1.0);
+        overlay.add_edge(n4, n5, 1.0);
+        overlay.add_edge(n5, n4, 1.0);
+
+        let (community_map, modularity) = compute_communities(&overlay, 1.0);
+
+        assert_eq!(community_map.len(), 6, "Should have 6 entries");
+
+        // Nodes in clique 1 should share the same community
+        let c0 = community_map[&orig_0];
+        let c1 = community_map[&orig_1];
+        let c2 = community_map[&orig_2];
+        assert_eq!(c0, c1, "Nodes 0 and 1 should be in the same community");
+        assert_eq!(c0, c2, "Nodes 0 and 2 should be in the same community");
+
+        // Nodes in clique 2 should share the same community
+        let c3 = community_map[&orig_3];
+        let c4 = community_map[&orig_4];
+        let c5 = community_map[&orig_5];
+        assert_eq!(c3, c4, "Nodes 3 and 4 should be in the same community");
+        assert_eq!(c3, c5, "Nodes 3 and 5 should be in the same community");
+
+        // The two cliques should be in different communities
+        assert_ne!(c0, c3, "Clique 1 and clique 2 should be in different communities");
+
+        // Exactly 2 distinct communities
+        let distinct: HashSet<usize> = community_map.values().copied().collect();
+        assert_eq!(distinct.len(), 2, "Should find exactly 2 communities");
+
+        // Modularity should be positive for well-separated communities
+        assert!(
+            modularity > 0.0,
+            "Modularity should be positive for two disconnected cliques, got {modularity}"
+        );
+        println!("Two cliques modularity: {modularity}");
+    }
+
+    #[test]
+    fn test_single_clique_one_community() {
+        // One 3-node clique with bidirectional edges → all nodes in same community.
+        let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
+        let orig_0 = NodeIndex::new(10);
+        let orig_1 = NodeIndex::new(11);
+        let orig_2 = NodeIndex::new(12);
+
+        let n0 = overlay.add_node(orig_0);
+        let n1 = overlay.add_node(orig_1);
+        let n2 = overlay.add_node(orig_2);
+
+        // Full clique: bidirectional edges
+        overlay.add_edge(n0, n1, 1.0);
+        overlay.add_edge(n1, n0, 1.0);
+        overlay.add_edge(n0, n2, 1.0);
+        overlay.add_edge(n2, n0, 1.0);
+        overlay.add_edge(n1, n2, 1.0);
+        overlay.add_edge(n2, n1, 1.0);
+
+        let (community_map, modularity) = compute_communities(&overlay, 1.0);
+
+        assert_eq!(community_map.len(), 3, "Should have 3 entries");
+
+        // All nodes should be in the same community
+        let c0 = community_map[&orig_0];
+        let c1 = community_map[&orig_1];
+        let c2 = community_map[&orig_2];
+        assert_eq!(c0, c1, "All nodes should be in the same community");
+        assert_eq!(c0, c2, "All nodes should be in the same community");
+
+        // For a single clique the modularity is 0 (no inter-community structure)
+        println!("Single clique modularity: {modularity}");
     }
 }
