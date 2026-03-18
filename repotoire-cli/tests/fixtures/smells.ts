@@ -233,9 +233,10 @@ function mergeDeep(target: any, source: any): any {
     return target;
 }
 
-function unsafeAssign(obj: any, key: string, value: any): void {
+function unsafeAssign(req: any): void {
+    const data = req.body;
+    const obj = JSON.parse(data);
     obj.__proto__.polluted = true;
-    obj[key] = value;
 }
 
 function setProperty(obj: any, path: string, value: any): void {

@@ -162,11 +162,12 @@ fn test_ts_magic_numbers() {
     let dir = setup_fixture_workspace(&["smells.ts"]);
     let findings = run_analyze(dir.path(), &["--format", "json"]);
 
-    // MagicNumbersDetector does not currently support TypeScript
+    // MagicNumbersDetector now fires on TypeScript
     assert!(
-        !has_detector(&findings, "MagicNumbersDetector")
-            && !has_detector(&findings, "MagicNumberDetector"),
-        "MagicNumbersDetector does not yet support TypeScript"
+        has_detector(&findings, "MagicNumbersDetector")
+            || has_detector(&findings, "MagicNumberDetector"),
+        "MagicNumbersDetector should detect magic numbers in TypeScript. Found: {:?}",
+        detector_names(&findings)
     );
 }
 
@@ -211,10 +212,11 @@ fn test_ts_implicit_coercion() {
     let dir = setup_fixture_workspace(&["smells.ts"]);
     let findings = run_analyze(dir.path(), &["--format", "json"]);
 
-    // ImplicitCoercionDetector does not currently support TypeScript
+    // ImplicitCoercionDetector now fires on TypeScript
     assert!(
-        !has_detector(&findings, "ImplicitCoercionDetector"),
-        "ImplicitCoercionDetector does not yet support TypeScript"
+        has_detector(&findings, "ImplicitCoercionDetector"),
+        "ImplicitCoercionDetector should detect == usage in TypeScript. Found: {:?}",
+        detector_names(&findings)
     );
 }
 
@@ -263,11 +265,11 @@ fn test_ts_prototype_pollution() {
     let dir = setup_fixture_workspace(&["smells.ts"]);
     let findings = run_analyze(dir.path(), &["--format", "json"]);
 
-    // PrototypePollutionDetector does not currently support TypeScript
+    // PrototypePollutionDetector fires when __proto__ is used with user input (req.body)
     assert!(
-        !has_detector(&findings, "PrototypePollutionDetector")
-            && !has_finding_about(&findings, "prototype"),
-        "PrototypePollutionDetector does not yet support TypeScript"
+        has_detector(&findings, "PrototypePollutionDetector"),
+        "Should detect __proto__ pollution with user input. Found detectors: {:?}",
+        detector_names(&findings)
     );
 }
 

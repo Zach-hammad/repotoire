@@ -165,12 +165,13 @@ fn java_detects_deep_nesting() {
 fn java_detects_magic_numbers() {
     let (report, _) = analyze_java();
     let detectors = detector_names(&report);
-    // MagicNumbersDetector does not currently support Java
+    // MagicNumbersDetector now fires on Java
     assert!(
-        !detectors
+        detectors
             .iter()
             .any(|d| d.contains("magic") || d.contains("Magic")),
-        "MagicNumbersDetector does not yet support Java"
+        "MagicNumbersDetector should detect magic numbers in Java. Found: {:?}",
+        detectors
     );
 }
 
