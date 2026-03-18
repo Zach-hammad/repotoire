@@ -10,7 +10,6 @@ mod findings;
 mod fix;
 mod graph;
 mod init;
-mod serve;
 mod status;
 mod tui;
 mod watch;
@@ -54,7 +53,6 @@ Examples:
   repotoire analyze . --format json    JSON output for scripting
   repotoire findings --severity high   Show only high+ findings
   repotoire graph . functions          List all functions in the graph
-  repotoire serve                      Start MCP server for AI assistants
 
 Documentation: https://github.com/repotoire/repotoire"
 )]
@@ -350,17 +348,6 @@ Examples:
     /// Show version information
     Version,
 
-    /// Start MCP server for AI assistant integration (Claude Code, Cursor, etc.)
-    Serve {
-        /// Force local-only mode (disable PRO API features)
-        #[arg(long)]
-        local: bool,
-
-        /// Optional HTTP port for Streamable HTTP transport (default: stdio)
-        #[arg(long)]
-        http_port: Option<u16>,
-    },
-
     /// Manage configuration (init, show, or set config values)
     Config {
         #[command(subcommand)]
@@ -597,8 +584,6 @@ pub fn run(cli: Cli) -> Result<()> {
             println!("repotoire {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
-
-        Some(Commands::Serve { local, http_port }) => serve::run(&cli.path, local, http_port),
 
         Some(Commands::Config { action }) => run_config_action(action),
 
@@ -843,7 +828,7 @@ fn check_unknown_subcommand(path: &std::path::Path) -> anyhow::Result<()> {
     }
     let known_commands = [
         "init", "analyze", "diff", "findings", "fix", "graph", "stats", "status", "doctor",
-        "clean", "version", "serve", "debt",
+        "clean", "version", "debt",
     ];
     if !known_commands.contains(&path_str.as_ref()) {
         anyhow::bail!(

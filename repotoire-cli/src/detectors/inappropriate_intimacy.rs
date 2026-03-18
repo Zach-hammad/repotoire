@@ -233,7 +233,7 @@ impl Detector for InappropriateIntimacyDetector {
                 return true;
             }
             // Handlers can call core modules
-            if from.contains("/handlers/") || from.contains("/mcp/") {
+            if from.contains("/handlers/") {
                 return true;
             }
             // Tests can call anything
