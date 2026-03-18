@@ -43,6 +43,18 @@ pub struct GraphPrimitives {
 
     // ── BFS call depth ──
     pub(crate) call_depth: HashMap<NodeIndex, usize>,
+
+    // ── Weighted centrality metrics (Phase B) ──
+    pub(crate) weighted_page_rank: HashMap<NodeIndex, f64>,
+    pub(crate) weighted_betweenness: HashMap<NodeIndex, f64>,
+
+    // ── Community structure (Phase B) ──
+    pub(crate) community: HashMap<NodeIndex, usize>,
+    pub(crate) modularity: f64,
+
+    // ── Hidden coupling: co-change without structural edge (Phase B) ──
+    // NodeIndex values are File-level node indices.
+    pub(crate) hidden_coupling: Vec<(NodeIndex, NodeIndex, f32)>,
 }
 
 impl GraphPrimitives {
@@ -57,7 +69,7 @@ impl GraphPrimitives {
         call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
         call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
         edge_fingerprint: u64,
-        _co_change: Option<&CoChangeMatrix>,
+        co_change: Option<&CoChangeMatrix>,
     ) -> Self {
         if functions.is_empty() || all_call_edges.is_empty() {
             return Self::default();
@@ -100,6 +112,21 @@ impl GraphPrimitives {
         // 4. BFS call depths
         let call_depth = compute_call_depths(functions, call_callees, call_callers);
 
+        // Phase B: Weighted overlay + weighted algorithms
+        let (weighted_page_rank, weighted_betweenness, community, modularity, hidden_coupling) =
+            if let Some(co_change) = co_change {
+                if !co_change.is_empty() {
+                    compute_weighted_phase(
+                        functions, files, all_call_edges, all_import_edges,
+                        co_change, graph, edge_fingerprint,
+                    )
+                } else {
+                    (HashMap::new(), HashMap::new(), HashMap::new(), 0.0, Vec::new())
+                }
+            } else {
+                (HashMap::new(), HashMap::new(), HashMap::new(), 0.0, Vec::new())
+            };
+
         Self {
             idom,
             dominated,
@@ -113,6 +140,11 @@ impl GraphPrimitives {
             page_rank,
             betweenness,
             call_depth,
+            weighted_page_rank,
+            weighted_betweenness,
+            community,
+            modularity,
+            hidden_coupling,
         }
     }
 }
@@ -915,6 +947,79 @@ fn compute_betweenness(
         .enumerate()
         .map(|(i, &ni)| (ni, betweenness[i]))
         .collect()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase B: Weighted overlay + community detection
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Phase B: Compute weighted graph algorithms using co-change overlay.
+fn compute_weighted_phase(
+    functions: &[NodeIndex],
+    files: &[NodeIndex],
+    all_call_edges: &[(NodeIndex, NodeIndex)],
+    all_import_edges: &[(NodeIndex, NodeIndex)],
+    co_change: &CoChangeMatrix,
+    graph: &StableGraph<CodeNode, CodeEdge>,
+    edge_fingerprint: u64,
+) -> (HashMap<NodeIndex, f64>, HashMap<NodeIndex, f64>, HashMap<NodeIndex, usize>, f64, Vec<(NodeIndex, NodeIndex, f32)>) {
+    let (overlay, hidden_coupling) = build_weighted_overlay(
+        functions, files, all_call_edges, all_import_edges, co_change, graph,
+    );
+
+    if overlay.node_count() == 0 {
+        return (HashMap::new(), HashMap::new(), HashMap::new(), 0.0, hidden_coupling);
+    }
+
+    // Run weighted algorithms in parallel
+    let (weighted_pr, (weighted_bw, (community, modularity))) = rayon::join(
+        || compute_weighted_page_rank(&overlay, 20, 0.85, 1e-6),
+        || rayon::join(
+            || compute_weighted_betweenness(&overlay, 200, edge_fingerprint),
+            || compute_communities(&overlay, 1.0),
+        ),
+    );
+
+    (weighted_pr, weighted_bw, community, modularity, hidden_coupling)
+}
+
+fn build_weighted_overlay(
+    _functions: &[NodeIndex],
+    _files: &[NodeIndex],
+    _all_call_edges: &[(NodeIndex, NodeIndex)],
+    _all_import_edges: &[(NodeIndex, NodeIndex)],
+    _co_change: &CoChangeMatrix,
+    _graph: &StableGraph<CodeNode, CodeEdge>,
+) -> (StableGraph<NodeIndex, f32>, Vec<(NodeIndex, NodeIndex, f32)>) {
+    // Stub: returns empty overlay. Implemented in Task 4.
+    (StableGraph::new(), Vec::new())
+}
+
+fn compute_weighted_page_rank(
+    _overlay: &StableGraph<NodeIndex, f32>,
+    _iterations: usize,
+    _damping: f64,
+    _tolerance: f64,
+) -> HashMap<NodeIndex, f64> {
+    // Stub: implemented in Task 5.
+    HashMap::new()
+}
+
+fn compute_weighted_betweenness(
+    _overlay: &StableGraph<NodeIndex, f32>,
+    _sample_size: usize,
+    _edge_fingerprint: u64,
+) -> HashMap<NodeIndex, f64> {
+    // Stub: implemented in Task 6.
+    HashMap::new()
+}
+
+fn compute_communities(
+    _overlay: &StableGraph<NodeIndex, f32>,
+    _resolution: f64,
+) -> (HashMap<NodeIndex, usize>, f64) {
+    // Stub: implemented in Task 7.
+    (HashMap::new(), 0.0)
 }
 
 #[cfg(test)]
