@@ -523,6 +523,16 @@ impl GraphBuilder {
         CodeGraph::from_parts(self.graph, self.node_index, self.extra_props, indexes)
     }
 
+    /// Consume the builder, build all indexes with co-change data, produce an immutable `CodeGraph`.
+    ///
+    /// Same as `freeze()` but also passes co-change data to `GraphPrimitives`
+    /// so that weighted overlay, hidden coupling, etc. are computed.
+    #[cfg(test)]
+    pub fn freeze_with_co_change(self, co_change: &crate::git::co_change::CoChangeMatrix) -> CodeGraph {
+        let indexes = GraphIndexes::build(&self.graph, &self.node_index, Some(co_change));
+        CodeGraph::from_parts(self.graph, self.node_index, self.extra_props, indexes)
+    }
+
     /// Create a builder from a frozen CodeGraph (takes ownership).
     ///
     /// Moves the StableGraph without copying nodes/edges.
