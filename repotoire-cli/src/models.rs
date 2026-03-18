@@ -94,6 +94,10 @@ pub struct Finding {
     /// Confidence score from 0.0 to 1.0 (set by voting engine or detector)
     #[serde(default)]
     pub confidence: Option<f64>,
+    /// Whether this finding was produced by a deterministic (mathematically provable) detector.
+    /// Deterministic findings bypass statistical FP classifiers.
+    #[serde(default)]
+    pub deterministic: bool,
     /// Threshold metadata for adaptive explainability
     /// Keys: threshold_source, effective_threshold, actual_value, default_threshold
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty", deserialize_with = "deserialize_null_as_empty_map")]

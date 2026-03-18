@@ -438,6 +438,7 @@ mod tests {
             cwe_id: None,
             why_it_matters: None,
             confidence: None,
+            deterministic: false,
             threshold_metadata: Default::default(),
         };
 

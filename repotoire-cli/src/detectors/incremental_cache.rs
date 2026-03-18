@@ -55,6 +55,8 @@ struct CachedFinding {
     #[serde(default)]
     pub confidence: Option<f64>,
     #[serde(default)]
+    pub deterministic: bool,
+    #[serde(default)]
     pub threshold_metadata: std::collections::BTreeMap<String, String>,
 }
 
@@ -79,6 +81,7 @@ impl From<&Finding> for CachedFinding {
             cwe_id: f.cwe_id.clone(),
             why_it_matters: f.why_it_matters.clone(),
             confidence: f.confidence,
+            deterministic: f.deterministic,
             threshold_metadata: f.threshold_metadata.clone(),
         }
     }
@@ -110,6 +113,7 @@ impl CachedFinding {
             cwe_id: self.cwe_id.clone(),
             why_it_matters: self.why_it_matters.clone(),
             confidence: self.confidence,
+            deterministic: self.deterministic,
             threshold_metadata: self.threshold_metadata.clone(),
         }
     }

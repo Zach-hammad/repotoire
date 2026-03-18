@@ -75,6 +75,10 @@ impl Detector for StructuralBridgeRiskDetector {
         DetectorScope::GraphWide
     }
 
+    fn is_deterministic(&self) -> bool {
+        true
+    }
+
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let gi = graph.interner();
@@ -139,7 +143,8 @@ impl Detector for StructuralBridgeRiskDetector {
                 id: String::new(),
                 detector: "structural-bridge-risk".to_string(),
                 severity,
-                confidence: Some(0.95), // Graph-theoretic: articulation points are mathematically provable
+                confidence: Some(0.95),
+                deterministic: true, // Graph-theoretic: articulation points are mathematically provable
                 title: format!(
                     "Structural bridge: `{}` separates components of [{}]",
                     func_name,

@@ -427,6 +427,18 @@ pub trait Detector: Send + Sync {
         super::detector_context::ContentFlags::empty()
     }
 
+    /// Whether this detector produces mathematically deterministic results.
+    ///
+    /// Deterministic detectors use provable graph algorithms (dominator trees,
+    /// SCCs, articulation points) rather than heuristics. Their findings should
+    /// NOT be filtered by statistical FP classifiers (GBDT) since the results
+    /// are mathematically certain, not probabilistic.
+    ///
+    /// Default: false (most detectors are heuristic-based).
+    fn is_deterministic(&self) -> bool {
+        false
+    }
+
 }
 
 /// Progress callback for detector execution

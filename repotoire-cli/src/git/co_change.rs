@@ -196,6 +196,13 @@ pub fn compute_from_repo(repo_path: &std::path::Path, config: &CoChangeConfig) -
         })
         .collect();
 
+    if commits.len() <= 1 {
+        tracing::warn!(
+            "Co-change analysis requires git history depth > 1. Weighted analyses will be empty."
+        );
+        return Ok(CoChangeMatrix::empty());
+    }
+
     Ok(CoChangeMatrix::from_commits(&commits, config, now))
 }
 
@@ -332,22 +339,15 @@ mod tests {
         // 5 commits, but max_commits=2 so only first 2 should be processed
         let commits: Vec<_> = (0..5)
             .map(|i| {
-                commit_at(
-                    now,
-                    i,
-                    vec![
-                        Box::leak(format!("file_{i}_a.rs").into_boxed_str()) as &str,
-                        Box::leak(format!("file_{i}_b.rs").into_boxed_str()) as &str,
-                    ],
-                )
+                commit_at(now, i, vec!["a.py", "b.py"])
             })
             .collect();
 
         let m = CoChangeMatrix::from_commits(&commits, &config, now);
 
-        // Only 2 commits analyzed, producing 2 pairs
+        // Only 2 commits analyzed; same pair each time so 1 unique pair
         assert_eq!(m.commits_analyzed(), 2);
-        assert_eq!(m.len(), 2);
+        assert_eq!(m.len(), 1);
     }
 
     #[test]

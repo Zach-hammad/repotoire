@@ -318,6 +318,8 @@ impl CircularDependencyDetector {
             estimated_effort: Some(Self::estimate_effort(scc_size)),
             category: Some("architecture".to_string()),
             cwe_id: None,
+            confidence: Some(0.95),
+            deterministic: true, // Graph-theoretic: Tarjan SCC is mathematically provable
             why_it_matters: Some(
                 "Circular dependencies make code harder to understand, test, and maintain. \
                  They can cause import errors at runtime and make it difficult to refactor \
@@ -355,6 +357,10 @@ impl Detector for CircularDependencyDetector {
     fn detector_scope(&self) -> DetectorScope {
         // Uses find_import_cycles() (Tarjan SCC) across the full import graph
         DetectorScope::GraphWide
+    }
+
+    fn is_deterministic(&self) -> bool {
+        true
     }
 
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {

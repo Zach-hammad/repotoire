@@ -74,6 +74,10 @@ impl Detector for MutualRecursionDetector {
         DetectorScope::GraphWide
     }
 
+    fn is_deterministic(&self) -> bool {
+        true
+    }
+
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let gi = graph.interner();
@@ -147,7 +151,8 @@ impl Detector for MutualRecursionDetector {
                 id: String::new(),
                 detector: "mutual-recursion".to_string(),
                 severity,
-                confidence: Some(0.95), // Graph-theoretic: Tarjan SCC is mathematically provable
+                confidence: Some(0.95),
+                deterministic: true, // Graph-theoretic: Tarjan SCC is mathematically provable
                 title: format!(
                     "Mutual recursion: {} functions in call cycle (complexity {})",
                     cycle_size, total_complexity,

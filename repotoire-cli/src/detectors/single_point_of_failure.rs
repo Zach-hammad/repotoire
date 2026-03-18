@@ -76,6 +76,10 @@ impl Detector for SinglePointOfFailureDetector {
         DetectorScope::GraphWide
     }
 
+    fn is_deterministic(&self) -> bool {
+        true
+    }
+
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let gi = graph.interner();
@@ -178,7 +182,8 @@ impl Detector for SinglePointOfFailureDetector {
                 id: String::new(),
                 detector: "single-point-of-failure".to_string(),
                 severity,
-                confidence: Some(0.95), // Graph-theoretic: dominator tree is mathematically provable
+                confidence: Some(0.95),
+                deterministic: true, // Graph-theoretic: dominator tree is mathematically provable
                 title: format!(
                     "Single point of failure: `{}` dominates {} functions ({:.0}%)",
                     func_name, dom_count, dom_pct

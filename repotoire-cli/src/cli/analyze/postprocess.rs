@@ -485,13 +485,11 @@ fn filter_false_positives(
         let keep_mask: Vec<bool> = findings
             .par_iter()
             .map(|f| {
-                // If a detector already set high confidence (e.g., graph-theoretic
-                // detectors with mathematically provable results), trust it over
-                // the GBDT model which may not have training data for that detector.
-                if let Some(conf) = f.confidence {
-                    if conf >= 0.9 {
-                        return true;
-                    }
+                // Deterministic detectors use provable graph algorithms
+                // (dominator trees, SCCs, articulation points). Their findings
+                // should not be filtered by a statistical model.
+                if f.deterministic {
+                    return true;
                 }
                 let features = extractor.extract(f, Some(graph), None, None);
                 let prediction = classifier.predict(&features);
