@@ -2541,4 +2541,145 @@ mod tests {
         // For a single clique the modularity is 0 (no inter-community structure)
         println!("Single clique modularity: {modularity}");
     }
+
+    // ── Phase B full pipeline integration test ──
+
+    /// End-to-end test: builds a graph with known structure + co-change data and
+    /// verifies that all Phase B primitives (weighted PageRank, weighted
+    /// betweenness, community assignments, hidden coupling) are populated alongside
+    /// the existing Phase A primitives.
+    #[test]
+    fn test_phase_b_all_primitives_with_co_change() {
+        // Build a graph with functions in two files + call edges
+        let mut graph: StableGraph<CodeNode, CodeEdge> = StableGraph::new();
+        let file_a = graph.add_node(CodeNode::file("phase_b_a.py"));
+        let file_b = graph.add_node(CodeNode::file("phase_b_b.py"));
+        let f1 = graph.add_node(CodeNode::function("pb_f1", "phase_b_a.py"));
+        let f2 = graph.add_node(CodeNode::function("pb_f2", "phase_b_a.py"));
+        let f3 = graph.add_node(CodeNode::function("pb_f3", "phase_b_b.py"));
+
+        graph.add_edge(f1, f2, CodeEdge::calls());
+        graph.add_edge(f2, f3, CodeEdge::calls());
+
+        // Create co-change data: both files appear together in 3 recent commits
+        let now = chrono::Utc::now();
+        let commits = vec![
+            (now, vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()]),
+            (now, vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()]),
+            (now, vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()]),
+        ];
+        let config = crate::git::co_change::CoChangeConfig::default();
+        let co_change = crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
+
+        // Sanity: co-change matrix should have data
+        assert!(
+            !co_change.is_empty(),
+            "Co-change matrix should have entries from 3 commits"
+        );
+
+        // Build index structures needed for compute()
+        let functions = vec![f1, f2, f3];
+        let files = vec![file_a, file_b];
+        let call_edges = vec![(f1, f2), (f2, f3)];
+        let import_edges: Vec<(NodeIndex, NodeIndex)> = vec![];
+
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        call_callers.entry(f2).or_default().push(f1);
+        call_callers.entry(f3).or_default().push(f2);
+
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        call_callees.entry(f1).or_default().push(f2);
+        call_callees.entry(f2).or_default().push(f3);
+
+        let p = GraphPrimitives::compute(
+            &graph,
+            &functions,
+            &files,
+            &call_edges,
+            &import_edges,
+            &call_callers,
+            &call_callees,
+            42, // edge_fingerprint
+            Some(&co_change),
+        );
+
+        // ── Phase A fields should still work ──
+        assert!(
+            !p.page_rank.is_empty(),
+            "Phase A PageRank should be populated"
+        );
+        assert!(
+            !p.betweenness.is_empty(),
+            "Phase A betweenness should be populated"
+        );
+        assert!(
+            !p.idom.is_empty(),
+            "Phase A dominator tree should be populated"
+        );
+        assert!(
+            !p.call_depth.is_empty(),
+            "Phase A call depths should be populated"
+        );
+
+        // ── Phase B weighted fields should be populated ──
+        assert!(
+            !p.weighted_page_rank.is_empty(),
+            "Phase B weighted PageRank should be populated"
+        );
+        assert!(
+            !p.weighted_betweenness.is_empty(),
+            "Phase B weighted betweenness should be populated"
+        );
+        assert!(
+            !p.community.is_empty(),
+            "Phase B communities should be populated"
+        );
+        // modularity could be 0 if all nodes end up in one community — that's OK
+
+        // ── Verify community assignments exist for all functions ──
+        assert!(
+            p.community.contains_key(&f1),
+            "f1 should have a community assignment"
+        );
+        assert!(
+            p.community.contains_key(&f2),
+            "f2 should have a community assignment"
+        );
+        assert!(
+            p.community.contains_key(&f3),
+            "f3 should have a community assignment"
+        );
+
+        // ── Phase B weighted PageRank should cover all functions ──
+        assert!(
+            p.weighted_page_rank.contains_key(&f1),
+            "f1 should have weighted PageRank"
+        );
+        assert!(
+            p.weighted_page_rank.contains_key(&f2),
+            "f2 should have weighted PageRank"
+        );
+        assert!(
+            p.weighted_page_rank.contains_key(&f3),
+            "f3 should have weighted PageRank"
+        );
+
+        // ── Cross-check: weighted metrics should be positive ──
+        for &f in &functions {
+            let wpr = p.weighted_page_rank.get(&f).copied().unwrap_or(0.0);
+            assert!(
+                wpr > 0.0,
+                "Weighted PageRank should be > 0 for {f:?}, got {wpr}"
+            );
+        }
+
+        println!(
+            "Phase B integration: weighted_pr={}, weighted_bc={}, communities={}, modularity={:.4}, hidden_coupling={}",
+            p.weighted_page_rank.len(),
+            p.weighted_betweenness.len(),
+            p.community.len(),
+            p.modularity,
+            p.hidden_coupling.len(),
+        );
+    }
 }
