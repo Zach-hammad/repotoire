@@ -10,7 +10,7 @@ use petgraph::stable_graph::{NodeIndex, StableGraph};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::interner::global_interner;
+use super::interner::{global_interner, StrKey};
 use super::store_models::{CodeEdge, CodeNode};
 use crate::git::co_change::CoChangeMatrix;
 
@@ -983,16 +983,154 @@ fn compute_weighted_phase(
     (weighted_pr, weighted_bw, community, modularity, hidden_coupling)
 }
 
+/// Build a temporary weighted overlay graph merging structural edges with
+/// co-change weights. Returns `(overlay_graph, hidden_coupling)`.
+///
+/// The overlay graph has the same node set as the original call/import graph
+/// (mapped via `idx_map`). Edge weights combine:
+///   - structural_base: 1.0 (Calls), 0.5 (Imports), 1.5 (both)
+///   - co_change_boost: min(co_change_weight, 2.0) for files sharing an edge
+///
+/// Hidden coupling: file pairs with co-change signal but NO structural edges
+/// between any of their functions. These get overlay edges with weight =
+/// co_change_boost (no structural base).
 fn build_weighted_overlay(
-    _functions: &[NodeIndex],
-    _files: &[NodeIndex],
-    _all_call_edges: &[(NodeIndex, NodeIndex)],
-    _all_import_edges: &[(NodeIndex, NodeIndex)],
-    _co_change: &CoChangeMatrix,
-    _graph: &StableGraph<CodeNode, CodeEdge>,
+    functions: &[NodeIndex],
+    files: &[NodeIndex],
+    all_call_edges: &[(NodeIndex, NodeIndex)],
+    all_import_edges: &[(NodeIndex, NodeIndex)],
+    co_change: &CoChangeMatrix,
+    graph: &StableGraph<CodeNode, CodeEdge>,
 ) -> (StableGraph<NodeIndex, f32>, Vec<(NodeIndex, NodeIndex, f32)>) {
-    // Stub: returns empty overlay. Implemented in Task 4.
-    (StableGraph::new(), Vec::new())
+    // 1. Build idx_map: original NodeIndex → overlay NodeIndex
+    let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
+    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+
+    for &func_idx in functions {
+        let overlay_idx = overlay.add_node(func_idx);
+        idx_map.insert(func_idx, overlay_idx);
+    }
+
+    // 2. Build file_to_functions: StrKey(file_path) → Vec<NodeIndex> (original)
+    let mut file_to_functions: HashMap<StrKey, Vec<NodeIndex>> = HashMap::new();
+    for &func_idx in functions {
+        let node = &graph[func_idx];
+        let file_key = node.file_path;
+        file_to_functions.entry(file_key).or_default().push(func_idx);
+    }
+
+    // 3. Process structural edges with deduplication
+    //    Track per-(src, tgt) pair what edge types exist so we can combine
+    //    Calls + Imports into a single overlay edge with structural_base = 1.5
+    let import_set: HashSet<(NodeIndex, NodeIndex)> = all_import_edges.iter().copied().collect();
+
+    // Collect all unique function pairs that have at least one structural edge
+    let mut structural_pairs: HashMap<(NodeIndex, NodeIndex), f32> = HashMap::new();
+
+    for &(src, tgt) in all_call_edges {
+        // Only include pairs where both endpoints are in our function set
+        if !idx_map.contains_key(&src) || !idx_map.contains_key(&tgt) {
+            continue;
+        }
+        let has_import = import_set.contains(&(src, tgt));
+        let structural_base = if has_import { 1.5 } else { 1.0 };
+        // Use max in case of duplicate edges in the same direction
+        let entry = structural_pairs.entry((src, tgt)).or_insert(0.0);
+        if structural_base > *entry {
+            *entry = structural_base;
+        }
+    }
+
+    for &(src, tgt) in all_import_edges {
+        if !idx_map.contains_key(&src) || !idx_map.contains_key(&tgt) {
+            continue;
+        }
+        // Only add if not already covered by a call edge (which would have set 1.5)
+        structural_pairs.entry((src, tgt)).or_insert(0.5);
+    }
+
+    // Track which file pairs have structural edges between their functions
+    let mut structurally_connected_files: HashSet<(StrKey, StrKey)> = HashSet::new();
+
+    // Add overlay edges for structural pairs, boosted by co-change
+    for (&(src, tgt), &structural_base) in &structural_pairs {
+        let src_file_key = graph[src].file_path;
+        let tgt_file_key = graph[tgt].file_path;
+
+        // Record that these files are structurally connected
+        let (lo, hi) = if src_file_key <= tgt_file_key {
+            (src_file_key, tgt_file_key)
+        } else {
+            (tgt_file_key, src_file_key)
+        };
+        structurally_connected_files.insert((lo, hi));
+
+        // Look up co-change boost between the two files
+        let co_change_boost = co_change
+            .weight(src_file_key, tgt_file_key)
+            .map(|w| w.min(2.0))
+            .unwrap_or(0.0);
+
+        let weight = structural_base + co_change_boost;
+
+        let overlay_src = idx_map[&src];
+        let overlay_tgt = idx_map[&tgt];
+        overlay.add_edge(overlay_src, overlay_tgt, weight);
+    }
+
+    // 4. Hidden coupling: co-change pairs with NO structural edges between files
+    let mut hidden_coupling: Vec<(NodeIndex, NodeIndex, f32)> = Vec::new();
+
+    // Build a lookup from StrKey → File-level NodeIndex
+    let mut file_key_to_node: HashMap<StrKey, NodeIndex> = HashMap::new();
+    for &file_idx in files {
+        let node = &graph[file_idx];
+        file_key_to_node.insert(node.file_path, file_idx);
+    }
+
+    for (&(key_a, key_b), &weight) in co_change.iter() {
+        // Canonical pair: key_a < key_b (enforced by CoChangeMatrix)
+        let (lo, hi) = if key_a <= key_b {
+            (key_a, key_b)
+        } else {
+            (key_b, key_a)
+        };
+
+        // Skip if there's already a structural edge between these files
+        if structurally_connected_files.contains(&(lo, hi)) {
+            continue;
+        }
+
+        // Get functions in each file
+        let funcs_a = match file_to_functions.get(&key_a) {
+            Some(f) => f,
+            None => continue,
+        };
+        let funcs_b = match file_to_functions.get(&key_b) {
+            Some(f) => f,
+            None => continue,
+        };
+
+        let co_change_boost = weight.min(2.0);
+
+        // Add overlay edges between function pairs spanning these files
+        for &fa in funcs_a {
+            for &fb in funcs_b {
+                if let (Some(&ov_a), Some(&ov_b)) = (idx_map.get(&fa), idx_map.get(&fb)) {
+                    overlay.add_edge(ov_a, ov_b, co_change_boost);
+                }
+            }
+        }
+
+        // Record hidden coupling at file level
+        if let (Some(&file_node_a), Some(&file_node_b)) =
+            (file_key_to_node.get(&key_a), file_key_to_node.get(&key_b))
+        {
+            hidden_coupling.push((file_node_a, file_node_b, co_change_boost));
+        }
+    }
+
+    (overlay, hidden_coupling)
 }
 
 fn compute_weighted_page_rank(
@@ -1611,5 +1749,167 @@ mod tests {
         // Articulation point computation should complete without panic.
         // The exact count depends on undirected connectivity.
         let _ap_count = p.articulation_points.len();
+    }
+
+    // ── Weighted overlay builder tests ──
+
+    #[test]
+    fn test_overlay_structural_only() {
+        // Two functions with a Calls edge, no co-change → weight = 1.0
+        let mut graph: StableGraph<CodeNode, CodeEdge> = StableGraph::new();
+        let f1 = graph.add_node(CodeNode::function("f1", "src/a.rs"));
+        let f2 = graph.add_node(CodeNode::function("f2", "src/b.rs"));
+        let file_a = graph.add_node(CodeNode::file("src/a.rs"));
+        let file_b = graph.add_node(CodeNode::file("src/b.rs"));
+
+        let functions = vec![f1, f2];
+        let files = vec![file_a, file_b];
+        let call_edges = vec![(f1, f2)];
+        let import_edges: Vec<(NodeIndex, NodeIndex)> = vec![];
+
+        // Empty co-change matrix (no commits)
+        let co_change = CoChangeMatrix::empty();
+
+        let (overlay, hidden_coupling) = build_weighted_overlay(
+            &functions, &files, &call_edges, &import_edges, &co_change, &graph,
+        );
+
+        // Should have 2 nodes and 1 edge
+        assert_eq!(overlay.node_count(), 2, "Overlay should have 2 nodes");
+        assert_eq!(overlay.edge_count(), 1, "Overlay should have 1 edge");
+
+        // The edge weight should be 1.0 (structural_base for Calls, no co-change boost)
+        let edge_idx = overlay.edge_indices().next().expect("should have one edge");
+        let weight = overlay[edge_idx];
+        assert!(
+            (weight - 1.0).abs() < 1e-6,
+            "Calls-only edge should have weight 1.0, got {weight}"
+        );
+
+        // No hidden coupling
+        assert!(hidden_coupling.is_empty(), "No hidden coupling expected");
+    }
+
+    #[test]
+    fn test_overlay_co_change_boost() {
+        // Calls edge + co-change → weight > 1.0
+        let mut graph: StableGraph<CodeNode, CodeEdge> = StableGraph::new();
+        let f1 = graph.add_node(CodeNode::function("f1", "src/alpha.rs"));
+        let f2 = graph.add_node(CodeNode::function("f2", "src/beta.rs"));
+        let file_a = graph.add_node(CodeNode::file("src/alpha.rs"));
+        let file_b = graph.add_node(CodeNode::file("src/beta.rs"));
+
+        let functions = vec![f1, f2];
+        let files = vec![file_a, file_b];
+        let call_edges = vec![(f1, f2)];
+        let import_edges: Vec<(NodeIndex, NodeIndex)> = vec![];
+
+        // Build co-change matrix with recent commits touching both files
+        let now = chrono::Utc::now();
+        let config = crate::git::co_change::CoChangeConfig {
+            min_weight: 0.01,
+            ..Default::default()
+        };
+        let commits = vec![
+            (now, vec!["src/alpha.rs".to_string(), "src/beta.rs".to_string()]),
+            (now, vec!["src/alpha.rs".to_string(), "src/beta.rs".to_string()]),
+        ];
+        let co_change = CoChangeMatrix::from_commits(&commits, &config, now);
+
+        // Verify co-change has data
+        let cc_weight = co_change
+            .weight_by_path("src/alpha.rs", "src/beta.rs")
+            .expect("co-change should exist");
+        assert!(cc_weight > 1.0, "Two recent commits should give weight > 1.0");
+
+        let (overlay, hidden_coupling) = build_weighted_overlay(
+            &functions, &files, &call_edges, &import_edges, &co_change, &graph,
+        );
+
+        assert_eq!(overlay.edge_count(), 1, "Overlay should have 1 edge");
+
+        let edge_idx = overlay.edge_indices().next().expect("should have one edge");
+        let weight = overlay[edge_idx];
+
+        // weight = structural_base (1.0) + co_change_boost (min(cc_weight, 2.0))
+        // cc_weight ~ 2.0, so total should be ~ 3.0 (or 1.0 + capped 2.0)
+        assert!(
+            weight > 1.0,
+            "Co-change boosted edge should have weight > 1.0, got {weight}"
+        );
+        // structural_base is 1.0, co_change_boost is min(cc_weight, 2.0)
+        let expected = 1.0 + cc_weight.min(2.0);
+        assert!(
+            (weight - expected).abs() < 1e-6,
+            "Expected weight {expected}, got {weight}"
+        );
+
+        assert!(hidden_coupling.is_empty(), "No hidden coupling expected (structural edge exists)");
+    }
+
+    #[test]
+    fn test_overlay_hidden_coupling() {
+        // No structural edge, but co-change exists → hidden coupling detected
+        let mut graph: StableGraph<CodeNode, CodeEdge> = StableGraph::new();
+        let f1 = graph.add_node(CodeNode::function("handler", "src/api.rs"));
+        let f2 = graph.add_node(CodeNode::function("model_update", "src/db.rs"));
+        let file_api = graph.add_node(CodeNode::file("src/api.rs"));
+        let file_db = graph.add_node(CodeNode::file("src/db.rs"));
+
+        let functions = vec![f1, f2];
+        let files = vec![file_api, file_db];
+        // No call or import edges between f1 and f2
+        let call_edges: Vec<(NodeIndex, NodeIndex)> = vec![];
+        let import_edges: Vec<(NodeIndex, NodeIndex)> = vec![];
+
+        // Build co-change matrix: both files frequently change together
+        let now = chrono::Utc::now();
+        let config = crate::git::co_change::CoChangeConfig {
+            min_weight: 0.01,
+            ..Default::default()
+        };
+        let commits = vec![
+            (now, vec!["src/api.rs".to_string(), "src/db.rs".to_string()]),
+            (now, vec!["src/api.rs".to_string(), "src/db.rs".to_string()]),
+            (now, vec!["src/api.rs".to_string(), "src/db.rs".to_string()]),
+        ];
+        let co_change = CoChangeMatrix::from_commits(&commits, &config, now);
+
+        let cc_weight = co_change
+            .weight_by_path("src/api.rs", "src/db.rs")
+            .expect("co-change should exist");
+
+        let (overlay, hidden_coupling) = build_weighted_overlay(
+            &functions, &files, &call_edges, &import_edges, &co_change, &graph,
+        );
+
+        // Should have overlay edges between the function pair (hidden coupling)
+        assert_eq!(overlay.node_count(), 2, "Overlay should have 2 nodes");
+        assert_eq!(overlay.edge_count(), 1, "Should have 1 hidden coupling edge");
+
+        let edge_idx = overlay.edge_indices().next().expect("should have one edge");
+        let weight = overlay[edge_idx];
+
+        // Hidden coupling edge: weight = co_change_boost only (no structural base)
+        let expected_boost = cc_weight.min(2.0);
+        assert!(
+            (weight - expected_boost).abs() < 1e-6,
+            "Hidden coupling edge should have weight {expected_boost}, got {weight}"
+        );
+
+        // Hidden coupling should be recorded at file level
+        assert_eq!(hidden_coupling.len(), 1, "Should have 1 hidden coupling entry");
+        let (hc_a, hc_b, hc_w) = hidden_coupling[0];
+
+        // The file-level NodeIndex values should be from the files parameter
+        let hc_files: HashSet<NodeIndex> = [hc_a, hc_b].into_iter().collect();
+        assert!(
+            hc_files.contains(&file_api) && hc_files.contains(&file_db),
+            "Hidden coupling should reference file-level nodes (api={file_api:?}, db={file_db:?}), got ({hc_a:?}, {hc_b:?})"
+        );
+        assert!(
+            (hc_w - expected_boost).abs() < 1e-6,
+            "Hidden coupling weight should be {expected_boost}, got {hc_w}"
+        );
     }
 }
