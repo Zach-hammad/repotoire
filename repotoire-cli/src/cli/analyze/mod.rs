@@ -157,6 +157,17 @@ pub fn run_engine(
         output.no_emoji,
     )?;
 
+    // Write JSON sidecar if requested (single analysis run, two output files)
+    if let Some(ref sidecar_path) = output.json_sidecar {
+        let mut sidecar_report = report.clone();
+        sidecar_report.findings = all_findings.clone();
+        sidecar_report.findings_summary =
+            crate::models::FindingsSummary::from_findings(&all_findings);
+        let json_output = crate::reporters::report(&sidecar_report, "json")?;
+        std::fs::write(sidecar_path, &json_output)?;
+        eprintln!("JSON sidecar written to: {}", sidecar_path.display());
+    }
+
     // Explain score (if requested)
     if output.explain_score {
         if let Some(graph) = engine.graph() {

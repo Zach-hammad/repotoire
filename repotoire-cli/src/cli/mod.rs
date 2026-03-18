@@ -99,6 +99,11 @@ Examples:
         #[arg(long, short = 'o')]
         output: Option<PathBuf>,
 
+        /// Write a JSON sidecar file alongside the primary format output.
+        /// Avoids running analysis twice when CI needs both SARIF and JSON.
+        #[arg(long)]
+        json_sidecar: Option<PathBuf>,
+
         /// Minimum severity to report (critical, high, medium, low)
         #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
         severity: Option<String>,
@@ -436,6 +441,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Commands::Analyze {
             format,
             output,
+            json_sidecar,
             severity,
             top,
             page,
@@ -506,6 +512,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 export_training,
                 timings,
                 fail_on,
+                json_sidecar,
             };
 
             analyze::run_engine(&cli.path, analysis_config, output_options)

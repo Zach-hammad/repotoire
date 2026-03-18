@@ -151,6 +151,7 @@ pub struct OutputOptions {
     pub export_training: Option<PathBuf>,
     pub timings: bool,
     pub fail_on: Option<String>,
+    pub json_sidecar: Option<PathBuf>,
 }
 
 impl Default for OutputOptions {
@@ -170,6 +171,7 @@ impl Default for OutputOptions {
             export_training: None,
             timings: false,
             fail_on: None,
+            json_sidecar: None,
         }
     }
 }
