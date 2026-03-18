@@ -89,7 +89,7 @@ impl Detector for HiddenCouplingDetector {
         );
 
         let mut findings = Vec::new();
-        let min_weight: f32 = self.config.get_option_or("min_weight", 0.1);
+        let min_weight: f32 = self.config.get_option_or("min_weight", 1.0);
 
         for &(file_a_idx, file_b_idx, weight) in pairs {
             if weight < min_weight {
@@ -113,6 +113,13 @@ impl Detector for HiddenCouplingDetector {
                 .node_idx(file_b_idx)
                 .map(|n| n.path(gi).to_string())
                 .unwrap_or_default();
+
+            // Skip files in the same directory — co-change within a module is expected
+            let dir_a = file_a.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+            let dir_b = file_b.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+            if dir_a == dir_b {
+                continue;
+            }
 
             // Skip test↔source pairs — tests always co-change with source, not interesting
             fn is_test_file(path: &str) -> bool {
@@ -189,14 +196,16 @@ mod tests {
 
     #[test]
     fn test_detects_hidden_coupling() {
-        // Build a graph with two files, two functions, no structural edge between them,
-        // but co-change data that triggers hidden coupling.
+        // Build a graph with two files in different directories, two functions,
+        // no structural edge between them, but co-change data that triggers
+        // hidden coupling. Files must be in different directories because
+        // same-directory co-change is expected and filtered out.
         let mut builder = GraphBuilder::new();
 
-        let f1 = builder.add_node(CodeNode::function("handler", "src/api.rs"));
-        let f2 = builder.add_node(CodeNode::function("model_update", "src/db.rs"));
-        let file_api = builder.add_node(CodeNode::file("src/api.rs"));
-        let file_db = builder.add_node(CodeNode::file("src/db.rs"));
+        let f1 = builder.add_node(CodeNode::function("handler", "src/api/routes.rs"));
+        let f2 = builder.add_node(CodeNode::function("model_update", "src/db/models.rs"));
+        let file_api = builder.add_node(CodeNode::file("src/api/routes.rs"));
+        let file_db = builder.add_node(CodeNode::file("src/db/models.rs"));
 
         // Add Contains edges (file contains function) — required for graph structure
         builder.add_edge(file_api, f1, CodeEdge::contains());
@@ -210,23 +219,24 @@ mod tests {
         // Actually we need f1 to call f2 for the call graph to exist,
         // but that would create a structural edge between the files.
         // Instead, add a third helper function so we have call edges but no
-        // direct structural edge between api.rs and db.rs.
-        let f3 = builder.add_node(CodeNode::function("helper", "src/util.rs"));
-        let file_util = builder.add_node(CodeNode::file("src/util.rs"));
+        // direct structural edge between the two target files.
+        let f3 = builder.add_node(CodeNode::function("helper", "src/util/helpers.rs"));
+        let file_util = builder.add_node(CodeNode::file("src/util/helpers.rs"));
         builder.add_edge(file_util, f3, CodeEdge::contains());
         builder.add_edge(f1, f3, CodeEdge::calls());
         builder.add_edge(f2, f3, CodeEdge::calls());
 
-        // Build co-change matrix: api.rs and db.rs frequently change together
+        // Build co-change matrix: routes.rs and models.rs frequently change together.
+        // 3 commits with decay=1.0 each => accumulated weight=3.0 (above min_weight=1.0).
         let now = chrono::Utc::now();
         let config = crate::git::co_change::CoChangeConfig {
             min_weight: 0.01,
             ..Default::default()
         };
         let commits = vec![
-            (now, vec!["src/api.rs".to_string(), "src/db.rs".to_string()]),
-            (now, vec!["src/api.rs".to_string(), "src/db.rs".to_string()]),
-            (now, vec!["src/api.rs".to_string(), "src/db.rs".to_string()]),
+            (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
+            (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
+            (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
         ];
         let co_change =
             crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
@@ -238,17 +248,17 @@ mod tests {
 
         assert!(
             !findings.is_empty(),
-            "Should detect hidden coupling between api.rs and db.rs"
+            "Should detect hidden coupling between routes.rs and models.rs"
         );
         assert_eq!(findings[0].detector, "hidden-coupling");
         assert!(
-            findings[0].description.contains("api.rs"),
-            "Should mention api.rs: {}",
+            findings[0].description.contains("routes.rs"),
+            "Should mention routes.rs: {}",
             findings[0].description
         );
         assert!(
-            findings[0].description.contains("db.rs"),
-            "Should mention db.rs: {}",
+            findings[0].description.contains("models.rs"),
+            "Should mention models.rs: {}",
             findings[0].description
         );
     }

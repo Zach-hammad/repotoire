@@ -36,14 +36,14 @@ impl TemporalBottleneckDetector {
     pub fn new() -> Self {
         Self {
             config: DetectorConfig::new(),
-            percentile_threshold: 95,
+            percentile_threshold: 97,
         }
     }
 
     /// Create with custom config.
     #[allow(dead_code)]
     pub fn with_config(config: DetectorConfig) -> Self {
-        let percentile_threshold = config.get_option_or("percentile_threshold", 95);
+        let percentile_threshold = config.get_option_or("percentile_threshold", 97);
         Self {
             config,
             percentile_threshold,

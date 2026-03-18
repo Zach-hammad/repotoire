@@ -40,14 +40,14 @@ impl PageRankDriftDetector {
     pub fn new() -> Self {
         Self {
             config: DetectorConfig::new(),
-            min_percentile_drift: 50,
+            min_percentile_drift: 60,
         }
     }
 
     /// Create with custom config.
     #[allow(dead_code)]
     pub fn with_config(config: DetectorConfig) -> Self {
-        let min_percentile_drift = config.get_option_or("min_percentile_drift", 50);
+        let min_percentile_drift = config.get_option_or("min_percentile_drift", 60);
         Self {
             config,
             min_percentile_drift,
@@ -148,7 +148,7 @@ impl Detector for PageRankDriftDetector {
             let weighted_pct = weighted_percentiles[i];
 
             // Skip functions that are unimportant in both distributions
-            if static_pct < 25 && weighted_pct < 25 {
+            if static_pct < 50 && weighted_pct < 50 {
                 continue;
             }
 

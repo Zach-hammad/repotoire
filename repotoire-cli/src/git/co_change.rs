@@ -39,7 +39,7 @@ impl Default for CoChangeConfig {
     fn default() -> Self {
         Self {
             half_life_days: 90.0,
-            min_weight: 0.1,
+            min_weight: 0.5,
             max_files_per_commit: 30,
             max_commits: 5000,
         }
