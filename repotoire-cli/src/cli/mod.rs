@@ -589,6 +589,16 @@ pub fn run(cli: Cli) -> Result<()> {
 
         Some(Commands::Version) => {
             println!("repotoire {}", env!("CARGO_PKG_VERSION"));
+            let hash = env!("BUILD_GIT_HASH");
+            let date = env!("BUILD_DATE");
+            let allocator = env!("BUILD_ALLOCATOR");
+            if !hash.is_empty() {
+                println!("commit:    {hash}");
+            }
+            if !date.is_empty() {
+                println!("built:     {date}");
+            }
+            println!("allocator: {allocator}");
             Ok(())
         }
 
