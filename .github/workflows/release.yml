@@ -1,9 +1,8 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,6 +11,8 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -35,86 +36,34 @@ jobs:
             artifact: repotoire-windows-x86_64.zip
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      
+
       - name: Build
         run: cd repotoire-cli && cargo build --release --target ${{ matrix.target }}
-      
+
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           cd repotoire-cli/target/${{ matrix.target }}/release
           tar czf ../../../${{ matrix.artifact }} repotoire
-      
+
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
           cd repotoire-cli/target/${{ matrix.target }}/release
           7z a ../../../${{ matrix.artifact }} repotoire.exe
-      
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: repotoire-cli/${{ matrix.artifact }}
 
-  release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
-    if: always() && !cancelled()
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-        continue-on-error: true
-      
-      - name: List artifacts
-        run: find artifacts -type f || echo "No artifacts found"
-      
-      - uses: softprops/action-gh-release@v1
-        with:
-          files: artifacts/**/*
-          generate_release_notes: true
-          fail_on_unmatched_files: false
-          body: |
-            ## Installation
-            
-            ### Cargo (recommended)
-            ```bash
-            cargo install repotoire
-            ```
-            
-            ### Binary download
-            
-            **Linux x86_64:**
-            ```bash
-            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
-            sudo mv repotoire /usr/local/bin/
-            ```
-            
-            **macOS (Apple Silicon):**
-            ```bash
-            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-aarch64.tar.gz | tar xz
-            sudo mv repotoire /usr/local/bin/
-            ```
-            
-            **macOS (Intel):**
-            ```bash
-            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-x86_64.tar.gz | tar xz
-            sudo mv repotoire /usr/local/bin/
-            ```
-            
-            **Windows:**
-            Download `repotoire-windows-x86_64.zip`, extract, and add to PATH.
+      - name: Upload artifact to release
+        run: gh release upload "${{ github.event.release.tag_name }}" "repotoire-cli/${{ matrix.artifact }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish:
     name: Publish to crates.io
-    needs: release
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -132,4 +81,4 @@ jobs:
           token: ${{ secrets.RELEASE_PAT }}
           repository: Zach-hammad/repotoire-action
           event-type: new-release
-          client-payload: '{"version": "${{ github.ref_name }}"}'
+          client-payload: '{"version": "${{ github.event.release.tag_name }}"}'

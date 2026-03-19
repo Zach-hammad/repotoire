@@ -6,8 +6,7 @@
       "component": "repotoire",
       "include-component-in-tag": false,
       "changelog-path": "/CHANGELOG.md",
-      "bump-minor-pre-major": true,
-      "skip-github-release": true
+      "bump-minor-pre-major": true
     }
   }
 }
