@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    "repotoire-cli": {
+      "release-type": "rust",
+      "component": "repotoire",
+      "include-component-in-tag": false,
+      "changelog-path": "/CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "skip-github-release": true
+    }
+  }
+}

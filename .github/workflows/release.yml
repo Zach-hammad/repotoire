@@ -111,3 +111,25 @@ jobs:
             
             **Windows:**
             Download `repotoire-windows-x86_64.zip`, extract, and add to PATH.
+
+  publish:
+    name: Publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        run: cd repotoire-cli && cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Notify repotoire-action
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          repository: Zach-hammad/repotoire-action
+          event-type: new-release
+          client-payload: '{"version": "${{ github.ref_name }}"}'
