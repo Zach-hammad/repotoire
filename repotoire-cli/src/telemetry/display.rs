@@ -130,26 +130,90 @@ pub fn format_telemetry_footer() -> String {
 
 /// Full `repotoire benchmark` command output (longer form).
 ///
-/// This is a skeleton — the main output patterns work but detailed sections
-/// (graph health, top findings, detector accuracy, trend history) are stubs.
-pub fn format_benchmark_full(ctx: &EcosystemContext) -> String {
+/// Renders ecosystem context plus detailed sections for graph health,
+/// top findings, detector accuracy, and trend history.
+pub fn format_benchmark_full(
+    ctx: &EcosystemContext,
+    data: &crate::telemetry::benchmarks::BenchmarkData,
+    score_history: Option<&[crate::telemetry::cache::ScoreEntry]>,
+) -> String {
     let mut sections = vec![format_ecosystem_context(ctx)];
+    let border = "───────────────────────────────────────────────────";
 
-    sections.push(String::from(
-        "── Graph Health ───────────────────────────────────\n  (detailed graph health data not yet available)\n───────────────────────────────────────────────────",
-    ));
+    // Graph Health
+    {
+        let mod_pct = crate::telemetry::benchmarks::interpolate_percentile(
+            ctx.modularity_percentile.unwrap_or(0.0),
+            &data.graph_modularity,
+        );
+        let deg_pct = crate::telemetry::benchmarks::interpolate_percentile(
+            ctx.coupling_percentile.unwrap_or(0.0),
+            &data.graph_avg_degree,
+        );
+        let scc_pct = data.graph_scc_count.pct_zero;
+        let mut lines = vec!["── Graph Health ───────────────────────────────────".to_string()];
+        lines.push(format!("  Modularity:      {}", percentile_to_top(mod_pct)));
+        lines.push(format!("  Avg degree:      {}", percentile_to_top(deg_pct)));
+        lines.push(format!("  Cycle-free:      {:.0}% of projects have zero SCCs", scc_pct * 100.0));
+        lines.push(border.to_string());
+        sections.push(lines.join("\n"));
+    }
 
-    sections.push(String::from(
-        "── Top Findings ───────────────────────────────────\n  (top findings breakdown not yet available)\n───────────────────────────────────────────────────",
-    ));
+    // Top Findings
+    {
+        let mut lines = vec!["── Top Findings ───────────────────────────────────".to_string()];
+        if data.top_detectors.is_empty() {
+            lines.push("  (no detector data available)".to_string());
+        } else {
+            for det in data.top_detectors.iter().take(10) {
+                lines.push(format!("  {:<32} {:.0}% of repos", det.name, det.pct_repos_with_findings * 100.0));
+            }
+        }
+        lines.push(border.to_string());
+        sections.push(lines.join("\n"));
+    }
 
-    sections.push(String::from(
-        "── Detector Accuracy ──────────────────────────────\n  (detector accuracy data not yet available)\n───────────────────────────────────────────────────",
-    ));
+    // Detector Accuracy
+    {
+        let mut lines = vec!["── Detector Accuracy ──────────────────────────────".to_string()];
+        if data.detector_accuracy.is_empty() {
+            lines.push("  (no accuracy data available)".to_string());
+        } else {
+            for acc in data.detector_accuracy.iter().take(10) {
+                lines.push(format!(
+                    "  {:<32} TP rate: {:.0}%  ({} feedback)",
+                    acc.name, acc.true_positive_rate * 100.0, acc.feedback_count
+                ));
+            }
+        }
+        lines.push(border.to_string());
+        sections.push(lines.join("\n"));
+    }
 
-    sections.push(String::from(
-        "── Trend History ──────────────────────────────────\n  (trend history not yet available)\n───────────────────────────────────────────────────",
-    ));
+    // Trend History
+    {
+        let mut lines = vec!["── Trend History ──────────────────────────────────".to_string()];
+        match score_history {
+            Some(entries) if !entries.is_empty() => {
+                for entry in entries.iter().rev().take(10) {
+                    lines.push(format!(
+                        "  {}   score: {:.1}",
+                        entry.timestamp.format("%Y-%m-%d"),
+                        entry.score
+                    ));
+                }
+                lines.push(format!(
+                    "  Ecosystem avg improvement/analysis: {:.2}",
+                    data.avg_improvement_per_analysis
+                ));
+            }
+            _ => {
+                lines.push("  (no trend history yet — run more analyses)".to_string());
+            }
+        }
+        lines.push(border.to_string());
+        sections.push(lines.join("\n"));
+    }
 
     sections.push(format_telemetry_footer());
 
@@ -279,6 +343,7 @@ mod tests {
 
     #[test]
     fn test_format_benchmark_full_contains_ecosystem() {
+        use crate::telemetry::benchmarks::*;
         let ctx = EcosystemContext {
             score_percentile: 75.0,
             comparison_group: "TypeScript projects".into(),
@@ -288,10 +353,33 @@ mod tests {
             coupling_percentile: None,
             trend: None,
         };
-        let output = format_benchmark_full(&ctx);
+        let data = BenchmarkData {
+            schema_version: 1,
+            segment: BenchmarkSegment { language: Some("TypeScript".into()), kloc_bucket: None },
+            sample_size: 3000,
+            updated_at: "2026-01-01".into(),
+            score: PercentileDistribution { p25: 40.0, p50: 55.0, p75: 70.0, p90: 85.0 },
+            pillar_structure: PercentileDistribution { p25: 40.0, p50: 55.0, p75: 70.0, p90: 85.0 },
+            pillar_quality: PercentileDistribution { p25: 40.0, p50: 55.0, p75: 70.0, p90: 85.0 },
+            pillar_architecture: PercentileDistribution { p25: 40.0, p50: 55.0, p75: 70.0, p90: 85.0 },
+            graph_modularity: PercentileDistribution { p25: 0.2, p50: 0.4, p75: 0.6, p90: 0.8 },
+            graph_avg_degree: PercentileDistribution { p25: 1.0, p50: 2.0, p75: 3.0, p90: 5.0 },
+            graph_scc_count: SccDistribution { pct_zero: 0.65, p50: 1.0, p75: 3.0, p90: 7.0 },
+            grade_distribution: std::collections::HashMap::new(),
+            top_detectors: vec![
+                DetectorStat { name: "god-class".into(), pct_repos_with_findings: 0.42 },
+            ],
+            detector_accuracy: vec![
+                DetectorAccuracy { name: "god-class".into(), true_positive_rate: 0.88, feedback_count: 150 },
+            ],
+            avg_improvement_per_analysis: 1.2,
+        };
+        let output = format_benchmark_full(&ctx, &data, None);
         assert!(output.contains("Ecosystem Context"));
         assert!(output.contains("better than 75%"));
         assert!(output.contains("3,000"));
         assert!(output.contains("telemetry: on"));
+        assert!(output.contains("Graph Health"));
+        assert!(output.contains("god-class"));
     }
 }

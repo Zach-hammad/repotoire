@@ -217,11 +217,32 @@ pub fn run_engine(
         }
     }
 
+    // Compute language stats from findings (reused by display + telemetry)
+    let lang_loc_precomputed = {
+        let mut lang_loc: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        for f in &all_findings {
+            if let Some(file) = f.affected_files.first() {
+                let ext = std::path::Path::new(file)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                if let Some(lang) = crate::parsers::language_for_extension(ext) {
+                    *lang_loc.entry(lang.to_string()).or_insert(0) += 1;
+                }
+            }
+        }
+        lang_loc
+    };
+    let precomputed_primary_language = lang_loc_precomputed.iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(lang, _)| lang.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+
     // Display ecosystem context (telemetry users only)
     if let crate::telemetry::Telemetry::Active(ref _state) = telemetry {
         if !quiet_mode && output.format == "text" {
             let total_kloc = result.stats.total_loc as f64 / 1000.0;
-            let primary_language = "unknown"; // TODO: wire from language stats
+            let primary_language = &precomputed_primary_language;
 
             if let Some(data) = crate::telemetry::benchmarks::fetch_benchmarks(primary_language, total_kloc) {
                 let score_pct = crate::telemetry::benchmarks::interpolate_percentile(
@@ -344,6 +365,67 @@ pub fn run_engine(
                     .or_insert(1);
             }
 
+            // Reuse precomputed language stats
+            let lang_loc = &lang_loc_precomputed;
+            let primary_language = &precomputed_primary_language;
+            let total_lang: u64 = lang_loc.values().sum();
+            let primary_language_ratio = if total_lang > 0 {
+                *lang_loc.get(primary_language).unwrap_or(&0) as f64 / total_lang as f64
+            } else {
+                0.0
+            };
+            let language_count = lang_loc.len() as u32;
+
+            // Detect frameworks
+            let frameworks: Vec<String> = crate::detectors::framework_detection::detect_frameworks(&canon)
+                .into_iter()
+                .map(|f| format!("{:?}", f).to_lowercase())
+                .collect();
+
+            // Graph primitives
+            let (graph_nodes, graph_edges, graph_modularity, graph_scc_count, graph_avg_degree, graph_articulation_points) =
+                if let Some(graph) = engine.code_graph() {
+                    let nodes = graph.node_count() as u64;
+                    let edges = graph.edge_count() as u64;
+                    let modularity = graph.graph_modularity();
+                    let scc_count = graph.call_cycles().len() as u64;
+                    let avg_degree = if nodes > 0 { edges as f64 / nodes as f64 } else { 0.0 };
+                    let artic = graph.articulation_points().len() as u64;
+                    (nodes, edges, modularity, scc_count, avg_degree, artic)
+                } else {
+                    (0, 0, 0.0, 0, 0.0, 0)
+                };
+
+            // Calibration data
+            let (calibration_total, calibration_at_default, calibration_outliers) =
+                if let Some(profile) = engine.style_profile() {
+                    let total = profile.metrics.len() as u32;
+                    let at_default = profile.metrics.values()
+                        .filter(|d| !d.confident)
+                        .count() as u32;
+                    let mut deviations: Vec<(String, f64, f64)> = profile.metrics.iter()
+                        .filter(|(_, d)| d.confident && d.mean > 0.0)
+                        .map(|(kind, d)| {
+                            let deviation = ((d.p95 - d.mean) / d.mean).abs();
+                            (format!("{:?}", kind), d.p95, deviation)
+                        })
+                        .collect();
+                    deviations.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+                    let outliers: std::collections::HashMap<String, f64> = deviations.into_iter()
+                        .take(10)
+                        .map(|(k, v, _)| (k, v))
+                        .collect();
+                    (total, at_default, outliers)
+                } else {
+                    (0, 0, std::collections::HashMap::new())
+                };
+
+            // Incremental files changed
+            let incremental_files_changed = match &result.stats.mode {
+                crate::engine::AnalysisMode::Incremental { files_changed } => *files_changed as u64,
+                _ => 0,
+            };
+
             let event = crate::telemetry::events::AnalysisComplete {
                 repo_id,
                 nth_analysis: Some(telem_state.nth_analysis),
@@ -352,26 +434,35 @@ pub fn run_engine(
                 pillar_structure: result.score.breakdown.structure.final_score,
                 pillar_quality: result.score.breakdown.quality.final_score,
                 pillar_architecture: result.score.breakdown.architecture.final_score,
-                languages: std::collections::HashMap::new(),
-                primary_language: String::new(), // TODO: wire from language stats
-                frameworks: Vec::new(), // TODO: wire from framework detection
+                languages: lang_loc_precomputed.clone(),
+                primary_language: precomputed_primary_language.clone(),
+                frameworks,
                 total_files: result.stats.files_analyzed as u64,
                 total_kloc: result.stats.total_loc as f64 / 1000.0,
                 repo_shape: repo_shape.repo_shape.clone(),
                 has_workspace: repo_shape.has_workspace,
                 workspace_member_count: repo_shape.workspace_member_count,
                 buildable_roots: repo_shape.buildable_roots,
-                language_count: repo_shape.language_count,
-                primary_language_ratio: repo_shape.primary_language_ratio,
+                language_count,
+                primary_language_ratio,
                 findings_by_severity,
                 findings_by_detector,
                 findings_by_category,
+                graph_nodes,
+                graph_edges,
+                graph_modularity,
+                graph_scc_count,
+                graph_avg_degree,
+                graph_articulation_points,
+                calibration_total,
+                calibration_at_default,
+                calibration_outliers,
                 analysis_duration_ms: start_time.elapsed().as_millis() as u64,
                 analysis_mode: mode_label.to_string(),
+                incremental_files_changed,
                 ci: std::env::var("CI").is_ok(),
                 os: std::env::consts::OS.to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
-                ..Default::default()
             };
 
             let props = serde_json::to_value(&event).unwrap_or_default();

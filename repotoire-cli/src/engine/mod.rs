@@ -236,6 +236,11 @@ impl AnalysisEngine {
         self.state.as_ref().and_then(|s| s.co_change.as_ref())
     }
 
+    /// Returns the calibrated style profile (if available).
+    pub fn style_profile(&self) -> Option<&crate::calibrate::StyleProfile> {
+        self.state.as_ref().map(|s| &s.style_profile)
+    }
+
     /// Returns a reference to the concrete `CodeGraph` if analysis has been run.
     ///
     /// Use this when you need `CodeGraph`-specific APIs.
