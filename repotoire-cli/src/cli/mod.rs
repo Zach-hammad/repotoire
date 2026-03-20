@@ -1,6 +1,7 @@
 //! CLI command definitions and handlers
 
 pub(crate) mod analyze;
+mod benchmark;
 pub(crate) mod diff;
 mod clean;
 mod debt;
@@ -34,7 +35,7 @@ fn parse_workers(s: &str) -> Result<usize, String> {
 
 /// Repotoire - Graph-powered code analysis
 ///
-/// 100% LOCAL - No account needed. No data leaves your machine.
+/// 100% LOCAL by default - No account needed. No data leaves your machine unless you opt in.
 #[derive(Parser, Debug)]
 #[command(name = "repotoire")]
 #[command(
@@ -43,7 +44,7 @@ fn parse_workers(s: &str) -> Result<usize, String> {
     long_about = "Repotoire builds a knowledge graph of your codebase and runs 114 pure Rust \
 detectors to find code smells, security vulnerabilities, and architectural issues \
 that traditional linters miss.\n\n\
-100% LOCAL — No account needed. No data leaves your machine.\n\n\
+100% LOCAL by default — No account needed. No data leaves your machine unless you opt in.\n\n\
 Run without a subcommand to analyze the current directory:\n  \
 repotoire .\n\n\
 Supported languages: Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++",
@@ -392,6 +393,13 @@ Examples:
         stats: bool,
     },
 
+    /// View ecosystem benchmarks for your project
+    Benchmark {
+        /// Output format: text, json
+        #[arg(long, short = 'f', default_value = "text", value_parser = ["text", "json"])]
+        format: String,
+    },
+
     /// Show per-file technical debt risk scores (requires prior analysis)
     #[command(after_help = "\
 Examples:
@@ -422,10 +430,15 @@ pub enum ConfigAction {
         /// Value to set
         value: String,
     },
+    /// Manage telemetry settings (on, off, status)
+    Telemetry {
+        /// Action: on, off, status
+        action: String,
+    },
 }
 
 /// Run the CLI with parsed arguments
-pub fn run(cli: Cli) -> Result<()> {
+pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
     // Initialize global rayon thread pool with 8MB stack per thread.
     // Tree-sitter parsing of deeply nested C/C++ code (e.g., CPython) can
     // overflow the default 2MB stack. This also benefits recursive detectors.
@@ -700,6 +713,10 @@ pub fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
 
+        Some(Commands::Benchmark { format }) => {
+            benchmark::run(&cli.path, &format, &telemetry)
+        }
+
         Some(Commands::Debt { filter, top }) => {
             debt::run(&cli.path, filter.as_deref(), top)
         }
@@ -878,6 +895,64 @@ fn run_config_action(action: ConfigAction) -> anyhow::Result<()> {
         }
         ConfigAction::Show => show_config(),
         ConfigAction::Set { key, value } => set_config_value(&key, &value),
+        ConfigAction::Telemetry { action } => {
+            match action.as_str() {
+                "on" => {
+                    // Write [telemetry] enabled = true to config
+                    let config_path = crate::config::UserConfig::user_config_path()
+                        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
+                    if let Some(parent) = config_path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    // Read existing config or create new
+                    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
+                    if content.contains("[telemetry]") {
+                        content = content.replace("enabled = false", "enabled = true");
+                    } else {
+                        content.push_str("\n[telemetry]\nenabled = true\n");
+                    }
+                    std::fs::write(&config_path, &content)?;
+                    // Ensure distinct_id exists
+                    let _ = crate::telemetry::config::TelemetryState::load();
+                    println!("Telemetry enabled. Thank you for helping improve repotoire!");
+                    println!("See what's collected: https://repotoire.dev/telemetry");
+                    Ok(())
+                }
+                "off" => {
+                    let config_path = crate::config::UserConfig::user_config_path()
+                        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
+                    if let Some(parent) = config_path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
+                    if content.contains("[telemetry]") {
+                        content = content.replace("enabled = true", "enabled = false");
+                    } else {
+                        content.push_str("\n[telemetry]\nenabled = false\n");
+                    }
+                    std::fs::write(&config_path, &content)?;
+                    println!("Telemetry disabled.");
+                    Ok(())
+                }
+                "status" => {
+                    let state = crate::telemetry::config::TelemetryState::load()?;
+                    if state.is_enabled() {
+                        println!("Telemetry: enabled");
+                        if let Some(id) = &state.distinct_id {
+                            println!("Anonymous ID: {}", &id[..8]);
+                        }
+                    } else {
+                        println!("Telemetry: disabled");
+                    }
+                    println!("\nManage: repotoire config telemetry on|off");
+                    println!("Details: https://repotoire.dev/telemetry");
+                    Ok(())
+                }
+                other => {
+                    anyhow::bail!("Unknown telemetry action: '{}'. Use on, off, or status.", other);
+                }
+            }
+        }
     }
 }
 
