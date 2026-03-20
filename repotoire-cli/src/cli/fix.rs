@@ -135,6 +135,7 @@ pub fn run(
     no_ai: bool,
     dry_run: bool,
     auto: bool,
+    telemetry: &crate::telemetry::Telemetry,
 ) -> Result<()> {
     let options = FixOptions {
         apply,
@@ -183,17 +184,43 @@ pub fn run(
                 );
             }
             let finding = &findings[idx - 1];
-            run_single_fix(path, finding, idx, options)
+            run_single_fix(path, finding, idx, options, telemetry)
         }
         None => {
             // Batch mode - fix all fixable findings
-            run_batch_fix(path, &findings, options)
+            run_batch_fix(path, &findings, options, telemetry)
+        }
+    }
+}
+
+/// Send a fix_applied telemetry event
+fn send_fix_applied_telemetry(
+    path: &Path,
+    finding: &Finding,
+    ai: bool,
+    accepted: bool,
+    ai_provider: Option<String>,
+    telemetry: &crate::telemetry::Telemetry,
+) {
+    if let crate::telemetry::Telemetry::Active(ref state) = *telemetry {
+        if let Some(distinct_id) = &state.distinct_id {
+            let event = crate::telemetry::events::FixApplied {
+                repo_id: crate::telemetry::config::compute_repo_id(path),
+                detector: finding.detector.clone(),
+                fix_type: if ai { "ai".into() } else { "rule".into() },
+                accepted,
+                language: String::new(),
+                ai_provider,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            };
+            let props = serde_json::to_value(&event).unwrap_or_default();
+            crate::telemetry::posthog::capture("fix_applied", distinct_id, props);
         }
     }
 }
 
 /// Run fixes for all fixable findings
-fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions) -> Result<()> {
+fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
     let term = Term::stderr();
 
     // Find all findings that have rule-based fixes available
@@ -327,6 +354,7 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions) -> Resu
         match apply_rule_fix(path, file_path, finding, rule_fix) {
             Ok(()) => {
                 applied += 1;
+                send_fix_applied_telemetry(path, finding, false, true, None, telemetry);
                 term.write_line(&format!(
                     "{} Applied fix #{}: {}",
                     style("✓").green(),
@@ -336,6 +364,7 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions) -> Resu
             }
             Err(e) => {
                 failed += 1;
+                send_fix_applied_telemetry(path, finding, false, false, None, telemetry);
                 term.write_line(&format!(
                     "{} Failed to apply fix #{}: {}",
                     style("✗").red(),
@@ -429,10 +458,10 @@ fn apply_rule_fix(
 }
 
 /// Run fix for a single finding
-fn run_single_fix(path: &Path, finding: &Finding, index: usize, options: FixOptions) -> Result<()> {
+fn run_single_fix(path: &Path, finding: &Finding, index: usize, options: FixOptions, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
     // If --no-ai flag is set, use rule-based fixes directly
     if options.no_ai {
-        return run_rule_fix(path, finding, index, options);
+        return run_rule_fix(path, finding, index, options, telemetry);
     }
 
     // Try to create AI client - check all providers
@@ -456,8 +485,8 @@ fn run_single_fix(path: &Path, finding: &Finding, index: usize, options: FixOpti
 
     // If we have AI, use it; otherwise fall back to rule-based fixes
     match ai_client {
-        Some(client) => run_ai_fix(path, finding, index, options, client),
-        None => run_rule_fix(path, finding, index, options),
+        Some(client) => run_ai_fix(path, finding, index, options, client, telemetry),
+        None => run_rule_fix(path, finding, index, options, telemetry),
     }
 }
 
@@ -468,6 +497,7 @@ fn run_ai_fix(
     index: usize,
     options: FixOptions,
     client: AiClient,
+    telemetry: &crate::telemetry::Telemetry,
 ) -> Result<()> {
     let term = Term::stderr();
     term.write_line(&format!(
@@ -500,6 +530,15 @@ fn run_ai_fix(
     ))?;
 
     // Generate fix using async runtime
+    // Capture AI provider name before consuming client
+    let ai_provider_name = Some(match client.backend() {
+        LlmBackend::Anthropic => "anthropic".to_string(),
+        LlmBackend::OpenAi => "openai".to_string(),
+        LlmBackend::Deepinfra => "deepinfra".to_string(),
+        LlmBackend::OpenRouter => "openrouter".to_string(),
+        LlmBackend::Ollama => "ollama".to_string(),
+    });
+
     // Sync — no runtime needed (ureq)
     let generator = FixGenerator::new(client);
 
@@ -581,11 +620,13 @@ fn run_ai_fix(
             if confirmed {
                 term.write_line(&format!("\n{} Applying fix...", style("⚡").cyan()))?;
                 fix.apply(path)?;
+                send_fix_applied_telemetry(path, finding, true, true, ai_provider_name, telemetry);
                 term.write_line(&format!(
                     "{} Fix applied successfully!\n",
                     style("✓").green().bold()
                 ))?;
             } else {
+                send_fix_applied_telemetry(path, finding, true, false, ai_provider_name, telemetry);
                 term.write_line(&format!("\n{} Fix not applied.\n", style("ℹ️").dim()))?;
             }
         }
@@ -613,7 +654,7 @@ fn run_ai_fix(
 }
 
 /// Run rule-based fix generation (no AI required)
-fn run_rule_fix(path: &Path, finding: &Finding, index: usize, options: FixOptions) -> Result<()> {
+fn run_rule_fix(path: &Path, finding: &Finding, index: usize, options: FixOptions, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
     let term = Term::stderr();
 
     term.write_line(&format!(
@@ -640,7 +681,7 @@ fn run_rule_fix(path: &Path, finding: &Finding, index: usize, options: FixOption
 
     // Try to generate a rule-based fix
     match generate_rule_fix(finding, path) {
-        Some(rule_fix) => display_rule_fix(&term, &rule_fix, finding, index, options, path),
+        Some(rule_fix) => display_rule_fix(&term, &rule_fix, finding, index, options, path, telemetry),
         None => display_fallback_suggestion(&term, finding),
     }
 }
@@ -653,6 +694,7 @@ fn display_rule_fix(
     index: usize,
     options: FixOptions,
     path: &Path,
+    telemetry: &crate::telemetry::Telemetry,
 ) -> Result<()> {
     term.write_line(&format!(
         "{} {}\n",
@@ -740,6 +782,7 @@ fn display_rule_fix(
         let confirmed = if options.auto { true } else { confirm("Apply this fix?")? };
 
         if !confirmed {
+            send_fix_applied_telemetry(path, finding, false, false, None, telemetry);
             term.write_line(&format!("\n{} Fix not applied.\n", style("ℹ️").dim()))?;
         } else {
             let file_path = finding
@@ -747,7 +790,10 @@ fn display_rule_fix(
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("No file path in finding"))?;
 
-            display_apply_result(term, apply_rule_fix(path, file_path, finding, rule_fix))?;
+            let apply_result = apply_rule_fix(path, file_path, finding, rule_fix);
+            let accepted = apply_result.is_ok();
+            send_fix_applied_telemetry(path, finding, false, accepted, None, telemetry);
+            display_apply_result(term, apply_result)?;
         }
     } else if !should_apply {
         // AI upgrade suggestion for non-applicable fixes

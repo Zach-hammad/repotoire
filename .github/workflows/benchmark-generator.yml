@@ -1,0 +1,57 @@
+name: Generate Ecosystem Benchmarks
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch: # Manual trigger
+
+env:
+  BENCHMARK_DIR: benchmark-output/v1
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests boto3
+
+      - name: Generate benchmark data
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+        run: python scripts/generate-benchmarks.py
+
+      - name: Upload to R2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          python -c "
+          import boto3, os, json, hashlib
+
+          s3 = boto3.client('s3',
+              endpoint_url=os.environ['R2_ENDPOINT'],
+              aws_access_key_id=os.environ['R2_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['R2_SECRET_ACCESS_KEY'],
+          )
+          bucket = os.environ['R2_BUCKET']
+
+          for root, dirs, files in os.walk('benchmark-output/v1'):
+              for f in files:
+                  if not f.endswith('.json'):
+                      continue
+                  local = os.path.join(root, f)
+                  key = 'v1/' + os.path.relpath(local, 'benchmark-output/v1')
+                  s3.upload_file(local, bucket, key,
+                      ExtraArgs={'ContentType': 'application/json', 'CacheControl': 'max-age=3600'})
+                  print(f'Uploaded: {key}')
+          "

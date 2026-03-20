@@ -25,7 +25,10 @@ fn main() -> Result<()> {
         .with(EnvFilter::from_default_env())
         .init();
 
+    // Initialize telemetry (no-op if disabled)
+    let telemetry = repotoire::telemetry::init()?;
+
     // Parse CLI args and run
     let cli = repotoire::cli::Cli::parse();
-    repotoire::cli::run(cli)
+    repotoire::cli::run(cli, telemetry)
 }

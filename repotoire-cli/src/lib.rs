@@ -32,4 +32,5 @@ pub mod parsers;
 pub mod predictive;
 pub mod reporters;
 pub mod scoring;
+pub mod telemetry;
 pub mod values;
