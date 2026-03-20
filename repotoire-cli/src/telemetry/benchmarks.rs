@@ -159,8 +159,7 @@ fn cache_file_path(url: &str) -> std::path::PathBuf {
     // Build a safe filename from the URL by replacing slashes and special chars.
     let slug = url
         .trim_start_matches("https://")
-        .replace('/', "_")
-        .replace('.', "_");
+        .replace(['/', '.'], "_");
     cache_dir.join(format!("{}.json", slug))
 }
 

@@ -211,7 +211,6 @@ pub fn select_calibration_outliers(
         .into_iter()
         .take(10)
         .filter(|(_, ratio)| ratio.is_finite() && *ratio > 0.0)
-        .map(|(k, ratio)| (k, ratio))
         .collect();
 
     (total, at_default, outliers)

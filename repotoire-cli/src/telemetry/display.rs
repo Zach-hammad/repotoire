@@ -1,4 +1,4 @@
-/// Benchmark display formatting for ecosystem context output.
+//! Benchmark display formatting for ecosystem context output.
 
 use serde::Serialize;
 

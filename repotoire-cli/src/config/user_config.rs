@@ -160,6 +160,10 @@ impl UserConfig {
 
 # Optional: for embeddings
 # openai_api_key = "sk-..."
+
+[telemetry]
+# Enable to get ecosystem benchmarks and help improve repotoire
+# enabled = true
 "#;
             std::fs::write(&config_path, example)?;
         }
