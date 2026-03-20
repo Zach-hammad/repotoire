@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 // Constants
 // ---------------------------------------------------------------------------
 
-const BENCHMARK_BASE_URL: &str = "https://benchmarks.repotoire.dev/v1";
+const BENCHMARK_BASE_URL: &str = "https://caaaa10a4082a3ac9643aacadc00db38.r2.cloudflarestorage.com/repotoire/v1";
 const EXPECTED_SCHEMA_VERSION: u32 = 1;
 const MIN_SAMPLE_SIZE: u64 = 50;
 const CACHE_FRESH_SECS: u64 = 24 * 60 * 60; // 24 hours
