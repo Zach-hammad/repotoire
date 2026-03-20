@@ -134,10 +134,12 @@ pub fn compute_repo_id(path: &Path) -> Option<String> {
     let repo = git2::Repository::discover(path).ok()?;
     let mut revwalk = repo.revwalk().ok()?;
     revwalk.push_head().ok()?;
-    revwalk.simplify_first_parent().ok()?;
+    // Sort oldest-first so .next() yields the root commit without walking the full chain
+    revwalk
+        .set_sorting(git2::Sort::TIME | git2::Sort::REVERSE)
+        .ok()?;
 
-    // Walk to the root commit (last in first-parent chain)
-    let root_oid = revwalk.last()?.ok()?;
+    let root_oid = revwalk.next()?.ok()?;
     let hash = root_oid.to_string();
     Some(compute_repo_id_from_hash(&hash))
 }
@@ -178,6 +180,12 @@ mod tests {
     #[test]
     fn test_do_not_track_overrides_explicit_config_enabled() {
         let state = TelemetryState::resolve_with_env(Some(true), Some("1"), None);
+        assert!(!state.is_enabled());
+    }
+
+    #[test]
+    fn test_do_not_track_overrides_env_var() {
+        let state = TelemetryState::resolve_with_env(None, Some("1"), Some("on"));
         assert!(!state.is_enabled());
     }
 

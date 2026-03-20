@@ -135,15 +135,21 @@ const ALLOWED_FLAGS: &[&str] = &[
 ];
 
 /// Strip any flags not on the allowlist so we never leak user paths or values.
+///
+/// Only flag names are sent, never values — `--output=/tmp/report.html` becomes `--output`.
 pub fn filter_flags(flags: &[String]) -> Vec<String> {
     flags
         .iter()
-        .filter(|f| {
+        .filter_map(|f| {
             // Match the flag name ignoring a `=value` suffix
             let name = f.split('=').next().unwrap_or(f.as_str());
-            ALLOWED_FLAGS.contains(&name)
+            if ALLOWED_FLAGS.contains(&name) {
+                // Return only the flag name, never the value
+                Some(name.to_string())
+            } else {
+                None
+            }
         })
-        .cloned()
         .collect()
 }
 
@@ -292,9 +298,11 @@ mod tests {
 
         let filtered = filter_flags(&raw);
 
-        // --format and --json are allowed; --output= prefix match; --path and --unknown excluded
+        // --format and --json are allowed; --output name kept but value stripped; --path and --unknown excluded
         assert!(filtered.contains(&"--format".to_string()));
-        assert!(filtered.contains(&"--output=/tmp/report.html".to_string()));
+        // Only the flag name is kept — never the value
+        assert!(filtered.contains(&"--output".to_string()));
+        assert!(!filtered.iter().any(|f| f.contains('=')), "flag values must be stripped");
         assert!(filtered.contains(&"--json".to_string()));
         assert!(!filtered.iter().any(|f| f.starts_with("--path")));
         assert!(!filtered.contains(&"--unknown".to_string()));

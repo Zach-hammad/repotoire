@@ -1,5 +1,8 @@
 /// Benchmark display formatting for ecosystem context output.
 
+use serde::Serialize;
+
+#[derive(Serialize)]
 pub struct EcosystemContext {
     pub score_percentile: f64,
     pub comparison_group: String,
@@ -10,12 +13,14 @@ pub struct EcosystemContext {
     pub trend: Option<TrendInfo>,
 }
 
+#[derive(Serialize)]
 pub struct PillarPercentiles {
     pub structure: f64,
     pub quality: f64,
     pub architecture: f64,
 }
 
+#[derive(Serialize)]
 pub struct TrendInfo {
     pub score_delta: f64,
     pub ecosystem_avg_improvement: f64,

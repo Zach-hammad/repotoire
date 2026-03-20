@@ -11,8 +11,12 @@ pub fn build_capture_payload(
     api_key: &str,
     event: &str,
     distinct_id: &str,
-    properties: Value,
+    mut properties: Value,
 ) -> Value {
+    // Disable GeoIP enrichment so PostHog never stores IP-derived location data
+    if let Some(obj) = properties.as_object_mut() {
+        obj.insert("$geoip_disable".to_string(), serde_json::Value::Bool(true));
+    }
     json!({
         "api_key": api_key,
         "event": event,
@@ -79,6 +83,7 @@ mod tests {
         assert_eq!(payload["distinct_id"], "user-abc");
         assert_eq!(payload["properties"]["score"], 87.5);
         assert_eq!(payload["properties"]["grade"], "B+");
+        assert_eq!(payload["properties"]["$geoip_disable"], true);
     }
 
     #[test]
