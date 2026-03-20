@@ -33,6 +33,11 @@ pub fn findings_cache_path(repo_path: &Path) -> PathBuf {
     cache_dir(repo_path).join("last_findings.json")
 }
 
+/// Health report cache file path for a repository (score delta).
+pub fn health_cache_path(repo_path: &Path) -> PathBuf {
+    cache_dir(repo_path).join("last_health.json")
+}
+
 /// Graph database path for a repository.
 pub fn graph_db_path(repo_path: &Path) -> PathBuf {
     cache_dir(repo_path).join("graph_db")
@@ -94,5 +99,13 @@ mod tests {
         let cache = cache_dir(path);
         assert!(cache.to_string_lossy().contains("repotoire"));
         assert!(cache.to_string_lossy().contains("my-project"));
+    }
+
+    #[test]
+    fn test_health_cache_path() {
+        let path = Path::new("/home/user/my-project");
+        let health_path = health_cache_path(path);
+        assert!(health_path.to_string_lossy().ends_with("last_health.json"));
+        assert!(health_path.to_string_lossy().contains("repotoire"));
     }
 }
