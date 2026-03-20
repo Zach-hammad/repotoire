@@ -76,7 +76,7 @@ Groups findings into 2-3 themes based on category and severity. Algorithm:
 Rank findings by impact/effort ratio:
 
 - **Impact**: severity weight (critical=4, high=3, medium=2, low=1)
-- **Effort**: `estimated_effort` is `Option<String>` with freeform values like "low", "Medium (1-2 hours)", "10 minutes". Parse fuzzy: check if string contains/starts_with "low"→3, "medium"→2, "high"→1 (inverse — low effort = high score). If absent or unparseable, default to 2 (medium).
+- **Effort**: `estimated_effort` is `Option<String>` with freeform values like "low", "Medium (1-2 hours)", "10 minutes". Parse fuzzy: check if string contains/starts_with "low"→3, "medium"→2, "high"→1 (inverse — low effort = high score). If absent or unparseable, default to 2 (medium). Note: most detectors don't populate this field today, so in practice the ranking is primarily `severity * has_suggested_fix_boost` until more detectors add effort estimates.
 - **Boost**: findings with `suggested_fix` present get 1.5x multiplier (we can tell the user exactly what to change)
 - Show top 3
 
@@ -134,15 +134,21 @@ The HTML reporter currently receives only `HealthReport` (scores + findings). To
 
 **New struct: `ReportContext`**
 
+The data is split by source — each sub-struct is independently optional and independently testable. Reporters pick what they need. If git is unavailable, `git_data` is `None` and sections that need it are skipped gracefully.
+
 ```rust
 pub struct ReportContext {
     pub health: HealthReport,
-    pub graph_snapshot: Option<GraphSnapshot>,
-    pub previous_health: Option<HealthReport>,  // for delta/trend
-    pub style_profile: Option<StyleProfile>,     // for percentile context
+    pub graph_data: Option<GraphData>,          // from CodeGraph + GraphQuery
+    pub git_data: Option<GitData>,              // from blame + co-change
+    pub source_snippets: Vec<FindingSnippet>,   // from filesystem
+    pub previous_health: Option<HealthReport>,  // for score delta/trend
+    pub style_profile: Option<StyleProfile>,    // for percentile context
 }
 
-pub struct GraphSnapshot {
+/// Data derived from the frozen CodeGraph and GraphPrimitives.
+/// All NodeIndex values are pre-resolved to qualified name strings.
+pub struct GraphData {
     // Architecture map data
     pub modules: Vec<ModuleNode>,
     pub module_edges: Vec<ModuleEdge>,
@@ -154,17 +160,18 @@ pub struct GraphSnapshot {
     pub top_betweenness: Vec<(String, f64)>,     // qualified_name → score
     pub articulation_points: Vec<String>,         // qualified_names
     pub call_cycles: Vec<Vec<String>>,            // SCC qualified_names
+}
 
+/// Data derived from git blame enrichment and CoChangeMatrix.
+/// Requires git history to be available; None if repo has no git.
+pub struct GitData {
     // Co-change / coupling
     pub hidden_coupling: Vec<(String, String, f32)>,  // file pairs with co-change but no structural edge
-    pub top_co_change: Vec<(String, String, f32)>,    // highest co-change pairs
+    pub top_co_change: Vec<(String, String, f32)>,    // highest co-change pairs (any)
 
-    // Git / ownership
+    // Ownership
     pub file_ownership: Vec<FileOwnership>,       // per-file author distribution
     pub bus_factor_files: Vec<(String, usize)>,   // files with only 1-2 authors
-
-    // Code snippets for top findings
-    pub finding_snippets: Vec<FindingSnippet>,
 }
 
 pub struct ModuleNode {
@@ -197,6 +204,8 @@ pub struct FileOwnership {
     pub bus_factor: usize,            // unique authors
 }
 
+/// Source code snippet for a finding, read from disk at report build time.
+/// Separate from graph/git data because it depends on filesystem state.
 pub struct FindingSnippet {
     pub finding_id: String,
     pub code: String,           // 5-7 lines of source
@@ -205,9 +214,15 @@ pub struct FindingSnippet {
 }
 ```
 
-**Construction**: `GraphSnapshot` is built in the analyze pipeline after scoring, before report generation. It reads graph data through `GraphQuery` trait methods (e.g., `page_rank_idx()`, `betweenness_idx()`, `articulation_points_idx()`, `community_idx()`) — NOT by directly accessing `GraphPrimitives` fields, which are `pub(crate)`. All `NodeIndex` values from the graph must be resolved to qualified name strings via the string interner (`graph.interner().resolve(key)`). It also reads `CoChangeMatrix` and the filesystem (for code snippets). This keeps the reporter itself stateless — it receives pre-computed, string-keyed data.
+**Construction**: `ReportContext` is built by `AnalysisEngine::build_report_context()` after analysis completes. The method receives a pre-built `HealthReport` (constructed by the CLI layer after consumer-side filtering — confidence, severity, pagination — as it does today). The engine enriches it with graph and git data.
 
-**Code snippet reads**: Files are read from disk for top 20 findings only. Error handling: if a file has been deleted since analysis (stale finding), skip the snippet gracefully. Use UTF-8 with lossy fallback. Reads are sequential, not mmap'd — 20 small reads are fast enough.
+Each data source is populated independently:
+
+- **`GraphData`**: Read via `GraphQuery` trait methods (`page_rank_idx()`, `betweenness_idx()`, `articulation_points_idx()`, `community_idx()`, etc.) on the frozen `CodeGraph`. All `NodeIndex` values resolved to qualified name strings via `graph.interner().resolve(key)`. Module-level aggregation done by grouping file nodes by directory path.
+- **`GitData`**: `hidden_coupling` read from `GraphQuery::hidden_coupling_pairs()`. `top_co_change` read from the `CoChangeMatrix` retained in `EngineState` (see Engine Changes below). File ownership derived from `ExtraProps::author` on file nodes via `GraphQuery`.
+- **`FindingSnippet`**: Read from disk for top 20 findings only. If a file has been deleted since analysis, skip gracefully. UTF-8 with lossy fallback.
+- **`previous_health`**: Loaded from `cache::paths::cache_dir(repo_path).join("last_health.json")`.
+- **`style_profile`**: Loaded from `.repotoire/style_profile.json` if calibration has been run.
 
 ### Report Sections
 
@@ -230,19 +245,21 @@ Architecture is your weakest area — {cycle_count} circular dependencies
 and {articulation_point_count} single points of failure.
 {/if}
 
-{if bus_factor_files.len() > total_files * 0.3}
+{if git_data.bus_factor_files.len() > total_files * 0.3}
 Knowledge risk: {bus_factor_pct}% of files have only 1-2 contributors.
 {/if}
 
+{if git_data.top_co_change is not empty}
 The most coupled files are {top_co_change.0} and {top_co_change.1},
 changed together {co_change_count} times in 90 days.
+{/if}
 ```
 
-Conditional blocks ensure only relevant insights appear. 3-5 sentences max.
+Conditional blocks ensure only relevant insights appear. Sections that depend on `git_data` or `graph_data` are skipped when those are `None`. 3-5 sentences max.
 
 #### 2. Architecture Map (SVG)
 
-A hierarchical (Sugiyama-style) layout of module-level dependencies.
+A layered layout of module-level dependencies. Requires `graph_data` — skipped if `None`.
 
 - **Nodes** = directories/modules
 - **Node size** = LOC (area-proportional)
@@ -252,7 +269,7 @@ A hierarchical (Sugiyama-style) layout of module-level dependencies.
 - **Clusters** = Louvain communities shown as background shading or proximity
 - **Labels** = module name, truncated
 
-Generated as inline SVG. Layout algorithm: simple force-directed computed at build time in Rust (not in the browser). For repos with >20 modules, show top 20 by LOC and collapse the rest into an "other" node.
+Generated as inline SVG. For repos with >20 modules, show top 20 by LOC and collapse the rest into an "other" node.
 
 #### 3. Hotspot Treemap (SVG)
 
@@ -267,60 +284,26 @@ Generated as inline SVG using squarified treemap algorithm in Rust. Limit to top
 
 #### 4. Bus Factor Visualization
 
-A horizontal bar chart showing directories ranked by knowledge concentration:
+A horizontal bar chart showing directories ranked by knowledge concentration. Requires `git_data` — skipped if `None`.
 
 - **Bar length** = proportion of code with bus_factor <= 2
 - **Bar color** = red (1 author), orange (2 authors), green (3+)
 - **Label** = directory name + "N% single-author code"
 
-Only shown if git history is available. Sorted worst-first.
+Sorted worst-first.
 
 #### 5. Finding Cards with Inline Code
 
 Each finding card (existing design) enhanced with:
 
-- **Code snippet**: 5-7 lines of source code with the problematic line(s) highlighted
+- **Code snippet**: 5-7 lines of source code with the problematic line(s) highlighted. Only shown for findings that have a matching entry in `source_snippets`. Gracefully omitted otherwise.
 - **Syntax highlighting**: CSS classes per language (basic keyword/string/comment coloring, no JS library)
-- **Fix diff**: If `suggested_fix` is present, show before/after or the fix description in a green-bordered box
-- **Graph context**: For architecture findings, show "This function has PageRank 0.034 (top 5%)" or "This file is an articulation point — removing it disconnects 3 modules"
+- **Fix diff**: If `suggested_fix` is present, show the fix description in a green-bordered box
+- **Graph context**: For architecture findings, show "This function has PageRank 0.034 (top 5%)" or "This file is an articulation point — removing it disconnects 3 modules". Requires `graph_data` — omitted if `None`.
 
-Code snippets are read from disk during `GraphSnapshot` construction. Only top 20 findings get snippets to limit report size.
+Top 20 findings get snippets to limit report size.
 
-#### 6. Score Comparison Percentiles
-
-A visual showing where this repo sits relative to benchmarks:
-
-```
-Your Score: 82.5          [===================|====]
-                    0    20    40    60    80   100
-
-  Better than ~70% of open-source projects this size
-```
-
-Percentile data is hardcoded from repotoire's own analysis of public repos. Buckets by project size (small <5k LOC, medium 5-50k, large 50k+). Updated periodically.
-
-#### 7. Cost of Inaction Projection
-
-If previous run data exists (from `previous_health`):
-
-- Calculate score trend (delta per run or per week if timestamps exist)
-- Project forward: "At this rate, your score will reach C in ~4 months"
-- Show as a simple sparkline SVG with a projected dotted line
-
-If no previous data: show "Run repotoire regularly to track your score over time."
-
-#### 8. Dependency Graph Thumbnail
-
-A smaller, zoomed-out view of the full call graph (not module-level):
-
-- Function nodes colored by community
-- Circular dependencies highlighted
-- Articulation points marked with a different shape
-- Not interactive — just a visual fingerprint of the codebase
-
-For large repos (>500 functions), show only top 100 by PageRank.
-
-#### 9. README Badge Snippet
+#### 6. README Badge Snippet
 
 At the bottom of the report:
 
@@ -332,7 +315,7 @@ With a "Copy to clipboard" button (minimal inline JS — the one exception to th
 
 Renders as: a shields.io-style badge with grade, score, and color.
 
-#### 10. Print-Friendly CSS
+#### 7. Print-Friendly CSS
 
 A `@media print` stylesheet that:
 
@@ -344,17 +327,25 @@ A `@media print` stylesheet that:
 
 This enables `Cmd+P` → PDF export without a separate feature.
 
+### Future Sections (Deferred)
+
+These sections are intentionally deferred from the initial implementation:
+
+- **Score Comparison Percentiles**: Requires analyzing a corpus of public repos to generate meaningful percentile data. This is a data collection project, not a code feature. Defer until the corpus exists. Placeholder: "Run repotoire regularly to track your score over time."
+- **Cost of Inaction Projection**: Projecting score trends from 1-2 data points is statistically meaningless and could mislead users. Defer until the score history infrastructure has 5+ data points per repo. The `previous_health` field in `ReportContext` supports this when ready.
+- **Dependency Graph Thumbnail**: A function-level call graph for 100+ nodes as a static SVG produces an unreadable hairball. The module-level architecture map (section 2) covers this need at a useful granularity. Revisit if we find a way to make large graphs legible (e.g., interactive zoom, which requires JS).
+
 ### SVG Generation Strategy
 
 All visualizations are pure SVG generated in Rust during report construction. No JavaScript, no external libraries, no CDN dependencies.
 
-**Architecture map layout**: Use a layered/hierarchical layout (Sugiyama-style) rather than force-directed — better suited for directed dependency graphs and more predictable results. Steps:
+**Architecture map layout (V1)**: Simple layered layout, not full Sugiyama. The goal is readable output for the common case (5-20 modules), not a general-purpose graph layout engine.
 - Assign layers by topological sort (dependencies flow top-to-bottom)
-- Minimize edge crossings within layers via barycenter heuristic
+- Break cycles before layering (reverse one edge per cycle, mark as "back edge" with dashed line)
 - Position nodes within layers with even spacing
-- Serialize to SVG with `<circle>`, `<line>`, `<text>`, `<marker>` (arrows) elements
-- Consider the `layout-rs` crate if available; otherwise implement a simplified version (~200-300 LOC)
-- This is the largest single implementation task — budget 2-3 steps in the plan, not 1
+- Straight-line edges with arrowheads (no edge routing/spline fitting in V1)
+- Serialize to SVG with `<circle>`, `<line>`, `<text>`, `<marker>` elements
+- If the layout looks bad for a specific graph shape, iterate on layout quality as a follow-up — don't block the feature on perfect layout
 
 **Treemap layout**: Squarified treemap algorithm (Bruls et al. 2000):
 - Sort rectangles by size descending
@@ -362,8 +353,6 @@ All visualizations are pure SVG generated in Rust during report construction. No
 - Serialize to SVG with `<rect>` and `<text>` elements
 
 **Bar charts**: Direct SVG generation — `<rect>` elements with calculated widths.
-
-**Sparklines**: Simple `<polyline>` with point coordinates.
 
 All SVG is inlined in the HTML (no external files). Total added report size target: <100KB for a typical repo.
 
@@ -374,78 +363,130 @@ All SVG is inlined in the HTML (no external files). Total added report size targ
 ### Current Flow
 
 ```
-AnalysisEngine.analyze() → AnalysisResult → build_health_report() → HealthReport → html::render()
+run_engine():
+  engine.analyze(&config) → AnalysisResult
+  apply consumer-side filters (confidence, severity, pagination)
+  build HealthReport from filtered findings
+  reporters::report_with_format(&report, format) → String
 ```
 
 ### New Flow
 
 ```
-AnalysisEngine.analyze() → AnalysisResult
-                         ↓
-                    build_report_context()  ← reads CodeGraph, GraphPrimitives,
-                         ↓                    CoChangeMatrix, filesystem, cache
-                    ReportContext
-                         ↓
-                    html::render()  (or text::render() — both use ReportContext)
+run_engine():
+  engine.analyze(&config) → AnalysisResult
+  apply consumer-side filters (confidence, severity, pagination)
+  build HealthReport from filtered findings            ← same as today
+  engine.build_report_context(health, format) → ReportContext   ← NEW
+  reporters::report_with_context(&ctx, format) → String         ← NEW
 ```
 
-`build_report_context()` is a new function that:
+The key insight: `HealthReport` is still built by the CLI layer after filtering, exactly as today. The engine's `build_report_context` receives the pre-built `HealthReport` and enriches it with graph/git/snippet data. This avoids any double-filtering confusion.
 
-1. Constructs `HealthReport` from `AnalysisResult` (existing logic)
-2. If format is HTML or text needs graph data:
-   - Aggregates nodes into `ModuleNode` entries by directory
-   - Extracts top PageRank/betweenness nodes from `GraphPrimitives`
-   - Maps communities to modules
-   - Reads co-change pairs from `CoChangeMatrix`
-   - Computes file ownership from git blame data on nodes
-   - Reads code snippets from disk for top findings
-3. Loads `previous_health` from cache if available
-4. Loads `StyleProfile` if available
+### Engine Changes
 
-The text reporter also benefits from `ReportContext` — the themed "What stands out" section and quick wins ranking use the same data.
+**Retain `CoChangeMatrix` in `EngineState`**:
 
-### Engine API Change
+Currently, `CoChangeMatrix` is computed in `git_enrich_stage`, passed to `freeze_graph` to build `GraphPrimitives`, and then dropped. To populate `GitData.top_co_change` (all high-cochange pairs, not just those without structural edges), we need to retain the matrix.
 
-`AnalysisEngine` needs to expose `CodeGraph` and `GraphPrimitives` after analysis completes, so the CLI layer can build `ReportContext`. Options:
+Change: Store `co_change: Option<CoChangeMatrix>` in `EngineState` alongside the existing `graph: Arc<CodeGraph>`. The matrix is small (sparse HashMap of file pairs) and already computed — this is just keeping a reference instead of dropping it.
 
-**Option A**: `AnalysisEngine::analyze()` returns `(AnalysisResult, GraphHandle)` where `GraphHandle` provides read-only access to the frozen graph and primitives.
+Note: `hidden_coupling_pairs()` from `GraphQuery` gives co-change pairs that LACK structural edges. `top_co_change` from `CoChangeMatrix` gives ALL high co-change pairs regardless. Both are useful — hidden coupling reveals surprising coupling, top co-change reveals the strongest relationships.
 
-**Option B**: `build_report_context()` lives inside the engine, so the graph never leaks out.
+**New method: `build_report_context`**:
 
-**Recommendation**: Option B. Keep the graph encapsulated. Add `AnalysisEngine::build_report_context(&self, result: &AnalysisResult, format: OutputFormat) -> ReportContext` that internally accesses the graph via `GraphQuery` trait methods. This preserves the clean separation — reporters still don't touch the graph directly.
+```rust
+impl AnalysisEngine {
+    /// Build report context by enriching a pre-built HealthReport with
+    /// graph, git, and source data. The HealthReport is constructed by the
+    /// caller after consumer-side filtering (as today).
+    pub fn build_report_context(
+        &self,
+        health: HealthReport,
+        format: OutputFormat,
+    ) -> Result<ReportContext> {
+        let graph_data = if matches!(format, OutputFormat::Html | OutputFormat::Text) {
+            self.build_graph_data()  // reads from self.state.graph via GraphQuery
+        } else {
+            None
+        };
+
+        let git_data = if matches!(format, OutputFormat::Html | OutputFormat::Text) {
+            self.build_git_data()  // reads from self.state.co_change + graph blame data
+        } else {
+            None
+        };
+
+        let source_snippets = if matches!(format, OutputFormat::Html) {
+            self.build_snippets(&health.findings)  // reads from filesystem
+        } else {
+            vec![]
+        };
+
+        let previous_health = self.load_previous_health()?;
+        let style_profile = self.load_style_profile()?;
+
+        Ok(ReportContext {
+            health,
+            graph_data,
+            git_data,
+            source_snippets,
+            previous_health,
+            style_profile,
+        })
+    }
+}
+```
+
+Each `build_*` method is independently fallible — if graph isn't available, `graph_data` is `None`. If git history is missing, `git_data` is `None`. The report degrades gracefully.
 
 ### Reporter API Change
 
 The current reporter API is `pub fn render(report: &HealthReport) -> Result<String>`. This changes to:
 
-- Add new function: `pub fn render_with_context(ctx: &ReportContext) -> Result<String>` for text and HTML reporters
-- Keep existing `render(report: &HealthReport)` as a convenience wrapper that creates a minimal `ReportContext` with `graph_snapshot: None` — this preserves backward compatibility for JSON/SARIF/Markdown reporters that don't need graph data
-- The top-level `report_with_format()` function gains an overload or optional `ReportContext` parameter
-- Callers in `diff.rs` and other modules that use `reporters::report(&report, "sarif")` continue to work unchanged
+```rust
+// New primary entry point — used by text and HTML reporters
+pub fn report_with_context(ctx: &ReportContext, format: OutputFormat) -> Result<String> {
+    match format {
+        OutputFormat::Text => text::render_with_context(ctx),
+        OutputFormat::Html => html::render_with_context(ctx),
+        // These only need HealthReport — extract it from context
+        OutputFormat::Json => json::render(&ctx.health),
+        OutputFormat::Sarif => sarif::render(&ctx.health),
+        OutputFormat::Markdown => markdown::render(&ctx.health),
+    }
+}
+
+// Existing entry point preserved for backward compatibility
+// Used by diff.rs and other callers that don't have graph context
+pub fn report_with_format(report: &HealthReport, format: &str) -> Result<String> {
+    // unchanged — wraps into minimal ReportContext internally
+}
+```
+
+Callers in `diff.rs` and other modules that use `reporters::report_with_format(&report, "sarif")` continue to work unchanged. Only `run_engine()` in the analyze command switches to the new `report_with_context` path.
 
 ---
 
 ## Implementation Order
 
-1. **`ReportContext` struct + `GraphSnapshot` struct** — define the data contract
-2. **`build_report_context()` in engine** — wire up graph data extraction via `GraphQuery` trait methods, resolve `NodeIndex` → qualified names via interner
-3. **Reporter API change** — add `render_with_context()`, backward-compatible wrapper for existing callers
-4. **Score delta** — add `last_health.json` to cache infrastructure, load previous results, compute diff
-5. **Text reporter rewrite** — themed output, quick wins, CTAs, first-run tips
-6. **Deprecate `--relaxed`** — add warning on both `analyze` and `watch` commands
-7. **Finding code snippets** — read source lines from disk, UTF-8 lossy, graceful skip on missing files
-8. **SVG treemap generator** — squarified treemap algorithm
-9. **SVG architecture map: data aggregation** — module-level node/edge extraction, community mapping
-10. **SVG architecture map: layout algorithm** — Sugiyama-style layered layout (topological sort, crossing minimization, positioning)
-11. **SVG architecture map: SVG rendering** — circles, edges, arrows, labels, community shading
-12. **SVG bar chart generator** — bus factor, score comparison
-13. **SVG sparkline generator** — score trend
-14. **Narrative story generator** — template-based prose
-15. **HTML reporter rewrite** — integrate all new sections
-16. **README badge snippet** — shields.io URL generator
-17. **Print CSS** — @media print stylesheet
-18. **Benchmark percentile data** — analyze public repos, hardcode percentiles (can defer — show "run regularly to track" if no data)
-19. **Remove `--relaxed`** — after deprecation cycle
+1. **Retain `CoChangeMatrix` in `EngineState`** — store alongside graph after git_enrich_stage
+2. **Define `ReportContext`, `GraphData`, `GitData`, `FindingSnippet` structs** — the data contract
+3. **`build_report_context()` on `AnalysisEngine`** — with independent `build_graph_data()`, `build_git_data()`, `build_snippets()` methods, resolving `NodeIndex` → strings via interner
+4. **Reporter API change** — add `report_with_context()`, preserve `report_with_format()` for backward compat
+5. **Score delta** — add `last_health.json` to cache infrastructure, load previous results, save after each run
+6. **Text reporter rewrite** — themed output, quick wins, CTAs, first-run tips
+7. **Deprecate `--relaxed`** — add warning on both `analyze` and `watch` commands
+8. **Finding code snippets** — read source lines from disk, UTF-8 lossy, graceful skip on missing files
+9. **SVG treemap generator** — squarified treemap algorithm (~100 LOC)
+10. **SVG architecture map: data aggregation** — module-level node/edge extraction from graph, community mapping
+11. **SVG architecture map: layout + rendering** — topological sort layering, even spacing, straight-line edges, SVG output. Start simple, iterate on quality.
+12. **SVG bar chart generator** — bus factor visualization
+13. **Narrative story generator** — template-based conditional prose from ReportContext fields
+14. **HTML reporter rewrite** — integrate all new sections, graceful degradation when graph_data/git_data are None
+15. **README badge snippet** — shields.io URL generator + clipboard copy
+16. **Print CSS** — @media print stylesheet
+17. **Remove `--relaxed`** — after deprecation cycle
 
 ---
 
@@ -459,3 +500,4 @@ The current reporter API is `pub fn render(report: &HealthReport) -> Result<Stri
 - Report generation adds <1s to analysis time (target 500ms, accept up to 1s for large repos)
 - SVG visualizations render correctly in Chrome, Firefox, Safari
 - Report file size <200KB for a typical repo (500 files)
+- Report degrades gracefully: no graph → skip architecture map; no git → skip bus factor; no snippets → show finding cards without code
