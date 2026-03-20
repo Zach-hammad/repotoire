@@ -22,6 +22,7 @@ use output::{cache_results, check_fail_threshold, format_and_output};
 use anyhow::Result;
 use console::style;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Instant;
 
 /// Cache directory for a repository (legacy .repotoire path).
@@ -138,6 +139,18 @@ pub fn run_engine(
         total_classes: result.stats.total_classes,
         total_loc: result.stats.total_loc,
     };
+
+    // Save health report for score delta on next run
+    if let Ok(json) = serde_json::to_string(&report) {
+        let health_path = crate::cache::paths::health_cache_path(
+            &path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
+        );
+        let _ = std::fs::write(&health_path, &json);
+    }
+
+    // Build rich report context (graph + git + snippets) for future use
+    let format_enum = crate::reporters::OutputFormat::from_str(&output.format)?;
+    let _report_ctx = engine.build_report_context(report.clone(), format_enum)?;
 
     // Ensure cache dir exists for output caching
     let repotoire_dir = crate::cache::ensure_cache_dir(
