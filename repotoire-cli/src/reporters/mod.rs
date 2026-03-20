@@ -12,6 +12,7 @@ mod json;
 mod markdown;
 mod sarif;
 mod text;
+pub mod narrative;
 pub mod report_context;
 pub mod svg;
 
