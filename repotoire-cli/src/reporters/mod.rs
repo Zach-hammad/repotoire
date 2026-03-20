@@ -12,6 +12,7 @@ mod json;
 mod markdown;
 mod sarif;
 mod text;
+pub mod report_context;
 
 use crate::models::HealthReport;
 use anyhow::{anyhow, Result};
