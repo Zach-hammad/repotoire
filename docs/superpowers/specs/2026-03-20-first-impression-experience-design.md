@@ -76,7 +76,7 @@ Groups findings into 2-3 themes based on category and severity. Algorithm:
 Rank findings by impact/effort ratio:
 
 - **Impact**: severity weight (critical=4, high=3, medium=2, low=1)
-- **Effort**: `estimated_effort` is `Option<String>` with values like "low", "medium", "high". Map to numeric: low=3, medium=2, high=1 (inverse — low effort = high score). If absent, default to 2 (medium).
+- **Effort**: `estimated_effort` is `Option<String>` with freeform values like "low", "Medium (1-2 hours)", "10 minutes". Parse fuzzy: check if string contains/starts_with "low"→3, "medium"→2, "high"→1 (inverse — low effort = high score). If absent or unparseable, default to 2 (medium).
 - **Boost**: findings with `suggested_fix` present get 1.5x multiplier (we can tell the user exactly what to change)
 - Show top 3
 
@@ -205,7 +205,7 @@ pub struct FindingSnippet {
 }
 ```
 
-**Construction**: `GraphSnapshot` is built in the analyze pipeline after scoring, before report generation. It reads graph data through `GraphQuery` trait methods (e.g., `page_rank()`, `betweenness()`, `articulation_points()`) — NOT by directly accessing `GraphPrimitives` fields, which are `pub(crate)`. All `NodeIndex` values from the graph must be resolved to qualified name strings via the string interner (`graph.interner().resolve(key)`). It also reads `CoChangeMatrix` and the filesystem (for code snippets). This keeps the reporter itself stateless — it receives pre-computed, string-keyed data.
+**Construction**: `GraphSnapshot` is built in the analyze pipeline after scoring, before report generation. It reads graph data through `GraphQuery` trait methods (e.g., `page_rank_idx()`, `betweenness_idx()`, `articulation_points_idx()`, `community_idx()`) — NOT by directly accessing `GraphPrimitives` fields, which are `pub(crate)`. All `NodeIndex` values from the graph must be resolved to qualified name strings via the string interner (`graph.interner().resolve(key)`). It also reads `CoChangeMatrix` and the filesystem (for code snippets). This keeps the reporter itself stateless — it receives pre-computed, string-keyed data.
 
 **Code snippet reads**: Files are read from disk for top 20 findings only. Error handling: if a file has been deleted since analysis (stale finding), skip the snippet gracefully. Use UTF-8 with lossy fallback. Reads are sequential, not mmap'd — 20 small reads are fast enough.
 
@@ -242,7 +242,7 @@ Conditional blocks ensure only relevant insights appear. 3-5 sentences max.
 
 #### 2. Architecture Map (SVG)
 
-A force-directed or hierarchical layout of module-level dependencies.
+A hierarchical (Sugiyama-style) layout of module-level dependencies.
 
 - **Nodes** = directories/modules
 - **Node size** = LOC (area-proportional)
