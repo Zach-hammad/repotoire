@@ -13,6 +13,7 @@ mod markdown;
 mod sarif;
 mod text;
 pub mod report_context;
+pub mod svg;
 
 use crate::models::HealthReport;
 use anyhow::{anyhow, Result};
@@ -83,7 +84,7 @@ pub fn report_with_context(
     format: OutputFormat,
 ) -> Result<String> {
     match format {
-        OutputFormat::Text => text::render(&ctx.health), // TODO Task 7: switch to render_with_context
+        OutputFormat::Text => text::render_with_context(ctx),
         OutputFormat::Html => html::render(&ctx.health),  // TODO Task 14: switch to render_with_context
         OutputFormat::Json => json::render(&ctx.health),
         OutputFormat::Sarif => sarif::render(&ctx.health),
