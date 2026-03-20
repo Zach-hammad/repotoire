@@ -1,6 +1,7 @@
 pub mod config;
 pub mod events;
 pub mod posthog;
+pub mod repo_shape;
 
 use anyhow::Result;
 use config::TelemetryState;
