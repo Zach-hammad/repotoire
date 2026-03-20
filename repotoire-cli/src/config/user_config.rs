@@ -16,8 +16,11 @@ pub struct UserConfig {
     pub telemetry: TelemetryConfig,
 }
 
+/// Telemetry configuration for anonymous usage reporting
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct TelemetryConfig {
+    /// Whether telemetry is enabled (default: false). Can be overridden by
+    /// `DO_NOT_TRACK=1` or `REPOTOIRE_TELEMETRY` environment variables.
     pub enabled: Option<bool>,
 }
 

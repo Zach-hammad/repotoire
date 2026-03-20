@@ -18,14 +18,14 @@ impl TelemetryState {
     pub fn load() -> Result<Self> {
         let config = UserConfig::load()?;
         let file_enabled = config.telemetry.enabled;
-        let enabled = resolve(file_enabled);
-        let distinct_id = if enabled {
+        let state = Self::resolve(file_enabled);
+        let distinct_id = if state.enabled {
             Some(load_or_create_distinct_id()?)
         } else {
             None
         };
         Ok(TelemetryState {
-            enabled,
+            enabled: state.enabled,
             distinct_id,
         })
     }
@@ -33,48 +33,60 @@ impl TelemetryState {
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
-}
 
-/// Production resolver — reads real env vars and delegates to `resolve_with_env`
-pub fn resolve(file_enabled: Option<bool>) -> bool {
-    let do_not_track = std::env::var("DO_NOT_TRACK").ok();
-    let repotoire_telemetry = std::env::var("REPOTOIRE_TELEMETRY").ok();
-    resolve_with_env(
-        file_enabled,
-        do_not_track.as_deref(),
-        repotoire_telemetry.as_deref(),
-    )
-}
-
-/// Testable resolver that accepts env values as parameters.
-///
-/// Priority:
-/// 1. `DO_NOT_TRACK=1` → always disabled
-/// 2. `REPOTOIRE_TELEMETRY` env var → parses as truthy/falsy
-/// 3. Config file `telemetry.enabled`
-/// 4. Default: false
-pub fn resolve_with_env(
-    file_enabled: Option<bool>,
-    do_not_track: Option<&str>,
-    repotoire_telemetry: Option<&str>,
-) -> bool {
-    // DO_NOT_TRACK=1 wins unconditionally
-    if do_not_track == Some("1") {
-        return false;
+    /// Production resolver — reads real env vars and delegates to `resolve_with_env`
+    fn resolve(file_enabled: Option<bool>) -> Self {
+        let do_not_track = std::env::var("DO_NOT_TRACK").ok();
+        let repotoire_telemetry = std::env::var("REPOTOIRE_TELEMETRY").ok();
+        Self::resolve_with_env(
+            file_enabled,
+            do_not_track.as_deref(),
+            repotoire_telemetry.as_deref(),
+        )
     }
 
-    // REPOTOIRE_TELEMETRY env var
-    if let Some(val) = repotoire_telemetry {
-        return is_truthy(val);
-    }
+    /// Testable resolver that accepts env values as parameters.
+    ///
+    /// Priority:
+    /// 1. `DO_NOT_TRACK=1` → always disabled
+    /// 2. `REPOTOIRE_TELEMETRY` env var → parses as truthy/falsy
+    /// 3. Config file `telemetry.enabled`
+    /// 4. Default: false
+    pub fn resolve_with_env(
+        file_enabled: Option<bool>,
+        do_not_track: Option<&str>,
+        repotoire_telemetry: Option<&str>,
+    ) -> Self {
+        // DO_NOT_TRACK=1 wins unconditionally
+        if do_not_track == Some("1") {
+            return TelemetryState {
+                enabled: false,
+                distinct_id: None,
+            };
+        }
 
-    // Config file
-    if let Some(enabled) = file_enabled {
-        return enabled;
-    }
+        // REPOTOIRE_TELEMETRY env var
+        if let Some(val) = repotoire_telemetry {
+            return TelemetryState {
+                enabled: is_truthy(val),
+                distinct_id: None,
+            };
+        }
 
-    // Default: off
-    false
+        // Config file
+        if let Some(enabled) = file_enabled {
+            return TelemetryState {
+                enabled,
+                distinct_id: None,
+            };
+        }
+
+        // Default: off
+        TelemetryState {
+            enabled: false,
+            distinct_id: None,
+        }
+    }
 }
 
 fn is_truthy(val: &str) -> bool {
@@ -145,22 +157,28 @@ mod tests {
     #[test]
     fn test_is_enabled_respects_do_not_track() {
         // DO_NOT_TRACK=1 should always disable telemetry
-        let enabled = resolve_with_env(None, Some("1"), None);
-        assert!(!enabled);
+        let state = TelemetryState::resolve_with_env(None, Some("1"), None);
+        assert!(!state.is_enabled());
     }
 
     #[test]
     fn test_is_enabled_env_override() {
         // REPOTOIRE_TELEMETRY=on should enable telemetry
-        let enabled = resolve_with_env(None, None, Some("on"));
-        assert!(enabled);
+        let state = TelemetryState::resolve_with_env(None, None, Some("on"));
+        assert!(state.is_enabled());
     }
 
     #[test]
     fn test_is_enabled_defaults_to_false() {
         // No env vars, no config -> disabled
-        let enabled = resolve_with_env(None, None, None);
-        assert!(!enabled);
+        let state = TelemetryState::resolve_with_env(None, None, None);
+        assert!(!state.is_enabled());
+    }
+
+    #[test]
+    fn test_do_not_track_overrides_explicit_config_enabled() {
+        let state = TelemetryState::resolve_with_env(Some(true), Some("1"), None);
+        assert!(!state.is_enabled());
     }
 
     #[test]
@@ -169,7 +187,7 @@ mod tests {
         // UUID v4: 8-4-4-4-12 hex chars separated by dashes = 36 chars total
         assert_eq!(id.len(), 36);
         // Verify it parses as a valid UUID
-        let uuid = Uuid::parse_str(&id).unwrap();
+        let uuid = Uuid::parse_str(&id).expect("generated ID should be a valid UUID");
         assert_eq!(uuid.get_version_num(), 4);
     }
 
