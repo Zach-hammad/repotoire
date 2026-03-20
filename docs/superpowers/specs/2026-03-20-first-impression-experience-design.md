@@ -45,10 +45,12 @@ Quick wins (highest impact, lowest effort)
   2. [C] SQL injection via string concat   api/queries.rs:112
   3. [H] God class (47 methods)            engine/pipeline.rs:1
 
-  Fix the top one: repotoire fix 1
+  Fix the top one: repotoire fix <id>
   Explore all:     repotoire findings -i
   Full report:     repotoire analyze . --format html -o report.html
 ```
+
+Note: The `fix` CTA uses the finding ID from the analysis. The current `fix` command takes a path; we may need to extend it to accept a finding ID for this to work. If not ready, the CTA falls back to `repotoire findings -i` as the primary action.
 
 ### Changes from Current Output
 
@@ -74,7 +76,7 @@ Groups findings into 2-3 themes based on category and severity. Algorithm:
 Rank findings by impact/effort ratio:
 
 - **Impact**: severity weight (critical=4, high=3, medium=2, low=1)
-- **Effort**: inverse of estimated_effort if present, otherwise assume medium
+- **Effort**: `estimated_effort` is `Option<String>` with values like "low", "medium", "high". Map to numeric: low=3, medium=2, high=1 (inverse — low effort = high score). If absent, default to 2 (medium).
 - **Boost**: findings with `suggested_fix` present get 1.5x multiplier (we can tell the user exactly what to change)
 - Show top 3
 
@@ -82,12 +84,15 @@ Rank findings by impact/effort ratio:
 
 On subsequent runs (when cached results exist from last run):
 
-1. Load `last_health.json` from `.repotoire/` cache
-2. Compare `overall_score` and `findings.len()`
-3. Show delta: `(+1.7)` or `(-0.5)` and `↑ Fixed 3 findings` or `↓ 2 new findings`
+1. After each analysis, save health report to `cache::paths::cache_dir(repo_path).join("last_health.json")` (new cache path — must be added to the cache infrastructure alongside existing `last_findings.json`)
+2. On subsequent runs, load the previous `last_health.json` before overwriting
+3. Compare `overall_score` and `findings.len()`
+4. Show delta: `(+1.7)` or `(-0.5)` and `↑ Fixed 3 findings` or `↓ 2 new findings`
 
 ### Deprecate `--relaxed`
 
+- Exists on both `analyze` and `watch` commands — deprecate on both
+- `watch` command's `filter_delta_relaxed()` function should be migrated to use `--severity high` internally
 - Add deprecation warning: "Warning: --relaxed is deprecated. The default output already shows what matters. Use --severity high for explicit filtering."
 - Remove after one minor version cycle
 
@@ -97,7 +102,7 @@ On subsequent runs (when cached results exist from last run):
 
 ### Detection
 
-First run = no `.repotoire/` cache directory AND TTY detected (not piped, not CI).
+First run = no cache directory at `cache::paths::cache_dir(repo_path)` (i.e., `~/.cache/repotoire/<repo-hash>/`) AND TTY detected (not piped, not CI). Note: `.repotoire/` in the repo root is only used for `StyleProfile` persistence, not findings/health cache.
 
 ### Output
 
@@ -106,7 +111,7 @@ After the normal themed output, append:
 ```
 ──────────────────────────────────────
 First analysis complete! Next steps:
-  repotoire fix 1              Fix the top finding
+  repotoire fix <id>            Fix the top finding
   repotoire findings -i        Explore interactively
   repotoire analyze --format html -o report.html   Shareable report
   repotoire init               Customize thresholds and exclusions
@@ -183,7 +188,7 @@ pub struct ModuleEdge {
 pub struct Community {
     pub id: usize,
     pub modules: Vec<String>,
-    pub label: String,          // auto-generated from dominant module name
+    pub label: String,          // longest common directory prefix of member modules; falls back to module with most LOC
 }
 
 pub struct FileOwnership {
@@ -200,7 +205,9 @@ pub struct FindingSnippet {
 }
 ```
 
-**Construction**: `GraphSnapshot` is built in the analyze pipeline after scoring, before report generation. It reads from `CodeGraph`, `GraphPrimitives`, `CoChangeMatrix`, and the filesystem (for code snippets). This keeps the reporter itself stateless — it receives pre-computed data.
+**Construction**: `GraphSnapshot` is built in the analyze pipeline after scoring, before report generation. It reads graph data through `GraphQuery` trait methods (e.g., `page_rank()`, `betweenness()`, `articulation_points()`) — NOT by directly accessing `GraphPrimitives` fields, which are `pub(crate)`. All `NodeIndex` values from the graph must be resolved to qualified name strings via the string interner (`graph.interner().resolve(key)`). It also reads `CoChangeMatrix` and the filesystem (for code snippets). This keeps the reporter itself stateless — it receives pre-computed, string-keyed data.
+
+**Code snippet reads**: Files are read from disk for top 20 findings only. Error handling: if a file has been deleted since analysis (stale finding), skip the snippet gracefully. Use UTF-8 with lossy fallback. Reads are sequential, not mmap'd — 20 small reads are fast enough.
 
 ### Report Sections
 
@@ -341,10 +348,13 @@ This enables `Cmd+P` → PDF export without a separate feature.
 
 All visualizations are pure SVG generated in Rust during report construction. No JavaScript, no external libraries, no CDN dependencies.
 
-**Architecture map layout**: Implement a basic force-directed layout in Rust:
-- Initialize node positions in a grid
-- Run ~100 iterations of repulsion + attraction
-- Serialize to SVG with `<circle>`, `<line>`, `<text>` elements
+**Architecture map layout**: Use a layered/hierarchical layout (Sugiyama-style) rather than force-directed — better suited for directed dependency graphs and more predictable results. Steps:
+- Assign layers by topological sort (dependencies flow top-to-bottom)
+- Minimize edge crossings within layers via barycenter heuristic
+- Position nodes within layers with even spacing
+- Serialize to SVG with `<circle>`, `<line>`, `<text>`, `<marker>` (arrows) elements
+- Consider the `layout-rs` crate if available; otherwise implement a simplified version (~200-300 LOC)
+- This is the largest single implementation task — budget 2-3 steps in the plan, not 1
 
 **Treemap layout**: Squarified treemap algorithm (Bruls et al. 2000):
 - Sort rectangles by size descending
@@ -402,28 +412,40 @@ The text reporter also benefits from `ReportContext` — the themed "What stands
 
 **Option B**: `build_report_context()` lives inside the engine, so the graph never leaks out.
 
-**Recommendation**: Option B. Keep the graph encapsulated. Add `AnalysisEngine::build_report_context(&self, result: &AnalysisResult, format: OutputFormat) -> ReportContext` that internally accesses the graph. This preserves the clean separation — reporters still don't touch the graph directly.
+**Recommendation**: Option B. Keep the graph encapsulated. Add `AnalysisEngine::build_report_context(&self, result: &AnalysisResult, format: OutputFormat) -> ReportContext` that internally accesses the graph via `GraphQuery` trait methods. This preserves the clean separation — reporters still don't touch the graph directly.
+
+### Reporter API Change
+
+The current reporter API is `pub fn render(report: &HealthReport) -> Result<String>`. This changes to:
+
+- Add new function: `pub fn render_with_context(ctx: &ReportContext) -> Result<String>` for text and HTML reporters
+- Keep existing `render(report: &HealthReport)` as a convenience wrapper that creates a minimal `ReportContext` with `graph_snapshot: None` — this preserves backward compatibility for JSON/SARIF/Markdown reporters that don't need graph data
+- The top-level `report_with_format()` function gains an overload or optional `ReportContext` parameter
+- Callers in `diff.rs` and other modules that use `reporters::report(&report, "sarif")` continue to work unchanged
 
 ---
 
 ## Implementation Order
 
 1. **`ReportContext` struct + `GraphSnapshot` struct** — define the data contract
-2. **`build_report_context()` in engine** — wire up graph data extraction
-3. **Score delta** — load previous results, compute diff
-4. **Text reporter rewrite** — themed output, quick wins, CTAs, first-run tips
-5. **Deprecate `--relaxed`** — add warning
-6. **Finding code snippets** — read source lines from disk
-7. **SVG treemap generator** — squarified treemap algorithm
-8. **SVG architecture map generator** — force-directed layout
-9. **SVG bar chart generator** — bus factor, score comparison
-10. **SVG sparkline generator** — score trend
-11. **Narrative story generator** — template-based prose
-12. **HTML reporter rewrite** — integrate all new sections
-13. **README badge snippet** — shields.io URL generator
-14. **Print CSS** — @media print stylesheet
-15. **Benchmark percentile data** — analyze public repos, hardcode percentiles
-16. **Remove `--relaxed`** — after deprecation cycle
+2. **`build_report_context()` in engine** — wire up graph data extraction via `GraphQuery` trait methods, resolve `NodeIndex` → qualified names via interner
+3. **Reporter API change** — add `render_with_context()`, backward-compatible wrapper for existing callers
+4. **Score delta** — add `last_health.json` to cache infrastructure, load previous results, compute diff
+5. **Text reporter rewrite** — themed output, quick wins, CTAs, first-run tips
+6. **Deprecate `--relaxed`** — add warning on both `analyze` and `watch` commands
+7. **Finding code snippets** — read source lines from disk, UTF-8 lossy, graceful skip on missing files
+8. **SVG treemap generator** — squarified treemap algorithm
+9. **SVG architecture map: data aggregation** — module-level node/edge extraction, community mapping
+10. **SVG architecture map: layout algorithm** — Sugiyama-style layered layout (topological sort, crossing minimization, positioning)
+11. **SVG architecture map: SVG rendering** — circles, edges, arrows, labels, community shading
+12. **SVG bar chart generator** — bus factor, score comparison
+13. **SVG sparkline generator** — score trend
+14. **Narrative story generator** — template-based prose
+15. **HTML reporter rewrite** — integrate all new sections
+16. **README badge snippet** — shields.io URL generator
+17. **Print CSS** — @media print stylesheet
+18. **Benchmark percentile data** — analyze public repos, hardcode percentiles (can defer — show "run regularly to track" if no data)
+19. **Remove `--relaxed`** — after deprecation cycle
 
 ---
 
@@ -434,6 +456,6 @@ The text reporter also benefits from `ReportContext` — the themed "What stands
 - Architecture map reveals structural patterns that flat findings lists cannot
 - Score delta creates a feedback loop that brings users back
 - No JavaScript required in HTML report (except optional clipboard copy)
-- Report generation adds <500ms to analysis time
+- Report generation adds <1s to analysis time (target 500ms, accept up to 1s for large repos)
 - SVG visualizations render correctly in Chrome, Firefox, Safari
 - Report file size <200KB for a typical repo (500 files)
