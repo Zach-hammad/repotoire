@@ -140,23 +140,21 @@ pub fn run_engine(
         total_loc: result.stats.total_loc,
     };
 
-    // Save health report for score delta on next run
-    if let Ok(json) = serde_json::to_string(&report) {
-        let health_path = crate::cache::paths::health_cache_path(
-            &path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
-        );
-        let _ = std::fs::write(&health_path, &json);
-    }
+    // Ensure cache dir exists (needed for health save and output caching)
+    let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let repotoire_dir = crate::cache::ensure_cache_dir(&canon_path)
+        .unwrap_or_else(|_| path.join(".repotoire"));
 
-    // Build rich report context (graph + git + snippets) for future use
+    // Build rich report context (graph + git + snippets)
+    // Must happen BEFORE saving health report so load_previous_health reads the OLD data
     let format_enum = crate::reporters::OutputFormat::from_str(&output.format)?;
     let _report_ctx = engine.build_report_context(report.clone(), format_enum)?;
 
-    // Ensure cache dir exists for output caching
-    let repotoire_dir = crate::cache::ensure_cache_dir(
-        &path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
-    )
-    .unwrap_or_else(|_| path.join(".repotoire"));
+    // Save health report for score delta on NEXT run (after loading previous)
+    if let Ok(json) = serde_json::to_string(&report) {
+        let health_path = crate::cache::paths::health_cache_path(&canon_path);
+        let _ = std::fs::write(&health_path, &json);
+    }
 
     // Format and output
     format_and_output(

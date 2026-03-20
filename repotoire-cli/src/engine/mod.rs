@@ -855,6 +855,30 @@ impl AnalysisEngine {
             .as_ref()
             .map(|s| s.style_profile.clone());
 
+        // Enrich modules with finding counts from the health report
+        let graph_data = graph_data.map(|mut gd| {
+            let mut dir_findings: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            for finding in &health.findings {
+                if let Some(file) = finding.affected_files.first() {
+                    let dir = file.parent()
+                        .and_then(|p| p.to_str())
+                        .unwrap_or(".")
+                        .to_string();
+                    *dir_findings.entry(dir).or_default() += 1;
+                }
+            }
+            for module in &mut gd.modules {
+                module.finding_count = dir_findings.get(&module.path).copied().unwrap_or(0);
+                module.finding_density = if module.loc > 0 {
+                    (module.finding_count as f64) / (module.loc as f64 / 1000.0)
+                } else {
+                    0.0
+                };
+                module.health_score = (100.0 - module.finding_density * 10.0).max(0.0).min(100.0);
+            }
+            gd
+        });
+
         Ok(ReportContext {
             health,
             graph_data,
@@ -1028,7 +1052,8 @@ impl AnalysisEngine {
                 } else {
                     self.repo_path.join(file)
                 };
-                let code = std::fs::read_to_string(&abs_path).ok()?;
+                let bytes = std::fs::read(&abs_path).ok()?;
+                let code = String::from_utf8_lossy(&bytes);
 
                 // Extract relevant lines around the finding
                 let start = f.line_start.unwrap_or(1).saturating_sub(1) as usize;
@@ -1171,10 +1196,7 @@ impl AnalysisEngine {
 
         let interner = graph.interner();
 
-        // Build file -> module mapping
-        let module_set: std::collections::HashSet<&str> =
-            modules.iter().map(|m| m.path.as_str()).collect();
-        let _ = module_set; // used implicitly via file_to_module
+        // Build file -> module mapping for edge aggregation
 
         let file_to_module: HashMap<String, String> = graph
             .files_idx()
@@ -1248,10 +1270,18 @@ impl AnalysisEngine {
         let communities: Vec<Community> = community_modules
             .into_iter()
             .map(|(id, mods)| {
+                // Label: longest common directory prefix, or module with most LOC
                 let label = if mods.len() == 1 {
                     mods[0].clone()
                 } else {
-                    format!("Community {}", id)
+                    common_path_prefix(&mods).unwrap_or_else(|| {
+                        // Fallback: module with most LOC
+                        mods.iter()
+                            .filter_map(|m| modules.iter().find(|n| n.path == *m))
+                            .max_by_key(|n| n.loc)
+                            .map(|n| n.path.clone())
+                            .unwrap_or_else(|| format!("Community {}", id))
+                    })
                 };
                 Community {
                     id,
@@ -1264,6 +1294,30 @@ impl AnalysisEngine {
         (communities, modularity)
     }
 
+}
+
+/// Find the longest common directory prefix among a set of paths.
+fn common_path_prefix(paths: &[String]) -> Option<String> {
+    if paths.is_empty() {
+        return None;
+    }
+    let first = &paths[0];
+    let prefix_len = paths.iter().skip(1).fold(first.len(), |acc, p| {
+        let common = first
+            .chars()
+            .zip(p.chars())
+            .take_while(|(a, b)| a == b)
+            .count();
+        acc.min(common)
+    });
+    let prefix = &first[..prefix_len];
+    // Trim to last '/' to get a clean directory path
+    prefix
+        .rfind('/')
+        .map(|i| first[..=i].to_string())
+}
+
+impl AnalysisEngine {
     /// Extract file ownership info from ExtraProps author field.
     fn compute_file_ownership(
         &self,
