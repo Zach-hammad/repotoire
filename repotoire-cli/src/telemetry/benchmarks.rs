@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 
 const BENCHMARK_BASE_URL: &str = "https://benchmarks.repotoire.com/v1";
 const EXPECTED_SCHEMA_VERSION: u32 = 1;
-const MIN_SAMPLE_SIZE: u64 = 50;
+const MIN_SAMPLE_SIZE: u64 = 5;
 const CACHE_FRESH_SECS: u64 = 24 * 60 * 60; // 24 hours
 const CACHE_STALE_SECS: u64 = 48 * 60 * 60; // 48 hours
 
