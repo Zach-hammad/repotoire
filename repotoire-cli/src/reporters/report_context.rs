@@ -5,7 +5,7 @@
 //! gracefully when data is unavailable.
 
 use crate::models::HealthReport;
-use crate::calibrate::profile::StyleProfile;
+use crate::calibrate::StyleProfile;
 
 /// Full context for report rendering. Text and HTML reporters use graph/git
 /// data for themed output and visualizations. JSON/SARIF/Markdown reporters
