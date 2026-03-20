@@ -152,6 +152,60 @@ pub fn compute_repo_id_from_hash(commit_hash: &str) -> String {
     format!("{:x}", result)
 }
 
+/// Check if we should show the opt-in prompt
+pub fn should_prompt(file_enabled: Option<bool>, has_env_override: bool) -> bool {
+    file_enabled.is_none() && !has_env_override
+}
+
+/// Show the opt-in prompt. Returns true if user accepts.
+/// Only shows when stderr is a TTY.
+pub fn show_opt_in_prompt() -> Option<bool> {
+    use std::io::IsTerminal;
+
+    // Only show if stderr is a TTY
+    if !std::io::stderr().is_terminal() {
+        return None; // Non-interactive: don't prompt, default to off
+    }
+
+    eprintln!("────────────────────────────────────────────────────");
+    eprintln!("Help improve repotoire?");
+    eprintln!();
+    eprintln!("Share anonymous usage data to:");
+    eprintln!("  - Get ecosystem benchmarks (\"your score is top 25% for Rust projects\")");
+    eprintln!("  - Help us tune detectors and reduce false positives");
+    eprintln!();
+    eprintln!("No repo names, file paths, or code content. Ever.");
+    eprintln!("See what's collected: https://repotoire.dev/telemetry");
+    eprintln!();
+    eprint!("Enable? [y/N] ");
+
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_err() {
+        return Some(false);
+    }
+    Some(input.trim().eq_ignore_ascii_case("y"))
+}
+
+/// Save telemetry choice to config file
+pub fn save_telemetry_choice(enabled: bool) -> anyhow::Result<()> {
+    let config_path = crate::config::UserConfig::user_config_path()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    if content.contains("[telemetry]") {
+        // Replace existing enabled value
+        content = content
+            .replace("enabled = true", &format!("enabled = {}", enabled))
+            .replace("enabled = false", &format!("enabled = {}", enabled));
+    } else {
+        content.push_str(&format!("\n[telemetry]\nenabled = {}\n", enabled));
+    }
+    std::fs::write(&config_path, &content)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,5 +261,13 @@ mod tests {
         assert_eq!(repo_id.len(), 64);
         // Verify it's valid hex
         assert!(repo_id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_should_prompt_only_when_undecided() {
+        assert!(should_prompt(None, false)); // Undecided, no env → prompt
+        assert!(!should_prompt(Some(true), false)); // Already on → no prompt
+        assert!(!should_prompt(Some(false), false)); // Already off → no prompt
+        assert!(!should_prompt(None, true)); // Env override → no prompt
     }
 }
