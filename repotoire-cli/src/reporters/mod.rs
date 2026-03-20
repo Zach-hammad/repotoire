@@ -75,6 +75,22 @@ pub fn report_with_format(report: &HealthReport, format: OutputFormat) -> Result
     }
 }
 
+/// Render a report using the full ReportContext (for text/HTML with graph data).
+/// For text/HTML, this will eventually use the full context for themed output.
+/// For JSON/SARIF/Markdown, it delegates to the existing renderers.
+pub fn report_with_context(
+    ctx: &report_context::ReportContext,
+    format: OutputFormat,
+) -> Result<String> {
+    match format {
+        OutputFormat::Text => text::render(&ctx.health), // TODO Task 7: switch to render_with_context
+        OutputFormat::Html => html::render(&ctx.health),  // TODO Task 14: switch to render_with_context
+        OutputFormat::Json => json::render(&ctx.health),
+        OutputFormat::Sarif => sarif::render(&ctx.health),
+        OutputFormat::Markdown => markdown::render(&ctx.health),
+    }
+}
+
 /// Get the recommended file extension for a format
 #[allow(dead_code)] // Public API helper
 pub fn file_extension(format: OutputFormat) -> &'static str {
@@ -120,6 +136,21 @@ pub(crate) mod tests {
             total_classes: 50,
             total_loc: 10000,
         }
+    }
+
+    #[test]
+    fn test_report_with_context_text() {
+        let report = test_report();
+        let ctx = report_context::ReportContext {
+            health: report,
+            graph_data: None,
+            git_data: None,
+            source_snippets: vec![],
+            previous_health: None,
+            style_profile: None,
+        };
+        let output = report_with_context(&ctx, OutputFormat::Text).unwrap();
+        assert!(output.contains("Score:") || output.contains("score") || output.contains("Repotoire"));
     }
 
     #[test]
