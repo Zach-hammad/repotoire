@@ -148,10 +148,14 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
     // Enhanced findings with code snippets
     html.push_str(&render_findings_with_snippets(report, &ctx.source_snippets));
 
-    // README badge
+    // README badge — URL-encode the grade for shields.io compatibility
+    let encoded_grade = report.grade
+        .replace('+', "%2B")
+        .replace('-', "--")
+        .replace(' ', "%20");
     let badge_url = format!(
         "https://img.shields.io/badge/repotoire-{}%20({:.0}%2F100)-{}",
-        report.grade, report.overall_score,
+        encoded_grade, report.overall_score,
         match report.grade.chars().next().unwrap_or('F') {
             'A' => "10b981", 'B' => "22c55e", 'C' => "eab308", 'D' => "f97316", _ => "ef4444",
         }

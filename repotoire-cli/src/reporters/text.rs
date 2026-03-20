@@ -1,7 +1,9 @@
 //! Text (terminal) reporter with colors and formatting
 
 use crate::models::{HealthReport, Severity};
+use crate::reporters::report_context::ReportContext;
 use anyhow::Result;
+use std::collections::HashMap;
 
 /// Grade colors (ANSI escape codes)
 fn grade_color(grade: &str) -> &'static str {
@@ -175,7 +177,295 @@ pub fn render(report: &HealthReport) -> Result<String> {
     Ok(out)
 }
 
-/// Format score with color
+/// Severity weight for ranking
+fn severity_weight(severity: &Severity) -> f64 {
+    match severity {
+        Severity::Critical => 4.0,
+        Severity::High => 3.0,
+        Severity::Medium => 2.0,
+        Severity::Low => 1.0,
+        Severity::Info => 0.0,
+    }
+}
+
+/// Render report with full context — themed output with "What stands out" and "Quick wins"
+pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
+    let report = &ctx.health;
+    let mut out = String::new();
+
+    // ── Header ──────────────────────────────────────────────────────
+    let grade_c = grade_color(&report.grade);
+    out.push_str(&format!("\n{BOLD}Repotoire Analysis{RESET}\n"));
+    out.push_str(&format!(
+        "{DIM}──────────────────────────────────────{RESET}\n"
+    ));
+
+    // Score line — with optional delta
+    out.push_str(&format!(
+        "Score: {BOLD}{:.1}/100{RESET}",
+        report.overall_score
+    ));
+
+    if let Some(prev) = &ctx.previous_health {
+        let delta = report.overall_score - prev.overall_score;
+        let fixed = prev
+            .findings
+            .len()
+            .saturating_sub(report.findings.len());
+        let new_findings = report
+            .findings
+            .len()
+            .saturating_sub(prev.findings.len());
+        // Only show delta if it's meaningful (>= 0.05)
+        if delta.abs() >= 0.05 {
+            if delta >= 0.0 {
+                out.push_str(&format!(" {BOLD}(+{:.1}){RESET}", delta));
+            } else {
+                out.push_str(&format!(" {BOLD}({:.1}){RESET}", delta));
+            }
+        }
+        out.push_str(&format!(
+            "  Grade: {grade_c}{BOLD}{}{RESET}",
+            report.grade
+        ));
+        if fixed > 0 {
+            out.push_str(&format!("  Fixed {} findings", fixed));
+        }
+        if new_findings > 0 {
+            out.push_str(&format!("  {} new findings", new_findings));
+        }
+    } else {
+        out.push_str(&format!(
+            "  Grade: {grade_c}{BOLD}{}{RESET}",
+            report.grade
+        ));
+    }
+
+    out.push_str(&format!(
+        "   Files: {}  Functions: {}  LOC: {}\n",
+        format_number(report.total_files),
+        format_number(report.total_functions),
+        format_number(report.total_loc),
+    ));
+
+    // Sub-scores
+    out.push_str(&format!(
+        "\n  Structure: {}  Quality: {}",
+        format_score(report.structure_score),
+        format_score(report.quality_score)
+    ));
+    if let Some(arch) = report.architecture_score {
+        out.push_str(&format!("  Architecture: {}", format_score(arch)));
+    }
+    out.push_str("\n");
+
+    // ── What stands out ─────────────────────────────────────────────
+    let buckets = build_category_buckets(&report.findings);
+    let notable_buckets = top_notable_buckets(&buckets, 3);
+
+    if !notable_buckets.is_empty() {
+        out.push_str(&format!("\n{BOLD}What stands out{RESET}\n"));
+        let max_weight = notable_buckets
+            .first()
+            .map(|(_, w, _)| *w)
+            .unwrap_or(0.0);
+
+        for (category, weight, summary) in &notable_buckets {
+            let arrow = if *weight == max_weight && max_weight > 0.0 {
+                format!("    {DIM}\u{2190} fix these first{RESET}")
+            } else {
+                String::new()
+            };
+            let display_cat = capitalize(category);
+            out.push_str(&format!(
+                "  {:<15}{}{}\n",
+                display_cat, summary, arrow
+            ));
+        }
+    }
+
+    // ── Quick wins ──────────────────────────────────────────────────
+    let quick_wins = top_quick_wins(&report.findings, 3);
+    if !quick_wins.is_empty() {
+        out.push_str(&format!("\n{BOLD}Quick wins{RESET} (highest impact, lowest effort)\n"));
+
+        for (i, finding) in quick_wins.iter().enumerate() {
+            let sev_c = severity_color(&finding.severity);
+            let sev_tag = severity_tag(&finding.severity);
+            let title: String = finding.title.chars().take(35).collect();
+            let title = if finding.title.chars().count() > 35 {
+                format!("{}...", title)
+            } else {
+                title
+            };
+            let file_info = format_file_location(finding);
+
+            out.push_str(&format!(
+                "  {}. {sev_c}{}{RESET} {:<35}  {DIM}{}{RESET}\n",
+                i + 1,
+                sev_tag,
+                title,
+                file_info
+            ));
+        }
+
+        out.push_str(&format!(
+            "\n  {DIM}Fix the top one: repotoire fix <id>{RESET}\n"
+        ));
+        out.push_str(&format!(
+            "  {DIM}Explore all:     repotoire findings -i{RESET}\n"
+        ));
+        out.push_str(&format!(
+            "  {DIM}Full report:     repotoire analyze . --format html -o report.html{RESET}\n"
+        ));
+    }
+
+    // ── First-run tips ──────────────────────────────────────────────
+    if ctx.previous_health.is_none() && console::Term::stdout().is_term() {
+        out.push_str(&format!(
+            "\n{DIM}──────────────────────────────────────{RESET}\n"
+        ));
+        out.push_str(&format!("{BOLD}First analysis complete!{RESET} Next steps:\n"));
+        out.push_str(&format!(
+            "  {DIM}repotoire fix <id>            Fix the top finding{RESET}\n"
+        ));
+        out.push_str(&format!(
+            "  {DIM}repotoire findings -i        Explore interactively{RESET}\n"
+        ));
+        out.push_str(&format!(
+            "  {DIM}repotoire analyze --format html -o report.html   Shareable report{RESET}\n"
+        ));
+        out.push_str(&format!(
+            "  {DIM}repotoire init               Customize thresholds and exclusions{RESET}\n"
+        ));
+    }
+
+    Ok(out)
+}
+
+/// A category bucket: counts by severity
+struct CategoryBucket {
+    critical: usize,
+    high: usize,
+    medium: usize,
+    low: usize,
+}
+
+impl CategoryBucket {
+    fn weighted_score(&self) -> f64 {
+        self.critical as f64 * 4.0
+            + self.high as f64 * 3.0
+            + self.medium as f64 * 2.0
+            + self.low as f64 * 1.0
+    }
+
+    fn has_notable_findings(&self) -> bool {
+        self.critical > 0 || self.high > 0 || self.medium > 0
+    }
+
+    fn summary_line(&self) -> String {
+        let mut parts = Vec::new();
+        if self.critical > 0 {
+            parts.push(format!("{} critical", self.critical));
+        }
+        if self.high > 0 {
+            parts.push(format!("{} high", self.high));
+        }
+        if self.medium > 0 {
+            parts.push(format!("{} medium", self.medium));
+        }
+        parts.join(", ")
+    }
+}
+
+/// Group findings by category
+fn build_category_buckets(
+    findings: &[crate::models::Finding],
+) -> HashMap<String, CategoryBucket> {
+    let mut buckets: HashMap<String, CategoryBucket> = HashMap::new();
+    for f in findings {
+        let cat = f
+            .category
+            .as_deref()
+            .unwrap_or("other")
+            .to_lowercase();
+        let bucket = buckets.entry(cat).or_insert(CategoryBucket {
+            critical: 0,
+            high: 0,
+            medium: 0,
+            low: 0,
+        });
+        match f.severity {
+            Severity::Critical => bucket.critical += 1,
+            Severity::High => bucket.high += 1,
+            Severity::Medium => bucket.medium += 1,
+            Severity::Low => bucket.low += 1,
+            Severity::Info => {}
+        }
+    }
+    buckets
+}
+
+/// Return top N notable buckets sorted by weighted score
+fn top_notable_buckets(
+    buckets: &HashMap<String, CategoryBucket>,
+    n: usize,
+) -> Vec<(String, f64, String)> {
+    let mut entries: Vec<(String, f64, String)> = buckets
+        .iter()
+        .filter(|(_, b)| b.has_notable_findings())
+        .map(|(cat, b)| (cat.clone(), b.weighted_score(), b.summary_line()))
+        .collect();
+    entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    entries.truncate(n);
+    entries
+}
+
+/// Return top N findings ranked by impact score
+fn top_quick_wins(
+    findings: &[crate::models::Finding],
+    n: usize,
+) -> Vec<&crate::models::Finding> {
+    let mut scored: Vec<(f64, &crate::models::Finding)> = findings
+        .iter()
+        .map(|f| {
+            let base = severity_weight(&f.severity);
+            let boost = if f.suggested_fix.is_some() {
+                1.5
+            } else {
+                1.0
+            };
+            (base * boost, f)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(n);
+    scored.into_iter().map(|(_, f)| f).collect()
+}
+
+/// Format a number with comma separators
+fn format_number(n: usize) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
+}
+
+/// Capitalize first letter
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
+}
+
+/// Format file location for a finding
 fn format_file_location(finding: &crate::models::Finding) -> String {
     let Some(file) = finding.affected_files.first() else {
         return String::new();
@@ -202,4 +492,114 @@ fn format_score(score: f64) -> String {
         "\x1b[31m"
     };
     format!("{color}{:.0}{RESET}", score)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reporters::report_context::ReportContext;
+    use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
+
+    fn test_context() -> ReportContext {
+        let findings = vec![
+            Finding {
+                id: "f1".into(),
+                detector: "HardcodedSecret".into(),
+                severity: Severity::Critical,
+                title: "Hardcoded AWS key".into(),
+                category: Some("security".into()),
+                suggested_fix: Some("Use env var".into()),
+                affected_files: vec!["auth/config.py".into()],
+                line_start: Some(34),
+                ..Default::default()
+            },
+            Finding {
+                id: "f2".into(),
+                detector: "GodClass".into(),
+                severity: Severity::High,
+                title: "God class (47 methods)".into(),
+                category: Some("architecture".into()),
+                affected_files: vec!["engine/pipeline.rs".into()],
+                line_start: Some(1),
+                ..Default::default()
+            },
+            Finding {
+                id: "f3".into(),
+                detector: "DeepNesting".into(),
+                severity: Severity::Medium,
+                title: "Deep nesting (6 levels)".into(),
+                category: Some("complexity".into()),
+                affected_files: vec!["engine/parser.rs".into()],
+                line_start: Some(55),
+                ..Default::default()
+            },
+        ];
+        ReportContext {
+            health: HealthReport {
+                overall_score: 82.5,
+                grade: "B".into(),
+                structure_score: 85.0,
+                quality_score: 80.0,
+                architecture_score: Some(82.0),
+                findings_summary: FindingsSummary::from_findings(&findings),
+                findings,
+                total_files: 456,
+                total_functions: 4348,
+                total_classes: 200,
+                total_loc: 23456,
+            },
+            graph_data: None,
+            git_data: None,
+            source_snippets: vec![],
+            previous_health: None,
+            style_profile: None,
+        }
+    }
+
+    #[test]
+    fn test_themed_output_contains_sections() {
+        let ctx = test_context();
+        let output = render_with_context(&ctx).unwrap();
+        assert!(output.contains("What stands out"), "missing themed section");
+        assert!(output.contains("Quick wins"), "missing quick wins");
+        assert!(output.contains("findings -i"), "missing CTA");
+    }
+
+    #[test]
+    fn test_score_delta_shown() {
+        let mut ctx = test_context();
+        let mut prev = ctx.health.clone();
+        prev.overall_score = 80.0;
+        ctx.previous_health = Some(prev);
+        let output = render_with_context(&ctx).unwrap();
+        assert!(output.contains("+2.5"), "missing score delta");
+    }
+
+    #[test]
+    fn test_no_delta_on_first_run() {
+        let ctx = test_context();
+        let output = render_with_context(&ctx).unwrap();
+        assert!(!output.contains("Fixed"), "should not show delta on first run");
+        assert!(!output.contains("+"), "should not show + on first run");
+    }
+
+    #[test]
+    fn test_categories_grouped() {
+        let ctx = test_context();
+        let output = render_with_context(&ctx).unwrap();
+        // Should show security category (has critical finding)
+        assert!(
+            output.contains("security") || output.contains("Security"),
+            "should group by category"
+        );
+    }
+
+    #[test]
+    fn test_format_number() {
+        assert_eq!(format_number(0), "0");
+        assert_eq!(format_number(999), "999");
+        assert_eq!(format_number(1000), "1,000");
+        assert_eq!(format_number(23456), "23,456");
+        assert_eq!(format_number(1234567), "1,234,567");
+    }
 }

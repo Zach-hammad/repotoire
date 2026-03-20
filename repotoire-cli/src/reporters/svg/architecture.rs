@@ -207,7 +207,7 @@ fn cap_modules(modules: &[ModuleNode], edges: &[ModuleEdge]) -> (Vec<ModuleNode>
     result_modules.push(other);
 
     // Rewrite edges: remap collapsed module paths to "(other)"
-    let result_edges: Vec<ModuleEdge> = edges
+    let collapsed_edges: Vec<ModuleEdge> = edges
         .iter()
         .map(|e| {
             let from = if kept_paths.contains(&e.from) {
@@ -229,6 +229,20 @@ fn cap_modules(modules: &[ModuleNode], edges: &[ModuleEdge]) -> (Vec<ModuleNode>
         })
         .filter(|e| e.from != e.to) // remove self-loops from collapse
         .collect();
+
+    // Deduplicate edges: merge edges with same (from, to) pair, summing weights
+    let mut edge_map: HashMap<(String, String), ModuleEdge> = HashMap::new();
+    for edge in collapsed_edges {
+        let key = (edge.from.clone(), edge.to.clone());
+        edge_map
+            .entry(key)
+            .and_modify(|existing| {
+                existing.weight += edge.weight;
+                existing.is_cycle = existing.is_cycle || edge.is_cycle;
+            })
+            .or_insert(edge);
+    }
+    let result_edges: Vec<ModuleEdge> = edge_map.into_values().collect();
 
     (result_modules, result_edges)
 }
@@ -341,8 +355,9 @@ fn extract_label(path: &str) -> String {
         .rsplit('/')
         .next()
         .unwrap_or(path);
-    if label.len() > 12 {
-        format!("{}...", &label[..9])
+    if label.chars().count() > 12 {
+        let truncated: String = label.chars().take(9).collect();
+        format!("{}...", truncated)
     } else {
         label.to_string()
     }

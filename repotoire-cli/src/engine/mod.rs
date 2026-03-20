@@ -1015,7 +1015,7 @@ impl AnalysisEngine {
         // Bus factor: files with only 1 author
         let bus_factor_files: Vec<(String, usize)> = file_ownership
             .iter()
-            .filter(|fo| fo.bus_factor <= 1)
+            .filter(|fo| fo.bus_factor <= 2)
             .map(|fo| (fo.path.clone(), fo.bus_factor))
             .collect();
 
@@ -1189,7 +1189,7 @@ impl AnalysisEngine {
     fn aggregate_module_edges(
         &self,
         graph: &dyn GraphQuery,
-        modules: &[crate::reporters::report_context::ModuleNode],
+        _modules: &[crate::reporters::report_context::ModuleNode],
     ) -> Vec<crate::reporters::report_context::ModuleEdge> {
         use crate::reporters::report_context::ModuleEdge;
         use std::collections::HashMap;
@@ -1302,13 +1302,16 @@ fn common_path_prefix(paths: &[String]) -> Option<String> {
         return None;
     }
     let first = &paths[0];
+    // Use char_indices to track byte positions (avoids UTF-8 byte-slice panic)
     let prefix_len = paths.iter().skip(1).fold(first.len(), |acc, p| {
-        let common = first
-            .chars()
+        let common_bytes = first
+            .char_indices()
             .zip(p.chars())
-            .take_while(|(a, b)| a == b)
-            .count();
-        acc.min(common)
+            .take_while(|((_, a), b)| a == b)
+            .last()
+            .map(|((i, c), _)| i + c.len_utf8())
+            .unwrap_or(0);
+        acc.min(common_bytes)
     });
     let prefix = &first[..prefix_len];
     // Trim to last '/' to get a clean directory path
