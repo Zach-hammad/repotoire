@@ -12,6 +12,13 @@ use std::path::PathBuf;
 pub struct UserConfig {
     #[serde(default)]
     pub ai: AiConfig,
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct TelemetryConfig {
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -86,6 +93,9 @@ impl UserConfig {
         }
         if other.ai.ollama_model.is_some() {
             self.ai.ollama_model = other.ai.ollama_model;
+        }
+        if other.telemetry.enabled.is_some() {
+            self.telemetry.enabled = other.telemetry.enabled;
         }
     }
 
@@ -240,6 +250,7 @@ backend = "claude"
                 ollama_url: Some("http://remote:11434".to_string()),
                 ollama_model: Some("deepseek-coder".to_string()),
             },
+            telemetry: TelemetryConfig::default(),
         };
         base.merge(other);
         assert_eq!(base.anthropic_api_key(), Some("sk-new"));
@@ -261,6 +272,7 @@ backend = "claude"
                 ollama_url: None,
                 ollama_model: None,
             },
+            telemetry: TelemetryConfig::default(),
         };
         let other = UserConfig::default();
         base.merge(other);
@@ -275,5 +287,22 @@ backend = "claude"
         if let Some(p) = path {
             assert!(p.ends_with("repotoire/config.toml"));
         }
+    }
+
+    #[test]
+    fn test_toml_parsing_telemetry_enabled() {
+        let toml_str = r#"
+[telemetry]
+enabled = true
+"#;
+        let config: UserConfig = toml::from_str(toml_str).expect("parse telemetry config");
+        assert_eq!(config.telemetry.enabled, Some(true));
+    }
+
+    #[test]
+    fn test_toml_parsing_no_telemetry_section() {
+        let toml_str = "";
+        let config: UserConfig = toml::from_str(toml_str).expect("parse minimal config");
+        assert_eq!(config.telemetry.enabled, None);
     }
 }

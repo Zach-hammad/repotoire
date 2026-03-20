@@ -17,4 +17,4 @@ pub use project_config::{
     ScoringConfig, ThresholdValue, DEFAULT_EXCLUDE_PATTERNS,
 };
 
-pub use user_config::UserConfig;
+pub use user_config::{TelemetryConfig, UserConfig};
