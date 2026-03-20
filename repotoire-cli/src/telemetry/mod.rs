@@ -1,4 +1,6 @@
 pub mod config;
+pub mod events;
+pub mod posthog;
 
 use anyhow::Result;
 use config::TelemetryState;
