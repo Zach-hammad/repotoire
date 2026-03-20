@@ -879,7 +879,7 @@ impl AnalysisEngine {
                 } else {
                     0.0
                 };
-                module.health_score = (100.0 - module.finding_density * 10.0).max(0.0).min(100.0);
+                module.health_score = (100.0 - module.finding_density * 10.0).clamp(0.0, 100.0);
             }
             gd
         });

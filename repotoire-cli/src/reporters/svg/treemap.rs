@@ -10,6 +10,8 @@ pub struct TreemapItem {
 
 /// Render a squarified treemap as inline SVG.
 /// Items are laid out to minimize aspect ratios (squarified algorithm, Bruls et al. 2000).
+// write! to a String is infallible, so unwrap() will never panic here.
+#[allow(clippy::unwrap_used)]
 pub fn render_treemap(items: &[TreemapItem], width: f64, height: f64) -> String {
     let mut svg = String::with_capacity(1024);
     write!(

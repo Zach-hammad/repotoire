@@ -257,7 +257,7 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
     if let Some(arch) = report.architecture_score {
         out.push_str(&format!("  Architecture: {}", format_score(arch)));
     }
-    out.push_str("\n");
+    out.push('\n');
 
     // ── What stands out ─────────────────────────────────────────────
     let buckets = build_category_buckets(&report.findings);

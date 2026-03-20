@@ -25,6 +25,8 @@ const MIN_RADIUS: f64 = 8.0;
 const MAX_MODULES: usize = 20;
 
 /// Render a layered architecture map as inline SVG.
+// write! to a String is infallible, so unwrap() will never panic here.
+#[allow(clippy::unwrap_used)]
 pub fn render_architecture_map(
     modules: &[ModuleNode],
     edges: &[ModuleEdge],
@@ -182,7 +184,7 @@ fn cap_modules(modules: &[ModuleNode], edges: &[ModuleEdge]) -> (Vec<ModuleNode>
         kept.iter().map(|m| m.path.clone()).collect();
 
     // Collapse remainder
-    let rest: Vec<&ModuleNode> = sorted[MAX_MODULES..].iter().copied().collect();
+    let rest: Vec<&ModuleNode> = sorted[MAX_MODULES..].to_vec();
     let other_loc: usize = rest.iter().map(|m| m.loc).sum();
     let other_files: usize = rest.iter().map(|m| m.file_count).sum();
     let other_findings: usize = rest.iter().map(|m| m.finding_count).sum();
@@ -306,6 +308,8 @@ fn assign_layers(
 }
 
 /// Render community background rectangles.
+// write! to a String is infallible, so unwrap() will never panic here.
+#[allow(clippy::unwrap_used)]
 fn render_community_backgrounds(
     svg: &mut String,
     communities: &[Community],
