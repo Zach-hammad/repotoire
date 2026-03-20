@@ -41,6 +41,7 @@ pub struct GitData {
     pub bus_factor_files: Vec<(String, usize)>,
 }
 
+#[derive(Clone)]
 pub struct ModuleNode {
     pub path: String,
     pub loc: usize,
@@ -52,6 +53,7 @@ pub struct ModuleNode {
     pub health_score: f64,
 }
 
+#[derive(Clone)]
 pub struct ModuleEdge {
     pub from: String,
     pub to: String,
