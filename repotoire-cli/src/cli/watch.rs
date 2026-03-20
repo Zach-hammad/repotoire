@@ -87,6 +87,13 @@ fn compute_delta(result: &AnalysisResult, prev: Option<&AnalysisResult>) -> Watc
 pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()> {
     let repo_path = std::fs::canonicalize(path)?;
 
+    // Deprecation warning for --relaxed
+    if relaxed {
+        eprintln!("\x1b[33mWarning: --relaxed is deprecated and will be removed in a future version.\x1b[0m");
+        eprintln!("\x1b[33m         The default output already shows what matters.\x1b[0m");
+        eprintln!("\x1b[33m         Use --severity high for explicit filtering.\x1b[0m");
+    }
+
     if !quiet {
         let icon = if no_emoji { "" } else { "👁️  " };
         println!(
