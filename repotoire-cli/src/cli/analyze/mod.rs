@@ -227,7 +227,7 @@ pub fn run_engine(
                     .and_then(|e| e.to_str())
                     .unwrap_or("");
                 if let Some(lang) = crate::parsers::language_for_extension(ext) {
-                    *lang_loc.entry(lang.to_string()).or_insert(0) += 1;
+                    *lang_loc.entry(lang.to_lowercase()).or_insert(0) += 1;
                 }
             }
         }
@@ -235,7 +235,7 @@ pub fn run_engine(
     };
     let precomputed_primary_language = lang_loc_precomputed.iter()
         .max_by_key(|(_, count)| *count)
-        .map(|(lang, _)| lang.clone())
+        .map(|(lang, _)| lang.to_lowercase())
         .unwrap_or_else(|| "unknown".to_string());
 
     // Display ecosystem context (telemetry users only)

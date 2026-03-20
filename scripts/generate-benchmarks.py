@@ -211,7 +211,7 @@ def main():
     for row in rows:
         lang = row[6]
         if lang:
-            by_language[lang].append(row)
+            by_language[lang.lower()].append(row)
 
     for lang, lang_rows in by_language.items():
         if len(lang_rows) >= MIN_SAMPLE_SIZE:
