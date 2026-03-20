@@ -43,6 +43,7 @@ pub fn run_engine(
     path: &Path,
     config: crate::engine::AnalysisConfig,
     output: crate::engine::OutputOptions,
+    telemetry: &crate::telemetry::Telemetry,
 ) -> Result<()> {
     let start_time = Instant::now();
     let quiet_mode = output.format == "json" || output.format == "sarif";
@@ -216,6 +217,46 @@ pub fn run_engine(
         }
     }
 
+    // Display ecosystem context (telemetry users only)
+    if let crate::telemetry::Telemetry::Active(ref _state) = telemetry {
+        if !quiet_mode && output.format == "text" {
+            let total_kloc = result.stats.total_loc as f64 / 1000.0;
+            let primary_language = "unknown"; // TODO: wire from language stats
+
+            if let Some(data) = crate::telemetry::benchmarks::fetch_benchmarks(primary_language, total_kloc) {
+                let score_pct = crate::telemetry::benchmarks::interpolate_percentile(
+                    result.score.overall, &data.score
+                );
+                let pillar_pcts = Some(crate::telemetry::display::PillarPercentiles {
+                    structure: crate::telemetry::benchmarks::interpolate_percentile(
+                        result.score.breakdown.structure.final_score, &data.pillar_structure
+                    ),
+                    quality: crate::telemetry::benchmarks::interpolate_percentile(
+                        result.score.breakdown.quality.final_score, &data.pillar_quality
+                    ),
+                    architecture: crate::telemetry::benchmarks::interpolate_percentile(
+                        result.score.breakdown.architecture.final_score, &data.pillar_architecture
+                    ),
+                });
+                let ctx = crate::telemetry::display::EcosystemContext {
+                    score_percentile: score_pct,
+                    comparison_group: format!("{} projects", data.segment.language.as_deref().unwrap_or("all")),
+                    sample_size: data.sample_size,
+                    pillar_percentiles: pillar_pcts,
+                    modularity_percentile: None,
+                    coupling_percentile: None,
+                    trend: None,
+                };
+                println!("{}", crate::telemetry::display::format_ecosystem_context(&ctx));
+            }
+            // Telemetry footer
+            println!("  {}", style("telemetry: on (repotoire config telemetry off to disable)").dim());
+        }
+    } else if !quiet_mode && output.format == "text" {
+        // Show tip once (only on text output)
+        println!("{}", crate::telemetry::display::format_telemetry_tip());
+    }
+
     // Write JSON sidecar if requested (single analysis run, two output files)
     if let Some(ref sidecar_path) = output.json_sidecar {
         let mut sidecar_report = report.clone();
@@ -272,6 +313,70 @@ pub fn run_engine(
             style(icon_done).bold(),
             elapsed.as_secs_f64()
         );
+    }
+
+    // Send telemetry event (fire-and-forget)
+    if let crate::telemetry::Telemetry::Active(ref state) = telemetry {
+        if let Some(distinct_id) = &state.distinct_id {
+            let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            let repo_id = crate::telemetry::config::compute_repo_id(&canon);
+            let repo_shape = crate::telemetry::repo_shape::detect_repo_shape(&canon);
+
+            // Load and update per-repo telemetry state
+            let cache_dir = crate::cache::paths::cache_dir(&canon);
+            let mut telem_state = crate::telemetry::cache::TelemetryRepoState::load_or_default(&cache_dir);
+            telem_state.record_analysis(result.score.overall);
+            let _ = telem_state.save(&cache_dir);
+
+            // Build findings maps
+            let mut findings_by_severity = std::collections::HashMap::new();
+            let mut findings_by_detector: std::collections::HashMap<String, std::collections::HashMap<String, u64>> = std::collections::HashMap::new();
+            let mut findings_by_category = std::collections::HashMap::new();
+            for f in &all_findings {
+                let sev = format!("{:?}", f.severity).to_lowercase();
+                *findings_by_severity.entry(sev.clone()).or_insert(0u64) += 1;
+                *findings_by_category.entry(f.category.clone().unwrap_or_default()).or_insert(0u64) += 1;
+                findings_by_detector
+                    .entry(f.detector.clone())
+                    .or_default()
+                    .entry(sev)
+                    .and_modify(|c| *c += 1)
+                    .or_insert(1);
+            }
+
+            let event = crate::telemetry::events::AnalysisComplete {
+                repo_id,
+                nth_analysis: Some(telem_state.nth_analysis),
+                score: result.score.overall,
+                grade: result.score.grade.clone(),
+                pillar_structure: result.score.breakdown.structure.final_score,
+                pillar_quality: result.score.breakdown.quality.final_score,
+                pillar_architecture: result.score.breakdown.architecture.final_score,
+                languages: std::collections::HashMap::new(),
+                primary_language: String::new(), // TODO: wire from language stats
+                frameworks: Vec::new(), // TODO: wire from framework detection
+                total_files: result.stats.files_analyzed as u64,
+                total_kloc: result.stats.total_loc as f64 / 1000.0,
+                repo_shape: repo_shape.repo_shape.clone(),
+                has_workspace: repo_shape.has_workspace,
+                workspace_member_count: repo_shape.workspace_member_count,
+                buildable_roots: repo_shape.buildable_roots,
+                language_count: repo_shape.language_count,
+                primary_language_ratio: repo_shape.primary_language_ratio,
+                findings_by_severity,
+                findings_by_detector,
+                findings_by_category,
+                analysis_duration_ms: start_time.elapsed().as_millis() as u64,
+                analysis_mode: mode_label.to_string(),
+                ci: std::env::var("CI").is_ok(),
+                os: std::env::consts::OS.to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                ..Default::default()
+            };
+
+            let props = serde_json::to_value(&event).unwrap_or_default();
+            crate::telemetry::posthog::capture("analysis_complete", distinct_id, props);
+        }
     }
 
     // Cache results (fire-and-forget background)

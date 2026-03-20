@@ -535,7 +535,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                 json_sidecar,
             };
 
-            analyze::run_engine(&cli.path, analysis_config, output_options)
+            analyze::run_engine(&cli.path, analysis_config, output_options, &telemetry)
         }
 
         Some(Commands::Diff {
@@ -730,7 +730,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                 ..Default::default()
             };
             let output_options = crate::engine::OutputOptions::default();
-            analyze::run_engine(&cli.path, analysis_config, output_options)
+            analyze::run_engine(&cli.path, analysis_config, output_options, &telemetry)
         }
     }
 }
