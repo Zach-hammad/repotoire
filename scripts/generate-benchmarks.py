@@ -22,7 +22,7 @@ from pathlib import Path
 
 # PostHog API config
 POSTHOG_API_URL = "https://app.posthog.com/api/projects/{project_id}/query"
-MIN_SAMPLE_SIZE = 50
+MIN_SAMPLE_SIZE = 5
 OUTPUT_DIR = Path("benchmark-output/v1")
 SCHEMA_VERSION = 1
 
@@ -63,30 +63,32 @@ def query_posthog(api_key, project_id):
     import requests
 
     url = POSTHOG_API_URL.format(project_id=project_id)
-    query = {
-        "kind": "HogQLQuery",
-        "query": """
-            SELECT
-                properties.$repo_id as repo_id,
-                properties.score as score,
-                properties.grade as grade,
-                properties.pillar_structure as pillar_structure,
-                properties.pillar_quality as pillar_quality,
-                properties.pillar_architecture as pillar_architecture,
-                properties.primary_language as primary_language,
-                properties.total_kloc as total_kloc,
-                properties.graph_modularity as graph_modularity,
-                properties.graph_avg_degree as graph_avg_degree,
-                properties.graph_scc_count as graph_scc_count,
-                timestamp
-            FROM events
-            WHERE event = 'analysis_complete'
-              AND timestamp > now() - interval 90 day
-            ORDER BY timestamp DESC
-        """
+    payload = {
+        "query": {
+            "kind": "HogQLQuery",
+            "query": """
+                SELECT
+                    properties.repo_id as repo_id,
+                    properties.score as score,
+                    properties.grade as grade,
+                    properties.pillar_structure as pillar_structure,
+                    properties.pillar_quality as pillar_quality,
+                    properties.pillar_architecture as pillar_architecture,
+                    properties.primary_language as primary_language,
+                    properties.total_kloc as total_kloc,
+                    properties.graph_modularity as graph_modularity,
+                    properties.graph_avg_degree as graph_avg_degree,
+                    properties.graph_scc_count as graph_scc_count,
+                    timestamp
+                FROM events
+                WHERE event = 'analysis_complete'
+                  AND timestamp > now() - interval 90 day
+                ORDER BY timestamp DESC
+            """
+        }
     }
 
-    resp = requests.post(url, json=query, headers={
+    resp = requests.post(url, json=payload, headers={
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     })
