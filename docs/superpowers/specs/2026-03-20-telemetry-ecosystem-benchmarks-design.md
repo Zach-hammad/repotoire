@@ -487,7 +487,7 @@ repotoire-cli/src/
     mod.rs            — public API: init(), capture(), fetch_benchmarks()
     config.rs         — opt-in state, telemetry_id/repo_id generation, prompt
     events.rs         — event structs (AnalysisComplete, DetectorFeedback, etc.)
-    posthog.rs        — PostHog client wrapper (capture via posthog-rs)
+    posthog.rs        — PostHog capture API wrapper (direct ureq calls)
     benchmarks.rs     — CDN fetch, percentile interpolation, fallback chain
     cache.rs          — 24h local cache at ~/.cache/repotoire/benchmarks/
     display.rs        — terminal formatting for benchmark output
