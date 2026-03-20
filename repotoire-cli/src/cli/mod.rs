@@ -468,6 +468,13 @@ pub fn run(cli: Cli) -> Result<()> {
                 eprintln!("   Use --external=off to skip external tools. --thorough will be removed in a future release.");
             }
 
+            // Deprecation warning for --relaxed
+            if relaxed {
+                eprintln!("\x1b[33mWarning: --relaxed is deprecated and will be removed in a future version.\x1b[0m");
+                eprintln!("\x1b[33m         The default output already shows what matters.\x1b[0m");
+                eprintln!("\x1b[33m         Use --severity high for explicit filtering.\x1b[0m");
+            }
+
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
                 Some("high".to_string())

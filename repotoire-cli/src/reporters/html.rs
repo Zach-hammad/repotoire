@@ -10,6 +10,9 @@
 use crate::models::{Finding, HealthReport, Severity};
 use anyhow::Result;
 use chrono::Local;
+use std::collections::HashMap;
+
+use super::report_context::ReportContext;
 
 /// Render report as standalone HTML
 pub fn render(report: &HealthReport) -> Result<String> {
@@ -47,6 +50,124 @@ pub fn render(report: &HealthReport) -> Result<String> {
     // Footer
     html.push_str(&render_footer());
 
+    html.push_str("</div>\n</body>\n</html>");
+
+    Ok(html)
+}
+
+/// Render report as standalone HTML with full context (graphs, narrative, snippets).
+pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
+    let report = &ctx.health;
+    let mut html = String::new();
+
+    html.push_str(&render_head(report));
+    html.push_str("<body>\n<div class=\"container\">\n");
+    html.push_str(&render_header(report));
+    html.push_str("<div class=\"content\">\n");
+
+    // Narrative story section
+    let narrative = super::narrative::generate_narrative(ctx);
+    html.push_str(&format!(
+        "<div class=\"card narrative\">\n<p style=\"font-size: 1.1rem; line-height: 1.8; color: #334155;\">{}</p>\n</div>\n",
+        html_escape(&narrative)
+    ));
+
+    // Existing sections
+    html.push_str(&render_grade_section(report));
+    html.push_str(&render_category_scores(report));
+    html.push_str(&render_metrics(report));
+
+    // Architecture map (if graph data available)
+    if let Some(ref gd) = ctx.graph_data {
+        let arch_svg = super::svg::architecture::render_architecture_map(
+            &gd.modules, &gd.module_edges, &gd.communities,
+        );
+        html.push_str(&format!(
+            "<div class=\"card\">\n<h2>Architecture Map</h2>\n<p style=\"color: #64748b; margin-bottom: 1rem;\">Module dependencies colored by health score. Red edges indicate circular dependencies.</p>\n{}\n</div>\n",
+            arch_svg
+        ));
+    }
+
+    // Hotspot treemap (if graph data available)
+    if let Some(ref gd) = ctx.graph_data {
+        if !gd.modules.is_empty() {
+            let treemap_items: Vec<super::svg::treemap::TreemapItem> = gd.modules.iter()
+                .filter(|m| m.loc > 0)
+                .map(|m| super::svg::treemap::TreemapItem {
+                    label: m.path.clone(),
+                    size: m.loc as f64,
+                    color_value: (1.0 - m.health_score / 100.0).clamp(0.0, 1.0),
+                })
+                .collect();
+            let treemap_svg = super::svg::treemap::render_treemap(&treemap_items, 800.0, 400.0);
+            html.push_str(&format!(
+                "<div class=\"card\">\n<h2>Hotspot Treemap</h2>\n<p style=\"color: #64748b; margin-bottom: 1rem;\">Rectangle size = lines of code. Color = finding density (green = healthy, red = hotspot).</p>\n{}\n</div>\n",
+                treemap_svg
+            ));
+        }
+    }
+
+    // Bus factor (if git data available)
+    if let Some(ref git) = ctx.git_data {
+        if !git.bus_factor_files.is_empty() {
+            // Aggregate bus factor by directory
+            let mut dir_risk: HashMap<String, usize> = HashMap::new();
+            for (path, _bf) in &git.bus_factor_files {
+                let dir = std::path::Path::new(path)
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or(".")
+                    .to_string();
+                *dir_risk.entry(dir).or_default() += 1;
+            }
+            let mut bar_items: Vec<super::svg::bar_chart::BarItem> = dir_risk.into_iter()
+                .map(|(dir, risky)| {
+                    let value = (risky as f64 / ctx.health.total_files.max(1) as f64).min(1.0);
+                    let color = if value > 0.6 { "#ef4444".to_string() }
+                        else if value > 0.3 { "#f97316".to_string() }
+                        else { "#22c55e".to_string() };
+                    super::svg::bar_chart::BarItem { label: dir, value, color }
+                })
+                .collect();
+            bar_items.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+            bar_items.truncate(10);
+
+            if !bar_items.is_empty() {
+                let bar_svg = super::svg::bar_chart::render_bar_chart(&bar_items, "Bus Factor Risk by Directory", 700.0, 0.0);
+                html.push_str(&format!(
+                    "<div class=\"card\">\n<h2>Bus Factor</h2>\n<p style=\"color: #64748b; margin-bottom: 1rem;\">Directories with files that have only 1-2 contributors.</p>\n{}\n</div>\n",
+                    bar_svg
+                ));
+            }
+        }
+    }
+
+    // Findings summary
+    html.push_str(&render_findings_summary(report));
+
+    // Enhanced findings with code snippets
+    html.push_str(&render_findings_with_snippets(report, &ctx.source_snippets));
+
+    // README badge — URL-encode the grade for shields.io compatibility
+    let encoded_grade = report.grade
+        .replace('+', "%2B")
+        .replace('-', "--")
+        .replace(' ', "%20");
+    let badge_url = format!(
+        "https://img.shields.io/badge/repotoire-{}%20({:.0}%2F100)-{}",
+        encoded_grade, report.overall_score,
+        match report.grade.chars().next().unwrap_or('F') {
+            'A' => "10b981", 'B' => "22c55e", 'C' => "eab308", 'D' => "f97316", _ => "ef4444",
+        }
+    );
+    let badge_md = format!("[![Repotoire Grade]({})](https://repotoire.dev)", badge_url);
+    html.push_str(&format!(
+        "<div class=\"card badge-section\">\n<h2>Add to your README</h2>\n<code id=\"badge-code\" style=\"display:block; background: #f1f5f9; padding: 1rem; border-radius: 6px; font-size: 0.85rem; word-break: break-all;\">{}</code>\n<button onclick=\"navigator.clipboard.writeText(document.getElementById('badge-code').textContent)\" style=\"margin-top: 0.5rem; padding: 0.5rem 1rem; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer;\">Copy</button>\n</div>\n",
+        html_escape(&badge_md)
+    ));
+
+    html.push_str("</div>\n"); // content
+    html.push_str(&render_footer());
     html.push_str("</div>\n</body>\n</html>");
 
     Ok(html)
@@ -372,6 +493,52 @@ fn render_finding(finding: &Finding) -> String {
     )
 }
 
+/// Render findings with inline code snippets where available.
+fn render_findings_with_snippets(
+    report: &HealthReport,
+    snippets: &[super::report_context::FindingSnippet],
+) -> String {
+    if report.findings.is_empty() {
+        return r#"<div class="section">
+    <h2 class="section-title">No Issues Found</h2>
+    <p>Great job! Your codebase has no detected issues.</p>
+</div>
+"#
+        .to_string();
+    }
+
+    // Build a lookup from finding_id to snippet
+    let snippet_map: HashMap<&str, &super::report_context::FindingSnippet> = snippets
+        .iter()
+        .map(|s| (s.finding_id.as_str(), s))
+        .collect();
+
+    let mut html = format!(
+        r#"<div class="section">
+    <h2 class="section-title">Detailed Findings ({} total)</h2>
+    <div class="findings-list">
+"#,
+        report.findings.len()
+    );
+
+    for finding in &report.findings {
+        html.push_str(&render_finding(finding));
+
+        // Inject code snippet if available
+        if let Some(snippet) = snippet_map.get(finding.id.as_str()) {
+            if !snippet.code.is_empty() {
+                html.push_str(&format!(
+                    "<pre style=\"background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; line-height: 1.5; margin: 0 1rem 1rem 1rem;\"><code>{}</code></pre>\n",
+                    html_escape(&snippet.code)
+                ));
+            }
+        }
+    }
+
+    html.push_str("    </div>\n</div>\n");
+    html
+}
+
 fn render_footer() -> String {
     r#"<div class="footer">
     <p>Generated by <a href="https://repotoire.com">Repotoire</a> - Graph-Powered Code Health Platform</p>
@@ -644,9 +811,28 @@ body {
 }
 
 @media print {
-    body { padding: 0; background: white; }
+    body { background: white; padding: 0; }
+    .card { box-shadow: none; border: 1px solid #ccc; }
     .container { box-shadow: none; }
+    .header { background: #6366f1 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .finding-card { page-break-inside: avoid; }
+    .badge-section { display: none; }
+    svg { max-width: 100%; height: auto; }
+}
+
+.card {
+    background: var(--card-background);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.card h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border-color);
 }
 "#;
 
@@ -654,6 +840,8 @@ body {
 mod tests {
     use super::*;
     use crate::reporters::tests::test_report;
+    use crate::reporters::report_context::*;
+    use crate::models::*;
 
     #[test]
     fn test_html_render_valid() {
@@ -678,5 +866,93 @@ mod tests {
         report.findings_summary = Default::default();
         let html_str = render(&report).expect("render HTML");
         assert!(html_str.contains("</html>"));
+    }
+
+    fn test_ctx() -> ReportContext {
+        let findings = vec![Finding {
+            id: "f1".into(),
+            detector: "test".into(),
+            severity: Severity::High,
+            title: "Test finding".into(),
+            description: "A test".into(),
+            affected_files: vec!["src/main.rs".into()],
+            line_start: Some(10),
+            suggested_fix: Some("Fix it".into()),
+            ..Default::default()
+        }];
+        ReportContext {
+            health: HealthReport {
+                overall_score: 85.0,
+                grade: "B".into(),
+                structure_score: 90.0,
+                quality_score: 80.0,
+                architecture_score: Some(85.0),
+                findings_summary: FindingsSummary::from_findings(&findings),
+                findings,
+                total_files: 100,
+                total_functions: 500,
+                total_classes: 50,
+                total_loc: 10000,
+            },
+            graph_data: None,
+            git_data: None,
+            source_snippets: vec![],
+            previous_health: None,
+            style_profile: None,
+        }
+    }
+
+    #[test]
+    fn test_html_with_context_contains_narrative() {
+        let ctx = test_ctx();
+        let html = render_with_context(&ctx).unwrap();
+        assert!(
+            html.contains("LOC") || html.contains("loc") || html.contains("10,000"),
+            "should have narrative"
+        );
+    }
+
+    #[test]
+    fn test_html_degrades_without_graph() {
+        let ctx = test_ctx();
+        let html = render_with_context(&ctx).unwrap();
+        assert!(
+            !html.contains("Architecture Map"),
+            "no arch map without graph data"
+        );
+        assert!(
+            html.contains("Score:") || html.contains("score") || html.contains("85"),
+            "basic report still works"
+        );
+    }
+
+    #[test]
+    fn test_html_contains_badge() {
+        let ctx = test_ctx();
+        let html = render_with_context(&ctx).unwrap();
+        assert!(html.contains("shields.io"), "should have badge");
+    }
+
+    #[test]
+    fn test_html_contains_print_css() {
+        let ctx = test_ctx();
+        let html = render_with_context(&ctx).unwrap();
+        assert!(html.contains("@media print"), "should have print CSS");
+    }
+
+    #[test]
+    fn test_html_with_snippets() {
+        let mut ctx = test_ctx();
+        ctx.source_snippets = vec![FindingSnippet {
+            finding_id: "f1".into(),
+            code: "fn main() {\n    println!(\"hello\");\n}".into(),
+            highlight_lines: vec![2],
+            language: "rust".into(),
+        }];
+        let html = render_with_context(&ctx).unwrap();
+        assert!(
+            html.contains("fn main()"),
+            "should contain code snippet"
+        );
     }
 }

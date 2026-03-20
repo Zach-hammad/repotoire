@@ -18,10 +18,12 @@ pub(crate) mod graph;
 pub(crate) mod output;
 pub(crate) mod postprocess;
 use output::{cache_results, check_fail_threshold, format_and_output};
+use crate::reporters;
 
 use anyhow::Result;
 use console::style;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Instant;
 
 /// Cache directory for a repository (legacy .repotoire path).
@@ -139,23 +141,80 @@ pub fn run_engine(
         total_loc: result.stats.total_loc,
     };
 
-    // Ensure cache dir exists for output caching
-    let repotoire_dir = crate::cache::ensure_cache_dir(
-        &path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
-    )
-    .unwrap_or_else(|_| path.join(".repotoire"));
+    // Ensure cache dir exists (needed for health save and output caching)
+    let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let repotoire_dir = crate::cache::ensure_cache_dir(&canon_path)
+        .unwrap_or_else(|_| path.join(".repotoire"));
 
-    // Format and output
-    format_and_output(
-        &report,
-        &all_findings,
-        &output.format,
-        output.output_path.as_deref(),
-        &repotoire_dir,
-        pagination_info,
-        paginated_findings.len(),
-        output.no_emoji,
-    )?;
+    // Build rich report context (graph + git + snippets)
+    // Must happen BEFORE saving health report so load_previous_health reads the OLD data
+    let format_enum = crate::reporters::OutputFormat::from_str(&output.format)?;
+    let report_ctx = engine.build_report_context(report.clone(), format_enum)?;
+
+    // Save health report for score delta on NEXT run (after loading previous)
+    if let Ok(json) = serde_json::to_string(&report) {
+        let health_path = crate::cache::paths::health_cache_path(&canon_path);
+        let _ = std::fs::write(&health_path, &json);
+    }
+
+    // Format and output — text/HTML use report_with_context for themed output;
+    // JSON/SARIF/Markdown use the old path (they handle pagination differently).
+    match format_enum {
+        reporters::OutputFormat::Text | reporters::OutputFormat::Html => {
+            let rendered = reporters::report_with_context(&report_ctx, format_enum)?;
+
+            if let Some(out_path) = output.output_path.as_deref() {
+                std::fs::write(out_path, &rendered)?;
+                let file_icon = if output.no_emoji { "" } else { "\u{1f4c4} " };
+                eprintln!(
+                    "\n{}Report written to: {}",
+                    style(file_icon).bold(),
+                    style(out_path.display()).cyan()
+                );
+            } else {
+                println!();
+                println!("{}", rendered);
+            }
+
+            // Cache results
+            cache_results(&repotoire_dir, &report, &all_findings)?;
+
+            // Show pagination info (text only)
+            let quiet_mode = false;
+            if let Some((current_page, total_pages, per_page, total)) =
+                pagination_info.filter(|_| !quiet_mode)
+            {
+                let page_icon = if output.no_emoji { "" } else { "\u{1f4d1} " };
+                println!(
+                    "\n{}Showing page {} of {} ({} findings per page, {} total)",
+                    style(page_icon).bold(),
+                    style(current_page).cyan(),
+                    style(total_pages).cyan(),
+                    style(per_page).dim(),
+                    style(total).cyan(),
+                );
+                if current_page < total_pages {
+                    println!(
+                        "   Use {} to see more",
+                        style(format!("--page {}", current_page + 1)).yellow()
+                    );
+                }
+            }
+        }
+        _ => {
+            // JSON, SARIF, Markdown — use the old format_and_output path
+            format_and_output(
+                &report,
+                &all_findings,
+                &output.format,
+                output.output_path.as_deref(),
+                &repotoire_dir,
+                pagination_info,
+                paginated_findings.len(),
+                output.no_emoji,
+            )?;
+        }
+    }
 
     // Write JSON sidecar if requested (single analysis run, two output files)
     if let Some(ref sidecar_path) = output.json_sidecar {
