@@ -66,7 +66,10 @@ CLI (opted-in)                          PostHog Cloud
 ## Identity & Privacy
 
 - **`distinct_id`**: Random UUID v4, generated on opt-in, stored at `~/.config/repotoire/telemetry_id`. Not derived from any system or user information.
-- **`repo_id`**: SHA-256 of the repository's root commit hash (first commit in `git log --reverse`). Stable across clones, deterministic, not reversible to the actual repository. Enables server-side trend tracking for the same repo across analyses.
+- **`repo_id`**: SHA-256 of the repository's root commit hash (via `git rev-list --max-parents=0 HEAD`). Stable across clones, deterministic, not reversible to the actual repository. Enables server-side trend tracking for the same repo across analyses.
+  - **No git repo:** If the target directory is not a git repository, `repo_id` is omitted. Events are still sent (useful for product analytics) but trend tracking and `nth_analysis` are unavailable.
+  - **Shallow clones (CI):** `git rev-list --max-parents=0 HEAD` returns the oldest available commit. In `--depth 1` clones, this is the single fetched commit, which differs from the full clone's root. Accept this inconsistency — CI analyses are still valuable for aggregate benchmarks even if trend tracking is unreliable for shallow clones. The `ci: true` flag lets the cron job exclude shallow-clone data from trend computations if needed.
+  - **Grafted/replaced history:** Accepted as a rare edge case. The `repo_id` will differ from the original — this is tolerable.
 - **PostHog configured with `disable_geoip: true`** — no IP-based location data stored.
 - **Never collected:** repo names, remote URLs, file paths, code content, usernames, email addresses, or git author information.
 
@@ -78,7 +81,7 @@ Telemetry is **off by default**. Users must explicitly enable it.
 
 ### First Run Prompt
 
-On first invocation of any command, if telemetry state is unset:
+On first invocation of any command, if telemetry state is unset **and stderr is a TTY** (`std::io::stderr().is_terminal()`):
 
 ```
 ────────────────────────────────────────────────────
@@ -96,6 +99,10 @@ Enable? [y/N]
 ```
 
 Default answer: **no**. Choice stored in `~/.config/repotoire/config.toml` under `[telemetry]`. Never prompted again unless the user deletes the config.
+
+**Non-interactive contexts:** When stderr is not a TTY (CI, piped output, scripts), the prompt is suppressed and telemetry defaults to off. Users can pre-configure telemetry via:
+- `repotoire config telemetry on` (run once before CI pipelines)
+- `REPOTOIRE_TELEMETRY=on|off` environment variable (per-invocation override, takes precedence over config file)
 
 ### Management Commands
 
@@ -121,7 +128,7 @@ Sent after every `repotoire analyze`. The core data event.
 | Property | Type | Example | Purpose |
 |---|---|---|---|
 | `repo_id` | string | `a1b2c3d4...` (SHA-256) | Server-side trend tracking |
-| `nth_analysis` | int | `14` | Client-computed analysis count for this repo |
+| `nth_analysis` | int | `14` | Client-computed analysis count, stored in per-repo cache at `~/.cache/repotoire/<repo-hash>/telemetry_state.json`. Reset by `repotoire clean` (acceptable — counter restarts). Omitted if `repo_id` is unavailable. |
 | `score` | float | `72.4` | Ecosystem benchmarking |
 | `grade` | string | `B+` | Ecosystem benchmarking |
 | `pillar_structure` | float | `78.0` | Per-pillar benchmarks |
@@ -139,7 +146,7 @@ Sent after every `repotoire analyze`. The core data event.
 | `language_count` | int | `2` | Languages with >5% LOC share |
 | `primary_language_ratio` | float | `0.75` | Monolingual vs mixed signal |
 | `findings_by_severity` | map\<string, int\> | `{critical: 2, high: 8, medium: 23, low: 41}` | Severity benchmarks |
-| `findings_by_detector` | map\<string, map\> | `{sql_injection: {critical: 2, high: 1}}` | Per-detector, per-severity counts |
+| `findings_by_detector` | map\<string, map\> | `{sql_injection: {critical: 2, high: 1}}` | Per-detector, per-severity counts (only detectors with findings; omit zero-count detectors) |
 | `findings_by_category` | map\<string, int\> | `{security: 11, architecture: 8, quality: 23}` | Category benchmarks |
 | `graph_nodes` | int | `1847` | Graph health benchmarks |
 | `graph_edges` | int | `5231` | Graph health benchmarks |
@@ -160,6 +167,8 @@ Sent after every `repotoire analyze`. The core data event.
 #### Repo Shape Detection
 
 `repo_shape` is derived from the underlying properties:
+
+Evaluated in order; first match wins:
 
 | Shape | Condition |
 |---|---|
@@ -238,7 +247,10 @@ Sent when `repotoire watch` exits.
 
 ### Event: `command_used`
 
-Sent on every CLI invocation.
+Sent on every CLI invocation, **except:**
+- `config telemetry on/off/status` (self-referential)
+- `--help`, `--version` (not meaningful product signal)
+- Any invocation where telemetry opt-in check has not yet passed
 
 | Property | Type | Example | Purpose |
 |---|---|---|---|
@@ -268,7 +280,7 @@ At 1,000 opted-in users (mixed): ~50K-80K events/month. The free tier (1M events
 
 ## Benchmark Queries
 
-The cron job (GitHub Action, hourly) queries PostHog via HogQL and publishes pre-computed benchmark JSON to a CDN.
+The cron job (GitHub Action, every 6 hours initially) queries PostHog via HogQL and publishes pre-computed benchmark JSON to a CDN.
 
 ### Benchmark Segments
 
@@ -279,7 +291,7 @@ benchmarks.repotoire.dev/v1/
   lang/{language}/{size}.json  — per-language + size bucket
 ```
 
-Size buckets: `0-5k`, `5-10k`, `10-50k`, `50-100k`, `100k+` (by total kLOC).
+Size buckets represent LOC ranges: `0-5k` (0-5,000 LOC), `5-10k`, `10-50k`, `50-100k`, `100k+`. The bucket is derived from `total_kloc` (e.g., `total_kloc: 20.0` → bucket `10-50k`).
 
 The cron job only regenerates segments that received new data since the last run. Each segment file is independently cacheable.
 
@@ -436,6 +448,33 @@ $ repotoire benchmark
 
 Supports `--json` for programmatic access.
 
+Reads the most recent analysis from the same findings cache used by `repotoire findings`. If no cached analysis exists: `No analysis found. Run 'repotoire analyze' first.`
+
+---
+
+## Required Copy Changes
+
+The CLI currently claims in its help text (`cli/mod.rs`):
+```
+100% LOCAL - No account needed. No data leaves your machine.
+```
+
+Once telemetry ships, this must be updated to:
+```
+100% LOCAL by default - No account needed. No data leaves your machine unless you opt in.
+```
+
+This applies to both the `#[command(about)]` and `long_about` strings.
+
+---
+
+## Benchmark JSON Schema Versioning
+
+The CDN path includes `/v1/`. Schema rules for `/v1/`:
+- Fields can be **added** (older CLIs ignore unknown fields)
+- Fields **cannot be removed or renamed** (older CLIs would break)
+- If a breaking schema change is needed, publish under `/v2/` and update the CLI to prefer `/v2/` with fallback to `/v1/`
+
 ---
 
 ## Implementation Architecture
@@ -454,6 +493,12 @@ repotoire-cli/src/
     display.rs        — terminal formatting for benchmark output
 ```
 
+### CLI Command Changes
+
+The existing `ConfigAction` enum in `cli/mod.rs` (currently `Init`, `Show`, `Set`) needs a new variant: `Telemetry { action: TelemetryAction }` where `TelemetryAction` is `On | Off | Status`. This is a new subcommand under `config`, not a key-value `Set`.
+
+A new top-level command `Benchmark` is added alongside `Analyze`, `Diff`, etc.
+
 ### Lifecycle
 
 1. **`telemetry::init()`** — called once at CLI startup. Loads config from `~/.config/repotoire/config.toml`. If telemetry is enabled, initializes the PostHog client. Returns a `Telemetry` handle. If telemetry is disabled, returns a no-op stub with the same interface.
@@ -470,7 +515,7 @@ repotoire-cli/src/
 
 ### Cron Job (Benchmark Generator)
 
-A GitHub Action on a schedule (hourly):
+A GitHub Action on a schedule (every 6 hours initially; increase frequency as data volume grows):
 
 1. Queries PostHog HogQL API with a server-side API key (stored as a GitHub secret)
 2. Computes percentiles, distributions, and detector accuracy for each segment
@@ -481,10 +526,11 @@ A GitHub Action on a schedule (hourly):
 ### Dependencies
 
 New Cargo dependencies:
-- `posthog-rs` — official PostHog Rust SDK for event capture
 - `uuid` (v4 generation) — for `distinct_id` (may already be available via existing deps)
 
-No new heavy dependencies. `ureq` (already used) handles the CDN fetch.
+**PostHog capture implementation:** Do NOT use `posthog-rs` — it pulls in `reqwest`/`tokio`, adding an async runtime to a sync CLI. Instead, implement the PostHog capture API directly using `ureq` (already a dependency). The capture API is a single `POST https://app.posthog.com/capture/` with a JSON body containing `api_key`, `event`, `distinct_id`, and `properties`. This is ~20 lines of code and avoids a heavy transitive dependency tree.
+
+`ureq` (already used) also handles the CDN benchmark fetch. No new HTTP dependencies needed.
 
 ---
 
@@ -498,7 +544,10 @@ No new heavy dependencies. `ureq` (already used) handles the CDN fetch.
 | Privacy concern despite anonymization | Transparent documentation at repotoire.dev/telemetry; easy opt-out; `repo_id` is a one-way hash |
 | CDN cost | At <1000 benchmark files of ~2KB each, storage is negligible; bandwidth is low (each CLI fetches 2-3 files per day max) |
 | `repo_id` collision | SHA-256 of root commit; collision probability is negligible |
+| `repo_id` inconsistency in shallow clones | Accepted — `ci: true` flag allows excluding shallow-clone data from trend computations |
 | Flag allowlist maintenance | Enforced in code — new flags must be explicitly added; CI test can verify completeness |
+| Telemetry prompt corrupts piped/CI output | Prompt only shown when stderr is a TTY; `REPOTOIRE_TELEMETRY` env var for pre-configuration |
+| CLI help text says "no data leaves your machine" | Updated to "no data leaves your machine unless you opt in" (see Required Copy Changes) |
 
 ---
 
