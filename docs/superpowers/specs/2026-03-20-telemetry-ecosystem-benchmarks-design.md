@@ -40,7 +40,7 @@ CLI (opted-in)                          PostHog Cloud
   │                                    │ ClickHouse│ (PostHog's internal store)
   │                                    └────┬────┘
   │                                         │
-  │       Cron Job (GitHub Action, hourly)  │
+  │       Cron Job (GitHub Action, every 6h) │
   │         │                               │
   │         ├── HogQL queries ─────────────→│
   │         │← aggregated benchmarks ───────┤
@@ -57,9 +57,9 @@ CLI (opted-in)                          PostHog Cloud
       (24h local cache)
 ```
 
-**Why PostHog:** Official Rust SDK, 1M free events/month, HogQL query API for computing aggregates, feature flags for rollout control. No backend service to build or maintain for the MVP.
+**Why PostHog:** Simple capture API (single POST via ureq), 1M free events/month, HogQL query API for computing aggregates server-side, feature flags for rollout control. No backend service to build or maintain for the MVP.
 
-**Why CDN for benchmarks (not direct HogQL from CLI):** Avoids exposing a read-scoped API key in the CLI binary. Pre-computed JSON is fast (CDN-cached), works when PostHog is down, and has no rate limit concerns. Benchmarks are up to 1 hour stale — acceptable for code analysis data.
+**Why CDN for benchmarks (not direct HogQL from CLI):** Avoids exposing a read-scoped API key in the CLI binary. Pre-computed JSON is fast (CDN-cached), works when PostHog is down, and has no rate limit concerns. Benchmarks are up to 6 hours stale — acceptable for code analysis data.
 
 ---
 
@@ -103,6 +103,7 @@ Default answer: **no**. Choice stored in `~/.config/repotoire/config.toml` under
 **Non-interactive contexts:** When stderr is not a TTY (CI, piped output, scripts), the prompt is suppressed and telemetry defaults to off. Users can pre-configure telemetry via:
 - `repotoire config telemetry on` (run once before CI pipelines)
 - `REPOTOIRE_TELEMETRY=on|off` environment variable (per-invocation override, takes precedence over config file)
+- `DO_NOT_TRACK=1` environment variable (industry standard, see [consoledonottrack.com](https://consoledonottrack.com/)) — if set, telemetry is disabled regardless of other settings
 
 ### Management Commands
 
@@ -128,7 +129,7 @@ Sent after every `repotoire analyze`. The core data event.
 | Property | Type | Example | Purpose |
 |---|---|---|---|
 | `repo_id` | string | `a1b2c3d4...` (SHA-256) | Server-side trend tracking |
-| `nth_analysis` | int | `14` | Client-computed analysis count, stored in per-repo cache at `~/.cache/repotoire/<repo-hash>/telemetry_state.json`. Reset by `repotoire clean` (acceptable — counter restarts). Omitted if `repo_id` is unavailable. |
+| `nth_analysis` | int | `14` | Client-computed analysis count, stored in `telemetry_state.json` (see Local Telemetry State below). Reset by `repotoire clean` (acceptable — counter restarts). Omitted if `repo_id` is unavailable. |
 | `score` | float | `72.4` | Ecosystem benchmarking |
 | `grade` | string | `B+` | Ecosystem benchmarking |
 | `pillar_structure` | float | `78.0` | Per-pillar benchmarks |
@@ -187,6 +188,40 @@ Detection heuristics:
 
 From the full set of adaptive thresholds, compute `abs(calibrated - default) / default` for each. Send the top 10 by this ratio. Include `calibration_total` and `calibration_at_default` so the aggregate picture is clear without sending all 107 values.
 
+#### Local Telemetry State
+
+Per-repo telemetry state is stored at `~/.cache/repotoire/<repo-hash>/telemetry_state.json`:
+
+```json
+{
+  "nth_analysis": 14,
+  "score_history": [
+    {"score": 58.1, "timestamp": "2025-12-15T10:30:00Z"},
+    {"score": 62.3, "timestamp": "2026-01-02T14:15:00Z"},
+    {"score": 72.4, "timestamp": "2026-03-20T09:00:00Z"}
+  ]
+}
+```
+
+`score_history` stores the last 100 scores with timestamps. This powers the "Your Trend" section in `repotoire benchmark` output without requiring a server round-trip. Trend data is purely local — it is not sent to PostHog and is not available in the CDN benchmark files. The ecosystem-wide `avg_improvement_per_analysis` in the benchmark JSON is computed server-side from all users' sequential `analysis_complete` events grouped by `repo_id`.
+
+Reset by `repotoire clean` (acceptable — trend history restarts).
+
+#### PostHog Event Envelope
+
+All events are sent via `POST https://app.posthog.com/capture/` with this structure:
+
+```json
+{
+  "api_key": "<embedded project key>",
+  "event": "analysis_complete",
+  "distinct_id": "<user's telemetry UUID>",
+  "properties": { ... }
+}
+```
+
+`distinct_id` and `api_key` are handled by the `posthog.rs` capture wrapper and are not listed in individual event property tables. Every event automatically includes them.
+
 ### Event: `detector_feedback`
 
 Sent on `repotoire feedback`.
@@ -233,7 +268,7 @@ Sent on `repotoire diff`.
 
 ### Event: `watch_session`
 
-Sent when `repotoire watch` exits.
+Sent when `repotoire watch` exits gracefully (SIGINT/SIGTERM or user quit). If the process is killed (SIGKILL) or crashes, the event is lost — accepted data loss, not worth adding complexity to recover.
 
 | Property | Type | Example | Purpose |
 |---|---|---|---|
@@ -291,7 +326,7 @@ benchmarks.repotoire.dev/v1/
   lang/{language}/{size}.json  — per-language + size bucket
 ```
 
-Size buckets represent LOC ranges: `0-5k` (0-5,000 LOC), `5-10k`, `10-50k`, `50-100k`, `100k+`. The bucket is derived from `total_kloc` (e.g., `total_kloc: 20.0` → bucket `10-50k`).
+Size buckets represent LOC ranges with inclusive-exclusive boundaries: `[0, 5k)`, `[5k, 10k)`, `[10k, 50k)`, `[50k, 100k)`, `[100k, +inf)`. The bucket is derived from `total_kloc` (e.g., `total_kloc: 20.0` → bucket `10-50k`, `total_kloc: 5.0` → bucket `5-10k`).
 
 The cron job only regenerates segments that received new data since the last run. Each segment file is independently cacheable.
 
@@ -301,8 +336,10 @@ Each segment JSON contains:
 
 ```json
 {
+  "schema_version": 1,
   "segment": {"language": "rust", "kloc_bucket": "10-50k"},
   "sample_size": 1247,
+  "sample_size_note": "unique repos (deduplicated by repo_id, latest event per repo)",
   "updated_at": "2026-03-20T14:00:00Z",
   "score": {
     "p25": 58.2, "p50": 67.1, "p75": 76.8, "p90": 84.3
@@ -351,7 +388,7 @@ When computing a user's percentile, the CLI uses the most specific segment with 
 2. `lang/{language}.json` — "Among Rust projects"
 3. `global.json` — "Across all projects"
 
-**Minimum sample size: 50.** If a segment has fewer than 50 data points, the segment file is not generated and the CLI falls back to the next level. The CLI labels the comparison group so users know what they're being compared against.
+**Minimum sample size: 50 unique repos.** If a segment has fewer than 50 unique repos (deduplicated by `repo_id`, using only the latest `analysis_complete` per repo), the segment file is not generated and the CLI falls back to the next level. The CLI labels the comparison group so users know what they're being compared against.
 
 ### Percentile Computation
 
@@ -470,8 +507,10 @@ This applies to both the `#[command(about)]` and `long_about` strings.
 
 ## Benchmark JSON Schema Versioning
 
-The CDN path includes `/v1/`. Schema rules for `/v1/`:
-- Fields can be **added** (older CLIs ignore unknown fields)
+The CDN path includes `/v1/` and each JSON file includes a `"schema_version": 1` field. The CLI validates this field matches the expected version before parsing — this guards against misrouted or corrupted responses independent of the URL path.
+
+Schema rules for `/v1/`:
+- Fields can be **added** (older CLIs ignore unknown fields via `#[serde(deny_unknown_fields)]` NOT being set)
 - Fields **cannot be removed or renamed** (older CLIs would break)
 - If a breaking schema change is needed, publish under `/v2/` and update the CLI to prefer `/v2/` with fallback to `/v1/`
 
