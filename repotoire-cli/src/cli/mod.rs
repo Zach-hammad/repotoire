@@ -993,7 +993,7 @@ fn run_config_action(action: ConfigAction) -> anyhow::Result<()> {
                     // Ensure distinct_id exists
                     let _ = crate::telemetry::config::TelemetryState::load();
                     println!("Telemetry enabled. Thank you for helping improve repotoire!");
-                    println!("See what's collected: https://repotoire.dev/telemetry");
+                    println!("See what's collected: https://repotoire.com/telemetry");
                     Ok(())
                 }
                 "off" => {
@@ -1023,7 +1023,7 @@ fn run_config_action(action: ConfigAction) -> anyhow::Result<()> {
                         println!("Telemetry: disabled");
                     }
                     println!("\nManage: repotoire config telemetry on|off");
-                    println!("Details: https://repotoire.dev/telemetry");
+                    println!("Details: https://repotoire.com/telemetry");
                     Ok(())
                 }
                 other => {

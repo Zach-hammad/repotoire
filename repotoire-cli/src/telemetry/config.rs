@@ -175,7 +175,7 @@ pub fn show_opt_in_prompt() -> Option<bool> {
     eprintln!("  - Help us tune detectors and reduce false positives");
     eprintln!();
     eprintln!("No repo names, file paths, or code content. Ever.");
-    eprintln!("See what's collected: https://repotoire.dev/telemetry");
+    eprintln!("See what's collected: https://repotoire.com/telemetry");
     eprintln!();
     eprint!("Enable? [y/N] ");
 
