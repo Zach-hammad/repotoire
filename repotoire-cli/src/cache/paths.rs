@@ -74,6 +74,19 @@ fn hash_path(path: &Path) -> String {
     format!("{}-{}", repo_name, &hash[..12])
 }
 
+/// Telemetry state file for a repository
+pub fn telemetry_state_path(repo_path: &Path) -> PathBuf {
+    cache_dir(repo_path).join("telemetry_state.json")
+}
+
+/// Benchmark cache directory (global, not per-repo)
+pub fn benchmark_cache_dir() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from(".cache"))
+        .join("repotoire")
+        .join("benchmarks")
+}
+
 /// Ensure the cache directory exists.
 pub fn ensure_cache_dir(repo_path: &Path) -> std::io::Result<PathBuf> {
     let cache_dir = cache_dir(repo_path);
