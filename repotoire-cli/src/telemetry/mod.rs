@@ -1,4 +1,5 @@
 pub mod benchmarks;
+pub mod display;
 pub mod cache;
 pub mod config;
 pub mod events;
