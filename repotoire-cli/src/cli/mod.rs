@@ -437,6 +437,36 @@ pub enum ConfigAction {
     },
 }
 
+/// Extract the command name and optional subcommand from the Commands enum.
+fn extract_command_name(cmd: &Option<Commands>) -> (String, Option<String>) {
+    match cmd {
+        Some(Commands::Analyze { .. }) => ("analyze".into(), None),
+        Some(Commands::Diff { .. }) => ("diff".into(), None),
+        Some(Commands::Findings { .. }) => ("findings".into(), None),
+        Some(Commands::Fix { .. }) => ("fix".into(), None),
+        Some(Commands::Graph { .. }) => ("graph".into(), None),
+        Some(Commands::Stats) => ("stats".into(), None),
+        Some(Commands::Status) => ("status".into(), None),
+        Some(Commands::Doctor) => ("doctor".into(), None),
+        Some(Commands::Watch { .. }) => ("watch".into(), None),
+        Some(Commands::Calibrate) => ("calibrate".into(), None),
+        Some(Commands::Clean { .. }) => ("clean".into(), None),
+        Some(Commands::Version) => ("version".into(), None),
+        Some(Commands::Init) => ("init".into(), None),
+        Some(Commands::Feedback { .. }) => ("feedback".into(), None),
+        Some(Commands::Train { .. }) => ("train".into(), None),
+        Some(Commands::Benchmark { .. }) => ("benchmark".into(), None),
+        Some(Commands::Debt { .. }) => ("debt".into(), None),
+        Some(Commands::Config { action }) => match action {
+            ConfigAction::Telemetry { .. } => ("config".into(), Some("telemetry".into())),
+            ConfigAction::Init => ("config".into(), Some("init".into())),
+            ConfigAction::Show => ("config".into(), Some("show".into())),
+            ConfigAction::Set { .. } => ("config".into(), Some("set".into())),
+        },
+        None => ("analyze".into(), None),
+    }
+}
+
 /// Run the CLI with parsed arguments
 pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
     // Initialize global rayon thread pool with 8MB stack per thread.
@@ -448,7 +478,10 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
         .build_global()
         .ok(); // Ignore error if global pool already initialized (e.g., in tests)
 
-    match cli.command {
+    let cmd_start = std::time::Instant::now();
+    let (cmd_name, cmd_sub) = extract_command_name(&cli.command);
+
+    let result = match cli.command {
         Some(Commands::Init) => init::run(&cli.path),
 
         Some(Commands::Analyze {
@@ -551,6 +584,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             fail_on,
             no_emoji,
             output.as_deref(),
+            &telemetry,
         ),
 
         Some(Commands::Findings {
@@ -593,6 +627,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             no_ai,
             dry_run,
             auto,
+            &telemetry,
         ),
 
         Some(Commands::Graph { query, format }) => graph::run(&cli.path, &query, &format),
@@ -603,7 +638,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
 
         Some(Commands::Doctor) => doctor::run(),
 
-        Some(Commands::Watch { relaxed }) => watch::run(&cli.path, relaxed, false, false),
+        Some(Commands::Watch { relaxed }) => watch::run(&cli.path, relaxed, false, false, &telemetry),
         Some(Commands::Calibrate) => run_calibrate(&cli.path),
         Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
 
@@ -675,6 +710,27 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                 stats.total, stats.true_positives, stats.false_positives
             );
 
+            // Send detector_feedback telemetry
+            if let crate::telemetry::Telemetry::Active(ref state) = telemetry {
+                if let Some(distinct_id) = &state.distinct_id {
+                    let event = crate::telemetry::events::DetectorFeedback {
+                        repo_id: crate::telemetry::config::compute_repo_id(&cli.path),
+                        detector: finding.detector.clone(),
+                        verdict: if is_tp {
+                            "true_positive".into()
+                        } else {
+                            "false_positive".into()
+                        },
+                        severity: format!("{:?}", finding.severity).to_lowercase(),
+                        language: String::new(),
+                        version: env!("CARGO_PKG_VERSION").to_string(),
+                        ..Default::default()
+                    };
+                    let props = serde_json::to_value(&event).unwrap_or_default();
+                    crate::telemetry::posthog::capture("detector_feedback", distinct_id, props);
+                }
+            }
+
             Ok(())
         }
 
@@ -732,7 +788,29 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             let output_options = crate::engine::OutputOptions::default();
             analyze::run_engine(&cli.path, analysis_config, output_options, &telemetry)
         }
+    };
+
+    // Track command usage
+    if let crate::telemetry::Telemetry::Active(ref state) = telemetry {
+        if let Some(distinct_id) = &state.distinct_id {
+            if crate::telemetry::events::should_track_command(&cmd_name, cmd_sub.as_deref()) {
+                let event = crate::telemetry::events::CommandUsed {
+                    command: cmd_name,
+                    subcommand: cmd_sub,
+                    flags: Vec::new(),
+                    duration_ms: cmd_start.elapsed().as_millis() as u64,
+                    exit_code: if result.is_ok() { 0 } else { 1 },
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    os: std::env::consts::OS.to_string(),
+                    ci: std::env::var("CI").is_ok(),
+                };
+                let props = serde_json::to_value(&event).unwrap_or_default();
+                crate::telemetry::posthog::capture("command_used", distinct_id, props);
+            }
+        }
     }
+
+    result
 }
 
 fn run_calibrate(path: &std::path::Path) -> anyhow::Result<()> {

@@ -84,8 +84,9 @@ fn compute_delta(result: &AnalysisResult, prev: Option<&AnalysisResult>) -> Watc
     }
 }
 
-pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()> {
+pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
     let repo_path = std::fs::canonicalize(path)?;
+    let session_start = std::time::Instant::now();
 
     // Deprecation warning for --relaxed
     if relaxed {
@@ -158,6 +159,9 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
     let mut total_catches = 0u32;
     let mut last_result = Some(initial_result);
     let mut iteration = 0u32;
+    let mut reanalysis_count = 0u64;
+    let mut files_changed_total = 0u64;
+    let score_start = last_result.as_ref().map(|r| r.score.overall).unwrap_or(0.0);
 
     // Main event loop
     while let Ok(events) = rx.recv() {
@@ -181,6 +185,8 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
             continue;
         }
 
+        files_changed_total += changed_files.len() as u64;
+
         // Clear per-run caches so detectors read fresh content
         crate::parsers::clear_structural_fingerprint_cache();
 
@@ -188,6 +194,7 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
         let start = std::time::Instant::now();
         let result = engine.analyze(&config)?;
         let elapsed = start.elapsed();
+        reanalysis_count += 1;
 
         // Compute delta against previous result
         let delta = compute_delta(&result, last_result.as_ref());
@@ -214,6 +221,25 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool) -> Result<()
 
     // Save final state
     let _ = engine.save(&session_dir);
+
+    // Send watch_session telemetry
+    let score_end = last_result.as_ref().map(|r| r.score.overall).unwrap_or(0.0);
+    if let crate::telemetry::Telemetry::Active(ref state) = *telemetry {
+        if let Some(distinct_id) = &state.distinct_id {
+            let repo_id = crate::telemetry::config::compute_repo_id(&repo_path);
+            let event = crate::telemetry::events::WatchSession {
+                repo_id,
+                duration_s: session_start.elapsed().as_secs(),
+                reanalysis_count,
+                files_changed_total,
+                score_start,
+                score_end,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            };
+            let props = serde_json::to_value(&event).unwrap_or_default();
+            crate::telemetry::posthog::capture("watch_session", distinct_id, props);
+        }
+    }
 
     println!(
         "\n{} Caught {} issues during watch session.",

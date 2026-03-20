@@ -277,6 +277,7 @@ pub fn run(
     fail_on: Option<String>,
     no_emoji: bool,
     output: Option<&Path>,
+    telemetry: &crate::telemetry::Telemetry,
 ) -> Result<()> {
     let start = Instant::now();
     let repo_path = repo_path
@@ -335,6 +336,25 @@ pub fn run(
         score_before,
         score_after,
     );
+
+    // 4b. Send telemetry
+    if let crate::telemetry::Telemetry::Active(ref state) = *telemetry {
+        if let Some(distinct_id) = &state.distinct_id {
+            let repo_id = crate::telemetry::config::compute_repo_id(&repo_path);
+            let event = crate::telemetry::events::DiffRun {
+                repo_id,
+                score_before: result.score_before.unwrap_or(0.0),
+                score_after: result.score_after.unwrap_or(0.0),
+                score_delta: result.score_delta().unwrap_or(0.0),
+                findings_added: result.new_findings.len() as u64,
+                findings_removed: result.fixed_findings.len() as u64,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                ..Default::default()
+            };
+            let props = serde_json::to_value(&event).unwrap_or_default();
+            crate::telemetry::posthog::capture("diff_run", distinct_id, props);
+        }
+    }
 
     // 5. Output
     let output_str = match format {
