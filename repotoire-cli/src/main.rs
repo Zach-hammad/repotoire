@@ -30,5 +30,10 @@ fn main() -> Result<()> {
 
     // Parse CLI args and run
     let cli = repotoire::cli::Cli::parse();
-    repotoire::cli::run(cli, telemetry)
+    let result = repotoire::cli::run(cli, telemetry);
+
+    // Flush pending telemetry events before exit (up to 5s)
+    repotoire::telemetry::posthog::flush();
+
+    result
 }

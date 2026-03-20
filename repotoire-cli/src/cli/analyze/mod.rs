@@ -466,7 +466,7 @@ pub fn run_engine(
             };
 
             let props = serde_json::to_value(&event).unwrap_or_default();
-            crate::telemetry::posthog::capture("analysis_complete", distinct_id, props);
+            crate::telemetry::posthog::capture_queued("analysis_complete", distinct_id, props);
         }
     }
 

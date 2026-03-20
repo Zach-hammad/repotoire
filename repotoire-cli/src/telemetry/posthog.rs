@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 pub const POSTHOG_CAPTURE_URL: &str = "https://app.posthog.com/capture/";
-pub const POSTHOG_API_KEY: &str = "phc_REPLACE_WITH_REAL_KEY";
+pub const POSTHOG_API_KEY: &str = "phc_PIc9kLGrgCyqNVY2DrYeVS7mbDlw8Ywj7IDujZRjsY4";
 
 /// Build the JSON payload expected by the PostHog `/capture/` endpoint.
 pub fn build_capture_payload(
@@ -27,15 +27,15 @@ pub fn build_capture_payload(
 
 /// Spawn a background thread and POST the event to PostHog.
 ///
-/// This is intentionally fire-and-forget: errors are silently discarded so
-/// that telemetry never blocks or crashes the CLI.
+/// Returns a JoinHandle so callers can optionally wait for delivery.
+/// Errors are silently discarded so telemetry never crashes the CLI.
 pub fn send_event_background(
     url: &str,
     api_key: &str,
     event: &str,
     distinct_id: &str,
     properties: Value,
-) {
+) -> std::thread::JoinHandle<()> {
     let payload = build_capture_payload(api_key, event, distinct_id, properties);
     let url = url.to_string();
 
@@ -50,18 +50,48 @@ pub fn send_event_background(
             .post(&url)
             .header("Content-Type", "application/json")
             .send_json(payload);
-    });
+    })
 }
 
 /// Convenience wrapper that uses the compiled-in defaults.
-pub fn capture(event: &str, distinct_id: &str, properties: Value) {
+/// Returns a JoinHandle for optional waiting.
+pub fn capture(event: &str, distinct_id: &str, properties: Value) -> std::thread::JoinHandle<()> {
     send_event_background(
         POSTHOG_CAPTURE_URL,
         POSTHOG_API_KEY,
         event,
         distinct_id,
         properties,
-    );
+    )
+}
+
+/// Global list of pending telemetry threads. Flushed before process exit.
+static PENDING: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(Vec::new());
+
+/// Queue a telemetry event (convenience wrapper that tracks the handle).
+pub fn capture_queued(event: &str, distinct_id: &str, properties: Value) {
+    let handle = capture(event, distinct_id, properties);
+    if let Ok(mut pending) = PENDING.lock() {
+        pending.push(handle);
+    }
+}
+
+/// Wait for all queued telemetry events to finish (up to 5 seconds total).
+/// Call this before process exit.
+pub fn flush() {
+    if let Ok(mut pending) = PENDING.lock() {
+        let handles: Vec<_> = pending.drain(..).collect();
+        drop(pending); // release lock before joining
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        for handle in handles {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            // Join with implicit timeout — threads have 10s ureq timeout anyway
+            let _ = handle.join();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

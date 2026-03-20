@@ -237,7 +237,7 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool, telemetry: &
                 version: env!("CARGO_PKG_VERSION").to_string(),
             };
             let props = serde_json::to_value(&event).unwrap_or_default();
-            crate::telemetry::posthog::capture("watch_session", distinct_id, props);
+            crate::telemetry::posthog::capture_queued("watch_session", distinct_id, props);
         }
     }
 

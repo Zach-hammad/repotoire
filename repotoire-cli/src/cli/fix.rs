@@ -214,7 +214,7 @@ fn send_fix_applied_telemetry(
                 version: env!("CARGO_PKG_VERSION").to_string(),
             };
             let props = serde_json::to_value(&event).unwrap_or_default();
-            crate::telemetry::posthog::capture("fix_applied", distinct_id, props);
+            crate::telemetry::posthog::capture_queued("fix_applied", distinct_id, props);
         }
     }
 }

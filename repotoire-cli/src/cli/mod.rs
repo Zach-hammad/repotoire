@@ -727,7 +727,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                         ..Default::default()
                     };
                     let props = serde_json::to_value(&event).unwrap_or_default();
-                    crate::telemetry::posthog::capture("detector_feedback", distinct_id, props);
+                    crate::telemetry::posthog::capture_queued("detector_feedback", distinct_id, props);
                 }
             }
 
@@ -805,7 +805,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                     ci: std::env::var("CI").is_ok(),
                 };
                 let props = serde_json::to_value(&event).unwrap_or_default();
-                crate::telemetry::posthog::capture("command_used", distinct_id, props);
+                crate::telemetry::posthog::capture_queued("command_used", distinct_id, props);
             }
         }
     }

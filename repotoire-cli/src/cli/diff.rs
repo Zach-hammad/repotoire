@@ -352,7 +352,7 @@ pub fn run(
                 ..Default::default()
             };
             let props = serde_json::to_value(&event).unwrap_or_default();
-            crate::telemetry::posthog::capture("diff_run", distinct_id, props);
+            crate::telemetry::posthog::capture_queued("diff_run", distinct_id, props);
         }
     }
 
