@@ -231,6 +231,11 @@ impl AnalysisEngine {
             .map(|s| s.graph.as_ref() as &dyn GraphQuery)
     }
 
+    /// Returns a reference to the co-change matrix if git enrichment was run.
+    pub fn co_change(&self) -> Option<&crate::git::co_change::CoChangeMatrix> {
+        self.state.as_ref().and_then(|s| s.co_change.as_ref())
+    }
+
     /// Returns a reference to the concrete `CodeGraph` if analysis has been run.
     ///
     /// Use this when you need `CodeGraph`-specific APIs.
@@ -469,6 +474,7 @@ impl AnalysisEngine {
             graph: frozen.graph,
             mutable_graph: Some(graph_out.mutable_graph),
             edge_fingerprint: frozen.edge_fingerprint,
+            co_change: Some(git_out.co_change_matrix),
             precomputed: Some(detect_out.precomputed),
             style_profile: calibrate_out.style_profile,
             ngram_model: calibrate_out.ngram_model,
@@ -502,6 +508,7 @@ impl AnalysisEngine {
 
         // Take the previous state (we'll put it back at the end)
         let prev_state = self.state.take().expect("incremental requires state");
+        let prev_co_change = prev_state.co_change;
 
         // Evict changed files from the global file cache so detectors read fresh content
         crate::cache::global_cache().evict(&delta_files);
@@ -670,6 +677,7 @@ impl AnalysisEngine {
             graph: frozen.graph,
             mutable_graph: Some(graph_out.mutable_graph),
             edge_fingerprint: frozen.edge_fingerprint,
+            co_change: if config.no_git { prev_co_change } else { Some(git_out.co_change_matrix) },
             precomputed: Some(detect_out.precomputed),
             style_profile,
             ngram_model,
@@ -779,6 +787,7 @@ impl AnalysisEngine {
             graph: Arc::new(graph),
             mutable_graph: None, // No mutable graph after load — rebuilt on first incremental
             edge_fingerprint: meta.edge_fingerprint,
+            co_change: None, // Not persisted — rebuilt on next git enrichment
             precomputed: None,
             style_profile: crate::calibrate::StyleProfile {
                 version: crate::calibrate::StyleProfile::VERSION,
@@ -1072,5 +1081,42 @@ def greet(name):
         let r2 = engine.analyze(&config).unwrap();
         assert!(r2.score.overall >= 0.0 && r2.score.overall <= 100.0);
         assert!(!r2.score.grade.is_empty());
+    }
+
+    #[test]
+    fn test_co_change_retained_after_analyze() {
+        let dir = tempfile::tempdir().unwrap();
+        let test_file = dir.path().join("main.py");
+        std::fs::write(&test_file, "def foo(): pass\n").unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@test.com",
+                "commit",
+                "-m",
+                "init",
+            ])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let _result = engine.analyze(&AnalysisConfig::default()).unwrap();
+        assert!(
+            engine.co_change().is_some(),
+            "CoChangeMatrix should be retained after analyze"
+        );
     }
 }
