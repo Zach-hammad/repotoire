@@ -173,11 +173,9 @@ const DEFAULT_DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<TemporalBottleneckDetector>(),
     register::<ArchitecturalBottleneckDetector>(),
     register::<DegreeCentralityDetector>(),
-    // Rust-specific
+    // Rust-specific (bugs and safety)
     register::<UnwrapWithoutContextDetector>(),
     register::<UnsafeWithoutSafetyCommentDetector>(),
-    register::<CloneInHotPathDetector>(),
-    register::<MissingMustUseDetector>(),
     register::<MutexPoisoningRiskDetector>(),
     register::<PanicDensityDetector>(),
     // Testing
@@ -200,6 +198,9 @@ const DEFAULT_DETECTOR_FACTORIES: &[DetectorFactory] = &[
 /// Deep-scan-only detectors — code smells, style, dead code, and speculative detectors.
 /// These run only with `--all-detectors`.
 const DEEP_ONLY_DETECTOR_FACTORIES: &[DetectorFactory] = &[
+    // Rust style preferences (not bugs)
+    register::<CloneInHotPathDetector>(),
+    register::<MissingMustUseDetector>(),
     // Unused imports (linter-level, 573 findings on next.js alone)
     register::<UnusedImportsDetector>(),
     // Code smells (0% evidence from PRs)
