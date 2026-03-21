@@ -9,11 +9,10 @@
 //!
 //! FP-reduction strategies:
 //! - Adaptive thresholds from codebase calibration
-//! - Handler exemption (2x threshold for HMM-classified handlers)
-//! - Orchestrator allowance (1.5x threshold via FunctionRole or graph heuristic)
+//! - Language-specific base thresholds (py=60, rs/go/ts/js=80, java/cs/c/cpp=100)
+//! - Orchestrator severity reduction (High→Medium, Medium→Low)
 //! - Test function severity cap (capped at Low)
 //! - Unreachable code severity reduction
-//! - Match/switch inflation adjustment (extra threshold per arm)
 
 use crate::detectors::analysis_context::AnalysisContext;
 use crate::detectors::base::{Detector, DetectorConfig};
@@ -25,23 +24,24 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::info;
 
-/// Lines added to the effective threshold per match/switch arm detected.
-/// Each arm is structural boilerplate rather than distinct logic.
-/// Set to 4 (up from 3) to better account for the body lines within each arm.
-const LINES_PER_MATCH_ARM: u32 = 4;
-
-/// Minimum match arms before we apply the inflation adjustment.
-/// Lowered from 5 to 4 so that smaller match blocks (4+ arms) also
-/// receive the inflation benefit, reducing FP on match-heavy code.
-const MIN_MATCH_ARMS_FOR_ADJUSTMENT: u32 = 4;
-
 pub struct LongMethodsDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
     repository_path: PathBuf,
     #[allow(dead_code)] // Part of detector pattern
     config: DetectorConfig,
     max_findings: usize,
+    #[allow(dead_code)] // Kept for config-driven override via with_config()
     threshold: u32,
+}
+
+/// Returns the language-specific line threshold for a given file extension.
+fn language_line_threshold(ext: &str) -> usize {
+    match ext {
+        "py" | "pyi" => 60,
+        "rs" | "go" | "ts" | "tsx" | "js" | "jsx" | "mjs" => 80,
+        "java" | "cs" | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => 100,
+        _ => 80,
+    }
 }
 
 impl LongMethodsDetector {
@@ -51,7 +51,7 @@ impl LongMethodsDetector {
             repository_path: repository_path.into(),
             config: DetectorConfig::new(),
             max_findings: 100,
-            threshold: 50,
+            threshold: 80,
         }
     }
 
@@ -59,7 +59,7 @@ impl LongMethodsDetector {
     /// falling back to adaptive calibration, then hardcoded default)
     pub fn with_config(repository_path: impl Into<PathBuf>, config: DetectorConfig) -> Self {
         use crate::calibrate::MetricKind;
-        let default_threshold = 50usize;
+        let default_threshold = 80usize;
         let adaptive_threshold =
             config.adaptive.warn_usize(MetricKind::FunctionLength, default_threshold);
         let threshold = config.get_option_or("max_lines", adaptive_threshold) as u32;
@@ -123,84 +123,6 @@ impl LongMethodsDetector {
         }
         complexity as f64 / lines as f64
     }
-
-    /// Count match/switch arms in a function's source range.
-    ///
-    /// Looks for patterns like:
-    /// - Rust: `=> {` or `=> expr,` (match arms)
-    /// - JS/TS/Java/C/C++/Go: `case ` (switch cases)
-    /// - Python: `case ` (structural pattern matching, 3.10+)
-    ///
-    /// Returns the number of arms detected.
-    fn count_match_arms(content: &str, line_start: u32, line_end: u32) -> u32 {
-        let mut arms = 0u32;
-        for (i, line) in content.lines().enumerate() {
-            let line_num = (i + 1) as u32;
-            if line_num < line_start || line_num > line_end {
-                continue;
-            }
-            let trimmed = line.trim();
-            // Skip comment lines
-            if trimmed.starts_with("//") || trimmed.starts_with("*") || trimmed.starts_with("/*") {
-                continue;
-            }
-            // Rust match arms: `pattern => ...`
-            // Skip lines where `=>` appears inside a string literal (e.g.,
-            // `if line.contains("=>")`) to avoid false inflation.
-            if trimmed.contains("=>") && !Self::arrow_in_string(trimmed) {
-                arms += 1;
-            }
-            // switch/case in JS/TS/Java/C/C++/Go/Python
-            if trimmed.starts_with("case ") || trimmed.starts_with("case(") {
-                arms += 1;
-            }
-        }
-        arms
-    }
-
-    /// Check if `=>` on a line appears only inside a string literal.
-    /// Simple heuristic: if `=>` occurs after an odd number of `"` chars,
-    /// it is likely inside a string.
-    fn arrow_in_string(line: &str) -> bool {
-        if let Some(arrow_pos) = line.find("=>") {
-            let quotes_before = line[..arrow_pos].bytes().filter(|&b| b == b'"').count();
-            // Odd number of quotes before => means we're inside a string
-            quotes_before % 2 == 1
-        } else {
-            false
-        }
-    }
-
-    /// Compute the effective threshold for a function, incorporating all
-    /// context-aware adjustments.
-    fn effective_threshold(
-        &self,
-        ctx: &AnalysisContext,
-        qn: &str,
-        base_threshold: u32,
-        is_orchestrator: bool,
-        match_arms: u32,
-    ) -> u32 {
-        let mut threshold = base_threshold;
-
-        // Handler exemption: handlers legitimately dispatch many cases
-        if ctx.is_handler(qn) {
-            threshold *= 2;
-        }
-
-        // Orchestrator allowance: 50% increase for coordinating functions
-        if is_orchestrator {
-            threshold = threshold * 3 / 2;
-        }
-
-        // Match/switch inflation: each arm beyond the minimum adds structural
-        // lines that inflate line count without adding distinct logic
-        if match_arms >= MIN_MATCH_ARMS_FOR_ADJUSTMENT {
-            threshold += match_arms * LINES_PER_MATCH_ARM;
-        }
-
-        threshold
-    }
 }
 
 impl Detector for LongMethodsDetector {
@@ -208,7 +130,7 @@ impl Detector for LongMethodsDetector {
         "long-methods"
     }
     fn description(&self) -> &'static str {
-        "Detects methods/functions over 50 lines"
+        "Detects methods/functions over 80 lines"
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
@@ -219,19 +141,6 @@ impl Detector for LongMethodsDetector {
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = vec![];
-
-        // Use adaptive threshold from AnalysisContext resolver, falling back
-        // to the config-resolved threshold. Floor at 50 to prevent adaptive
-        // calibration from making the detector overly sensitive.
-        let base_threshold = (ctx.threshold(
-            crate::calibrate::MetricKind::FunctionLength,
-            self.threshold as f64,
-        ) as u32)
-            .max(50);
-
-        // Pre-load file contents for match-arm counting.
-        // Key: file path, Value: file content string
-        let mut file_content_cache: HashSet<String> = HashSet::new();
 
         for func in graph.get_functions_shared().iter() {
             if findings.len() >= self.max_findings {
@@ -245,13 +154,22 @@ impl Detector for LongMethodsDetector {
 
             let lines = func.line_end.saturating_sub(func.line_start);
 
-            // Quick pre-filter: skip functions clearly under the base threshold.
-            // Even with all adjustments removed, we'd still need > base_threshold.
-            if lines <= base_threshold {
+            let qn = func.qn(i);
+
+            // Determine language-specific threshold from file extension
+            let ext = Path::new(func.path(i))
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let lang_base = language_line_threshold(ext);
+            let threshold = lang_base
+                .max(ctx.threshold(crate::calibrate::MetricKind::FunctionLength, lang_base as f64) as usize)
+                as u32;
+
+            // Quick pre-filter: skip functions clearly under the threshold.
+            if lines <= threshold {
                 continue;
             }
-
-            let qn = func.qn(i);
 
             // Get complexity for analysis
             let complexity = func.complexity_opt().unwrap_or(1);
@@ -263,28 +181,16 @@ impl Detector for LongMethodsDetector {
                 Some(FunctionRole::Orchestrator)
             ) || self.is_graph_orchestrator(graph, qn, lines, complexity);
 
-            // Count match/switch arms in the function body for inflation adjustment
-            let match_arms = Self::get_match_arm_count(ctx, func.path(i), func.line_start, func.line_end, &mut file_content_cache);
-
-            // Compute effective threshold with all context adjustments
-            let effective_threshold =
-                self.effective_threshold(ctx, qn, base_threshold, is_orchestrator, match_arms);
-
-            if lines <= effective_threshold {
-                continue;
-            }
-
             let is_test = ctx.is_test_function(qn);
             let callee_clusters = self.find_callee_clusters(graph, qn);
             let density = Self::complexity_density(complexity, lines);
             let callees = graph.get_callees(qn);
             let out_degree = callees.len();
 
-            // Calculate severity based on how far over the effective threshold
-            let overshoot = lines as f64 / effective_threshold as f64;
-            let mut severity = if overshoot > 4.0 {
+            // Calculate severity based on how far over the threshold
+            let mut severity = if lines > threshold * 3 {
                 Severity::High
-            } else if overshoot > 2.0 {
+            } else if lines > threshold * 2 {
                 Severity::Medium
             } else {
                 Severity::Low
@@ -328,14 +234,6 @@ impl Detector for LongMethodsDetector {
                 notes.push(format!(
                     "Orchestrator pattern: calls {} functions (reduced severity)",
                     out_degree
-                ));
-            }
-
-            if match_arms >= MIN_MATCH_ARMS_FOR_ADJUSTMENT {
-                notes.push(format!(
-                    "Match/switch inflation: {} arms detected (threshold raised by {})",
-                    match_arms,
-                    match_arms * LINES_PER_MATCH_ARM
                 ));
             }
 
@@ -399,7 +297,7 @@ impl Detector for LongMethodsDetector {
                 title: format!("Long method: {} ({} lines)", func.node_name(i), lines),
                 description: format!(
                     "Function '{}' has {} lines (effective threshold: {}).{}",
-                    func.node_name(i), lines, effective_threshold, context_notes
+                    func.node_name(i), lines, threshold, context_notes
                 ),
                 affected_files: vec![PathBuf::from(func.path(i))],
                 line_start: Some(func.line_start),
@@ -429,32 +327,6 @@ impl Detector for LongMethodsDetector {
     }
 }
 
-impl LongMethodsDetector {
-    /// Get match arm count for a function, using file content from
-    /// AnalysisContext FileIndex or the global cache.
-    fn get_match_arm_count(
-        ctx: &AnalysisContext,
-        file_path: &str,
-        line_start: u32,
-        line_end: u32,
-        _visited: &mut HashSet<String>,
-    ) -> u32 {
-        let path = Path::new(file_path);
-
-        // Try AnalysisContext FileIndex first (test-friendly)
-        if let Some(entry) = ctx.files.get(path) {
-            return Self::count_match_arms(&entry.content, line_start, line_end);
-        }
-
-        // Fall back to global cache (production path)
-        if let Some(content) = crate::cache::global_cache().content(path) {
-            return Self::count_match_arms(&content, line_start, line_end);
-        }
-
-        0
-    }
-}
-
 impl super::RegisteredDetector for LongMethodsDetector {
     fn create(init: &super::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::with_config(init.repo_path, init.config_for("long-methods")))
@@ -467,11 +339,20 @@ mod tests {
     use crate::graph::{CodeNode, GraphStore, NodeKind};
 
     #[test]
+    fn test_language_threshold_long_methods() {
+        assert_eq!(language_line_threshold("rs"), 80);
+        assert_eq!(language_line_threshold("py"), 60);
+        assert_eq!(language_line_threshold("java"), 100);
+        assert_eq!(language_line_threshold("go"), 80);
+        assert_eq!(language_line_threshold("unknown"), 80);
+    }
+
+    #[test]
     fn test_detects_long_method() {
         let dir = tempfile::tempdir().expect("should create temp dir");
         let store = GraphStore::in_memory();
 
-        // Add a function node with line_end - line_start = 120 (> threshold 50)
+        // Add a function node with line_end - line_start = 120 (> threshold 80 for .py)
         let func = CodeNode::function("big_function", "/src/app.py")
             .with_qualified_name("app::big_function")
             .with_lines(1, 121);
@@ -482,7 +363,7 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
-            "Should detect function with 120 lines (threshold 50)"
+            "Should detect function with 120 lines (threshold 80 for .py files)"
         );
         assert!(
             findings[0].title.contains("big_function"),
@@ -496,7 +377,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("should create temp dir");
         let store = GraphStore::in_memory();
 
-        // Add a function with only 20 lines (< threshold 50)
+        // Add a function with only 20 lines (< threshold 80)
         let func = CodeNode::function("small_func", "/src/app.py")
             .with_qualified_name("app::small_func")
             .with_lines(1, 21);
@@ -508,83 +389,6 @@ mod tests {
         assert!(
             findings.is_empty(),
             "Should not flag a 20-line function, but got: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_match_arm_counting() {
-        // Rust match arms
-        let content = r#"fn handle(x: i32) {
-    match x {
-        1 => println!("one"),
-        2 => println!("two"),
-        3 => println!("three"),
-        4 => println!("four"),
-        5 => println!("five"),
-        6 => println!("six"),
-        _ => println!("other"),
-    }
-}"#;
-        let arms = LongMethodsDetector::count_match_arms(content, 1, 11);
-        assert_eq!(arms, 7, "Should count 7 match arms");
-    }
-
-    #[test]
-    fn test_switch_case_counting() {
-        // JS/Java switch cases
-        let content = r#"function handle(x) {
-    switch(x) {
-        case 1: return "one";
-        case 2: return "two";
-        case 3: return "three";
-        case 4: return "four";
-        case 5: return "five";
-        case 6: return "six";
-        default: return "other";
-    }
-}"#;
-        let arms = LongMethodsDetector::count_match_arms(content, 1, 11);
-        assert_eq!(arms, 6, "Should count 6 case statements");
-    }
-
-    #[test]
-    fn test_match_inflation_raises_threshold() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let store = GraphStore::in_memory();
-
-        // Function with 80 lines containing many match arms.
-        // Base threshold is 50, but 10 match arms should add 10*4=40 extra,
-        // making effective threshold 90. So 80-line function should NOT trigger.
-        let func = CodeNode::function("dispatch", "/src/app.rs")
-            .with_qualified_name("app::dispatch")
-            .with_lines(1, 81);
-        store.add_node(func);
-
-        // Build file content with 10 match arms within lines 1-81
-        let mut lines_vec = vec!["fn dispatch(cmd: i32) -> &'static str {".to_string()];
-        lines_vec.push("    match cmd {".to_string());
-        for j in 0..10 {
-            lines_vec.push(format!("        {} => \"val{}\",", j, j));
-        }
-        lines_vec.push("    }".to_string());
-        // Pad to 81 lines total
-        while lines_vec.len() < 81 {
-            lines_vec.push("    // padding".to_string());
-        }
-        lines_vec.push("}".to_string());
-        let file_content = lines_vec.join("\n");
-
-        let detector = LongMethodsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-            &store,
-            vec![("/src/app.rs", &file_content)],
-        );
-        let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(
-            findings.is_empty(),
-            "80-line function with 10 match arms should not trigger (effective threshold ~80), \
-             but got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
@@ -619,10 +423,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("should create temp dir");
         let store = GraphStore::in_memory();
 
-        // 60 lines with threshold 50 => overshoot 1.2 => Low
-        let func = CodeNode::function("slightly_long", "/src/app.py")
+        // 90 lines with threshold 80 (for .py: 60, but for .rs: 80) => slightly over threshold => Low
+        // Use .rs file so threshold is 80, and 90 lines is > 80 but < 160 (2x) => Low
+        let func = CodeNode::function("slightly_long", "/src/app.rs")
             .with_qualified_name("app::slightly_long")
-            .with_lines(1, 61);
+            .with_lines(1, 91);
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
@@ -650,6 +455,47 @@ mod tests {
             findings[0].description.contains("effective threshold"),
             "Description should show effective threshold, got: {}",
             findings[0].description
+        );
+    }
+
+    #[test]
+    fn test_python_threshold_is_60() {
+        let dir = tempfile::tempdir().expect("should create temp dir");
+        let store = GraphStore::in_memory();
+
+        // 70-line Python function: > 60 (py threshold) => should fire
+        let func = CodeNode::function("medium_fn", "/src/app.py")
+            .with_qualified_name("app::medium_fn")
+            .with_lines(1, 71);
+        store.add_node(func);
+
+        let detector = LongMethodsDetector::new(dir.path());
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "70-line Python function should trigger (threshold is 60)"
+        );
+    }
+
+    #[test]
+    fn test_java_threshold_is_100() {
+        let dir = tempfile::tempdir().expect("should create temp dir");
+        let store = GraphStore::in_memory();
+
+        // 90-line Java function: < 100 (java threshold) => should NOT fire
+        let func = CodeNode::function("medium_java_fn", "/src/Foo.java")
+            .with_qualified_name("Foo::medium_java_fn")
+            .with_lines(1, 91);
+        store.add_node(func);
+
+        let detector = LongMethodsDetector::new(dir.path());
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "90-line Java function should not trigger (threshold is 100), but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 }
