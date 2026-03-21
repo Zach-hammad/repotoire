@@ -1,16 +1,15 @@
-//! Module cohesion detector using Louvain/Leiden community detection
+//! Module cohesion detector — pass-through file detection
 //!
-//! Uses community detection algorithms to identify natural module boundaries
-//! and detect modularity issues like misplaced files, god modules, and
-//! poor overall architecture.
+//! Detects files that act as pure pass-throughs: they make no internal
+//! calls (zero calls to functions in the same file) but many external
+//! calls. These files may belong in a different module or need
+//! restructuring.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use rustc_hash::FxHashMap;
-use std::collections::HashMap;
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Detects modularity issues using Louvain community detection.
 ///
@@ -494,65 +493,95 @@ impl Detector for ModuleCohesionDetector {
         Some(&self.config)
     }
     fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
-        let graph = ctx.graph;
         let mut findings = Vec::new();
-        use std::collections::HashMap;
+        let gi = ctx.graph.interner();
 
-        // Group functions by file and check internal vs external calls
-        let mut file_internal: HashMap<String, usize> = HashMap::new();
-        let mut file_external: HashMap<String, usize> = HashMap::new();
+        for file in ctx.graph.get_files() {
+            let file_path = gi.resolve(file.qualified_name);
 
-        let gi = graph.interner();
-        for &(caller_idx, callee_idx) in graph.all_call_edges() {
-            if let (Some(caller_node), Some(callee_node)) =
-                (graph.node_idx(caller_idx), graph.node_idx(callee_idx))
-            {
-                let caller_file = caller_node.path(gi).to_string();
-                let callee_file = callee_node.path(gi).to_string();
-                if caller_file == callee_file {
-                    *file_internal
-                        .entry(caller_file)
-                        .or_insert(0) += 1;
-                } else {
-                    *file_external
-                        .entry(caller_file)
-                        .or_insert(0) += 1;
+            // Get all functions in this file
+            let functions = ctx.graph.get_functions_in_file(file_path);
+            if functions.is_empty() {
+                continue;
+            }
+
+            let mut internal_calls = 0usize;
+            let mut external_calls = 0usize;
+
+            for func in &functions {
+                for callee in ctx.graph.get_callees(gi.resolve(func.qualified_name)) {
+                    // Is the callee in the same file?
+                    if functions.iter().any(|f| f.qualified_name == callee.qualified_name) {
+                        internal_calls += 1;
+                    } else {
+                        external_calls += 1;
+                    }
                 }
             }
-        }
 
-        // Flag files with low cohesion (more external than internal calls)
-        for &file_idx in graph.files_idx() {
-            let Some(file) = graph.node_idx(file_idx) else { continue };
-            let file_path_str = file.path(gi).to_string();
-            let internal = *file_internal.get(&file_path_str).unwrap_or(&0);
-            let external = *file_external.get(&file_path_str).unwrap_or(&0);
-
-            if external > 0 && internal > 0 {
-                let cohesion = internal as f64 / (internal + external) as f64;
-
-                if cohesion < 0.3 && (internal + external) >= 5 {
-                    findings.push(Finding {
-                        id: String::new(),
-                        detector: "ModuleCohesionDetector".to_string(),
-                        severity: Severity::Medium,
-                        title: "Low Module Cohesion".to_string(),
-                        description: format!(
-                            "File '{}' has low cohesion: {} internal calls vs {} external calls ({:.0}% cohesion).",
-                            file.path(crate::graph::interner::global_interner()), internal, external, cohesion * 100.0
-                        ),
-                        affected_files: vec![file.path(gi).into()],
-                        line_start: None,
-                        line_end: None,
-                        suggested_fix: Some("Consider reorganizing functions into more cohesive modules".to_string()),
-                        estimated_effort: Some("Large (2-4 hours)".to_string()),
-                        category: Some("architecture".to_string()),
-                        cwe_id: None,
-                        why_it_matters: Some("Low cohesion makes modules harder to understand and maintain".to_string()),
-                        ..Default::default()
-                    });
-                }
+            // Only flag pure pass-through files
+            if internal_calls > 0 || external_calls < 5 {
+                continue;
             }
+
+            // Check module size: directory must have 5+ files
+            let module_dir = std::path::Path::new(file_path)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("");
+            let module_file_count = ctx.graph.get_files()
+                .iter()
+                .filter(|f| {
+                    let f_path = gi.resolve(f.qualified_name);
+                    std::path::Path::new(f_path)
+                        .parent()
+                        .and_then(|p| p.to_str())
+                        .unwrap_or("") == module_dir
+                })
+                .count();
+            if module_file_count < 5 {
+                continue;
+            }
+
+            let severity = if external_calls >= 10 {
+                Severity::Medium
+            } else {
+                Severity::Low
+            };
+
+            debug!(
+                "Pass-through file detected: {} ({} external calls, {} files in module)",
+                file_path, external_calls, module_file_count
+            );
+
+            findings.push(Finding {
+                id: String::new(),
+                detector: "ModuleCohesionDetector".to_string(),
+                severity,
+                title: format!("Pass-Through Module: {}", file_path),
+                description: format!(
+                    "File has 0 internal calls and {} external calls. \
+                    May belong in a different module or need restructuring.",
+                    external_calls
+                ),
+                affected_files: vec![file_path.into()],
+                line_start: None,
+                line_end: None,
+                suggested_fix: Some(
+                    "Consider moving this file to the module it primarily depends on, \
+                    or extract shared logic into a dedicated utility module."
+                        .to_string(),
+                ),
+                estimated_effort: Some("Medium (1-2 hours)".to_string()),
+                category: Some("architecture".to_string()),
+                cwe_id: None,
+                why_it_matters: Some(
+                    "Pure pass-through files add indirection without cohesion, \
+                    making the module structure harder to understand."
+                        .to_string(),
+                ),
+                ..Default::default()
+            });
         }
 
         Ok(findings)
@@ -568,50 +597,129 @@ impl super::RegisteredDetector for ModuleCohesionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detectors::analysis_context::AnalysisContext;
+    use crate::graph::store_models::{CodeEdge, CodeNode};
+    use crate::graph::GraphStore;
 
-    #[test]
-    fn test_louvain_simple() {
-        let detector = ModuleCohesionDetector::new();
+    /// Build a GraphStore with `file_count` files in the same directory.
+    ///
+    /// The target file (`dir/file0.rs`) is given:
+    /// - `internal_call_count` calls between functions inside itself
+    /// - `external_call_count` calls from a function inside it to functions in `dir/file1.rs`
+    fn build_graph(
+        dir: &str,
+        file_count: usize,
+        internal_call_count: usize,
+        external_call_count: usize,
+    ) -> GraphStore {
+        let store = GraphStore::in_memory();
 
-        // Two cliques connected by one edge
-        // Clique 1: 0-1-2 (fully connected)
-        // Clique 2: 3-4-5 (fully connected)
-        // One edge: 2-3
-        let neighbors = vec![
-            vec![(1, 1.0), (2, 1.0)],           // 0
-            vec![(0, 1.0), (2, 1.0)],           // 1
-            vec![(0, 1.0), (1, 1.0), (3, 1.0)], // 2
-            vec![(2, 1.0), (4, 1.0), (5, 1.0)], // 3
-            vec![(3, 1.0), (5, 1.0)],           // 4
-            vec![(3, 1.0), (4, 1.0)],           // 5
-        ];
+        // Create file_count files in the same directory
+        for i in 0..file_count {
+            let path = format!("{}/file{}.rs", dir, i);
+            store.add_node(CodeNode::file(&path));
+        }
 
-        let degrees: Vec<f64> = neighbors
-            .iter()
-            .map(|n| n.iter().map(|(_, w)| w).sum())
-            .collect();
-        let total_weight = 7.0; // 6 within-clique + 1 cross-clique
+        // The target is the first file: dir/file0.rs
+        let target_file = format!("{}/file0.rs", dir);
 
-        let (communities, modularity) = detector.louvain(&neighbors, &degrees, total_weight, 6);
+        // Add internal functions (in target file) and wire internal calls
+        for j in 0..internal_call_count {
+            let a_name = format!("internal_a{}", j);
+            let b_name = format!("internal_b{}", j);
+            // qualified_name = "file_path::func_name" by CodeNode::new convention
+            let a_qn = format!("{}::{}", target_file, a_name);
+            let b_qn = format!("{}::{}", target_file, b_name);
+            store.add_node(CodeNode::function(&a_name, &target_file));
+            store.add_node(CodeNode::function(&b_name, &target_file));
+            store.add_edge_by_name(&a_qn, &b_qn, CodeEdge::calls());
+        }
 
-        // Should find 2 communities
-        let unique_communities: std::collections::HashSet<_> = communities.iter().collect();
-        assert!(unique_communities.len() <= 2);
+        // Add external functions (in file1) and wire external calls from target
+        let external_file = format!("{}/file1.rs", dir);
+        let caller_qn = format!("{}::pass_caller", target_file);
+        store.add_node(CodeNode::function("pass_caller", &target_file));
 
-        // Modularity should be positive
-        assert!(modularity > 0.0);
+        for k in 0..external_call_count {
+            let ext_func_name = format!("ext_func{}", k);
+            let ext_qn = format!("{}::{}", external_file, ext_func_name);
+            store.add_node(CodeNode::function(&ext_func_name, &external_file));
+            store.add_edge_by_name(&caller_qn, &ext_qn, CodeEdge::calls());
+        }
+
+        store
     }
 
     #[test]
-    fn test_modularity_calculation() {
+    fn test_pass_through_flagged() {
+        // File with 0 internal calls, 10 external calls, in a 5-file module → Medium
+        let store = build_graph("src/mymodule", 5, 0, 10);
+        let ctx = AnalysisContext::test(&store);
         let detector = ModuleCohesionDetector::new();
+        let findings = detector.detect(&ctx).unwrap();
 
-        // Simple case: 2 disconnected nodes
-        let neighbors = vec![vec![], vec![]];
-        let degrees = vec![0.0, 0.0];
-        let communities = vec![0, 1];
+        assert_eq!(findings.len(), 1, "Expected exactly 1 finding, got: {:?}", findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert_eq!(findings[0].severity, Severity::Medium);
+        assert!(findings[0].title.contains("Pass-Through Module"), "title: {}", findings[0].title);
+        assert!(findings[0].description.contains("0 internal calls"), "desc: {}", findings[0].description);
+        assert!(findings[0].description.contains("10 external calls"), "desc: {}", findings[0].description);
+    }
 
-        let modularity = detector.calculate_modularity(&communities, &neighbors, &degrees, 0.0);
-        assert_eq!(modularity, 0.0);
+    #[test]
+    fn test_file_with_internal_calls_not_flagged() {
+        // File with 1 internal call and 10 external calls → not flagged
+        let store = build_graph("src/mymodule", 5, 1, 10);
+        let ctx = AnalysisContext::test(&store);
+        let detector = ModuleCohesionDetector::new();
+        let findings = detector.detect(&ctx).unwrap();
+
+        // The target file has internal calls, so it should NOT be flagged
+        let target = "src/mymodule/file0.rs";
+        assert!(
+            findings.iter().all(|f| !f.title.contains(target)),
+            "File with internal calls should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_small_module_not_flagged() {
+        // File with 0 internal calls, 10 external calls, but only 2 files in module → not flagged
+        let store = build_graph("src/smallmod", 2, 0, 10);
+        let ctx = AnalysisContext::test(&store);
+        let detector = ModuleCohesionDetector::new();
+        let findings = detector.detect(&ctx).unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "Small module (< 5 files) should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_low_external_calls_not_flagged() {
+        // File with 0 internal calls but only 3 external calls → not flagged (below threshold of 5)
+        let store = build_graph("src/mymodule", 5, 0, 3);
+        let ctx = AnalysisContext::test(&store);
+        let detector = ModuleCohesionDetector::new();
+        let findings = detector.detect(&ctx).unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "File with fewer than 5 external calls should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_low_severity_five_to_nine_external() {
+        // File with 0 internal calls, exactly 5 external calls, 5-file module → Low severity
+        let store = build_graph("src/mymodule", 5, 0, 5);
+        let ctx = AnalysisContext::test(&store);
+        let detector = ModuleCohesionDetector::new();
+        let findings = detector.detect(&ctx).unwrap();
+
+        assert_eq!(findings.len(), 1, "Expected exactly 1 finding");
+        assert_eq!(findings[0].severity, Severity::Low);
     }
 }
