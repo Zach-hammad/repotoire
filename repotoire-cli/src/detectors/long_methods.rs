@@ -9,7 +9,7 @@
 //!
 //! FP-reduction strategies:
 //! - Adaptive thresholds from codebase calibration
-//! - Language-specific base thresholds (py=60, rs/go/ts/js=80, java/cs/c/cpp=100)
+//! - Language-specific base thresholds (py=100, rs/go/ts/js=150, java/cs/c/cpp=200)
 //! - Orchestrator severity reduction (High→Medium, Medium→Low)
 //! - Test function severity cap (capped at Low)
 //! - Unreachable code severity reduction
@@ -37,10 +37,10 @@ pub struct LongMethodsDetector {
 /// Returns the language-specific line threshold for a given file extension.
 fn language_line_threshold(ext: &str) -> usize {
     match ext {
-        "py" | "pyi" => 60,
-        "rs" | "go" | "ts" | "tsx" | "js" | "jsx" | "mjs" => 80,
-        "java" | "cs" | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => 100,
-        _ => 80,
+        "py" | "pyi" => 100,
+        "rs" | "go" | "ts" | "tsx" | "js" | "jsx" | "mjs" => 150,
+        "java" | "cs" | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => 200,
+        _ => 150,
     }
 }
 
@@ -340,11 +340,11 @@ mod tests {
 
     #[test]
     fn test_language_threshold_long_methods() {
-        assert_eq!(language_line_threshold("rs"), 80);
-        assert_eq!(language_line_threshold("py"), 60);
-        assert_eq!(language_line_threshold("java"), 100);
-        assert_eq!(language_line_threshold("go"), 80);
-        assert_eq!(language_line_threshold("unknown"), 80);
+        assert_eq!(language_line_threshold("rs"), 150);
+        assert_eq!(language_line_threshold("py"), 100);
+        assert_eq!(language_line_threshold("java"), 200);
+        assert_eq!(language_line_threshold("go"), 150);
+        assert_eq!(language_line_threshold("unknown"), 150);
     }
 
     #[test]
@@ -423,11 +423,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("should create temp dir");
         let store = GraphStore::in_memory();
 
-        // 90 lines with threshold 80 (for .py: 60, but for .rs: 80) => slightly over threshold => Low
-        // Use .rs file so threshold is 80, and 90 lines is > 80 but < 160 (2x) => Low
+        // 160 lines with threshold 150 (for .rs) => slightly over threshold => Low
         let func = CodeNode::function("slightly_long", "/src/app.rs")
             .with_qualified_name("app::slightly_long")
-            .with_lines(1, 91);
+            .with_lines(1, 161);
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
@@ -459,14 +458,14 @@ mod tests {
     }
 
     #[test]
-    fn test_python_threshold_is_60() {
+    fn test_python_threshold_is_100() {
         let dir = tempfile::tempdir().expect("should create temp dir");
         let store = GraphStore::in_memory();
 
-        // 70-line Python function: > 60 (py threshold) => should fire
+        // 110-line Python function: > 100 (py threshold) => should fire
         let func = CodeNode::function("medium_fn", "/src/app.py")
             .with_qualified_name("app::medium_fn")
-            .with_lines(1, 71);
+            .with_lines(1, 111);
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
@@ -474,19 +473,19 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
-            "70-line Python function should trigger (threshold is 60)"
+            "110-line Python function should trigger (threshold is 100)"
         );
     }
 
     #[test]
-    fn test_java_threshold_is_100() {
+    fn test_java_threshold_is_200() {
         let dir = tempfile::tempdir().expect("should create temp dir");
         let store = GraphStore::in_memory();
 
-        // 90-line Java function: < 100 (java threshold) => should NOT fire
+        // 180-line Java function: < 200 (java threshold) => should NOT fire
         let func = CodeNode::function("medium_java_fn", "/src/Foo.java")
             .with_qualified_name("Foo::medium_java_fn")
-            .with_lines(1, 91);
+            .with_lines(1, 181);
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
@@ -494,7 +493,7 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
-            "90-line Java function should not trigger (threshold is 100), but got: {:?}",
+            "180-line Java function should not trigger (threshold is 200), but got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }

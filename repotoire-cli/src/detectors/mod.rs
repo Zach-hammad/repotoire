@@ -195,12 +195,13 @@ const DEFAULT_DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<DeprecatedTorchApiDetector>(),
     // Other keepers
     register::<HardcodedTimeoutDetector>(),
-    register::<UnusedImportsDetector>(),
 ];
 
 /// Deep-scan-only detectors — code smells, style, dead code, and speculative detectors.
 /// These run only with `--all-detectors`.
 const DEEP_ONLY_DETECTOR_FACTORIES: &[DetectorFactory] = &[
+    // Unused imports (linter-level, 573 findings on next.js alone)
+    register::<UnusedImportsDetector>(),
     // Code smells (0% evidence from PRs)
     register::<LongParameterListDetector>(),
     register::<DataClumpsDetector>(),
