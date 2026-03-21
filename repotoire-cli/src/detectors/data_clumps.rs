@@ -28,11 +28,24 @@ pub struct DataClumpsThresholds {
 impl Default for DataClumpsThresholds {
     fn default() -> Self {
         Self {
-            min_params: 3,
-            min_occurrences: 3,
+            min_params: 4,
+            min_occurrences: 5,
         }
     }
 }
+
+/// Framework convention parameter patterns to skip (forwarding/middleware signatures).
+/// If the clump's param names are a subset of any pattern, it is not reported.
+const FRAMEWORK_CONVENTIONS: &[&[&str]] = &[
+    &["req", "res", "next"],
+    &["ctx", "w", "r"],
+    &["self", "other"],
+    &["request", "response"],
+    &["app", "req", "res"],
+    &["t", "ctx"],
+    &["db", "ctx"],
+    &["conn", "ctx"],
+];
 
 /// Known parameter patterns and suggested names
 fn suggest_struct_name(params: &[String]) -> String {
@@ -100,10 +113,22 @@ impl DataClumpsDetector {
 
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = DataClumpsThresholds {
-            min_params: config.get_option_or("min_params", 3),
-            min_occurrences: config.get_option_or("min_occurrences", 3),
+            min_params: config.get_option_or("min_params", 4),
+            min_occurrences: config.get_option_or("min_occurrences", 5),
         };
         Self { config, thresholds }
+    }
+
+    /// Returns true if the given param names match (are a subset of) a framework convention pattern.
+    fn is_framework_convention(params: &[String]) -> bool {
+        let param_set: HashSet<&str> = params.iter().map(|s| s.as_str()).collect();
+        for pattern in FRAMEWORK_CONVENTIONS {
+            let pattern_set: HashSet<&str> = pattern.iter().copied().collect();
+            if param_set.is_subset(&pattern_set) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Extract parameter names from function's parameter property
@@ -226,10 +251,13 @@ impl DataClumpsDetector {
             })
             .collect();
 
-        // Step 5: Filter by min_occurrences, analyze call relationships
+        // Step 5: Filter by min_occurrences, skip framework conventions, analyze call relationships
         let mut clumps: Vec<DataClump> = clump_map
             .into_iter()
-            .filter(|(_, func_indices)| func_indices.len() >= self.thresholds.min_occurrences)
+            .filter(|(params, func_indices)| {
+                func_indices.len() >= self.thresholds.min_occurrences
+                    && !Self::is_framework_convention(params)
+            })
             .map(|(params, func_indices)| {
                 let funcs: Vec<FuncInfo> = func_indices
                     .iter()
@@ -296,21 +324,25 @@ impl DataClumpsDetector {
         (call_count, has_chain)
     }
 
-    /// Remove clumps that are subsets of larger ones
+    /// Remove clumps whose parameter set is a strict subset of another clump that has an equal or
+    /// greater occurrence count (function count). For example, if `(a, b, c)` appears in 5
+    /// functions and `(a, b, c, d)` also appears in 5 functions, only `(a, b, c, d)` is kept.
     fn remove_subsets(&self, mut clumps: Vec<DataClump>) -> Vec<DataClump> {
+        // Sort largest param set first so supersets are processed before subsets
         clumps.sort_by(|a, b| b.params.len().cmp(&a.params.len()));
 
-        let mut result = Vec::new();
+        let mut result: Vec<DataClump> = Vec::new();
 
         for clump in clumps {
             let param_set: HashSet<&String> = clump.params.iter().collect();
-            let func_set: HashSet<&str> = clump.funcs.iter().map(|f| f.name.as_str()).collect();
 
             let is_subset = result.iter().any(|existing: &DataClump| {
                 let existing_params: HashSet<&String> = existing.params.iter().collect();
-                let existing_funcs: HashSet<&str> =
-                    existing.funcs.iter().map(|f| f.name.as_str()).collect();
-                param_set.is_subset(&existing_params) && func_set.is_subset(&existing_funcs)
+                // Strict subset of params (fewer params, all contained) AND
+                // the superset has equal or more occurrences
+                param_set.len() < existing_params.len()
+                    && param_set.is_subset(&existing_params)
+                    && existing.funcs.len() >= clump.funcs.len()
             });
 
             if !is_subset {
@@ -716,5 +748,97 @@ mod tests {
             is_call_chain: true, // Call chain boosts Low -> Medium
         };
         assert_eq!(detector.calculate_severity(&clump_chain), Severity::Medium);
+    }
+
+    #[test]
+    fn test_framework_convention_skipped() {
+        // (req, res, next) is a known Express.js middleware signature — must be skipped
+        assert!(DataClumpsDetector::is_framework_convention(&[
+            "req".to_string(),
+            "res".to_string(),
+            "next".to_string(),
+        ]));
+
+        // (ctx, w, r) is a known HTTP handler signature — must be skipped
+        assert!(DataClumpsDetector::is_framework_convention(&[
+            "ctx".to_string(),
+            "w".to_string(),
+            "r".to_string(),
+        ]));
+
+        // A subset of a framework convention also matches
+        assert!(DataClumpsDetector::is_framework_convention(&[
+            "req".to_string(),
+            "res".to_string(),
+        ]));
+
+        // An arbitrary param set is NOT a framework convention
+        assert!(!DataClumpsDetector::is_framework_convention(&[
+            "user_id".to_string(),
+            "email".to_string(),
+            "name".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn test_subset_deduplication() {
+        let detector = DataClumpsDetector::new();
+
+        let make_funcs = |n: usize| -> Vec<FuncInfo> {
+            (1..=n)
+                .map(|i| FuncInfo {
+                    name: format!("f{}", i),
+                    qualified_name: format!("mod::f{}", i),
+                    file: "a.rs".to_string(),
+                    line: i as u32,
+                })
+                .collect()
+        };
+
+        // (a, b, c, d) with 5 occurrences
+        let superset = DataClump {
+            params: vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+            ],
+            funcs: make_funcs(5),
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+
+        // (a, b, c) with 5 occurrences — strict subset, same occurrence count → should be removed
+        let subset = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: make_funcs(5),
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+
+        let result = detector.remove_subsets(vec![superset, subset]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].params.len(), 4, "only the superset should remain");
+
+        // (a, b, c) with MORE occurrences than the superset → should NOT be removed
+        let subset_more_occ = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: make_funcs(8),
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        let superset2 = DataClump {
+            params: vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+            ],
+            funcs: make_funcs(5),
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        let result2 = detector.remove_subsets(vec![superset2, subset_more_occ]);
+        assert_eq!(result2.len(), 2, "subset with more occurrences should be kept");
     }
 }

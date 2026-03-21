@@ -100,6 +100,9 @@ impl Detector for SinglePointOfFailureDetector {
 
         let mut findings = Vec::new();
 
+        // Entry-point functions that dominate everything by design — not meaningful SPOFs.
+        const ENTRY_POINT_NAMES: &[&str] = &["main", "run", "start", "init"];
+
         for &func_idx in functions {
             let dominated = graph.dominated_by_idx(func_idx);
             let dom_count = dominated.len();
@@ -114,6 +117,21 @@ impl Detector for SinglePointOfFailureDetector {
             };
 
             let func_name = node.qn(gi);
+
+            // Skip well-known entry points — they dominate everything by definition.
+            let bare_name = func_name.rsplit("::").next().unwrap_or(func_name);
+            if ENTRY_POINT_NAMES.contains(&bare_name) {
+                continue;
+            }
+
+            // Only flag when domination is meaningfully large: >= 5% of total functions
+            // OR >= 50 absolute functions. Avoids noise from trivial cases like
+            // "main dominates 20 functions (0%)" in large repos.
+            let dom_pct = (dom_count as f64 / total_functions as f64) * 100.0;
+            if dom_pct < 5.0 && dom_count < 50 {
+                continue;
+            }
+
             let page_rank = graph.page_rank_idx(func_idx);
             let frontier = graph.domination_frontier_idx(func_idx);
 
@@ -125,8 +143,6 @@ impl Detector for SinglePointOfFailureDetector {
             } else {
                 (rank_pos as f64 / all_ranks.len() as f64) * 100.0
             };
-
-            let dom_pct = (dom_count as f64 / total_functions as f64) * 100.0;
 
             // Calculate severity.
             let severity = if dom_pct > 20.0 && percentile >= 99.0 {
@@ -308,6 +324,64 @@ mod tests {
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_skips_entry_points() {
+        // Build a graph where `main` dominates everything — should be skipped.
+        let mut builder = GraphBuilder::new();
+
+        let main_fn = builder.add_node(CodeNode::function("main", "main.py"));
+        for i in 0..10 {
+            let child = builder.add_node(CodeNode::function(&format!("worker_{}", i), "app.py"));
+            builder.add_edge(main_fn, child, CodeEdge::calls());
+        }
+        let graph = builder.freeze();
+
+        // With min_dominated=2, `main` passes count threshold but should be
+        // skipped because "main" is an entry point.
+        let config = DetectorConfig::new()
+            .with_option("min_dominated", serde_json::json!(2));
+        let detector = SinglePointOfFailureDetector::with_config(config);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            !findings.iter().any(|f| f.title.contains("main")),
+            "Entry point `main` should be skipped, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_skips_low_domination_percentage() {
+        // Build a large graph where a function dominates 20 nodes but < 5% of total.
+        let mut builder = GraphBuilder::new();
+
+        // Add 500 unconnected leaf functions to make the total large.
+        for i in 0..500 {
+            builder.add_node(CodeNode::function(&format!("leaf_{}", i), "module.py"));
+        }
+
+        // Add a hub that dominates 20 children (= 20/520 ≈ 3.8% — below 5% threshold).
+        let hub = builder.add_node(CodeNode::function("hub", "hub.py"));
+        for i in 0..20 {
+            let child = builder.add_node(CodeNode::function(&format!("child_{}", i), "sub.py"));
+            builder.add_edge(hub, child, CodeEdge::calls());
+        }
+        let graph = builder.freeze();
+
+        let config = DetectorConfig::new()
+            .with_option("min_dominated", serde_json::json!(2));
+        let detector = SinglePointOfFailureDetector::with_config(config);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            !findings.iter().any(|f| f.title.contains("hub")),
+            "hub dominates <5% of functions so should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]

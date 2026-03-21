@@ -107,34 +107,84 @@ const fn register<D: RegisteredDetector>() -> DetectorFactory {
     D::create
 }
 
-/// Complete list of all registered detectors.
-///
-/// Adding a new detector: add one entry here + `mod` declaration above.
-/// The `register::<T>()` wrapper enforces at compile time that T implements
-/// RegisteredDetector — a bare function pointer would not enforce this.
-const DETECTOR_FACTORIES: &[DetectorFactory] = &[
-    // Core graph-based detectors
+/// Default detectors — high-value detectors that catch real bugs, security issues,
+/// performance problems, and architectural debt. These run by default.
+const DEFAULT_DETECTOR_FACTORIES: &[DetectorFactory] = &[
+    // Security (all — these catch real vulnerabilities)
     register::<CircularDependencyDetector>(),
+    register::<SQLInjectionDetector>(),
+    register::<XssDetector>(),
+    register::<CommandInjectionDetector>(),
+    register::<SsrfDetector>(),
+    register::<PathTraversalDetector>(),
+    register::<SecretDetector>(),
+    register::<InsecureCryptoDetector>(),
+    register::<XxeDetector>(),
+    register::<PrototypePollutionDetector>(),
+    register::<InsecureTlsDetector>(),
+    register::<CleartextCredentialsDetector>(),
+    register::<NosqlInjectionDetector>(),
+    register::<LogInjectionDetector>(),
+    register::<InsecureDeserializeDetector>(),
+    register::<CorsMisconfigDetector>(),
+    register::<JwtWeakDetector>(),
+    register::<DjangoSecurityDetector>(),
+    register::<ExpressSecurityDetector>(),
+    register::<ReactHooksDetector>(),
+    register::<GHActionsInjectionDetector>(),
+    register::<EvalDetector>(),
+    register::<PickleDeserializationDetector>(),
+    register::<UnsafeTemplateDetector>(),
+    register::<InsecureCookieDetector>(),
+    register::<InsecureRandomDetector>(),
+    register::<RegexDosDetector>(),
+    register::<HardcodedIpsDetector>(),
+    // Bug patterns
+    register::<MissingAwaitDetector>(),
+    register::<UnhandledPromiseDetector>(),
+    register::<EmptyCatchDetector>(),
+    register::<BroadExceptionDetector>(),
+    register::<MutableDefaultArgsDetector>(),
+    register::<UnreachableCodeDetector>(),
+    register::<CallbackHellDetector>(),
+    register::<GeneratorMisuseDetector>(),
+    register::<InfiniteLoopDetector>(),
+    register::<ImplicitCoercionDetector>(),
+    register::<WildcardImportsDetector>(),
+    register::<GlobalVariablesDetector>(),
+    register::<StringConcatLoopDetector>(),
+    // Performance
+    register::<NPlusOneDetector>(),
+    register::<RegexInLoopDetector>(),
+    register::<SyncInAsyncDetector>(),
+    // Refactoring (strict thresholds)
     register::<GodClassDetector>(),
-    register::<LongParameterListDetector>(),
-    // Code smell detectors
-    register::<DataClumpsDetector>(),
-    register::<DeadCodeDetector>(),
-    register::<FeatureEnvyDetector>(),
-    register::<InappropriateIntimacyDetector>(),
-    register::<LazyClassDetector>(),
-    register::<MessageChainDetector>(),
-    register::<MiddleManDetector>(),
-    register::<RefusedBequestDetector>(),
-    register::<ShotgunSurgeryDetector>(),
-    // AI watchdog detectors
-    register::<AIBoilerplateDetector>(),
-    register::<AIChurnDetector>(),
+    register::<LongMethodsDetector>(),
+    register::<DeepNestingDetector>(),
     register::<AIComplexitySpikeDetector>(),
-    register::<AIDuplicateBlockDetector>(),
-    register::<AIMissingTestsDetector>(),
-    register::<AINamingPatternDetector>(),
-    // ML/Data Science detectors
+    // Architecture
+    register::<ShotgunSurgeryDetector>(),
+    register::<SinglePointOfFailureDetector>(),
+    register::<StructuralBridgeRiskDetector>(),
+    register::<MutualRecursionDetector>(),
+    register::<HiddenCouplingDetector>(),
+    register::<CommunityMisplacementDetector>(),
+    register::<PageRankDriftDetector>(),
+    register::<TemporalBottleneckDetector>(),
+    register::<ArchitecturalBottleneckDetector>(),
+    register::<DegreeCentralityDetector>(),
+    // Rust-specific
+    register::<UnwrapWithoutContextDetector>(),
+    register::<UnsafeWithoutSafetyCommentDetector>(),
+    register::<CloneInHotPathDetector>(),
+    register::<MissingMustUseDetector>(),
+    register::<MutexPoisoningRiskDetector>(),
+    register::<PanicDensityDetector>(),
+    // Testing
+    register::<TestInProductionDetector>(),
+    // Dependencies
+    register::<DepAuditDetector>(),
+    // ML/Data Science (all — these are real bug catchers)
     register::<TorchLoadUnsafeDetector>(),
     register::<NanEqualityDetector>(),
     register::<MissingZeroGradDetector>(),
@@ -143,113 +193,66 @@ const DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<ChainIndexingDetector>(),
     register::<RequireGradTypoDetector>(),
     register::<DeprecatedTorchApiDetector>(),
-    // Graph/architecture detectors
-    register::<ArchitecturalBottleneckDetector>(),
-    register::<CoreUtilityDetector>(),
-    register::<DegreeCentralityDetector>(),
-    register::<InfluentialCodeDetector>(),
-    register::<ModuleCohesionDetector>(),
-    // Security detectors (file scanning)
-    register::<EvalDetector>(),
-    register::<PickleDeserializationDetector>(),
-    register::<SQLInjectionDetector>(),
-    register::<UnsafeTemplateDetector>(),
-    register::<UnusedImportsDetector>(),
-    register::<SecretDetector>(),
-    register::<PathTraversalDetector>(),
-    register::<CommandInjectionDetector>(),
-    register::<SsrfDetector>(),
-    register::<RegexDosDetector>(),
-    // Code quality detectors
-    register::<DeepNestingDetector>(),
-    register::<EmptyCatchDetector>(),
-    register::<LargeFilesDetector>(),
-    register::<LongMethodsDetector>(),
-    register::<TodoScanner>(),
-    register::<MagicNumbersDetector>(),
-    register::<MissingDocstringsDetector>(),
-    // Misc detectors
-    register::<GeneratorMisuseDetector>(),
-    register::<InfiniteLoopDetector>(),
-    // Performance detectors
-    register::<SyncInAsyncDetector>(),
-    register::<NPlusOneDetector>(),
-    // More security detectors
-    register::<InsecureCryptoDetector>(),
-    register::<XssDetector>(),
-    register::<HardcodedIpsDetector>(),
-    register::<InsecureRandomDetector>(),
-    register::<CorsMisconfigDetector>(),
-    // More code quality detectors
-    register::<DebugCodeDetector>(),
-    register::<CommentedCodeDetector>(),
-    register::<DuplicateCodeDetector>(),
-    register::<UnreachableCodeDetector>(),
-    register::<StringConcatLoopDetector>(),
-    // Additional security
-    register::<XxeDetector>(),
-    register::<InsecureDeserializeDetector>(),
-    register::<CleartextCredentialsDetector>(),
-    // Code quality
-    register::<WildcardImportsDetector>(),
-    register::<MutableDefaultArgsDetector>(),
-    register::<GlobalVariablesDetector>(),
-    register::<ImplicitCoercionDetector>(),
-    register::<SingleCharNamesDetector>(),
-    // Async issues
-    register::<MissingAwaitDetector>(),
-    register::<UnhandledPromiseDetector>(),
-    register::<CallbackHellDetector>(),
-    // Testing
-    register::<TestInProductionDetector>(),
-    // More security
-    register::<InsecureCookieDetector>(),
-    register::<JwtWeakDetector>(),
-    register::<PrototypePollutionDetector>(),
-    register::<NosqlInjectionDetector>(),
-    register::<LogInjectionDetector>(),
-    // More quality
-    register::<BroadExceptionDetector>(),
-    register::<BooleanTrapDetector>(),
-    register::<InconsistentReturnsDetector>(),
-    register::<DeadStoreDetector>(),
+    // Other keepers
     register::<HardcodedTimeoutDetector>(),
-    // Performance
-    register::<RegexInLoopDetector>(),
-    // Framework-specific
-    register::<ReactHooksDetector>(),
-    register::<DjangoSecurityDetector>(),
-    register::<ExpressSecurityDetector>(),
-    // Rust-specific detectors
-    register::<UnwrapWithoutContextDetector>(),
-    register::<UnsafeWithoutSafetyCommentDetector>(),
-    register::<CloneInHotPathDetector>(),
-    register::<MissingMustUseDetector>(),
-    register::<BoxDynTraitDetector>(),
-    register::<MutexPoisoningRiskDetector>(),
-    register::<PanicDensityDetector>(),
-    // CI/CD security
-    register::<GHActionsInjectionDetector>(),
-    // TLS/Certificate validation
-    register::<InsecureTlsDetector>(),
-    // Dependency vulnerability auditing
-    register::<DepAuditDetector>(),
-    // Predictive coding
-    register::<HierarchicalSurprisalDetector>(),
-    register::<SurprisalDetector>(),
-    // Graph primitives detectors
-    register::<SinglePointOfFailureDetector>(),
-    register::<StructuralBridgeRiskDetector>(),
-    register::<MutualRecursionDetector>(),
-    register::<HiddenCouplingDetector>(),
-    register::<CommunityMisplacementDetector>(),
-    register::<PageRankDriftDetector>(),
-    register::<TemporalBottleneckDetector>(),
 ];
 
-/// Create all registered detectors from a unified init context.
+/// Deep-scan-only detectors — code smells, style, dead code, and speculative detectors.
+/// These run only with `--all-detectors`.
+const DEEP_ONLY_DETECTOR_FACTORIES: &[DetectorFactory] = &[
+    // Unused imports (linter-level, 573 findings on next.js alone)
+    register::<UnusedImportsDetector>(),
+    // Code smells (0% evidence from PRs)
+    register::<LongParameterListDetector>(),
+    register::<DataClumpsDetector>(),
+    register::<LazyClassDetector>(),
+    register::<FeatureEnvyDetector>(),
+    register::<InappropriateIntimacyDetector>(),
+    register::<MessageChainDetector>(),
+    register::<MiddleManDetector>(),
+    register::<RefusedBequestDetector>(),
+    register::<ModuleCohesionDetector>(),
+    // Dead code (0.03% of PRs)
+    register::<DeadCodeDetector>(),
+    register::<DeadStoreDetector>(),
+    // Duplicate code (0% of PRs fix this)
+    register::<DuplicateCodeDetector>(),
+    register::<AIDuplicateBlockDetector>(),
+    // AI detectors (speculative)
+    register::<AIMissingTestsDetector>(),
+    register::<AIBoilerplateDetector>(),
+    register::<AIChurnDetector>(),
+    register::<AINamingPatternDetector>(),
+    // Style/lint (formatters do this)
+    register::<TodoScanner>(),
+    register::<CommentedCodeDetector>(),
+    register::<SingleCharNamesDetector>(),
+    register::<DebugCodeDetector>(),
+    register::<MagicNumbersDetector>(),
+    register::<BooleanTrapDetector>(),
+    register::<InconsistentReturnsDetector>(),
+    register::<MissingDocstringsDetector>(),
+    // Informational (not actionable)
+    register::<LargeFilesDetector>(),
+    register::<InfluentialCodeDetector>(),
+    // Predictive (experimental)
+    register::<SurprisalDetector>(),
+    register::<HierarchicalSurprisalDetector>(),
+    // Rust style (not bugs)
+    register::<BoxDynTraitDetector>(),
+];
+
+/// Create default detectors (high-value: security, bugs, performance, architecture).
+pub fn create_default_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
+    DEFAULT_DETECTOR_FACTORIES.iter().map(|f| f(init)).collect()
+}
+
+/// Create ALL detectors including deep-scan detectors (code smells, style, dead code).
 pub fn create_all_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
-    DETECTOR_FACTORIES.iter().map(|f| f(init)).collect()
+    DEFAULT_DETECTOR_FACTORIES.iter()
+        .chain(DEEP_ONLY_DETECTOR_FACTORIES.iter())
+        .map(|f| f(init))
+        .collect()
 }
 
 // ── Module declarations ────────────────────────────────────────────────────
@@ -1118,10 +1121,15 @@ mod tests {
     #[test]
     fn test_create_all_detectors_registry() {
         let init = DetectorInit::test_default();
-        let detectors = create_all_detectors(&init);
-        // 107 detectors registered (all patterns including config-based, resolver-based, etc.).
+        let default = create_default_detectors(&init);
+        let all = create_all_detectors(&init);
+        // Default detectors should be substantial (70+)
+        assert!(default.len() > 50, "default detectors: {}", default.len());
+        // Deep adds more detectors
+        assert!(all.len() > default.len(), "all ({}) should exceed default ({})", all.len(), default.len());
+        // Total unchanged: 106 detectors (CoreUtilityDetector excluded from findings registry).
         // Update this number when adding/removing detectors.
-        assert_eq!(detectors.len(), 107);
+        assert_eq!(all.len(), 106);
     }
 
     #[test]

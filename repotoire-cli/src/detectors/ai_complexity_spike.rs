@@ -1,15 +1,15 @@
-//! AI complexity spike detector (research-backed baseline comparison)
+//! Complexity outlier detector (research-backed baseline comparison)
 //!
-//! Detects sudden complexity increases in previously simple functions using
-//! statistical outlier detection based on codebase-wide complexity baselines.
+//! Detects statistical complexity outliers using compound signals for
+//! precision — z-score alone is insufficient; requires at least one
+//! additional structural signal (generic name, high churn, high fan-out).
 //!
-//! The research-backed approach:
+//! Detection approach:
 //! 1. Calculate cyclomatic complexity for ALL functions
-//! 2. Compute codebase baseline: median and standard deviation
-//! 3. For functions modified in last 30 days, calculate z-scores
-//! 4. Flag functions where z_score > 2.0 (statistical outlier)
-//! 5. Cross-reference with git history to detect actual SPIKES
-//!    (previous < 5 AND current > 15 → confirmed spike)
+//! 2. Compute codebase baseline: mean and standard deviation
+//! 3. Flag functions where z_score > 3.0 AND complexity >= 20
+//! 4. Require at least TWO compound signals to reduce false positives
+//! 5. Severity driven by number of compound signals (3 → High, 2 → Medium)
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
@@ -23,10 +23,25 @@ use tracing::{debug, info};
 
 /// Default configuration values
 const DEFAULT_WINDOW_DAYS: i64 = 30;
-const DEFAULT_Z_SCORE_THRESHOLD: f64 = 2.0;
+const DEFAULT_Z_SCORE_THRESHOLD: f64 = 3.0;
 const DEFAULT_SPIKE_BEFORE_MAX: u32 = 5;
 const DEFAULT_SPIKE_AFTER_MIN: u32 = 15;
 const DEFAULT_MAX_FINDINGS: usize = 50;
+const DEFAULT_MIN_COMPLEXITY: i64 = 20;
+
+/// Generic/meaningless function name prefixes/words that indicate low-effort naming
+const GENERIC_NAMES: &[&str] = &[
+    "process", "handle", "execute", "run", "do", "go", "work",
+    "func", "helper", "impl", "inner", "main_logic",
+    "do_something", "do_work", "process_data",
+];
+
+/// Returns true if the function name is generic/meaningless.
+fn is_generic_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    GENERIC_NAMES.iter().any(|g| lower == *g || lower.starts_with(&format!("{}_", g)))
+        || (lower.starts_with("func") && lower.len() > 4 && lower[4..].chars().all(|c| c.is_ascii_digit()))
+}
 
 /// Statistical baseline for codebase complexity
 #[derive(Debug, Clone)]
@@ -90,7 +105,7 @@ pub struct ComplexitySpike {
     pub baseline_stddev: f64,
 }
 
-/// Detects complexity spikes using research-backed baseline comparison
+/// Detects complexity outliers using research-backed baseline comparison
 pub struct AIComplexitySpikeDetector {
     config: DetectorConfig,
     window_days: i64,
@@ -192,8 +207,8 @@ impl AIComplexitySpikeDetector {
             )
         } else {
             format!(
-                "New function {} has outlier complexity {} (z-score: {:.1})",
-                spike.function_name, spike.current_complexity, spike.z_score
+                "Complexity Outlier: {}",
+                spike.function_name
             )
         };
 
@@ -215,9 +230,8 @@ impl AIComplexitySpikeDetector {
             cwe_id: None,
             why_it_matters: Some(format!(
                 "This function's complexity ({}) is {:.1} standard deviations above the \
-                 codebase median ({:.1}). Such sudden complexity spikes often indicate \
-                 AI-generated code that needs refactoring, or features added without \
-                 proper decomposition.",
+                 codebase median ({:.1}). Such complexity outliers often indicate \
+                 features added without proper decomposition.",
                 spike.current_complexity, spike.z_score, spike.baseline_median
             )),
             ..Default::default()
@@ -226,7 +240,7 @@ impl AIComplexitySpikeDetector {
 
     fn build_description(&self, spike: &ComplexitySpike, _baseline: &CodebaseBaseline) -> String {
         let mut desc = format!(
-            "Function **{}** experienced a significant complexity spike.\n\n",
+            "Function **{}** is a statistical complexity outlier.\n\n",
             spike.function_name
         );
 
@@ -276,7 +290,6 @@ impl AIComplexitySpikeDetector {
             spike.z_score
         ));
         desc.push_str("Statistical outliers in complexity often indicate:\n");
-        desc.push_str("- AI-generated code that was accepted without proper refactoring\n");
         desc.push_str("- Features added without decomposing into smaller functions\n");
         desc.push_str("- Technical debt that will compound over time\n");
         desc.push_str("- Reduced testability and higher bug risk\n");
@@ -349,7 +362,7 @@ impl Detector for AIComplexitySpikeDetector {
     }
 
     fn description(&self) -> &'static str {
-        "Detects complexity spikes using research-backed baseline comparison"
+        "Detects complexity outliers using research-backed baseline comparison with compound signals"
     }
 
     fn category(&self) -> &'static str {
@@ -391,8 +404,8 @@ impl Detector for AIComplexitySpikeDetector {
             / complexities.len() as f64;
         let std_dev = variance.sqrt();
 
-        // Find outliers (>2 standard deviations above mean)
-        let threshold = avg + 2.0 * std_dev;
+        // Find outliers (>3 standard deviations above mean)
+        let threshold = avg + DEFAULT_Z_SCORE_THRESHOLD * std_dev;
 
         // Pre-build per-FILE skip set and compiler set — avoids redundant
         // content classifier scans (71K functions → ~3.4K unique files).
@@ -476,34 +489,65 @@ impl Detector for AIComplexitySpikeDetector {
                 } else {
                     threshold
                 };
-                let min_complexity = if is_ast_code { 35 } else { 10 };
+                let min_complexity: i64 = if is_ast_code { 35 } else { DEFAULT_MIN_COMPLEXITY };
 
                 if complexity as f64 > effective_threshold && complexity > min_complexity {
-                    let z_score = (complexity as f64 - avg) / std_dev;
-
-                    let severity = if z_score > 3.0 {
-                        Severity::High
+                    let z_score = if std_dev > 0.0 {
+                        (complexity as f64 - avg) / std_dev
                     } else {
-                        Severity::Medium
+                        0.0
+                    };
+
+                    let func_name = func.node_name(i);
+                    let file_path = func.path(i);
+                    let qualified_name = func.qn(i);
+
+                    // Count compound signals
+                    let mut compound_signals = 0;
+
+                    // Signal 1: Generic name
+                    if is_generic_name(func_name) {
+                        compound_signals += 1;
+                    }
+
+                    // Signal 2: High churn file (from AnalysisContext.git_churn)
+                    if ctx.is_high_churn_file(file_path) {
+                        compound_signals += 1;
+                    }
+
+                    // Signal 3: Structural anomaly — high fan-out (calls many different functions/modules)
+                    let fan_out = graph.call_fan_out(qualified_name);
+                    if fan_out >= 5 {
+                        compound_signals += 1;
+                    }
+
+                    if compound_signals < 2 {
+                        continue; // Require at least 2 compound signals to reduce noise
+                    }
+
+                    // Severity based on number of compound signals
+                    let severity = match compound_signals {
+                        3 => Severity::High,
+                        _ => Severity::Medium, // 2 signals → Medium
                     };
 
                     findings.push(Finding {
                         id: String::new(),
                         detector: "AIComplexitySpikeDetector".to_string(),
                         severity,
-                        title: format!("Complexity Spike: {}", func.node_name(i)),
+                        title: format!("Complexity Outlier: {}", func_name),
                         description: format!(
-                            "Function '{}' has complexity {} (avg: {:.1}, z-score: {:.1}). Possible AI-generated code.",
-                            func.node_name(i), complexity, avg, z_score
+                            "Function '{}' is a statistical complexity outlier (z-score: {:.1}, complexity: {}).",
+                            func_name, z_score, complexity
                         ),
-                        affected_files: vec![func.path(i).to_string().into()],
+                        affected_files: vec![file_path.to_string().into()],
                         line_start: Some(func.line_start),
                         line_end: Some(func.line_end),
                         suggested_fix: Some("Review and refactor - consider breaking into smaller functions".to_string()),
                         estimated_effort: Some("Medium (1-2 hours)".to_string()),
-                        category: Some("ai_watchdog".to_string()),
+                        category: Some("complexity".to_string()),
                         cwe_id: None,
-                        why_it_matters: Some("Complexity spikes often indicate code that needs review".to_string()),
+                        why_it_matters: Some("Complexity outliers indicate functions that need review and decomposition".to_string()),
                         ..Default::default()
                     });
                 }
@@ -568,7 +612,20 @@ mod tests {
     }
 
     #[test]
+    fn test_generic_name_detection() {
+        assert!(is_generic_name("process"));
+        assert!(is_generic_name("handle_request"));
+        assert!(is_generic_name("execute"));
+        assert!(is_generic_name("func1"));
+        assert!(is_generic_name("do_work"));
+        assert!(!is_generic_name("parse_http_header"));
+        assert!(!is_generic_name("validate_user_input"));
+        assert!(!is_generic_name("flush"));
+    }
+
+    #[test]
     fn test_detects_complexity_outlier() {
+        use crate::graph::CodeEdge;
         let store = crate::graph::GraphStore::in_memory();
 
         // Add 10 normal-complexity functions (complexity 3-5)
@@ -581,12 +638,31 @@ mod tests {
             store.add_node(node);
         }
 
-        // Add 1 outlier function with high complexity
-        let outlier = CodeNode::function("complex_handler", "/src/app.py")
-            .with_qualified_name("app.complex_handler")
+        // Add helper functions that the outlier calls (to create fan-out >= 5)
+        for i in 0..6 {
+            let helper = CodeNode::function(&format!("helper_{}", i), "/src/app.py")
+                .with_qualified_name(&format!("app.helper_{}", i))
+                .with_lines(1, 10)
+                .with_property("complexity", 2_i64);
+            store.add_node(helper);
+        }
+
+        // Add 1 outlier function with high complexity, a generic name (signal 1),
+        // and high fan-out by calling 6 helpers (signal 2) — meets the 2-signal threshold.
+        let outlier = CodeNode::function("process_data", "/src/app.py")
+            .with_qualified_name("app.process_data")
             .with_lines(1, 200)
-            .with_property("complexity", 25_i64);
+            .with_property("complexity", 50_i64);
         store.add_node(outlier);
+
+        // Add 6 call edges from outlier → helpers to trigger fan-out signal (>= 5)
+        for i in 0..6 {
+            store.add_edge_by_name(
+                "app.process_data",
+                &format!("app.helper_{}", i),
+                CodeEdge::calls(),
+            );
+        }
 
         let detector = AIComplexitySpikeDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
@@ -594,10 +670,10 @@ mod tests {
 
         assert!(
             !findings.is_empty(),
-            "Should detect the complexity outlier (25 vs avg ~5)"
+            "Should detect the complexity outlier (50 vs avg ~4) with 2+ compound signals"
         );
         assert!(
-            findings.iter().any(|f| f.title.contains("complex_handler")),
+            findings.iter().any(|f| f.title.contains("process_data")),
             "Finding should reference the outlier function, got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );

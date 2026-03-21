@@ -18,12 +18,34 @@ use std::path::{Path, PathBuf};
 use tracing::info;
 
 /// Default nesting threshold for normal code.
-const DEFAULT_THRESHOLD: usize = 4;
+const DEFAULT_THRESHOLD: usize = 5;
 /// Elevated threshold for handler functions (dispatch logic is expected).
 const HANDLER_THRESHOLD: usize = 6;
-/// How many match/switch levels to discount from effective depth.
-/// Each match/switch arm counts as +1 instead of full depth.
-const MATCH_DISCOUNT: usize = 1;
+/// Default match/switch discount — overridden per-language by `language_match_discount()`.
+#[allow(dead_code)]
+const MATCH_DISCOUNT: usize = 2;
+
+/// Returns the nesting threshold for the given file extension.
+/// Languages with richer structural constructs (match, error handling, etc.)
+/// get a higher threshold to reduce false positives.
+fn language_threshold(ext: &str) -> usize {
+    match ext {
+        "rs" | "go" | "java" | "cs" | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => 7,
+        "py" | "pyi" | "ts" | "tsx" | "js" | "jsx" | "mjs" => 6,
+        _ => 6,
+    }
+}
+
+/// Returns the match/switch discount for the given file extension.
+/// Languages with deep pattern-matching constructs get a higher discount
+/// to avoid penalizing idiomatic code.
+fn language_match_discount(ext: &str) -> usize {
+    match ext {
+        "rs" | "java" | "cs" | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => 2,
+        "go" => 1,
+        _ => 1,
+    }
+}
 
 pub struct DeepNestingDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -170,9 +192,9 @@ impl Detector for DeepNestingDetector {
         let mut findings = vec![];
 
         // Use adaptive threshold from AnalysisContext if available.
-        // Floor at DEFAULT_THRESHOLD (4) to prevent adaptive calibration
+        // Floor at DEFAULT_THRESHOLD (5) to prevent adaptive calibration
         // from making the detector overly sensitive.
-        let base_threshold = {
+        let adaptive_threshold = {
             let adaptive = ctx.threshold(
                 crate::calibrate::MetricKind::NestingDepth,
                 self.default_threshold as f64,
@@ -206,6 +228,16 @@ impl Detector for DeepNestingDetector {
             if let Some(content) = files.content(path) {
                 let path_str = path.to_string_lossy().to_string();
 
+                // Extract file extension for language-aware thresholds
+                let file_ext = Path::new(&path_str)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let lang_threshold = language_threshold(file_ext);
+                let lang_discount = language_match_discount(file_ext);
+                // Adaptive threshold must be at least the language-specific threshold
+                let base_threshold = adaptive_threshold.max(lang_threshold);
+
                 // Collect per-function nesting data instead of per-file max
                 let nesting_spots = analyze_nesting_per_function(&content);
 
@@ -231,11 +263,13 @@ impl Detector for DeepNestingDetector {
                     } else {
                         base_threshold
                     };
+                    // Ensure effective threshold is never below the language-specific floor
+                    let effective_thresh = effective_thresh.max(lang_threshold);
 
                     // Apply match/switch discount: if nesting occurs inside match arms,
                     // reduce effective depth by the number of match levels (capped).
                     let effective_depth = if spot.match_levels > 0 {
-                        spot.max_depth.saturating_sub(spot.match_levels.min(MATCH_DISCOUNT))
+                        spot.max_depth.saturating_sub(spot.match_levels.min(lang_discount))
                     } else {
                         spot.max_depth
                     };
@@ -256,11 +290,13 @@ impl Detector for DeepNestingDetector {
                             (None, false, 1, vec![])
                         };
 
-                    // Adjust severity based on context
-                    let mut severity = if effective_depth > 8 {
+                    // Adjust severity based on how far above threshold we are
+                    let mut severity = if effective_depth > effective_thresh + 4 {
                         Severity::High
-                    } else {
+                    } else if effective_depth > effective_thresh + 2 {
                         Severity::Medium
+                    } else {
+                        Severity::Low
                     };
 
                     // Entry points/handlers get slightly reduced severity
@@ -320,7 +356,7 @@ impl Detector for DeepNestingDetector {
                              3. Replace nested ifs with switch/match",
                             first_candidate
                         )
-                    } else if effective_depth > 6 {
+                    } else if effective_depth > effective_thresh + 2 {
                         "Severely nested code. Apply multiple techniques:\n\
                          1. Guard clauses: `if (!condition) return;`\n\
                          2. Extract Method: pull nested blocks into functions\n\
@@ -360,7 +396,7 @@ impl Detector for DeepNestingDetector {
                         line_start: Some(spot.line as u32),
                         line_end: Some(spot.line as u32),
                         suggested_fix: Some(suggestion),
-                        estimated_effort: Some(if effective_depth > 6 {
+                        estimated_effort: Some(if effective_depth > effective_thresh + 2 {
                             "1 hour".to_string()
                         } else {
                             "30 minutes".to_string()
@@ -599,16 +635,16 @@ mod tests {
 
     #[test]
     fn test_detects_deep_nesting() {
-        // The detector counts { and } characters, threshold is 4, so >4 means 5+ levels.
+        // Python threshold is 6, so >6 means 7+ levels needed to trigger.
         let store = GraphStore::in_memory();
         let detector = DeepNestingDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("nested.py", "def process(data):\n    if True {\n        if True {\n            if True {\n                if True {\n                    if True {\n                        print(\"deeply nested\")\n                    }\n                }\n            }\n        }\n    }\n"),
+            ("nested.py", "def process(data):\n    if True {\n        if True {\n            if True {\n                if True {\n                    if True {\n                        if True {\n                            if True {\n                                print(\"deeply nested\")\n                            }\n                        }\n                    }\n                }\n            }\n        }\n    }\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
-            "Should detect deep nesting with 5 levels of braces"
+            "Should detect deep nesting with 7 levels of braces (threshold=6 for Python)"
         );
         assert!(
             findings[0].title.contains("nesting"),
@@ -636,7 +672,7 @@ mod tests {
     #[test]
     fn test_match_switch_discount() {
         // fn{match{arm{if{if{  = 5 raw depth, 1 match level
-        // With match discount, effective depth = 4, which equals threshold => no finding
+        // Rust threshold=6, discount=2 => effective 5-2=3, well below threshold => no finding
         let store = GraphStore::in_memory();
         let detector = DeepNestingDetector::new("/mock/repo");
         let code = "\
@@ -657,19 +693,21 @@ fn process(x: i32) {
             vec![("match_code.rs", code)],
         );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        // Raw depth is 5 (fn + match + arm + if + if), match discount 1 => effective 4 = threshold => no finding
+        // Raw depth is 5 (fn + match + arm + if + if), Rust discount=2 => effective 3 < threshold 6 => no finding
         assert!(
             findings.is_empty(),
-            "Match/switch discount should prevent finding for depth 5 with one match level, got: {:?}",
+            "Match/switch discount should prevent finding for depth 5 with one match level (Rust threshold=6), got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 
     #[test]
     fn test_match_still_flags_very_deep() {
-        // Even with match discount, truly deep nesting should still fire
-        // fn{match{arm{if{if{if{  = 6 raw depth, 1 match level
-        // discount 1 => effective 5 > 4 => finding
+        // Even with match discount, truly deep nesting should still fire.
+        // Rust: threshold=6, lang_discount=2.
+        // fn{match{arm{if×6}}} = 9 raw depth, 1 match line (`match x {`),
+        // applied discount = min(match_levels=1, lang_discount=2) = 1
+        // effective = 9 - 1 = 8 > threshold 6 => finding
         let store = GraphStore::in_memory();
         let detector = DeepNestingDetector::new("/mock/repo");
         let code = "\
@@ -679,7 +717,13 @@ fn process(x: i32) {
             if true {
                 if true {
                     if true {
-                        println!(\"very deep\");
+                        if true {
+                            if true {
+                                if true {
+                                    println!(\"very deep\");
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -692,23 +736,26 @@ fn process(x: i32) {
             vec![("deep_match.rs", code)],
         );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        // Raw depth is 6 (fn + match + arm + if + if + if), discount 1 => effective 5 > 4 => finding
+        // Raw depth is 9 (fn + match + arm + if×6), 1 match line detected (the `match x {` line),
+        // Rust discount=min(match_levels=1, lang_discount=2)=1 => effective 8 > threshold 6 => finding
         assert!(
             !findings.is_empty(),
             "Should still detect very deep nesting even with match discount"
         );
-        // Effective depth should be 5 (6 raw - 1 match discount)
+        // Effective depth should be 8 (9 raw - 1 applied discount)
         assert!(
-            findings[0].title.contains("5 levels"),
-            "Title should show effective depth 5, got: {}",
+            findings[0].title.contains("8 levels"),
+            "Title should show effective depth 8, got: {}",
             findings[0].title
         );
     }
 
     #[test]
     fn test_per_function_analysis() {
-        // Two functions: one shallow (2 levels), one deep (5 levels)
-        // Should only flag the deep one
+        // Two functions: one shallow (2 levels), one deep (8 levels).
+        // Rust threshold=7, no match discount applies (no match statements).
+        // Shallow: well below threshold, no finding.
+        // Deep: raw depth 8 > threshold 7 => one finding.
         let store = GraphStore::in_memory();
         let detector = DeepNestingDetector::new("/mock/repo");
         let code = "\
@@ -724,7 +771,11 @@ fn deep() {
             if true {
                 if true {
                     if true {
-                        println!(\"deep\");
+                        if true {
+                            if true {
+                                println!(\"deep\");
+                            }
+                        }
                     }
                 }
             }
@@ -846,5 +897,23 @@ fn foo() {
         assert_eq!(spots.len(), 1);
         assert_eq!(spots[0].max_depth, 4); // fn + match + arm + if
         assert!(spots[0].match_levels >= 1, "Should detect match level");
+    }
+
+    #[test]
+    fn test_language_threshold_rust() {
+        assert_eq!(language_threshold("rs"), 7);
+        assert_eq!(language_match_discount("rs"), 2);
+    }
+
+    #[test]
+    fn test_language_threshold_python() {
+        assert_eq!(language_threshold("py"), 6);
+        assert_eq!(language_match_discount("py"), 1);
+    }
+
+    #[test]
+    fn test_language_threshold_default() {
+        assert_eq!(language_threshold("unknown"), 6);
+        assert_eq!(language_match_discount("unknown"), 1);
     }
 }

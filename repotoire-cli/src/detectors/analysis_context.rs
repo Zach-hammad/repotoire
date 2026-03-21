@@ -15,6 +15,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Per-file git churn summary for detectors that need change-frequency data.
+#[derive(Debug, Clone, Default)]
+pub struct FileChurnInfo {
+    /// Commits touching this file in the last 90 days.
+    pub commits_90d: u32,
+    /// Whether this file has high churn (commits_90d >= 5).
+    pub is_high_churn: bool,
+}
+
 /// Unified analysis context passed to every detector's `detect()` method.
 ///
 /// All fields are `Arc`-wrapped for zero-cost sharing across parallel detectors.
@@ -55,6 +64,12 @@ pub struct AnalysisContext<'g> {
 
     /// Pre-parsed decorator/annotation lists per function.
     pub decorator_index: Arc<HashMap<String, Vec<String>>>,
+
+    /// Per-file git churn data (empty if git history unavailable).
+    pub git_churn: Arc<HashMap<String, FileChurnInfo>>,
+
+    /// Per-node aggregate co-change score (empty if no co-change data).
+    pub co_change_summary: Arc<HashMap<petgraph::graph::NodeIndex, f64>>,
 }
 
 impl<'g> AnalysisContext<'g> {
@@ -151,6 +166,18 @@ impl<'g> AnalysisContext<'g> {
         self.decorators(qn).iter().any(|d| d == decorator)
     }
 
+    // ── Git churn accessors ───────────────────────────────────────────
+
+    /// Get churn info for a file (by relative path).
+    pub fn file_churn(&self, path: &str) -> Option<&FileChurnInfo> {
+        self.git_churn.get(path)
+    }
+
+    /// Check if a file has high churn (>= 5 commits in last 90 days).
+    pub fn is_high_churn_file(&self, path: &str) -> bool {
+        self.git_churn.get(path).is_some_and(|c| c.is_high_churn)
+    }
+
     // ── Composite role queries ───────────────────────────────────────
 
     /// Check if function is an HMM-classified handler.
@@ -193,6 +220,8 @@ impl<'g> AnalysisContext<'g> {
             module_metrics: Arc::new(HashMap::new()),
             class_cohesion: Arc::new(HashMap::new()),
             decorator_index: Arc::new(HashMap::new()),
+            git_churn: Arc::new(HashMap::new()),
+            co_change_summary: Arc::new(HashMap::new()),
         }
     }
 
@@ -274,6 +303,8 @@ impl<'g> AnalysisContext<'g> {
             module_metrics: Arc::new(HashMap::new()),
             class_cohesion: Arc::new(HashMap::new()),
             decorator_index: Arc::new(HashMap::new()),
+            git_churn: Arc::new(HashMap::new()),
+            co_change_summary: Arc::new(HashMap::new()),
         }
     }
 }

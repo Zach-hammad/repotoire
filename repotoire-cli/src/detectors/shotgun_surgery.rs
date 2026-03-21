@@ -1,441 +1,37 @@
-//! Shotgun Surgery Detector
+//! Change Coupling Detector (formerly Shotgun Surgery)
 //!
-//! Graph-aware detection of classes/functions where changes propagate widely.
-//! Uses call graph to trace actual impact of modifications.
+//! Detects classes and functions that are BOTH widely depended on AND
+//! frequently changing. Stable infrastructure (high fan-in, low churn)
+//! is NOT flagged — only volatile, widely-coupled nodes are risks.
 //!
-//! Detection criteria:
-//! - High fan-in (many callers)
-//! - Callers spread across many files/modules
-//! - Changes would cascade through call graph
+//! Detection formula:
+//!   risk = spread_ratio × churn_rate
 //!
-//! When an `AnalysisContext` is available, the detector enhances its
-//! analysis with:
-//! - **ContextHMM utility detection**: replaces 85+ hard-coded prefix/suffix/path
-//!   patterns with a learned HMM classifier that recognises utility functions
-//!   from call-graph shape and naming features.
-//! - **FunctionContextMap role checks**: functions classified as `Utility` or
-//!   `Hub` are skipped (they are *designed* to be widely called).
-//! - **Role-based threshold scaling**: classes whose methods are predominantly
-//!   `Hub` or `Utility` get a higher effective caller threshold before
-//!   triggering a finding.
+//! Where:
+//!   churn_rate   = min(commits_90d / 9.0, 1.0)
+//!   spread_ratio = (caller_module_spread / fan_in).min(1.0)
+//!
+//! Requires git churn data — returns empty findings when unavailable.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::detectors::function_context::FunctionRole;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
-use std::collections::HashSet;
-use std::path::PathBuf;
-use tracing::{debug, info};
-
-/// Thresholds for shotgun surgery detection
-#[derive(Debug, Clone)]
-pub struct ShotgunSurgeryThresholds {
-    /// Minimum callers to consider
-    pub min_callers: usize,
-    /// Minimum unique files for medium severity
-    pub medium_files: usize,
-    /// Minimum unique files for high severity
-    pub high_files: usize,
-    /// Minimum unique modules for critical
-    pub critical_modules: usize,
-}
-
-impl Default for ShotgunSurgeryThresholds {
-    fn default() -> Self {
-        Self {
-            min_callers: 5,
-            medium_files: 3,
-            high_files: 5,
-            critical_modules: 4,
-        }
-    }
-}
+use tracing::info;
 
 pub struct ShotgunSurgeryDetector {
     config: DetectorConfig,
-    thresholds: ShotgunSurgeryThresholds,
 }
 
 impl ShotgunSurgeryDetector {
     pub fn new() -> Self {
         Self {
             config: DetectorConfig::new(),
-            thresholds: ShotgunSurgeryThresholds::default(),
         }
     }
 
     pub fn with_config(config: DetectorConfig) -> Self {
-        // Apply coupling multiplier to thresholds (higher multiplier = more lenient)
-        let multiplier = config.coupling_multiplier;
-        let thresholds = ShotgunSurgeryThresholds {
-            min_callers: ((config.get_option_or("min_callers", 5) as f64) * multiplier) as usize,
-            medium_files: ((config.get_option_or("medium_files", 3) as f64) * multiplier) as usize,
-            high_files: ((config.get_option_or("high_files", 5) as f64) * multiplier) as usize,
-            critical_modules: ((config.get_option_or("critical_modules", 4) as f64) * multiplier)
-                as usize,
-        };
-        Self {
-            config,
-            thresholds,
-        }
+        Self { config }
     }
-
-    /// Analyze impact of changing a class.
-    ///
-    /// When `analysis_ctx` is provided, applies role-based threshold scaling:
-    /// classes whose methods are predominantly Hub or Utility get a higher
-    /// effective `min_callers` threshold.
-    fn analyze_class_impact(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-        class: &crate::graph::CodeNode,
-        det_ctx: &crate::detectors::DetectorContext,
-        analysis_ctx: Option<&crate::detectors::analysis_context::AnalysisContext<'_>>,
-    ) -> Option<ImpactAnalysis> {
-        let i = graph.interner();
-        // Find all methods belonging to this class using file-scoped index (O(1) lookup)
-        // instead of scanning all 71k functions.
-        let file_funcs = graph.get_functions_in_file(class.path(i));
-        let methods: Vec<_> = file_funcs
-            .iter()
-            .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
-            .collect();
-
-        // Collect all external callers of all methods
-        let mut all_callers: HashSet<String> = HashSet::new();
-        let mut caller_files: HashSet<String> = HashSet::new();
-        let mut caller_modules: HashSet<String> = HashSet::new();
-
-        for method in &methods {
-            // Use pre-built callers map (avoids Vec<CodeNode> clone)
-            if let Some(caller_qn_list) = det_ctx.callers_by_qn.get(method.qn(i)) {
-                for caller_qn in caller_qn_list {
-                    if let Some(caller_node) = graph.get_node(caller_qn) {
-                        // Skip internal callers (same class)
-                        if caller_node.file_path == class.file_path
-                            && caller_node.line_start >= class.line_start
-                            && caller_node.line_end <= class.line_end
-                        {
-                            continue;
-                        }
-                        all_callers.insert(caller_qn.clone());
-                        caller_files.insert(caller_node.path(i).to_string());
-                        caller_modules.insert(Self::extract_module(caller_node.path(i)));
-                    }
-                }
-            } else {
-                // Fallback: use graph.get_callers() (test path / empty callers map)
-                for caller in graph.get_callers(method.qn(i)) {
-                    if caller.file_path == class.file_path
-                        && caller.line_start >= class.line_start
-                        && caller.line_end <= class.line_end
-                    {
-                        continue;
-                    }
-                    all_callers.insert(caller.qn(i).to_string());
-                    caller_files.insert(caller.path(i).to_string());
-                    caller_modules.insert(Self::extract_module(caller.path(i)));
-                }
-            }
-        }
-
-        // Role-based threshold scaling: determine the predominant role of
-        // the class's methods and scale min_callers accordingly.
-        let effective_min_callers = if let Some(ctx) = analysis_ctx {
-            let primary_role = methods
-                .iter()
-                .filter_map(|m| ctx.functions.get(m.qn(i)))
-                .map(|fc| fc.role)
-                .max_by_key(|r| match r {
-                    FunctionRole::Hub => 4,
-                    FunctionRole::Utility => 3,
-                    FunctionRole::Orchestrator => 2,
-                    _ => 1,
-                })
-                .unwrap_or(FunctionRole::Unknown);
-
-            let threshold_multiplier = match primary_role {
-                FunctionRole::Hub => 3.0,
-                FunctionRole::Utility => 2.5,
-                FunctionRole::Orchestrator => 2.0,
-                _ => 1.0,
-            };
-
-            (self.thresholds.min_callers as f64 * threshold_multiplier) as usize
-        } else {
-            self.thresholds.min_callers
-        };
-
-        if all_callers.len() < effective_min_callers {
-            return None;
-        }
-
-        // Trace cascading impact (callers of callers)
-        let cascade_depth = self.trace_cascade_depth(graph, det_ctx, &all_callers, 0);
-
-        Some(ImpactAnalysis {
-            direct_callers: all_callers.len(),
-            affected_files: caller_files.len(),
-            affected_modules: caller_modules.len(),
-            cascade_depth,
-            sample_files: caller_files.iter().take(5).cloned().collect(),
-        })
-    }
-
-    /// Trace how far changes cascade through the call graph.
-    /// Caps expansion per level to avoid explosive growth on dense graphs.
-    #[allow(clippy::only_used_in_recursion)]
-    fn trace_cascade_depth(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-        det_ctx: &crate::detectors::DetectorContext,
-        callers: &HashSet<String>,
-        depth: usize,
-    ) -> usize {
-        let i = graph.interner();
-        // Cap at depth 3; also cap per-level expansion to avoid O(N^3) on dense graphs
-        const MAX_PER_LEVEL: usize = 50;
-        if depth >= 3 || callers.is_empty() {
-            return depth;
-        }
-
-        let mut next_level: HashSet<String> = HashSet::new();
-        for caller_qn in callers {
-            // Use fan-in check to skip callers with no upstream
-            if graph.call_fan_in(caller_qn) == 0 {
-                continue;
-            }
-            // Use pre-built callers map
-            if let Some(upstream_list) = det_ctx.callers_by_qn.get(caller_qn) {
-                for upstream_qn in upstream_list {
-                    if !callers.contains(upstream_qn) {
-                        next_level.insert(upstream_qn.clone());
-                        if next_level.len() >= MAX_PER_LEVEL {
-                            return self.trace_cascade_depth(graph, det_ctx, &next_level, depth + 1);
-                        }
-                    }
-                }
-            } else {
-                // Fallback: use graph.get_callers() (empty callers map)
-                for upstream in graph.get_callers(caller_qn) {
-                    let uqn = upstream.qn(i).to_string();
-                    if !callers.contains(&uqn) {
-                        next_level.insert(uqn);
-                        if next_level.len() >= MAX_PER_LEVEL {
-                            return self.trace_cascade_depth(graph, det_ctx, &next_level, depth + 1);
-                        }
-                    }
-                }
-            }
-        }
-
-        if next_level.is_empty() {
-            depth
-        } else {
-            self.trace_cascade_depth(graph, det_ctx, &next_level, depth + 1)
-        }
-    }
-
-    fn extract_module(file_path: &str) -> String {
-        std::path::Path::new(file_path)
-            .parent()
-            .and_then(|p| p.to_str())
-            .unwrap_or("root")
-            .to_string()
-    }
-
-    fn calculate_severity(&self, analysis: &ImpactAnalysis) -> Severity {
-        if analysis.affected_modules >= self.thresholds.critical_modules {
-            Severity::Critical
-        } else if analysis.affected_files >= self.thresholds.high_files {
-            Severity::High
-        } else if analysis.affected_files >= self.thresholds.medium_files {
-            Severity::Medium
-        } else {
-            Severity::Low
-        }
-    }
-
-    /// Core detection logic.
-    ///
-    /// When `analysis_ctx` is `Some`, enables enhanced checks:
-    /// - ContextHMM-based utility detection (replaces 85+ hard-coded patterns)
-    /// - FunctionContextMap role checks (Utility / Hub skip)
-    /// - Role-based threshold scaling for classes
-    fn detect_inner(
-        &self,
-        graph: &dyn crate::graph::GraphQuery,
-        det_ctx: &crate::detectors::DetectorContext,
-        analysis_ctx: Option<&crate::detectors::analysis_context::AnalysisContext<'_>>,
-    ) -> Result<Vec<Finding>> {
-        let i = graph.interner();
-        let mut findings = Vec::new();
-        let all_functions = graph.get_functions_shared();
-
-        for class in graph.get_classes_shared().iter() {
-            // Skip interfaces
-            if class.qn(i).contains("::interface::") {
-                continue;
-            }
-
-            let analysis = match self.analyze_class_impact(graph, class, det_ctx, analysis_ctx) {
-                Some(a) => a,
-                None => continue,
-            };
-
-            let severity = self.calculate_severity(&analysis);
-
-            let cascade_note = if analysis.cascade_depth > 1 {
-                format!(
-                    "\n\n**Cascade Analysis:** Changes propagate {} levels deep through the call graph.",
-                    analysis.cascade_depth
-                )
-            } else {
-                String::new()
-            };
-
-            let sample_list = analysis.sample_files.join("\n  - ");
-            let more_note = if analysis.affected_files > 5 {
-                format!("\n  ... and {} more files", analysis.affected_files - 5)
-            } else {
-                String::new()
-            };
-
-            findings.push(Finding {
-                id: String::new(),
-                detector: "ShotgunSurgeryDetector".to_string(),
-                severity,
-                title: format!("Shotgun Surgery Risk: {}", class.node_name(i)),
-                description: format!(
-                    "Class '{}' is called by **{} functions** across **{} files** in **{} modules**.\n\n\
-                     Any change to this class requires updates throughout the codebase.{}\n\n\
-                     **Affected files (sample):**\n  - {}{}",
-                    class.node_name(i),
-                    analysis.direct_callers,
-                    analysis.affected_files,
-                    analysis.affected_modules,
-                    cascade_note,
-                    sample_list,
-                    more_note
-                ),
-                affected_files: vec![class.path(i).to_string().into()],
-                line_start: Some(class.line_start),
-                line_end: Some(class.line_end),
-                suggested_fix: Some("Options to reduce coupling:\n\
-                     1. Create a Facade to limit the API surface\n\
-                     2. Use interfaces/protocols to decouple\n\
-                     3. Split into smaller, focused classes\n\
-                     4. Apply Dependency Injection pattern".to_string()),
-                estimated_effort: Some(match severity {
-                    Severity::Critical => "Large (1-2 days)",
-                    Severity::High => "Large (4-8 hours)",
-                    _ => "Medium (2-4 hours)",
-                }.to_string()),
-                category: Some("coupling".to_string()),
-                cwe_id: None,
-                why_it_matters: Some(
-                    "Shotgun surgery means a single change requires editing many files. \
-                     This increases the chance of missing something and introducing bugs."
-                        .to_string()
-                ),
-                ..Default::default()
-            });
-        }
-
-        // Also check high-impact functions (not just classes)
-        // Skip common trait/stdlib methods that conflate graph edges (bare method
-        // calls like .clone() resolve to whichever fn was last in the global map).
-        const SKIP_METHODS: &[&str] = &[
-            "new", "default", "clone", "fmt", "eq", "hash", "from", "into",
-            "drop", "deref", "serialize", "deserialize", "to_string",
-        ];
-
-        let min_fan_in = self.thresholds.min_callers * 2;
-        for func in all_functions.iter() {
-            // Fast O(1) fan-in check first — eliminates 99%+ functions before string ops
-            if graph.call_fan_in(func.qn(i)) < min_fan_in {
-                continue;
-            }
-
-            // Skip common trait implementations
-            let name_lower = func.node_name(i).to_lowercase();
-            if SKIP_METHODS
-                .iter()
-                .any(|m| name_lower == *m || name_lower.starts_with(m))
-            {
-                continue;
-            }
-
-            // ── Enhanced path: ContextHMM + FunctionContextMap role checks ──
-            if let Some(ctx) = analysis_ctx {
-                // Check FunctionContextMap role first (cheap HashMap lookup)
-                if matches!(
-                    ctx.function_role(func.qn(i)),
-                    Some(FunctionRole::Utility | FunctionRole::Hub)
-                ) {
-                    continue;
-                }
-
-                // Check HMM classification for utility functions
-                if let Some((hmm_role, conf)) = ctx.hmm_role(func.qn(i)) {
-                    if matches!(
-                        hmm_role,
-                        crate::detectors::context_hmm::FunctionContext::Utility
-                    ) && conf > 0.6
-                    {
-                        continue;
-                    }
-                }
-            }
-
-            // Zero-copy: count caller modules without cloning CodeNodes
-            let module_count = graph.caller_module_spread(func.qn(i));
-
-            if module_count >= self.thresholds.critical_modules {
-                let fan_in = graph.call_fan_in(func.qn(i));
-                findings.push(Finding {
-                    id: String::new(),
-                    detector: "ShotgunSurgeryDetector".to_string(),
-                    severity: Severity::High,
-                    title: format!("High-Impact Function: {}", func.node_name(i)),
-                    description: format!(
-                        "Function '{}' is called from {} places across {} modules.\n\n\
-                         Changes will have wide-reaching effects.",
-                        func.node_name(i),
-                        fan_in,
-                        module_count
-                    ),
-                    affected_files: vec![func.path(i).to_string().into()],
-                    line_start: Some(func.line_start),
-                    line_end: Some(func.line_end),
-                    suggested_fix: Some(
-                        "Consider creating wrapper functions or using dependency injection"
-                            .to_string(),
-                    ),
-                    estimated_effort: Some("Medium (2-4 hours)".to_string()),
-                    category: Some("coupling".to_string()),
-                    cwe_id: None,
-                    why_it_matters: Some(
-                        "High-impact functions require careful change management".to_string(),
-                    ),
-                    ..Default::default()
-                });
-            }
-        }
-
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-        info!("ShotgunSurgeryDetector found {} findings", findings.len());
-        Ok(findings)
-    }
-}
-
-struct ImpactAnalysis {
-    direct_callers: usize,
-    affected_files: usize,
-    affected_modules: usize,
-    cascade_depth: usize,
-    sample_files: Vec<String>,
 }
 
 impl Default for ShotgunSurgeryDetector {
@@ -444,13 +40,18 @@ impl Default for ShotgunSurgeryDetector {
     }
 }
 
+/// Extract the last component of a qualified name as the short display name.
+fn extract_short_name(qn: &str) -> &str {
+    qn.rsplit("::").next().unwrap_or(qn)
+}
+
 impl Detector for ShotgunSurgeryDetector {
     fn name(&self) -> &'static str {
         "ShotgunSurgeryDetector"
     }
 
     fn description(&self) -> &'static str {
-        "Detects code where changes propagate widely"
+        "Detects code with high change coupling: widely-depended-on nodes that change frequently"
     }
 
     fn category(&self) -> &'static str {
@@ -465,7 +66,191 @@ impl Detector for ShotgunSurgeryDetector {
         &self,
         ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
-        self.detect_inner(ctx.graph, &ctx.detector_ctx, Some(ctx))
+        // If no git churn data available, skip entirely — we can't distinguish
+        // stable infrastructure from volatile coupling risks without churn data.
+        if ctx.git_churn.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let graph = ctx.graph;
+        let i = graph.interner();
+        let mut findings = Vec::new();
+
+        // ── Class analysis ──────────────────────────────────────────────────────
+        for class in graph.get_classes_shared().iter() {
+            // Skip interface nodes
+            if class.qn(i).contains("::interface::") {
+                continue;
+            }
+
+            let qn = class.qn(i);
+            let fan_in = graph.call_fan_in(qn);
+            if fan_in < 10 {
+                continue;
+            }
+
+            let file_path = class.path(i);
+
+            // Churn rate: 9 commits/90d → rate 1.0; fewer commits → proportionally lower
+            let churn_rate = ctx
+                .file_churn(file_path)
+                .map(|c| (c.commits_90d as f64 / 9.0).min(1.0))
+                .unwrap_or(0.0);
+
+            if churn_rate < 0.01 {
+                // Stable code — not a change coupling risk regardless of fan-in
+                continue;
+            }
+
+            // Caller spread as a proxy for co-change impact
+            let module_spread = graph.caller_module_spread(qn);
+            let spread_ratio = (module_spread as f64 / fan_in as f64).min(1.0);
+
+            let risk = spread_ratio * churn_rate;
+            if risk < 0.1 {
+                continue;
+            }
+
+            let commits_90d = ctx
+                .file_churn(file_path)
+                .map(|c| c.commits_90d)
+                .unwrap_or(0);
+
+            let severity = if risk > 0.5 && fan_in >= 30 {
+                Severity::Critical
+            } else if risk > 0.3 && fan_in >= 15 {
+                Severity::High
+            } else {
+                Severity::Medium
+            };
+
+            findings.push(Finding {
+                id: String::new(),
+                detector: "ChangeCouplingDetector".to_string(),
+                severity,
+                title: format!(
+                    "Change Coupling Risk: {}",
+                    extract_short_name(qn)
+                ),
+                description: format!(
+                    "Class '{}' has {} callers across {} modules and changed {} times in the last 90 days.\n\
+                     Risk score: {:.2}. Changes here have wide-reaching effects.",
+                    qn, fan_in, module_spread, commits_90d, risk
+                ),
+                affected_files: vec![file_path.to_string().into()],
+                line_start: Some(class.line_start),
+                line_end: Some(class.line_end),
+                suggested_fix: Some(
+                    "Options to reduce change coupling:\n\
+                     1. Create a Facade to limit the API surface\n\
+                     2. Use interfaces/protocols to decouple callers\n\
+                     3. Split into smaller, focused classes\n\
+                     4. Apply Dependency Injection to reduce direct dependencies"
+                        .to_string(),
+                ),
+                estimated_effort: Some(
+                    match severity {
+                        Severity::Critical => "Large (1-2 days)",
+                        Severity::High => "Large (4-8 hours)",
+                        _ => "Medium (2-4 hours)",
+                    }
+                    .to_string(),
+                ),
+                category: Some("coupling".to_string()),
+                cwe_id: None,
+                why_it_matters: Some(
+                    "Change coupling means modifying this code requires updating callers \
+                     across many modules, increasing the chance of missing something and \
+                     introducing bugs."
+                        .to_string(),
+                ),
+                ..Default::default()
+            });
+        }
+
+        // ── Function analysis ───────────────────────────────────────────────────
+        for func in graph.get_functions_shared().iter() {
+            let qn = func.qn(i);
+            let fan_in = graph.call_fan_in(qn);
+            if fan_in < 15 {
+                continue;
+            }
+
+            let file_path = func.path(i);
+
+            let churn_rate = ctx
+                .file_churn(file_path)
+                .map(|c| (c.commits_90d as f64 / 9.0).min(1.0))
+                .unwrap_or(0.0);
+
+            if churn_rate < 0.01 {
+                continue;
+            }
+
+            let module_spread = graph.caller_module_spread(qn);
+            let spread_ratio = (module_spread as f64 / fan_in as f64).min(1.0);
+
+            let risk = spread_ratio * churn_rate;
+            if risk < 0.1 {
+                continue;
+            }
+
+            let commits_90d = ctx
+                .file_churn(file_path)
+                .map(|c| c.commits_90d)
+                .unwrap_or(0);
+
+            let severity = if risk > 0.5 && fan_in >= 30 {
+                Severity::Critical
+            } else if risk > 0.3 && fan_in >= 15 {
+                Severity::High
+            } else {
+                Severity::Medium
+            };
+
+            findings.push(Finding {
+                id: String::new(),
+                detector: "ChangeCouplingDetector".to_string(),
+                severity,
+                title: format!(
+                    "Change Coupling Risk: {}",
+                    extract_short_name(qn)
+                ),
+                description: format!(
+                    "Function '{}' has {} callers across {} modules and changed {} times in the last 90 days.\n\
+                     Risk score: {:.2}. Changes here have wide-reaching effects.",
+                    qn, fan_in, module_spread, commits_90d, risk
+                ),
+                affected_files: vec![file_path.to_string().into()],
+                line_start: Some(func.line_start),
+                line_end: Some(func.line_end),
+                suggested_fix: Some(
+                    "Consider creating wrapper functions or using dependency injection \
+                     to reduce the blast radius of changes."
+                        .to_string(),
+                ),
+                estimated_effort: Some(
+                    match severity {
+                        Severity::Critical => "Large (1-2 days)",
+                        Severity::High => "Large (4-8 hours)",
+                        _ => "Medium (2-4 hours)",
+                    }
+                    .to_string(),
+                ),
+                category: Some("coupling".to_string()),
+                cwe_id: None,
+                why_it_matters: Some(
+                    "High change coupling in a frequently-modified function requires \
+                     careful change management across many call sites."
+                        .to_string(),
+                ),
+                ..Default::default()
+            });
+        }
+
+        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+        info!("ChangeCouplingDetector found {} findings", findings.len());
+        Ok(findings)
     }
 }
 
@@ -478,301 +263,177 @@ impl super::RegisteredDetector for ShotgunSurgeryDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detectors::analysis_context::AnalysisContext;
+    use crate::detectors::analysis_context::FileChurnInfo;
     use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use std::collections::HashMap;
     use std::sync::Arc;
 
-    #[test]
-    fn test_detect_shotgun_surgery() {
-        let graph = GraphStore::in_memory();
-
-        // Create a class with many external callers
-        graph.add_node(
-            CodeNode::class("SharedService", "src/shared.py")
-                .with_qualified_name("shared::SharedService")
-                .with_lines(1, 50),
-        );
-
-        graph.add_node(
-            CodeNode::function("do_work", "src/shared.py")
-                .with_qualified_name("shared::SharedService::do_work")
-                .with_lines(10, 20),
-        );
-
-        // Add callers from multiple files
-        for i in 0..10 {
-            let file = format!("src/module_{}.py", i);
-            let caller = format!("caller_{}", i);
-            graph.add_node(
-                CodeNode::function(&caller, &file)
-                    .with_qualified_name(&format!("module_{}::{}", i, caller))
-                    .with_lines(1, 10),
-            );
-
-            graph.add_edge_by_name(
-                &format!("module_{}::{}", i, caller),
-                "shared::SharedService::do_work",
-                CodeEdge::calls(),
-            );
-        }
-
-        let detector = ShotgunSurgeryDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
-
-        assert!(!findings.is_empty());
-        assert!(findings[0].title.contains("SharedService"));
+    /// Build a minimal AnalysisContext with custom git_churn for testing.
+    fn ctx_with_churn<'g>(
+        graph: &'g dyn crate::graph::GraphQuery,
+        churn: HashMap<String, FileChurnInfo>,
+    ) -> AnalysisContext<'g> {
+        let mut ctx = AnalysisContext::test_with_mock_files(graph, vec![]);
+        // Replace git_churn with our test data
+        ctx.git_churn = Arc::new(churn);
+        ctx
     }
 
     #[test]
-    fn test_hub_method_raises_threshold() {
-        // Create a class with 6 callers, which normally exceeds min_callers=5.
-        // But when the class's methods are classified as Hub (multiplier 3.0),
-        // the effective threshold becomes 15 — so 6 callers should NOT trigger.
+    fn test_no_git_data_returns_empty() {
+        // When git_churn is empty, detector must return zero findings
+        // even if the graph has highly-connected nodes.
         let graph = GraphStore::in_memory();
 
         graph.add_node(
-            CodeNode::class("HubService", "src/hub.py")
-                .with_qualified_name("hub::HubService")
-                .with_lines(1, 50),
+            CodeNode::class("BigService", "src/big.py")
+                .with_qualified_name("big::BigService")
+                .with_lines(1, 100),
         );
-
         graph.add_node(
-            CodeNode::function("process", "src/hub.py")
-                .with_qualified_name("hub::HubService::process")
+            CodeNode::function("do_work", "src/big.py")
+                .with_qualified_name("big::BigService::do_work")
                 .with_lines(10, 20),
         );
-
-        // Add 6 callers from different files
-        for idx in 0..6 {
-            let file = format!("src/mod_{}.py", idx);
-            let caller = format!("caller_{}", idx);
+        for i in 0..20 {
+            let file = format!("src/mod_{}.py", i);
+            let qn = format!("mod_{}::caller_{}", i, i);
             graph.add_node(
-                CodeNode::function(&caller, &file)
-                    .with_qualified_name(&format!("mod_{}::{}", idx, caller))
-                    .with_lines(1, 10),
+                CodeNode::function(&format!("caller_{}", i), &file)
+                    .with_qualified_name(&qn)
+                    .with_lines(1, 5),
+            );
+            graph.add_edge_by_name(&qn, "big::BigService::do_work", CodeEdge::calls());
+        }
+
+        let ctx = AnalysisContext::test_with_mock_files(&graph, vec![]);
+        // git_churn is empty by default in test_with_mock_files
+        let detector = ShotgunSurgeryDetector::new();
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "No git data → must return zero findings, got {}",
+            findings.len()
+        );
+    }
+
+    #[test]
+    fn test_stable_high_fanin_not_flagged() {
+        // A class with fan-in 50 but zero churn should NOT be flagged.
+        let graph = GraphStore::in_memory();
+
+        graph.add_node(
+            CodeNode::class("StableService", "src/stable.py")
+                .with_qualified_name("stable::StableService")
+                .with_lines(1, 100),
+        );
+        graph.add_node(
+            CodeNode::function("do_work", "src/stable.py")
+                .with_qualified_name("stable::StableService::do_work")
+                .with_lines(10, 20),
+        );
+        for i in 0..50 {
+            let file = format!("src/mod_{}.py", i);
+            let qn = format!("mod_{}::caller_{}", i, i);
+            graph.add_node(
+                CodeNode::function(&format!("caller_{}", i), &file)
+                    .with_qualified_name(&qn)
+                    .with_lines(1, 5),
+            );
+            graph.add_edge_by_name(&qn, "stable::StableService::do_work", CodeEdge::calls());
+        }
+
+        // Zero churn for this file
+        let churn: HashMap<String, FileChurnInfo> = HashMap::new();
+        // git_churn is non-empty (we add an entry for a different file)
+        let mut churn_map = HashMap::new();
+        churn_map.insert(
+            "src/other.py".to_string(),
+            FileChurnInfo {
+                commits_90d: 5,
+                is_high_churn: true,
+            },
+        );
+        let _ = churn;
+
+        let ctx = ctx_with_churn(&graph, churn_map);
+        let detector = ShotgunSurgeryDetector::new();
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        let stable_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("StableService"))
+            .collect();
+        assert!(
+            stable_findings.is_empty(),
+            "Stable class (zero churn) should not be flagged, got {:?}",
+            stable_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_volatile_high_fanin_flagged() {
+        // A class with fan-in 20, callers in 10 modules, 9 commits in 90 days → flagged.
+        // churn_rate = 9/9 = 1.0, spread_ratio = 10/20 = 0.5, risk = 0.5 — above 0.1 threshold.
+        let graph = GraphStore::in_memory();
+
+        graph.add_node(
+            CodeNode::class("VolatileService", "src/volatile.py")
+                .with_qualified_name("volatile::VolatileService")
+                .with_lines(1, 100),
+        );
+        graph.add_node(
+            CodeNode::function("do_work", "src/volatile.py")
+                .with_qualified_name("volatile::VolatileService::do_work")
+                .with_lines(10, 20),
+        );
+        // 20 callers from 10 distinct modules (2 callers per module)
+        for i in 0..20usize {
+            let module = i / 2; // modules 0..9
+            let file = format!("src/module_{}/handler.py", module);
+            let qn = format!("module_{}::caller_{}", module, i);
+            graph.add_node(
+                CodeNode::function(&format!("caller_{}", i), &file)
+                    .with_qualified_name(&qn)
+                    .with_lines(1, 5),
             );
             graph.add_edge_by_name(
-                &format!("mod_{}::{}", idx, caller),
-                "hub::HubService::process",
+                &qn,
+                "volatile::VolatileService::do_work",
                 CodeEdge::calls(),
             );
         }
 
-        // Build an AnalysisContext with the process method classified as Hub
-        let mut functions_map = std::collections::HashMap::new();
-        functions_map.insert(
-            "hub::HubService::process".to_string(),
-            crate::detectors::function_context::FunctionContext {
-                qualified_name: "hub::HubService::process".to_string(),
-                name: "process".to_string(),
-                file_path: "src/hub.py".to_string(),
-                module: "hub".to_string(),
-                in_degree: 6,
-                out_degree: 3,
-                betweenness: 0.8,
-                caller_modules: 6,
-                callee_modules: 2,
-                call_depth: 1,
-                role: FunctionRole::Hub,
-                is_exported: true,
-                is_test: false,
-                is_in_utility_module: false,
-                complexity: None,
-                loc: 10,
+        let mut churn_map = HashMap::new();
+        churn_map.insert(
+            "src/volatile.py".to_string(),
+            FileChurnInfo {
+                commits_90d: 9, // churn_rate = 1.0
+                is_high_churn: true,
             },
         );
 
-        let (det_ctx, _file_data) = crate::detectors::DetectorContext::build(
-            &graph,
-            &[],
-            None,
-            std::path::Path::new("/repo"),
-        );
-
-        let ctx = crate::detectors::analysis_context::AnalysisContext {
-            graph: &graph,
-            files: Arc::new(crate::detectors::file_index::FileIndex::new(vec![])),
-            functions: Arc::new(functions_map),
-            taint: Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
-                cross_function: std::collections::HashMap::new(),
-                intra_function: std::collections::HashMap::new(),
-            }),
-            detector_ctx: Arc::new(det_ctx),
-            hmm_classifications: Arc::new(std::collections::HashMap::new()),
-            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
-            reachability: Arc::new(crate::detectors::reachability::ReachabilityIndex::empty()),
-            public_api: Arc::new(std::collections::HashSet::new()),
-            module_metrics: Arc::new(std::collections::HashMap::new()),
-            class_cohesion: Arc::new(std::collections::HashMap::new()),
-            decorator_index: Arc::new(std::collections::HashMap::new()),
-        };
-
+        let ctx = ctx_with_churn(&graph, churn_map);
         let detector = ShotgunSurgeryDetector::new();
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
 
-        // With Hub multiplier (3.0), effective min_callers = 15.
-        // Only 6 callers, so the class should NOT be flagged.
-        let class_findings: Vec<_> = findings
+        // The method do_work has fan-in=20, callers across 10 modules, churn_rate=1.0
+        // → risk = 0.5 → should be flagged via function analysis (fan_in >= 15)
+        let volatile_findings: Vec<_> = findings
             .iter()
-            .filter(|f| f.title.contains("HubService"))
+            .filter(|f| f.title.contains("do_work"))
             .collect();
         assert!(
-            class_findings.is_empty(),
-            "Hub class with only 6 callers should not be flagged (effective threshold 15)"
-        );
-    }
-
-    #[test]
-    fn test_utility_function_skipped_by_hmm() {
-        // A function with HMM Utility role at confidence > 0.6
-        // should NOT be flagged even with high fan-in.
-        let graph = GraphStore::in_memory();
-
-        graph.add_node(
-            CodeNode::function("format_output", "src/formatter.py")
-                .with_qualified_name("formatter::format_output")
-                .with_lines(1, 20),
-        );
-
-        // Add many callers from different modules to trigger high fan-in
-        for idx in 0..20 {
-            let file = format!("src/area_{}/handler.py", idx);
-            let caller = format!("use_formatter_{}", idx);
-            graph.add_node(
-                CodeNode::function(&caller, &file)
-                    .with_qualified_name(&format!("area_{}::{}", idx, caller))
-                    .with_lines(1, 10),
-            );
-            graph.add_edge_by_name(
-                &format!("area_{}::{}", idx, caller),
-                "formatter::format_output",
-                CodeEdge::calls(),
-            );
-        }
-
-        // Build AnalysisContext with HMM classifying format_output as Utility
-        let mut hmm_map = std::collections::HashMap::new();
-        hmm_map.insert(
-            "formatter::format_output".to_string(),
-            (
-                crate::detectors::context_hmm::FunctionContext::Utility,
-                0.85,
-            ),
-        );
-
-        let (det_ctx, _file_data) = crate::detectors::DetectorContext::build(
-            &graph,
-            &[],
-            None,
-            std::path::Path::new("/repo"),
-        );
-
-        let ctx = crate::detectors::analysis_context::AnalysisContext {
-            graph: &graph,
-            files: Arc::new(crate::detectors::file_index::FileIndex::new(vec![])),
-            functions: Arc::new(std::collections::HashMap::new()),
-            taint: Arc::new(crate::detectors::taint::centralized::CentralizedTaintResults {
-                cross_function: std::collections::HashMap::new(),
-                intra_function: std::collections::HashMap::new(),
-            }),
-            detector_ctx: Arc::new(det_ctx),
-            hmm_classifications: Arc::new(hmm_map),
-            resolver: Arc::new(crate::calibrate::ThresholdResolver::default()),
-            reachability: Arc::new(crate::detectors::reachability::ReachabilityIndex::empty()),
-            public_api: Arc::new(std::collections::HashSet::new()),
-            module_metrics: Arc::new(std::collections::HashMap::new()),
-            class_cohesion: Arc::new(std::collections::HashMap::new()),
-            decorator_index: Arc::new(std::collections::HashMap::new()),
-        };
-
-        let detector = ShotgunSurgeryDetector::new();
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
-
-        // The function should be skipped by HMM utility detection
-        let func_findings: Vec<_> = findings
-            .iter()
-            .filter(|f| f.title.contains("format_output"))
-            .collect();
-        assert!(
-            func_findings.is_empty(),
-            "Function classified as Utility by HMM (conf=0.85) should not be flagged"
-        );
-    }
-
-    #[test]
-    fn test_trimmed_skip_methods() {
-        // Verify that core trait methods are still skipped
-        let graph = GraphStore::in_memory();
-
-        // Create functions named after common trait methods with high fan-in
-        for method_name in &["new", "default", "clone"] {
-            let qn = format!("mod::{}", method_name);
-            graph.add_node(
-                CodeNode::function(method_name, "src/types.py")
-                    .with_qualified_name(&qn)
-                    .with_lines(1, 10),
-            );
-            // Add many callers across modules
-            for idx in 0..20 {
-                let file = format!("src/area_{}/use.py", idx);
-                let caller = format!("caller_{}_{}", method_name, idx);
-                let caller_qn = format!("area_{}::{}", idx, caller);
-                graph.add_node(
-                    CodeNode::function(&caller, &file)
-                        .with_qualified_name(&caller_qn)
-                        .with_lines(1, 5),
-                );
-                graph.add_edge_by_name(&caller_qn, &qn, CodeEdge::calls());
-            }
-        }
-
-        let detector = ShotgunSurgeryDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
-
-        // "new", "default", "clone" should all be skipped
-        for method_name in &["new", "default", "clone"] {
-            let method_findings: Vec<_> = findings
-                .iter()
-                .filter(|f| {
-                    f.title
-                        .to_lowercase()
-                        .contains(&format!("function: {}", method_name))
-                })
-                .collect();
-            assert!(
-                method_findings.is_empty(),
-                "'{}' should still be in SKIP_METHODS and not flagged",
-                method_name
-            );
-        }
-
-        // "push", "pop", "sort" are no longer in SKIP_METHODS — they are
-        // handled by ContextHMM now. Without AnalysisContext they would
-        // NOT be skipped. We verify by checking they are NOT in the const.
-        const SKIP_METHODS: &[&str] = &[
-            "new", "default", "clone", "fmt", "eq", "hash", "from", "into",
-            "drop", "deref", "serialize", "deserialize", "to_string",
-        ];
-        assert!(
-            !SKIP_METHODS.contains(&"push"),
-            "'push' should have been removed from SKIP_METHODS"
+            !volatile_findings.is_empty(),
+            "Volatile method (fan-in=20, 10 modules, 9 commits) should be flagged, got findings: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
         assert!(
-            !SKIP_METHODS.contains(&"pop"),
-            "'pop' should have been removed from SKIP_METHODS"
-        );
-        assert!(
-            !SKIP_METHODS.contains(&"sort"),
-            "'sort' should have been removed from SKIP_METHODS"
+            volatile_findings[0].title.contains("Change Coupling Risk"),
+            "Title should contain 'Change Coupling Risk', got: {}",
+            volatile_findings[0].title
         );
     }
 }

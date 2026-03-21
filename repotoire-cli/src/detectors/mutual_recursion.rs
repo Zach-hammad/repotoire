@@ -114,10 +114,17 @@ impl Detector for MutualRecursionDetector {
 
             let cycle_size = cycle.len();
 
+            // Skip trivial cycles: small size AND low complexity are usually intentional
+            // Data: 2-function cycles with complexity 2 are boilerplate (12 on repotoire, all noise)
+            //       Cycles with complexity 15+ or 4+ functions are real architectural issues
+            if cycle_size < 4 && total_complexity < 20 {
+                continue;
+            }
+
             // Severity based on cycle size and aggregate complexity.
             let severity = if cycle_size > 5 || total_complexity > 30 {
                 Severity::High
-            } else if cycle_size > 2 {
+            } else if cycle_size > 3 || total_complexity > 20 {
                 Severity::Medium
             } else {
                 Severity::Low
@@ -218,13 +225,16 @@ mod tests {
 
     #[test]
     fn test_detects_mutual_recursion_pair() {
-        // f1 calls f2, f2 calls f1.
+        // f1 calls f2, f2 calls f1 — cross-module (different dirs).
+        // Skip condition: size < 4 AND complexity < 20.
+        // Use complexity 11+9=20 to pass the filter (not < 20) while staying <= 20
+        // so severity stays Low (not Medium which requires complexity > 20).
         let mut builder = GraphBuilder::new();
 
-        let mut f1_node = CodeNode::function("f1", "a.py");
-        f1_node.complexity = 5;
-        let mut f2_node = CodeNode::function("f2", "a.py");
-        f2_node.complexity = 3;
+        let mut f1_node = CodeNode::function("f1", "module_a/a.py");
+        f1_node.complexity = 11;
+        let mut f2_node = CodeNode::function("f2", "module_b/b.py");
+        f2_node.complexity = 9;
 
         let f1 = builder.add_node(f1_node);
         let f2 = builder.add_node(f2_node);
@@ -249,11 +259,20 @@ mod tests {
     #[test]
     fn test_detects_triangle_recursion() {
         // f1 -> f2 -> f3 -> f1
+        // Skip condition: size < 4 AND complexity < 20.
+        // 3-function cycle: need total_complexity >= 20 to avoid being skipped.
         let mut builder = GraphBuilder::new();
 
-        let f1 = builder.add_node(CodeNode::function("f1", "a.py"));
-        let f2 = builder.add_node(CodeNode::function("f2", "a.py"));
-        let f3 = builder.add_node(CodeNode::function("f3", "a.py"));
+        let mut f1_node = CodeNode::function("f1", "a.py");
+        f1_node.complexity = 8;
+        let mut f2_node = CodeNode::function("f2", "a.py");
+        f2_node.complexity = 7;
+        let mut f3_node = CodeNode::function("f3", "a.py");
+        f3_node.complexity = 7;
+
+        let f1 = builder.add_node(f1_node);
+        let f2 = builder.add_node(f2_node);
+        let f3 = builder.add_node(f3_node);
 
         builder.add_edge(f1, f2, CodeEdge::calls());
         builder.add_edge(f2, f3, CodeEdge::calls());

@@ -507,6 +507,23 @@ impl Detector for GodClassDetector {
                 continue;
             }
 
+            let class_name = class.node_name(i);
+
+            // Skip test classes by name — Java/C# idiom: *Test, *Tests, *Spec suffix.
+            // This catches cases like MapInterfaceTest, CollectionTestSuite, etc.
+            {
+                let lower_name = class_name.to_lowercase();
+                if lower_name.ends_with("test")
+                    || lower_name.ends_with("tests")
+                    || lower_name.ends_with("spec")
+                    || lower_name.ends_with("testcase")
+                    || lower_name.ends_with("testsuite")
+                {
+                    debug!("Skipping test class by name: {}", class_name);
+                    continue;
+                }
+            }
+
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
             let complexity = class.complexity_opt().unwrap_or(1) as usize;
             let loc = class.loc() as usize;
@@ -520,15 +537,15 @@ impl Detector for GodClassDetector {
                 if ctx.skip_god_class() || ctx.is_test {
                     debug!(
                         "Skipping {} ({:?}): {}",
-                        class.node_name(i), ctx.role, ctx.role_reason
+                        class_name, ctx.role, ctx.role_reason
                     );
                     continue;
                 }
             }
 
             // Fall back to pattern exclusion if no graph context
-            if ctx.is_none() && self.is_excluded_pattern(class.node_name(i)) {
-                debug!("Skipping excluded pattern: {}", class.node_name(i));
+            if ctx.is_none() && self.is_excluded_pattern(class_name) {
+                debug!("Skipping excluded pattern: {}", class_name);
                 continue;
             }
 
@@ -542,17 +559,33 @@ impl Detector for GodClassDetector {
                     || lower_path.starts_with("tests/")
                     || lower_path.starts_with("test/")
                 {
-                    debug!("Skipping test class: {}", class.node_name(i));
+                    debug!("Skipping test class: {}", class_name);
                     continue;
                 }
             }
 
-            // Get adjusted thresholds based on role
+            // Determine language-specific threshold multiplier.
+            // Java and C# idiomatically have larger classes (framework patterns,
+            // annotations, verbose boilerplate) — apply 2x threshold for them.
+            let lang_multiplier: usize = {
+                let ext = std::path::Path::new(class.path(i))
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                match ext {
+                    "java" | "cs" => 2,
+                    _ => 1,
+                }
+            };
+
+            // Get adjusted thresholds based on role, then apply language multiplier.
             let (max_methods, max_lines) = ctx
                 .map(|c| {
                     c.adjusted_thresholds(self.thresholds.max_methods, self.thresholds.max_lines)
                 })
                 .unwrap_or((self.thresholds.max_methods, self.thresholds.max_lines));
+            let max_methods = max_methods * lang_multiplier;
+            let max_lines = max_lines * lang_multiplier;
 
             let (critical_methods, critical_lines) = ctx
                 .map(|c| {
@@ -565,6 +598,8 @@ impl Detector for GodClassDetector {
                     self.thresholds.critical_methods,
                     self.thresholds.critical_lines,
                 ));
+            let critical_methods = critical_methods * lang_multiplier;
+            let critical_lines = critical_lines * lang_multiplier;
 
             // Check if it's a god class with adjusted thresholds
             if let Some(reason) = self.is_god_class(
@@ -701,5 +736,66 @@ mod tests {
         assert!(detector.is_excluded_pattern("UserManager"));
         assert!(detector.is_excluded_pattern("EventFacade"));
         assert!(!detector.is_excluded_pattern("OrderProcessor"));
+    }
+
+    fn create_java_class(name: &str, methods: usize, loc: u32, complexity: i64) -> CodeNode {
+        CodeNode::class(name, "src/main/java/com/example/Service.java")
+            .with_qualified_name(&format!("com.example::{}", name))
+            .with_lines(1, loc)
+            .with_property("methodCount", methods as i64)
+            .with_property("complexity", complexity)
+    }
+
+    #[test]
+    fn test_java_class_below_2x_threshold_not_flagged() {
+        let store = GraphStore::in_memory();
+        // 35 methods — would flag Python (threshold 20) but not Java (threshold 40).
+        store.add_node(create_java_class("UserService", 35, 800, 80));
+
+        let detector = GodClassDetector::new();
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Java class with 35 methods should not be flagged (threshold is 2x = 40), got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_java_class_above_2x_threshold_flagged() {
+        let store = GraphStore::in_memory();
+        // 45 methods with 1200 LOC — exceeds the 2x Java threshold (40 methods / 1000 LOC).
+        store.add_node(create_java_class("MegaService", 45, 1200, 220));
+
+        let detector = GodClassDetector::new();
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert_eq!(
+            findings.len(), 1,
+            "Java class with 45 methods and 1200 LOC should be flagged (above 2x threshold)"
+        );
+        assert!(findings[0].title.contains("MegaService"));
+    }
+
+    #[test]
+    fn test_skips_test_class_by_name() {
+        let store = GraphStore::in_memory();
+        // Test classes should be skipped regardless of size.
+        store.add_node(create_test_class("MapInterfaceTest", 60, 2000, 200));
+        store.add_node(create_test_class("CollectionTests", 50, 1500, 180));
+        store.add_node(create_test_class("BehaviorSpec", 40, 1000, 150));
+
+        let detector = GodClassDetector::new();
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+
+        assert!(
+            findings.is_empty(),
+            "Test classes (names ending in Test/Tests/Spec) should be skipped, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

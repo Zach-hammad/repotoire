@@ -2,11 +2,13 @@
 
 use crate::calibrate::{NgramModel, StyleProfile};
 use crate::config::ProjectConfig;
+use crate::detectors::analysis_context::FileChurnInfo;
 use crate::detectors::base::DetectorScope;
 use crate::detectors::{
     apply_hmm_context_filter, build_threshold_resolver, create_all_detectors,
-    filter_test_file_findings, inject_taint_precomputed, precompute_gd_startup,
-    run_detectors, sort_findings_deterministic, DetectorInit, PrecomputedAnalysis,
+    create_default_detectors, filter_test_file_findings, inject_taint_precomputed,
+    precompute_gd_startup, run_detectors, sort_findings_deterministic, DetectorInit,
+    PrecomputedAnalysis,
 };
 use crate::engine::ProgressFn;
 use crate::graph::GraphQuery;
@@ -30,6 +32,12 @@ pub struct DetectInput<'a> {
     pub skip_detectors: &'a [String],
     pub workers: usize,
     pub progress: Option<ProgressFn>,
+
+    /// Per-file git churn data from git enrichment stage.
+    pub file_churn: Arc<HashMap<String, FileChurnInfo>>,
+
+    /// Run all detectors including deep-scan detectors (default: false).
+    pub all_detectors: bool,
 
     // Incremental optimization hints (engine provides these)
     pub changed_files: Option<&'a [PathBuf]>,
@@ -74,7 +82,11 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
         ngram_model: input.ngram_model,
     };
 
-    let detectors: Vec<Arc<dyn crate::detectors::Detector>> = create_all_detectors(&init)
+    let detectors: Vec<Arc<dyn crate::detectors::Detector>> = if input.all_detectors {
+        create_all_detectors(&init)
+    } else {
+        create_default_detectors(&init)
+    }
         .into_iter()
         .filter(|d| !skip_set.contains(d.name()))
         .collect();
@@ -89,7 +101,7 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     let hmm_cache_path = input.repo_path.join(".repotoire");
     let vs_clone = input.value_store.cloned();
 
-    let precomputed = precompute_gd_startup(
+    let mut precomputed = precompute_gd_startup(
         graph,
         input.repo_path,
         Some(&hmm_cache_path),
@@ -101,6 +113,9 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
 
     // Inject pre-computed taint results into security detectors
     inject_taint_precomputed(&detectors, &precomputed.taint_results);
+
+    // Inject git churn data into precomputed analysis
+    precomputed.git_churn = Arc::clone(&input.file_churn);
 
     // Build analysis context from precomputed data
     let ctx = precomputed.to_context(graph, &resolver);
