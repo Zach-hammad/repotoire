@@ -145,7 +145,8 @@ const DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<DeprecatedTorchApiDetector>(),
     // Graph/architecture detectors
     register::<ArchitecturalBottleneckDetector>(),
-    register::<CoreUtilityDetector>(),
+    // CoreUtilityDetector intentionally excluded from findings registry.
+    // Use `core_utility::is_core_utility_node()` to query core utility status.
     register::<DegreeCentralityDetector>(),
     register::<InfluentialCodeDetector>(),
     register::<ModuleCohesionDetector>(),
@@ -1119,9 +1120,9 @@ mod tests {
     fn test_create_all_detectors_registry() {
         let init = DetectorInit::test_default();
         let detectors = create_all_detectors(&init);
-        // 107 detectors registered (all patterns including config-based, resolver-based, etc.).
+        // 106 detectors registered (CoreUtilityDetector removed from findings registry).
         // Update this number when adding/removing detectors.
-        assert_eq!(detectors.len(), 107);
+        assert_eq!(detectors.len(), 106);
     }
 
     #[test]

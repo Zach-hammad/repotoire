@@ -290,6 +290,18 @@ impl Default for CoreUtilityDetector {
     }
 }
 
+/// Check if a function is a core utility (high fan-in, low fan-out, cross-module callers).
+/// Used by other detectors to adjust their behavior.
+pub fn is_core_utility_node(graph: &dyn crate::graph::traits::GraphQuery, qualified_name: &str) -> bool {
+    let fan_in = graph.call_fan_in(qualified_name);
+    let fan_out = graph.call_fan_out(qualified_name);
+    if fan_in < 10 || fan_out > 2 {
+        return false;
+    }
+    let module_spread = graph.caller_module_spread(qualified_name);
+    module_spread >= 3
+}
+
 impl Detector for CoreUtilityDetector {
     fn name(&self) -> &'static str {
         "CoreUtilityDetector"
