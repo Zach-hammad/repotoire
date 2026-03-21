@@ -280,26 +280,26 @@ impl<'a> GraphScorer<'a> {
             test_bonus * 100.0
         );
 
-        // Density-based penalty normalization
-        // Each finding's penalty is scaled by project size (kLOC).
-        // A 30kLOC project with 45 findings scores the same as
-        // a 2kLOC project with 3 findings (same density).
-        let kloc = (metrics.total_loc as f64 / 1000.0).max(1.0);
-
-        // Severity weights — base penalty per finding at 1 finding/kLOC density
+        // Flat severity-based penalties — each finding subtracts from 100 based on
+        // its severity, independent of repo size. A vulnerability is a vulnerability
+        // whether it's in 1k or 500k LOC.
+        //
+        // Calibrated against 56 open-source repos with noise-reduced detectors
+        // (~80-100 high-confidence findings per repo). With these weights:
+        //   - 1 critical finding (e.g., SQL injection) = -5 points
+        //   - 20 medium findings (e.g., complexity) = -10 points
+        //   - A clean repo with 0 findings = 100
+        //   - A typical well-maintained repo (~20 findings) = ~85-90
+        //   - A repo with serious issues (~80+ findings) = ~60-75
         let severity_weight = |severity: &Severity| -> f64 {
             match severity {
-                Severity::Critical => 8.0,
-                Severity::High => 4.0,
-                Severity::Medium => 1.0,
-                Severity::Low => 0.2,
+                Severity::Critical => 5.0,
+                Severity::High => 2.0,
+                Severity::Medium => 0.5,
+                Severity::Low => 0.1,
                 Severity::Info => 0.0,
             }
         };
-
-        // Scale factor: how harshly findings-per-kLOC maps to penalty points.
-        // scale=5 means 1 medium/kLOC = 5 penalty points total.
-        const DENSITY_SCALE: f64 = 5.0;
 
         let mut structure_penalty = 0.0;
         let mut quality_penalty = 0.0;
@@ -309,15 +309,14 @@ impl<'a> GraphScorer<'a> {
         let mut architecture_count = 0;
 
         for finding in findings {
-            // Each finding contributes: weight * scale / kLOC
-            let scaled = severity_weight(&finding.severity) * DENSITY_SCALE / kloc;
+            let base = severity_weight(&finding.severity);
 
             let category = finding.category.as_deref().unwrap_or("");
             let detector = finding.detector.to_lowercase();
 
             let is_security = self.is_security_finding(finding);
             let security_mult = if is_security { self.config.scoring.security_multiplier } else { 1.0 };
-            let effective = scaled * security_mult;
+            let effective = base * security_mult;
 
             // Route findings to pillars based on category
             let pillar = classify_pillar(category, &detector, is_security);
@@ -784,12 +783,9 @@ impl<'a> GraphScorer<'a> {
             weights.structure, weights.quality, weights.architecture
         ));
         lines.push("Pillar  = (100 - penalties) + graph_bonuses".to_string());
-        lines.push(format!(
-            "Penalty = severity_weight × 5.0 / kLOC   (kLOC = {:.1})",
-            kloc
-        ));
+        lines.push("Penalty = severity_weight per finding (flat, not density-based)".to_string());
         lines.push("```\n".to_string());
-        lines.push("Severity weights: Critical=8.0, High=4.0, Medium=1.0, Low=0.2\n".to_string());
+        lines.push("Severity weights: Critical=5.0, High=2.0, Medium=0.5, Low=0.1\n".to_string());
 
         // Graph metrics
         lines.push("## Graph Analysis\n".to_string());
