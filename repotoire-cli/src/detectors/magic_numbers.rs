@@ -25,6 +25,7 @@ static NUMBER_PATTERN: LazyLock<Regex> =
 /// Matches a named constant declaration pattern across languages:
 ///   const FOO = 42;  /  static BAR: i32 = 42;  /  final int BAZ = 42;
 ///   let MAX_RETRIES = 3;  /  UPPER_NAME = 42  (Python module-level)
+///   val timeout = 750  /  x := 750  (Go short declaration)
 static NAMED_CONST_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)
@@ -34,13 +35,17 @@ static NAMED_CONST_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         )
         |
         (?:
-            \b(?:let|var)\s+                     # let/var binding
-            [A-Z][A-Z0-9_]+                      # with UPPER_CASE name
+            \b(?:let|var|val)\s+                 # let/var/val binding
+            \S+                                   # any name (not just UPPER_CASE)
             \s*(?::\s*\S+\s*)?=                  # optional type annotation, then =
         )
         |
         (?:
             ^[A-Z][A-Z0-9_]+\s*=                 # module-level UPPER_CASE = value (Python)
+        )
+        |
+        (?:
+            \b\w+\s*:=\s*                        # Go short variable declaration :=
         )
     ",
     )
@@ -58,6 +63,46 @@ static ARITHMETIC_IDIOM: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("valid regex")
 });
+
+/// Returns true if the line contains the number in a conditional or arithmetic context.
+/// Only these contexts warrant flagging a magic number.
+fn is_conditional_or_arithmetic(line: &str) -> bool {
+    let trimmed = line.trim();
+    // Comparison operators on the line
+    let has_comparison = trimmed.contains(" < ")
+        || trimmed.contains(" > ")
+        || trimmed.contains(" <= ")
+        || trimmed.contains(" >= ")
+        || trimmed.contains(" == ")
+        || trimmed.contains(" != ");
+    // Arithmetic operators
+    let has_arithmetic = trimmed.contains(" * ")
+        || trimmed.contains(" + ")
+        || trimmed.contains(" - ")
+        || trimmed.contains(" / ")
+        || trimmed.contains(" % ");
+    // Conditional keywords at start
+    let has_conditional = trimmed.starts_with("if ")
+        || trimmed.starts_with("if(")
+        || trimmed.starts_with("while ")
+        || trimmed.starts_with("while(")
+        || trimmed.starts_with("} else if ")
+        || trimmed.contains(" match ")
+        || trimmed.starts_with("match ")
+        || trimmed.starts_with("case ");
+
+    has_comparison || has_arithmetic || has_conditional
+}
+
+/// Returns true if the number at the given byte offset in the line is inside
+/// an array literal context: preceded by `[` or `,` and followed by `,` or `]`.
+fn is_in_array_literal(line: &str, match_start: usize, match_end: usize) -> bool {
+    let before = line[..match_start].trim_end();
+    let after = line[match_end..].trim_start();
+    let preceded = before.ends_with('[') || before.ends_with(',');
+    let followed = after.starts_with(',') || after.starts_with(']');
+    preceded && followed
+}
 
 /// Suggest a constant name based on the number and context
 fn suggest_constant_name(num: i64, context_line: &str) -> String {
@@ -443,6 +488,16 @@ impl Detector for MagicNumbersDetector {
                                     continue;
                                 }
 
+                                // Skip numbers inside array literals: [1, 2, 750, 4]
+                                if is_in_array_literal(line, m.start(), m.end()) {
+                                    continue;
+                                }
+
+                                // Only flag numbers in conditional/arithmetic context
+                                if !is_conditional_or_arithmetic(line) {
+                                    continue;
+                                }
+
                                 // Always record occurrence for cross-file analysis
                                 occurrences
                                     .entry(num)
@@ -497,13 +552,15 @@ impl Detector for MagicNumbersDetector {
             }
 
             let in_multiple_files = multi_file_numbers.contains(&m.number);
+
+            // Drop single-file magic numbers — only cross-file numbers are actionable
+            if !in_multiple_files {
+                continue;
+            }
+
             let total_occurrences = occurrences.get(&m.number).map(|v| v.len()).unwrap_or(1);
 
-            let mut severity = if in_multiple_files {
-                Severity::Medium
-            } else {
-                Severity::Low
-            };
+            let mut severity = Severity::Medium;
 
             // If containing function is infrastructure, cap severity at Info
             if let Some(ref func) = containing_func {
@@ -626,13 +683,14 @@ mod tests {
         let store = GraphStore::in_memory();
         let detector = MagicNumbersDetector::new("/mock/repo");
         // 9999 is a 4-digit number NOT in the acceptable set.
+        // Must appear in 2+ files to be flagged (single-file findings are dropped).
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
                 &store,
-                vec![(
-                    "logic.py",
-                    "def check(x):\n    if x > 9999:\n        return True\n",
-                )],
+                vec![
+                    ("logic.py", "def check(x):\n    if x > 9999:\n        return True\n"),
+                    ("validation.py", "def validate(x):\n    if x > 9999:\n        return False\n"),
+                ],
             );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
@@ -810,19 +868,36 @@ mod tests {
     fn test_detects_real_magic_number_in_business_logic() {
         let store = GraphStore::in_memory();
         let detector = MagicNumbersDetector::new("/mock/repo");
+        // 9999 must appear in 2+ files to be flagged (single-file findings are dropped).
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
                 &store,
-                vec![(
-                    "billing.py",
-                    "def apply_discount(total):\n    if total > 9999:\n        total = total * 85 / 100\n    return total\n",
-                )],
+                vec![
+                    ("billing.py", "def apply_discount(total):\n    if total > 9999:\n        total = total * 85 / 100\n    return total\n"),
+                    ("pricing.py", "def check_premium(total):\n    if total > 9999:\n        return True\n    return False\n"),
+                ],
             );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
-            "Should detect magic numbers 9999 and/or 85 in business logic"
+            "Should detect magic number 9999 in business logic"
         );
+    }
+
+    #[test]
+    fn test_conditional_context_detected() {
+        assert!(is_conditional_or_arithmetic("    if x > 750 {"));
+        assert!(is_conditional_or_arithmetic("    while count < 1024 {"));
+        assert!(is_conditional_or_arithmetic("    let y = x * 750;"));
+        assert!(is_conditional_or_arithmetic("    if (status == 404) {"));
+    }
+
+    #[test]
+    fn test_non_conditional_context_skipped() {
+        assert!(!is_conditional_or_arithmetic("    const TIMEOUT = 750;"));
+        assert!(!is_conditional_or_arithmetic("    let timeout = 750"));
+        assert!(!is_conditional_or_arithmetic("    set_timeout(750)"));
+        assert!(!is_conditional_or_arithmetic("    values := [1, 2, 750, 4]"));
     }
 
     #[test]
