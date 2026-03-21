@@ -1698,6 +1698,8 @@ mod tests {
             module_metrics: Arc::new(std::collections::HashMap::new()),
             class_cohesion: Arc::new(std::collections::HashMap::new()),
             decorator_index: Arc::new(std::collections::HashMap::new()),
+            git_churn: Arc::new(std::collections::HashMap::new()),
+            co_change_summary: Arc::new(std::collections::HashMap::new()),
         };
 
         let detector = LazyClassDetector::new();
@@ -1769,6 +1771,8 @@ mod tests {
             module_metrics: Arc::new(std::collections::HashMap::new()),
             class_cohesion: Arc::new(std::collections::HashMap::new()),
             decorator_index: Arc::new(std::collections::HashMap::new()),
+            git_churn: Arc::new(std::collections::HashMap::new()),
+            co_change_summary: Arc::new(std::collections::HashMap::new()),
         };
 
         let detector = LazyClassDetector::new();

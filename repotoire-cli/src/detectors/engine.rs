@@ -41,6 +41,10 @@ pub struct PrecomputedAnalysis {
     pub class_cohesion: Arc<HashMap<String, f64>>,
     /// Pre-parsed decorator/annotation lists per function.
     pub decorator_index: Arc<HashMap<String, Vec<String>>>,
+    /// Per-file git churn data (empty if git history unavailable).
+    pub git_churn: Arc<HashMap<String, super::analysis_context::FileChurnInfo>>,
+    /// Per-node aggregate co-change score (empty if no co-change data).
+    pub co_change_summary: Arc<HashMap<petgraph::graph::NodeIndex, f64>>,
 }
 
 impl Clone for PrecomputedAnalysis {
@@ -57,6 +61,8 @@ impl Clone for PrecomputedAnalysis {
             module_metrics: Arc::clone(&self.module_metrics),
             class_cohesion: Arc::clone(&self.class_cohesion),
             decorator_index: Arc::clone(&self.decorator_index),
+            git_churn: Arc::clone(&self.git_churn),
+            co_change_summary: Arc::clone(&self.co_change_summary),
         }
     }
 }
@@ -85,6 +91,8 @@ impl PrecomputedAnalysis {
             module_metrics: Arc::clone(&self.module_metrics),
             class_cohesion: Arc::clone(&self.class_cohesion),
             decorator_index: Arc::clone(&self.decorator_index),
+            git_churn: Arc::clone(&self.git_churn),
+            co_change_summary: Arc::clone(&self.co_change_summary),
         }
     }
 }
@@ -229,6 +237,8 @@ pub fn precompute_gd_startup(
         module_metrics: Arc::new(module_metrics_map),
         class_cohesion: Arc::new(class_cohesion_map),
         decorator_index: Arc::new(decorator_index_map),
+        git_churn: Arc::new(HashMap::new()),
+        co_change_summary: Arc::new(HashMap::new()),
     }
 }
 

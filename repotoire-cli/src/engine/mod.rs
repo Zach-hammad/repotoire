@@ -388,6 +388,9 @@ impl AnalysisEngine {
             git_enrich::GitEnrichOutput::skipped()
         };
 
+        // Extract file churn before moving git_out fields
+        let file_churn = Arc::new(git_out.file_churn);
+
         // Freeze: convert mutable GraphStore → immutable CodeGraph with indexes
         let frozen = timed(&mut timings, "freeze", || {
             graph::freeze_graph(
@@ -419,6 +422,7 @@ impl AnalysisEngine {
                 skip_detectors: &config.skip_detectors,
                 workers: config.workers,
                 progress: self.progress.clone(),
+                file_churn: Arc::clone(&file_churn),
                 // Cold path — no incremental hints
                 changed_files: None,
                 topology_changed: true,
@@ -564,6 +568,9 @@ impl AnalysisEngine {
             git_enrich::GitEnrichOutput::skipped()
         };
 
+        // Extract file churn before moving git_out fields
+        let file_churn = Arc::new(git_out.file_churn);
+
         // Freeze: convert mutable GraphStore → immutable CodeGraph with indexes
         let frozen = timed(&mut timings, "freeze", || {
             graph::freeze_graph(
@@ -610,6 +617,7 @@ impl AnalysisEngine {
                 skip_detectors: &config.skip_detectors,
                 workers: config.workers,
                 progress: self.progress.clone(),
+                file_churn: Arc::clone(&file_churn),
                 // Incremental hints
                 changed_files: Some(&delta_files),
                 topology_changed,

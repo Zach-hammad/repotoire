@@ -1361,6 +1361,8 @@ if __name__ == "__main__":
             module_metrics: Arc::new(HashMap::new()),
             class_cohesion: Arc::new(HashMap::new()),
             decorator_index: Arc::new(HashMap::new()),
+            git_churn: Arc::new(HashMap::new()),
+            co_change_summary: Arc::new(HashMap::new()),
         }
     }
 }

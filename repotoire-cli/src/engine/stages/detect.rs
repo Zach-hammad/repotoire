@@ -2,6 +2,7 @@
 
 use crate::calibrate::{NgramModel, StyleProfile};
 use crate::config::ProjectConfig;
+use crate::detectors::analysis_context::FileChurnInfo;
 use crate::detectors::base::DetectorScope;
 use crate::detectors::{
     apply_hmm_context_filter, build_threshold_resolver, create_all_detectors,
@@ -30,6 +31,9 @@ pub struct DetectInput<'a> {
     pub skip_detectors: &'a [String],
     pub workers: usize,
     pub progress: Option<ProgressFn>,
+
+    /// Per-file git churn data from git enrichment stage.
+    pub file_churn: Arc<HashMap<String, FileChurnInfo>>,
 
     // Incremental optimization hints (engine provides these)
     pub changed_files: Option<&'a [PathBuf]>,
@@ -89,7 +93,7 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     let hmm_cache_path = input.repo_path.join(".repotoire");
     let vs_clone = input.value_store.cloned();
 
-    let precomputed = precompute_gd_startup(
+    let mut precomputed = precompute_gd_startup(
         graph,
         input.repo_path,
         Some(&hmm_cache_path),
@@ -101,6 +105,9 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
 
     // Inject pre-computed taint results into security detectors
     inject_taint_precomputed(&detectors, &precomputed.taint_results);
+
+    // Inject git churn data into precomputed analysis
+    precomputed.git_churn = Arc::clone(&input.file_churn);
 
     // Build analysis context from precomputed data
     let ctx = precomputed.to_context(graph, &resolver);
