@@ -62,6 +62,9 @@ pub struct AnalysisConfig {
     pub max_files: usize,
     pub no_git: bool,
     pub verify: bool,
+    /// Run all detectors including deep-scan detectors (code smells, style, dead code).
+    /// Default: false (only high-value detectors run).
+    pub all_detectors: bool,
 }
 
 impl Default for AnalysisConfig {
@@ -72,6 +75,7 @@ impl Default for AnalysisConfig {
             max_files: 0,
             no_git: false,
             verify: false,
+            all_detectors: false,
         }
     }
 }
@@ -423,6 +427,7 @@ impl AnalysisEngine {
                 workers: config.workers,
                 progress: self.progress.clone(),
                 file_churn: Arc::clone(&file_churn),
+                all_detectors: config.all_detectors,
                 // Cold path — no incremental hints
                 changed_files: None,
                 topology_changed: true,
@@ -618,6 +623,7 @@ impl AnalysisEngine {
                 workers: config.workers,
                 progress: self.progress.clone(),
                 file_churn: Arc::clone(&file_churn),
+                all_detectors: config.all_detectors,
                 // Incremental hints
                 changed_files: Some(&delta_files),
                 topology_changed,

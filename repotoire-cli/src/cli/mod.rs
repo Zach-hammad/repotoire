@@ -129,6 +129,10 @@ Examples:
         #[arg(long, hide = true)]
         thorough: bool,
 
+        /// Run all detectors including deep-scan detectors (code smells, style, dead code)
+        #[arg(long)]
+        all_detectors: bool,
+
         /// Control external tool execution: on (default, auto-discover), off (built-in only)
         #[arg(long, default_value = "on", value_parser = ["on", "off"])]
         external: String,
@@ -494,6 +498,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             per_page,
             skip_detector,
             thorough,
+            all_detectors,
             external: _,
             relaxed,
             max_files,
@@ -547,6 +552,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                 max_files,
                 no_git,
                 verify,
+                all_detectors,
             };
 
             // Build OutputOptions (consumer-side: how to present)
