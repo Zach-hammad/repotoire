@@ -42,6 +42,8 @@ impl Detector for UnwrapWithoutContextDetector {
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
+        // Only scan Rust files — .unwrap()/.expect() are Rust-specific patterns.
+        // Other languages (Python, JS) have .unwrap() calls that are not panics.
         for path in files.files_with_extension("rs") {
             if findings.len() >= self.max_findings {
                 break;

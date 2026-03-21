@@ -195,6 +195,23 @@ mod tests {
     }
 
     #[test]
+    fn test_unwrap_skipped_on_non_rust_files() {
+        let graph = GraphStore::in_memory();
+        let detector = UnwrapWithoutContextDetector::new("/mock/repo");
+        // Python and JS files with .unwrap() — should not fire (not Rust)
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
+            ("model.py", "value = some_result.unwrap()\n"),
+            ("component.tsx", "const x = result.unwrap();\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "Should not flag .unwrap() in non-Rust files, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn test_unwrap_in_test_skipped() {
         let graph = GraphStore::in_memory();
         let detector = UnwrapWithoutContextDetector::new("/mock/repo");
