@@ -8,8 +8,8 @@
 //! 1. Calculate cyclomatic complexity for ALL functions
 //! 2. Compute codebase baseline: mean and standard deviation
 //! 3. Flag functions where z_score > 3.0 AND complexity >= 20
-//! 4. Require at least one compound signal to reduce false positives
-//! 5. Severity driven by number of compound signals (High/Medium/Low)
+//! 4. Require at least TWO compound signals to reduce false positives
+//! 5. Severity driven by number of compound signals (3 → High, 2 → Medium)
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
@@ -521,15 +521,14 @@ impl Detector for AIComplexitySpikeDetector {
                         compound_signals += 1;
                     }
 
-                    if compound_signals == 0 {
-                        continue; // Don't flag without at least one compound signal
+                    if compound_signals < 2 {
+                        continue; // Require at least 2 compound signals to reduce noise
                     }
 
                     // Severity based on number of compound signals
                     let severity = match compound_signals {
                         3 => Severity::High,
-                        2 => Severity::Medium,
-                        _ => Severity::Low,
+                        _ => Severity::Medium, // 2 signals → Medium
                     };
 
                     findings.push(Finding {
@@ -626,6 +625,7 @@ mod tests {
 
     #[test]
     fn test_detects_complexity_outlier() {
+        use crate::graph::CodeEdge;
         let store = crate::graph::GraphStore::in_memory();
 
         // Add 10 normal-complexity functions (complexity 3-5)
@@ -638,12 +638,31 @@ mod tests {
             store.add_node(node);
         }
 
-        // Add 1 outlier function with high complexity and a generic name (so it has a compound signal)
+        // Add helper functions that the outlier calls (to create fan-out >= 5)
+        for i in 0..6 {
+            let helper = CodeNode::function(&format!("helper_{}", i), "/src/app.py")
+                .with_qualified_name(&format!("app.helper_{}", i))
+                .with_lines(1, 10)
+                .with_property("complexity", 2_i64);
+            store.add_node(helper);
+        }
+
+        // Add 1 outlier function with high complexity, a generic name (signal 1),
+        // and high fan-out by calling 6 helpers (signal 2) — meets the 2-signal threshold.
         let outlier = CodeNode::function("process_data", "/src/app.py")
             .with_qualified_name("app.process_data")
             .with_lines(1, 200)
             .with_property("complexity", 50_i64);
         store.add_node(outlier);
+
+        // Add 6 call edges from outlier → helpers to trigger fan-out signal (>= 5)
+        for i in 0..6 {
+            store.add_edge_by_name(
+                "app.process_data",
+                &format!("app.helper_{}", i),
+                CodeEdge::calls(),
+            );
+        }
 
         let detector = AIComplexitySpikeDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
@@ -651,7 +670,7 @@ mod tests {
 
         assert!(
             !findings.is_empty(),
-            "Should detect the complexity outlier (50 vs avg ~4)"
+            "Should detect the complexity outlier (50 vs avg ~4) with 2+ compound signals"
         );
         assert!(
             findings.iter().any(|f| f.title.contains("process_data")),
