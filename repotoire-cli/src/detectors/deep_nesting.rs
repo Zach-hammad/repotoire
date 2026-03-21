@@ -30,9 +30,9 @@ const MATCH_DISCOUNT: usize = 2;
 /// get a higher threshold to reduce false positives.
 fn language_threshold(ext: &str) -> usize {
     match ext {
-        "rs" | "go" | "java" | "cs" | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => 6,
-        "py" | "pyi" | "ts" | "tsx" | "js" | "jsx" | "mjs" => 5,
-        _ => 5,
+        "rs" | "go" | "java" | "cs" | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => 7,
+        "py" | "pyi" | "ts" | "tsx" | "js" | "jsx" | "mjs" => 6,
+        _ => 6,
     }
 }
 
@@ -635,16 +635,16 @@ mod tests {
 
     #[test]
     fn test_detects_deep_nesting() {
-        // Python threshold is 5, so >5 means 6+ levels needed to trigger.
+        // Python threshold is 6, so >6 means 7+ levels needed to trigger.
         let store = GraphStore::in_memory();
         let detector = DeepNestingDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("nested.py", "def process(data):\n    if True {\n        if True {\n            if True {\n                if True {\n                    if True {\n                        if True {\n                            print(\"deeply nested\")\n                        }\n                    }\n                }\n            }\n        }\n    }\n"),
+            ("nested.py", "def process(data):\n    if True {\n        if True {\n            if True {\n                if True {\n                    if True {\n                        if True {\n                            if True {\n                                print(\"deeply nested\")\n                            }\n                        }\n                    }\n                }\n            }\n        }\n    }\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
-            "Should detect deep nesting with 6 levels of braces (threshold=5 for Python)"
+            "Should detect deep nesting with 7 levels of braces (threshold=6 for Python)"
         );
         assert!(
             findings[0].title.contains("nesting"),
@@ -752,10 +752,10 @@ fn process(x: i32) {
 
     #[test]
     fn test_per_function_analysis() {
-        // Two functions: one shallow (2 levels), one deep (7 levels).
-        // Rust threshold=6, no match discount applies (no match statements).
+        // Two functions: one shallow (2 levels), one deep (8 levels).
+        // Rust threshold=7, no match discount applies (no match statements).
         // Shallow: well below threshold, no finding.
-        // Deep: raw depth 7 > threshold 6 => one finding.
+        // Deep: raw depth 8 > threshold 7 => one finding.
         let store = GraphStore::in_memory();
         let detector = DeepNestingDetector::new("/mock/repo");
         let code = "\
@@ -772,7 +772,9 @@ fn deep() {
                 if true {
                     if true {
                         if true {
-                            println!(\"deep\");
+                            if true {
+                                println!(\"deep\");
+                            }
                         }
                     }
                 }
@@ -899,19 +901,19 @@ fn foo() {
 
     #[test]
     fn test_language_threshold_rust() {
-        assert_eq!(language_threshold("rs"), 6);
+        assert_eq!(language_threshold("rs"), 7);
         assert_eq!(language_match_discount("rs"), 2);
     }
 
     #[test]
     fn test_language_threshold_python() {
-        assert_eq!(language_threshold("py"), 5);
+        assert_eq!(language_threshold("py"), 6);
         assert_eq!(language_match_discount("py"), 1);
     }
 
     #[test]
     fn test_language_threshold_default() {
-        assert_eq!(language_threshold("unknown"), 5);
+        assert_eq!(language_threshold("unknown"), 6);
         assert_eq!(language_match_discount("unknown"), 1);
     }
 }
