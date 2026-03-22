@@ -126,6 +126,9 @@ impl Detector for CommandInjectionDetector {
 
             if let Some(content) = files.masked_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
+                // Keep raw lines for template literal checks — masking replaces
+                // template_string nodes with spaces, hiding `${…}` interpolation.
+                let raw_lines: Vec<&str> = raw.lines().collect();
                 let file_str = path.to_string_lossy();
 
                 // Check if this is a build/script file (developer-controlled, not user-facing)
@@ -146,7 +149,7 @@ impl Detector for CommandInjectionDetector {
                 // e.g., const cmd = `echo ${userId}`;  // userId could be user input
                 // But NOT: const cmd = `echo ${CONSTANT}`;  // All-caps likely safe
                 let mut dangerous_vars: Vec<String> = vec![];
-                for line in &lines {
+                for line in &raw_lines {
                     // Match: const/let/var VARNAME = `...${...}...`
                     if (line.contains("const ") || line.contains("let ") || line.contains("var "))
                         && line.contains("`")
@@ -188,6 +191,9 @@ impl Detector for CommandInjectionDetector {
                     }
 
                     let line_num = (i + 1) as u32;
+                    // Raw (unmasked) line for template literal checks — masking
+                    // replaces template_string content with spaces.
+                    let raw_line = raw_lines.get(i).copied().unwrap_or(line);
 
                     // Helper to check taint and adjust severity
                     let check_taint = |base_desc: &str| -> (Severity, String) {
@@ -219,7 +225,7 @@ impl Detector for CommandInjectionDetector {
 
                     // Check for direct shell execution with template literal
                     if SHELL_EXEC.is_match(line) {
-                        // Check for user input sources
+                        // Check for user input sources (direct references on this line)
                         let has_user_input = line.contains("req.")
                             || line.contains("request.")
                             || line.contains("params.")
@@ -228,16 +234,39 @@ impl Detector for CommandInjectionDetector {
                             || line.contains("body.")
                             || line.contains("input")
                             || line.contains("argv")
-                            || line.contains("args");
+                            || line.contains("args")
+                            // Also check for interpolated variable names that imply user input
+                            // e.g., ${userId}, ${userInput}, ${id}, ${cmd}, ${command}
+                            // Use raw_line here because masking replaces template strings with spaces
+                            || {
+                                let lower = raw_line.to_lowercase();
+                                lower.contains("${userid")
+                                    || lower.contains("${userinput")
+                                    || lower.contains("${username")
+                                    || lower.contains("${user_id")
+                                    || lower.contains("${user_input")
+                                    || lower.contains("${user_name")
+                                    || lower.contains("${cmd")
+                                    || lower.contains("${command")
+                                    || lower.contains("${filename")
+                                    || lower.contains("${file_name")
+                                    || lower.contains("${filepath")
+                                    || lower.contains("${file_path")
+                                    || lower.contains("${host")
+                                    || lower.contains("${url")
+                                    || lower.contains("${path")
+                            };
 
                         // Check for string interpolation ON THIS LINE
+                        // Use raw_line for ${} checks since masking replaces template strings
                         let has_interpolation = line.contains("f\"")
-                            || line.contains("${")
+                            || raw_line.contains("${")
                             || line.contains("+ ")
                             || line.contains(".format(");
 
                         // Check for template literal with interpolation ON THIS LINE
-                        let has_template_interpolation = line.contains("`") && line.contains("${");
+                        // Use raw_line because masking replaces template_string nodes with spaces
+                        let has_template_interpolation = raw_line.contains("`") && raw_line.contains("${");
 
                         // Check if exec is using a dangerous variable we identified earlier
                         let uses_dangerous_var = dangerous_vars.iter().any(|v| line.contains(v));
@@ -257,9 +286,9 @@ impl Detector for CommandInjectionDetector {
                             || line.contains("path.join")
                             || line.contains("path.resolve")
                             || line.contains("cwd()")
-                            || line.contains("${ROOT")
-                            || line.contains("${DIR")
-                            || line.contains("${PATH");
+                            || raw_line.contains("${ROOT")
+                            || raw_line.contains("${DIR")
+                            || raw_line.contains("${PATH");
 
                         // Check if ONLY safe sources are interpolated (no user input)
                         let only_safe_interpolation =
@@ -323,7 +352,7 @@ impl Detector for CommandInjectionDetector {
                         || line.contains("execSync(")
                         || line.contains("execAsync(")
                     {
-                        if line.contains("`") && line.contains("${") {
+                        if raw_line.contains("`") && raw_line.contains("${") {
                             let (severity, description) = check_taint(
                                 "Template literal with variable interpolation passed to exec(). This is a classic command injection pattern."
                             );
