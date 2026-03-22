@@ -41,10 +41,11 @@ fn format_number(n: u64) -> String {
 
 /// Convert a percentile value to a "top N%" string.
 /// A percentile of 70.0 means "better than 70%" → top 30%.
+/// Clamps to "top 1%" (never "top 0%") and "top 99%" (never "top 100%").
 fn percentile_to_top(p: f64) -> String {
-    let top = 100.0 - p;
-    let rounded = top.round() as u64;
-    format!("top {}%", rounded)
+    let top = (100.0 - p).round() as u64;
+    let clamped = top.clamp(1, 99);
+    format!("top {}%", clamped)
 }
 
 /// Render the compact "Ecosystem Context" box shown after analysis.
@@ -53,10 +54,15 @@ pub fn format_ecosystem_context(ctx: &EcosystemContext) -> String {
     let header = format!("── Ecosystem Context ──{}", "─".repeat(29));
     let footer = border.clone();
 
+    // Clamp percentile to 1-99 range
+    let pct = (ctx.score_percentile.round() as u64).clamp(1, 99);
+
+    // Add "early data" qualifier for small samples
+    let qualifier = if ctx.sample_size < 20 { " (early data)" } else { "" };
+
     let score_line = format!(
-        "  Score:         better than {}% of {}",
-        ctx.score_percentile.round() as u64,
-        ctx.comparison_group
+        "  Score:         better than {}% of {}{}",
+        pct, ctx.comparison_group, qualifier
     );
 
     let mut lines = vec![header, score_line];
@@ -238,6 +244,10 @@ mod tests {
         assert_eq!(percentile_to_top(70.0), "top 30%");
         assert_eq!(percentile_to_top(85.0), "top 15%");
         assert_eq!(percentile_to_top(80.0), "top 20%");
+        // Edge cases: never show 0% or 100%
+        assert_eq!(percentile_to_top(100.0), "top 1%");
+        assert_eq!(percentile_to_top(0.0), "top 99%");
+        assert_eq!(percentile_to_top(99.9), "top 1%");
     }
 
     #[test]
@@ -280,6 +290,37 @@ mod tests {
         assert!(output.contains("top 30%")); // structure: 100 - 70
         assert!(output.contains("top 55%")); // quality: 100 - 45
         assert!(output.contains("top 20%")); // architecture: 100 - 80
+    }
+
+    #[test]
+    fn test_early_data_qualifier() {
+        let ctx = EcosystemContext {
+            score_percentile: 95.0,
+            comparison_group: "rust projects".into(),
+            sample_size: 6, // small sample
+            pillar_percentiles: None,
+            modularity_percentile: None,
+            coupling_percentile: None,
+            trend: None,
+        };
+        let output = format_ecosystem_context(&ctx);
+        assert!(output.contains("early data"), "Small samples should show early data qualifier");
+        assert!(output.contains("better than 95%"), "Should show clamped percentile");
+    }
+
+    #[test]
+    fn test_no_early_data_for_large_samples() {
+        let ctx = EcosystemContext {
+            score_percentile: 68.0,
+            comparison_group: "rust projects".into(),
+            sample_size: 100,
+            pillar_percentiles: None,
+            modularity_percentile: None,
+            coupling_percentile: None,
+            trend: None,
+        };
+        let output = format_ecosystem_context(&ctx);
+        assert!(!output.contains("early data"), "Large samples should not show qualifier");
     }
 
     #[test]
