@@ -2,9 +2,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::engine::{AnalysisResult, AnalysisStats, ScoreResult};
-use crate::models::{Finding, Severity};
-use crate::scoring::ScoreBreakdown;
+use crate::engine::AnalysisResult;
+use crate::models::Finding;
 
 /// Delta between two consecutive analysis results.
 pub struct WatchDelta {
@@ -81,6 +80,9 @@ pub fn compute_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::{AnalysisStats, ScoreResult};
+    use crate::models::Severity;
+    use crate::scoring::ScoreBreakdown;
 
     fn make_finding(detector: &str, file: &str, line: u32) -> Finding {
         Finding {
