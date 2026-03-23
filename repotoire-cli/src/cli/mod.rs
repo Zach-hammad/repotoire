@@ -11,6 +11,7 @@ mod findings;
 mod fix;
 mod graph;
 mod init;
+pub mod lsp;
 mod status;
 mod tui;
 pub mod watch;
@@ -428,6 +429,13 @@ Examples:
         #[arg(long, default_value = "20")]
         top: usize,
     },
+
+    /// Start the LSP server (stdio transport, for editor integration)
+    Lsp,
+
+    /// Internal: analysis worker process (not user-facing)
+    #[command(name = "__worker", hide = true)]
+    Worker,
 }
 
 #[derive(Subcommand, Debug)]
@@ -476,6 +484,8 @@ fn extract_command_name(cmd: &Option<Commands>) -> (String, Option<String>) {
             ConfigAction::Show => ("config".into(), Some("show".into())),
             ConfigAction::Set { .. } => ("config".into(), Some("set".into())),
         },
+        Some(Commands::Lsp) => ("lsp".into(), None),
+        Some(Commands::Worker) => ("worker".into(), None),
         None => ("analyze".into(), None),
     }
 }
@@ -792,6 +802,15 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
 
         Some(Commands::Debt { filter, top }) => {
             debt::run(&cli.path, filter.as_deref(), top)
+        }
+
+        Some(Commands::Lsp) => {
+            // TODO: implement in Task 10
+            anyhow::bail!("LSP server not yet implemented")
+        }
+
+        Some(Commands::Worker) => {
+            crate::cli::worker::run()
         }
 
         None => {
