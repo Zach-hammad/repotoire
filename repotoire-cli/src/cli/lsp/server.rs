@@ -16,6 +16,8 @@ use super::hover::render_hover;
 use super::worker_client::WorkerClient;
 use crate::cli::worker::protocol::Event;
 
+use std::io::BufReader;
+
 pub struct Backend {
     client: Client,
     /// Read-heavy state (hover, code_action read; ready/delta write).
@@ -54,7 +56,10 @@ impl Backend {
     /// Start the background worker event reader.
     /// Spawns a tokio task that reads worker events via spawn_blocking
     /// and publishes diagnostics / sends notifications on the async side.
-    fn start_worker_reader(&self) {
+    ///
+    /// The reader is owned by the task — no Mutex needed for reads.
+    /// Only `send_*` methods (writes) need the worker_state Mutex.
+    fn start_worker_reader(&self, reader: Option<BufReader<std::process::ChildStdout>>) {
         let client = self.client.clone();
         let diagnostics = self.diagnostics.clone();
         let worker_state = self.worker_state.clone();
@@ -63,22 +68,34 @@ impl Backend {
             // Track whether the LSP progress token has been created yet.
             let mut progress_token_created = false;
 
+            // Own the reader in this task — no Mutex contention with send_* methods.
+            // Wrapped in Arc<std::sync::Mutex> so spawn_blocking can borrow it
+            // without permanently moving it out of scope.
+            let reader = match reader {
+                Some(r) => Arc::new(std::sync::Mutex::new(r)),
+                None => {
+                    tracing::error!("No reader available for worker");
+                    return;
+                }
+            };
+
             loop {
-                // Read one event from the worker in a blocking thread
-                let ws = worker_state.clone();
+                // Read one event from the worker in a blocking thread.
+                let reader_clone = reader.clone();
                 let event = tokio::task::spawn_blocking(move || {
-                    // We need to lock the mutex synchronously inside spawn_blocking.
-                    // Use try_lock in a loop with a small sleep to avoid holding
-                    // the lock while blocking on I/O — but read_event itself needs
-                    // the lock for the BufReader. Simplification: block on the lock.
-                    let mut state = ws.blocking_lock();
-                    state.worker.read_event()
+                    let mut r = reader_clone.lock().unwrap();
+                    WorkerClient::read_event_from(&mut r)
                 })
                 .await;
 
                 let event = match event {
-                    Ok(Some(ev)) => ev,
-                    Ok(None) | Err(_) => {
+                    Ok(ev) => ev,
+                    Err(_) => None, // spawn_blocking panicked
+                };
+
+                let event = match event {
+                    Some(ev) => ev,
+                    None => {
                         // Worker exited or spawn_blocking panicked — attempt crash recovery
                         tracing::error!("repotoire worker exited unexpectedly");
                         client
@@ -105,20 +122,23 @@ impl Backend {
                             // Sleep 2 seconds before respawning
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-                            // Respawn worker and re-send init
+                            // Respawn worker and re-send init, take the new reader
                             let ws = worker_state.clone();
                             let spawn_result = tokio::task::spawn_blocking(move || {
                                 let mut state = ws.blocking_lock();
                                 state.worker.kill();
                                 state.worker.spawn().and_then(|_| {
                                     state.worker.send_init(workspace_root.as_ref()).map(|_| ())
-                                })
+                                })?;
+                                // Take the new reader for the restarted worker
+                                Ok::<_, anyhow::Error>(state.worker.take_reader())
                             })
                             .await;
 
                             match spawn_result {
-                                Ok(Ok(())) => {
+                                Ok(Ok(Some(new_reader))) => {
                                     tracing::info!("repotoire worker restarted successfully");
+                                    *reader.lock().unwrap() = new_reader;
                                     // Reset progress token so it gets re-created on next progress event
                                     progress_token_created = false;
                                     continue; // Resume the reader loop
@@ -163,6 +183,8 @@ impl Backend {
                         continue;
                     }
                 }
+
+                let is_terminal = !matches!(event, Event::Progress { .. });
 
                 match event {
                     Event::Ready {
@@ -223,8 +245,9 @@ impl Backend {
                         )
                         .await;
                     }
-                    Event::Unchanged { .. } => {
-                        // No changes — nothing to publish
+                    Event::Unchanged { score, total_findings, .. } => {
+                        // No diagnostic changes, but still send score update
+                        send_score_update(&client, score, "", None, total_findings).await;
                     }
                     Event::Progress {
                         stage,
@@ -283,6 +306,23 @@ impl Backend {
                     Event::Error { message, .. } => {
                         client.show_message(MessageType::ERROR, &message).await;
                     }
+                }
+
+                // Send WorkDoneProgress::End after terminal events (Ready, Delta, Unchanged, Error)
+                // Progress events are not terminal — they are intermediate updates.
+                if progress_token_created && is_terminal {
+                    let token = NumberOrString::String("repotoire-analysis".to_string());
+                    client
+                        .send_notification::<Progress>(ProgressParams {
+                            token,
+                            value: ProgressParamsValue::WorkDone(
+                                WorkDoneProgress::End(WorkDoneProgressEnd {
+                                    message: Some("Analysis complete".to_string()),
+                                }),
+                            ),
+                        })
+                        .await;
+                    progress_token_created = false;
                 }
             }
         });
@@ -395,10 +435,12 @@ impl LanguageServer for Backend {
                 .await;
             return;
         }
+        // Take the reader before dropping the lock — owned by the reader task
+        let reader = state.worker.take_reader();
         drop(state);
 
-        // Start reading worker events
-        self.start_worker_reader();
+        // Start reading worker events with the owned reader
+        self.start_worker_reader(reader);
     }
 
     async fn shutdown(&self) -> Result<()> {

@@ -42,7 +42,7 @@ pub fn actions_for_finding(finding: &Finding, uri: &Url) -> Vec<CodeAction> {
     let ignore_text = format!(
         "{} repotoire:ignore[{}]\n",
         prefix,
-        finding.detector.to_lowercase().replace("detector", "")
+        finding.detector.to_lowercase()
     );
 
     let ignore_edit = TextEdit {

@@ -75,15 +75,37 @@ impl WorkerClient {
         Ok(())
     }
 
+    /// Take the BufReader out of the client so it can be owned by the reader task.
+    /// This avoids holding the WorkerState Mutex while blocking on I/O.
+    pub fn take_reader(&mut self) -> Option<BufReader<std::process::ChildStdout>> {
+        self.reader.take()
+    }
+
     /// Read one event from the worker's stdout.
     /// Returns None if the worker has exited (broken pipe).
     /// Uses the stored BufReader to avoid losing buffered data between calls.
     pub fn read_event(&mut self) -> Option<Event> {
         let reader = self.reader.as_mut()?;
+        Self::read_event_from(reader)
+    }
+
+    /// Read one event from a standalone BufReader (used by the reader task).
+    /// Returns None if the worker has exited (broken pipe / EOF).
+    /// Parse errors are returned as Event::Error to avoid false crash recovery.
+    pub fn read_event_from(reader: &mut BufReader<std::process::ChildStdout>) -> Option<Event> {
         let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(0) => None, // EOF — worker exited
-            Ok(_) => serde_json::from_str(&line).ok(),
+            Ok(_) => match serde_json::from_str(&line) {
+                Ok(event) => Some(event),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse worker event: {}", e);
+                    Some(Event::Error {
+                        id: None,
+                        message: format!("Worker protocol error: {}", e),
+                    })
+                }
+            },
             Err(_) => None,
         }
     }
