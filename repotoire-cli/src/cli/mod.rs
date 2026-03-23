@@ -41,9 +41,9 @@ fn parse_workers(s: &str) -> Result<usize, String> {
 #[command(
     version,
     about = "Graph-powered code health analysis — detect code smells, security issues, and architectural debt across 9 languages",
-    long_about = "Repotoire builds a knowledge graph of your codebase and runs 114 pure Rust \
-detectors to find code smells, security vulnerabilities, and architectural issues \
-that traditional linters miss.\n\n\
+    long_about = "Repotoire builds a knowledge graph of your codebase and runs 106 pure Rust \
+detectors (73 default + 33 deep-scan) to find code smells, security vulnerabilities, \
+and architectural issues that traditional linters miss.\n\n\
 100% LOCAL by default — No account needed. No data leaves your machine unless you opt in.\n\n\
 Run without a subcommand to analyze the current directory:\n  \
 repotoire .\n\n\
@@ -79,7 +79,7 @@ pub enum Commands {
     /// Initialize a repotoire.toml config file with example settings
     Init,
 
-    /// Analyze codebase for issues (runs all 114 detectors by default)
+    /// Analyze codebase for issues (runs 73 default detectors, or all 106 with --all-detectors)
     #[command(after_help = "\
 Examples:
   repotoire analyze .                                Analyze current directory

@@ -1,8 +1,8 @@
 # Repotoire 🎼
 
-**Graph-powered code analysis. 115 detectors. 13 languages. One binary.**
+**Graph-powered code analysis. 106 detectors. 13 languages. One binary.**
 
-Repotoire builds a knowledge graph of your codebase and runs 115 detectors to find security vulnerabilities, architectural issues, and code smells that file-by-file linters miss.
+Repotoire builds a knowledge graph of your codebase and runs 106 detectors (73 default + 33 deep-scan) to find security vulnerabilities, architectural issues, and code smells that file-by-file linters miss.
 
 [![Crates.io](https://img.shields.io/crates/v/repotoire.svg)](https://crates.io/crates/repotoire)
 [![CI](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml/badge.svg)](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml)
@@ -24,7 +24,7 @@ No API keys. No Docker. No cloud account. **Pure Rust, ~24MB binary.**
 │  Traditional linters see files.  Repotoire sees the graph.  │
 │                                                              │
 │  file1.rs ──┐                                                │
-│  file2.go ──┼── Knowledge Graph ── 115 Detectors             │
+│  file2.go ──┼── Knowledge Graph ── 106 Detectors             │
 │  file3.ts ──┘         │                                      │
 │                  Circular deps? God classes? Dead code?       │
 │                  SQL injection? Taint flow? Bottlenecks?      │
@@ -79,11 +79,14 @@ brew install repotoire
 repotoire analyze .
 
 # Only high/critical findings
-repotoire analyze . --relaxed
+repotoire analyze . --severity high
+
+# Run all 106 detectors (default runs 73 high-value detectors)
+repotoire analyze . --all-detectors
 
 # Output formats
 repotoire analyze . --format json
-repotoire analyze . --format html --output report.html
+repotoire analyze . --format html --output report.html    # graph-powered HTML report with SVG visualizations
 repotoire analyze . --format sarif --output results.sarif
 repotoire analyze . --format markdown
 
@@ -108,29 +111,41 @@ repotoire analyze . --explain-score
 
 # Check your setup
 repotoire doctor
+
+# Compare your scores against 56 open-source repos
+repotoire benchmark
+
+# Telemetry controls
+repotoire config telemetry status    # check current setting
+repotoire config telemetry off       # opt out
 ```
 
 ## Sample Output
 
 ```
-🎼 Repotoire Analysis
+Repotoire Analysis
+──────────────────────────────────────
+Score: 82.5/100  Grade: B   Files: 456  Functions: 4,348  LOC: 23,456
+Score: 84.2/100 (+1.7)  Grade: B  Fixed 3 findings    ← on subsequent runs
 
-📁 456 files  ⚙️  4,348 functions  🏛️  778 classes
+  Structure: 85  Quality: 80  Architecture: 82
 
-╔════════════════════ Health Report ════════════════════╗
-║  Grade: B           Score: 82.5/100                   ║
-╚═══════════════════════════════════════════════════════╝
+What stands out
+  Security       2 critical, 4 high    ← fix these first
+  Complexity     3 files over threshold
+  Architecture   2 circular dependencies detected
 
-🔍 Findings (127 total)
-┌─────────────┬───────┐
-│ 🔴 Critical │     2 │
-│ 🟠 High     │    12 │
-│ 🟡 Medium   │    45 │
-│ 🔵 Low      │    68 │
-└─────────────┴───────┘
+Quick wins (highest impact, lowest effort)
+  1. [C] Hardcoded AWS secret key          auth/config.py:34
+  2. [C] SQL injection via string concat   api/queries.rs:112
+  3. [H] God class (47 methods)            engine/pipeline.rs:1
 
-✨ Analysis complete in 2.05s
+  Fix the top one: repotoire fix <id>
+  Explore all:     repotoire findings -i
+  Full report:     repotoire analyze . --format html -o report.html
 ```
+
+The HTML report (`--format html`) includes SVG architecture maps, hotspot treemaps, bus factor analysis, and inline code snippets — a shareable codebase audit.
 
 ## CI/CD
 
@@ -244,12 +259,12 @@ ollama pull deepseek-coder:6.7b
 repotoire fix <finding-id>
 ```
 
-No API key? No problem. All 115 detectors work fully offline.
+No API key? No problem. All 106 detectors work fully offline.
 
 ## How It Works
 
 ```
-Source Files ──▶ Tree-sitter ──▶ Knowledge Graph ──▶ 115 Detectors
+Source Files ──▶ Tree-sitter ──▶ Knowledge Graph ──▶ 106 Detectors
 (13 languages)    (parallel)     (petgraph + redb)    (parallel)
                                        │
                                  Graph algorithms:

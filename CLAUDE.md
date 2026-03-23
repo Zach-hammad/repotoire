@@ -8,7 +8,7 @@ Repotoire is a graph-powered code health platform that analyzes codebases using 
 - **Structural analysis** (tree-sitter AST parsing across 9 languages)
 - **Relational patterns** (graph algorithms via petgraph)
 
-This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. All 107 detectors are pure Rust — no external tool dependencies.
+This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. 106 detectors (73 default + 33 deep-scan) are pure Rust — no external tool dependencies.
 
 ## Development Rules
 
@@ -78,11 +78,11 @@ repotoire calibrate /path/to/repo
 repotoire clean /path/to/repo
 ```
 
-### CLI Commands (16 total)
+### CLI Commands (18 total)
 
 | Command | Description |
 |---------|-------------|
-| `analyze` | Analyze codebase for issues |
+| `analyze` | Analyze codebase for issues (73 default detectors, or all 106 with `--all-detectors`) |
 | `diff` | Compare findings between two analysis states |
 | `findings` | View findings from last analysis |
 | `fix` | Generate fix for a finding (AI-powered or rule-based) |
@@ -95,9 +95,11 @@ repotoire clean /path/to/repo
 | `calibrate` | Calibrate adaptive thresholds from your codebase |
 | `clean` | Remove cached analysis data |
 | `version` | Show version info |
-| `config` | Manage configuration (init, show, set) |
+| `config` | Manage configuration (init, show, set, telemetry on/off/status) |
 | `feedback` | Label findings as true/false positives |
 | `train` | Train the classifier on labeled data |
+| `benchmark` | Compare scores against ecosystem benchmarks (56 open-source repos) |
+| `debt` | View technical debt summary |
 
 ### Global Flags
 
@@ -127,13 +129,13 @@ During **Freeze**, `GraphPrimitives::compute()` runs Phase A algorithms (dominat
 
 3. **Engine** (`repotoire-cli/src/engine/`): `AnalysisEngine` is the primary analysis orchestrator. Runs 8 stages in order: collect, parse, graph, git_enrich, calibrate, detect, postprocess, score. Returns `AnalysisResult` (findings + score + stats). Stateful: supports cold, cached, and incremental modes. Persistence via `save()`/`load()` for cross-process incremental analysis. `AnalysisConfig` controls analysis parameters; `OutputOptions` handles presentation. Stage implementations live in `engine/stages/`.
 
-4. **Detectors** (`repotoire-cli/src/detectors/`): 107 pure Rust detectors across 14 categories. No external tool dependencies — all analysis runs in-process. `RegisteredDetector` trait + compile-time `DETECTOR_FACTORIES` registry. `create_all_detectors()` instantiates all detectors from a `DetectorInit` context. `run_detectors()` (in `runner.rs`) executes them in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs. Graph-primitive detectors read pre-computed algorithms at O(1) via `GraphQuery`.
+4. **Detectors** (`repotoire-cli/src/detectors/`): 106 pure Rust detectors split into two tiers: 73 default (security, bugs, performance, architecture) in `DEFAULT_DETECTOR_FACTORIES` and 33 deep-scan (code smells, style, dead code) in `DEEP_ONLY_DETECTOR_FACTORIES`. Deep-scan detectors run only with `--all-detectors`. No external tool dependencies — all analysis runs in-process. `RegisteredDetector` trait + compile-time factory registries. `create_default_detectors()` for normal mode, `create_all_detectors()` for deep mode. `run_detectors()` (in `runner.rs`) executes them in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs. Graph-primitive detectors read pre-computed algorithms at O(1) via `GraphQuery`.
 
-5. **Scoring** (`repotoire-cli/src/scoring/`): Three-pillar scoring — Structure (40%), Quality (30%), Architecture (30%). Density-based penalty normalization (penalties scaled by kLOC). Graph-derived bonuses (modularity, cohesion, clean deps, complexity distribution, test coverage). Compound smell escalation. 13 grade levels (A+ through F). Score floor at 5.0, cap at 99.9 with medium+ findings. Security multiplier (default 3x).
+5. **Scoring** (`repotoire-cli/src/scoring/`): Three-pillar scoring — Structure (40%), Quality (30%), Architecture (30%). Flat severity-weighted penalties (Critical=5, High=2, Medium=0.5, Low=0.1) — no density normalization. Graph-derived bonuses (modularity, cohesion, clean deps, complexity distribution, test coverage). Compound smell escalation. 13 grade levels (A+ through F). Score floor at 5.0, cap at 99.9 with medium+ findings. Security multiplier (default 3x).
 
 6. **CLI** (`repotoire-cli/src/cli/`): clap 4 with derive, 16 commands. Progress bars via indicatif. Terminal styling via console. Git presence auto-detected (no `--no-git` flag).
 
-7. **Reporters** (`repotoire-cli/src/reporters/`): 5 output formats — text (default, colored terminal), JSON, HTML (standalone), SARIF 2.1.0 (GitHub Code Scanning compatible), Markdown.
+7. **Reporters** (`repotoire-cli/src/reporters/`): 5 output formats — text (default, themed "What stands out" + "Quick wins" + score delta), JSON, HTML (standalone with SVG architecture map, hotspot treemap, bus factor chart, narrative story, inline code snippets), SARIF 2.1.0 (GitHub Code Scanning compatible), Markdown. Two reporter APIs: `report_with_format()` (legacy, HealthReport only) and `report_with_context()` (rich, uses `ReportContext` with `GraphData`, `GitData`, `FindingSnippet`). SVG generation in `reporters/svg/` (architecture map, treemap, bar chart). Narrative generation in `reporters/narrative.rs`. `ReportContext` struct in `reporters/report_context.rs`.
 
 8. **Config** (`repotoire-cli/src/config/`): TOML (`repotoire.toml`), JSON (`.repotoirerc.json`), YAML (`.repotoire.yaml`). Per-detector settings, scoring weights, path exclusions, project type detection (web, library, framework, CLI, etc.). User config at `~/.config/repotoire/config.toml`.
 
@@ -145,9 +147,15 @@ During **Freeze**, `GraphPrimitives::compute()` runs Phase A algorithms (dominat
 
 12. **Predictive Coding** (`repotoire-cli/src/predictive/`): Hierarchical predictive coding engine applying Friston's free energy formalism to code analysis. Five hierarchy levels independently model "what's normal" and compute prediction errors (z-scores): L1 Token (per-language n-gram), L2 Structural (Mahalanobis distance on function feature vectors), L1.5 Dependency Chain (surprisal along call-graph paths), L3 Relational (per-edge-type node2vec embeddings + kNN cosine distance), L4 Architectural (module-level distributional outlier detection). Severity driven by concordance (how many levels agree something is surprising) with precision-weighted aggregation.
 
-### Detector Suite (107 Pure Rust Detectors)
+13. **Telemetry** (`repotoire-cli/src/telemetry/`): Optional, privacy-respecting telemetry via PostHog. Respects `DO_NOT_TRACK` and `REPOTOIRE_TELEMETRY` env vars. First-run opt-in prompt. Modules: `events.rs` (event tracking), `posthog.rs` (PostHog API), `config.rs` (telemetry state/opt-in), `display.rs` (terminal display), `benchmarks.rs` (ecosystem benchmark display from R2 CDN), `cache.rs` (cache stats), `repo_shape.rs` (repository shape analysis). Controlled via `repotoire config telemetry on/off/status`.
 
-All detectors are built-in Rust with zero external dependencies. Grouped by category:
+### Detector Suite (106 Pure Rust Detectors)
+
+Detectors are split into two tiers based on real-world signal analysis (9,469 merged PRs from 98 repos):
+- **Default (73)**: Security, bugs, performance, architecture — high-value detectors that always run
+- **Deep-scan (33)**: Code smells, style, dead code — run with `--all-detectors`
+
+Grouped by category:
 
 | Category | Count | Examples |
 |----------|-------|---------|
@@ -192,7 +200,7 @@ All detectors are built-in Rust with zero external dependencies. Grouped by cate
 ### Why Three-Category Scoring?
 - Holistic view: Structure (40%) + Quality (30%) + Architecture (30%)
 - Maps to specific, actionable improvements
-- Density-normalized: penalties scale by kLOC so project size doesn't bias scores
+- Flat severity weights (Critical=5, High=2, Medium=0.5, Low=0.1) — no density normalization, so scores differentiate between projects (e.g., fd=96(A), repotoire=92(A-), flask=85(B))
 
 ## Incremental Analysis
 
@@ -314,13 +322,16 @@ cargo test detectors::god_class
 - petgraph in-memory graph with redb persistence
 - String interning via lasso for memory efficiency
 - 9 tree-sitter language parsers (Python, TypeScript/JavaScript, Rust, Go, Java, C#, C, C++, lightweight fallback)
-- 107 pure Rust detectors across 14 categories — zero external tool dependencies
+- 106 pure Rust detectors: 73 default (security, bugs, perf, architecture) + 33 deep-scan (`--all-detectors`)
 - SSA-based taint analysis for security detectors
-- Three-pillar health scoring with density normalization and graph-derived bonuses
+- Three-pillar health scoring with flat severity weights (Critical=5, High=2, Medium=0.5, Low=0.1) and graph-derived bonuses
 - Compound smell escalation (arXiv:2509.03896)
 - Adaptive threshold calibration with n-gram surprisal
 - Findings-level incremental cache with auto-detection
 - 5 report formats (text, JSON, HTML, SARIF 2.1.0, Markdown)
+- **Redesigned text output**: themed "What stands out" + "Quick wins" sections, score delta on subsequent runs, first-run tips
+- **Graph-powered HTML report**: SVG architecture map, hotspot treemap, bus factor visualization, narrative story generator, finding cards with inline code snippets, README badge snippet
+- **ReportContext pipeline**: `ReportContext` struct with `GraphData`, `GitData`, `FindingSnippet` for rich reporting via `report_with_context()`
 - Git history integration via git2 (churn, blame, commits, co-change)
 - File watching with real-time re-analysis
 - Inline suppression (`repotoire:ignore` / `repotoire:ignore[detector]`)
@@ -330,11 +341,15 @@ cargo test detectors::god_class
 - Formal verification of scoring algorithms (Lean 4)
 - **Graph Primitives Engine (Phase A)**: Pre-computed dominator trees, articulation points, PageRank, betweenness centrality, call-graph SCCs, BFS call depths — all O(1) from detectors. 3 detectors: SPOF, mutual recursion, bridge risk.
 - **Weighted Graph Engine (Phase B)**: Git co-change temporal weights (`CoChangeMatrix`), weighted overlay graph, weighted PageRank, Dijkstra-based weighted betweenness, Louvain community detection. 4 detectors: hidden coupling, community misplacement, PageRank drift, temporal bottleneck.
+- **Telemetry & benchmarks**: Optional PostHog telemetry, ecosystem benchmarks from 56 open-source repos on R2 CDN, `repotoire benchmark` command, `repotoire config telemetry on/off/status`
+- **`--relaxed` deprecated**: replaced by `--severity high` (deprecation warning shown)
+
+- **GitHub Action**: `Zach-hammad/repotoire-action@v1` (separate repo) — composite action with PR diff mode, PR commenting, SARIF upload, quality gates
 
 ### Planned
 - Web dashboard
 - IDE plugins (VS Code, JetBrains)
-- GitHub Actions integration
+- GitHub App (check run annotations)
 - Custom rule engine
 - Team analytics
 

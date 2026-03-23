@@ -1,6 +1,6 @@
 # Repotoire Product Roadmap
 
-*Last updated: 2026-02-06*
+*Last updated: 2026-03-21*
 
 This roadmap synthesizes findings from UX review, technical debt audit, competitive strategy analysis, and security assessment.
 
@@ -16,59 +16,60 @@ While AI coding tools make developers faster, they also introduce 4x more code d
 
 ---
 
-## Q1 2026: Foundation
+## Recently Shipped (Q1 2026)
 
-### 🚀 Immediate (This Week)
+### ✅ Telemetry & Ecosystem Benchmarks (March 2026)
+- PostHog event tracking (opt-in, respects DO_NOT_TRACK)
+- Pre-computed benchmarks from 56 open-source repos on R2 CDN (benchmarks.repotoire.com)
+- `repotoire benchmark` command — compare scores against ecosystem
+- `repotoire config telemetry on/off/status`
 
-| Priority | Task | Status | Owner |
-|----------|------|--------|-------|
-| P0 | PyPI release with manylinux wheels | 🔄 Building | CI |
-| P0 | Roll exposed Stripe + Fly tokens | ⏳ Pending | Zach |
-| P0 | Webhook secret fail-closed | ⏳ Pending | - |
+### ✅ Detector Noise Reduction (March 2026)
+- Analyzed 9,469 merged PRs from 98 repos to determine which detectors produce actionable findings
+- Split 106 detectors into 73 default (security, bugs, perf, architecture) + 33 deep (`--all-detectors`)
+- Rearchitected 9 noisy detectors (ShotgunSurgery→ChangeCoupling, LazyClass→RedundantClass, AIComplexitySpike→ComplexityOutlier, etc.)
+- Average findings: 1,526 → ~87 per repo
 
-### 📦 Short-Term (Weeks 1-4)
+### ✅ Scoring Recalibration (March 2026)
+- Replaced density-based penalties (findings/kLOC) with flat severity weights (Critical=5, High=2, Medium=0.5, Low=0.1)
+- Scores now differentiate: fd=96(A), repotoire=92(A-), flask=85(B)
 
-#### GitHub PR Integration (Table Stakes)
-**Why:** Every competitor has this. It's expected. Without it, we can't be part of the CI/CD workflow.
+### ✅ First Impression Experience (March 2026)
+- Redesigned text output: themed "What stands out" + "Quick wins" + score delta + first-run tips
+- Graph-powered HTML report: SVG architecture map, hotspot treemap, bus factor visualization, narrative story, finding cards with inline code snippets, README badge snippet
+- `ReportContext` pipeline with `GraphData`, `GitData`, `FindingSnippet` structs
+- `--relaxed` deprecated (replaced by `--severity high`)
 
-- [ ] GitHub App for PR status checks
-- [ ] `repotoire ci` command for GitHub Actions
-- [ ] Quality gate pass/fail based on grade threshold
-- [ ] PR comment with findings summary
-- [ ] Badge for README (health grade)
+---
 
-*Competitor context: Qlty, Codacy, SonarCloud all have this. Non-negotiable.*
+### ✅ Detector Language Audit (March 2026)
+- Audited 17 detector language-support gaps across all 9 languages
+- Added `bypass_postprocessor()` trait method for security detectors to skip GBDT false-positive filter
+- Fixed extension-loop scoping, content access patterns, cross-line context checks
+- 9 per-language integration test suites (97 tests, all passing)
+- Self-analysis dogfooding validation passing
 
-#### CLI UX Overhaul
-**Why:** User research shows confusion between `ingest` and `analyze`. First-run experience is unclear.
+### ✅ GitHub Action (March 2026)
+- Composite GitHub Action published as `Zach-hammad/repotoire-action@v1` (separate repo)
+- Inputs: `version`, `path`, `format`, `fail-on`, `diff-only`, `config`, `args`, `comment`
+- Outputs: `score`, `grade`, `findings-count`, `critical-count`, `high-count`, `sarif-file`, `json-file`, `exit-code`
+- PR diff mode: auto-detects `pull_request` events, runs `repotoire diff` against base SHA
+- PR commenting: posts summary table + top 5 findings, updates in place
+- SARIF upload compatible with `github/codeql-action/upload-sarif@v3`
+- JSON sidecar support (`--json-sidecar`) to avoid running analysis twice
+- 5 CI test jobs, release-please automation, floating `v1` tag
 
-**Changes:**
-| Current | New | Rationale |
-|---------|-----|-----------|
-| `ingest` is primary | `analyze` is primary | Users want to "analyze", not "ingest" |
-| Manual workflow discovery | `repotoire init` guides setup | Reduce time-to-value |
-| No status visibility | `repotoire status` shows state | Users need orientation |
-| Errors lack context | Rich error messages with fixes | Reduce support burden |
+---
 
-**New Commands:**
-```bash
-repotoire init          # Guided first-run setup
-repotoire status        # Show auth, last analysis, health summary
-repotoire doctor        # Diagnose environment issues
-```
+## Q1 2026: Foundation (Remaining)
 
-**Command Consolidation:**
-- `analyze` auto-ingests if no prior analysis exists
-- `ingest` becomes alias for `analyze --parse-only`
-- Add examples section to every `--help`
+### 📦 GitHub PR Integration (Remaining)
 
-#### Quick Technical Debt Wins
-**Why:** Low effort, high safety impact. Can ship alongside features.
-
-- [ ] Add logging to 30+ silent `except: pass` blocks (30 min)
-- [ ] Replace `print()` with `logger` in `graph/schema.py` (15 min)
-- [ ] Standardize short flags (`-q` = quiet, `-o` = output, `-f` = format)
-- [ ] Document shell completion in `--help`
+- [ ] GitHub App for PR status checks (check run annotations — requires GitHub App, not just Actions)
+- [x] GitHub Action for CI (`Zach-hammad/repotoire-action@v1`)
+- [x] Quality gate pass/fail based on grade threshold (`fail-on` input)
+- [x] PR comment with findings summary (`comment` input)
+- [x] Badge for README (health grade) — shipped as part of HTML report
 
 ---
 
@@ -164,47 +165,15 @@ repotoire doctor        # Diagnose environment issues
 
 ## Technical Debt Paydown Plan
 
-### High Priority (Q1)
+*Note: The Python-era monolith problems (39k LOC cli/__init__.py, etc.) were resolved during the Rust rewrite. The current codebase is well-modularized — largest file is `graph/primitives.rs` at 2,726 LOC.*
+
+### Current Priorities
 
 | Task | Location | Effort | Impact |
 |------|----------|--------|--------|
-| Split CLI monolith | `cli/__init__.py` (6,835 lines) | 4-6 hrs | Maintainability |
-| Extract `analyze()` helpers | `cli/__init__.py:1442` | 2 hrs | Testability |
-| Extract `preview_fix()` helpers | `api/v1/routes/fixes.py:1173` | 1.5 hrs | Testability |
-| Split `_init_schema()` | `graph/kuzu_client.py` (240 lines) | 1 hr | Readability |
-
-### Medium Priority (Q2)
-
-| Task | Location | Effort | Impact |
-|------|----------|--------|--------|
-| Remove deprecated `FalkorDBNode2VecEmbedder` | `ml/node2vec_embeddings.py` | 30 min | Cleanup |
-| Standardize typing (Python 3.9+) | Multiple files | 1-2 hrs | Consistency |
-| Address notification TODOs | `api/v1/routes/admin/*.py` | 2-4 hrs | Features |
-| Audit `# type: ignore` comments | Multiple files | 1 hr | Type safety |
-
-### CLI Module Split Plan
-
-```
-cli/
-├── __init__.py          # Main CLI group, lazy imports
-├── commands/
-│   ├── auth.py          # login, logout, whoami, token
-│   ├── analysis.py      # analyze, ingest, sync
-│   ├── graph.py         # schema, inspect, visualize, query
-│   ├── ml.py            # embeddings, hotspots, similar
-│   ├── fixes.py         # auto_fix, fix_finding, preview
-│   ├── config.py        # config get/set/list
-│   └── admin.py         # internal/debug commands
-├── formatters/
-│   ├── table.py
-│   ├── json.py
-│   └── html.py
-├── utils/
-│   ├── console.py       # Rich console helpers
-│   ├── progress.py      # Progress bars
-│   └── errors.py        # Error handling
-└── lazy.py              # Lazy import machinery
-```
+| Extract graph primitives phases | `graph/primitives.rs` (2,726 LOC) | 2 hrs | Readability — split Phase A / Phase B into separate files |
+| Extract graph building from CLI | `cli/analyze/graph.rs` (1,817 LOC) | 1-2 hrs | Testability — graph construction logic mixed with CLI concerns |
+| Simplify engine orchestration | `engine/mod.rs` (1,738 LOC) | 1-2 hrs | Readability — extract `build_report_context` helpers |
 
 ---
 
