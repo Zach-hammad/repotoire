@@ -82,7 +82,7 @@ const MAX_COMPLEXITY_DIST_BONUS: f64 = 0.05; // 5% max
 const MAX_TEST_COVERAGE_BONUS: f64 = 0.05; // 5% max
 
 /// Breakdown of a single pillar score
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PillarBreakdown {
     /// Pillar name
     pub name: String,
@@ -101,7 +101,7 @@ pub struct PillarBreakdown {
 }
 
 /// Complete score breakdown for transparency
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScoreBreakdown {
     /// Overall health score (0-100+)
     pub overall_score: f64,

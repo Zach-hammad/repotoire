@@ -13,7 +13,7 @@ mod graph;
 mod init;
 mod status;
 mod tui;
-mod watch;
+pub mod watch;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
