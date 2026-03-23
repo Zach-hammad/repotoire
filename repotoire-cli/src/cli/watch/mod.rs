@@ -81,14 +81,29 @@ pub fn run(
     let score_start = initial_result.score.overall;
 
     // Event loop
+    let mut last_analysis = std::time::Instant::now() - Duration::from_secs(10);
+    let cooldown = Duration::from_secs(1);
+
     while let Ok(events) = rx.recv() {
-        let changed = filter.collect_changed(&events);
+        // Drain any additional pending events to batch them together
+        let mut all_events = events;
+        while let Ok(more) = rx.try_recv() {
+            all_events.extend(more);
+        }
+
+        let changed = filter.collect_changed(&all_events);
         if changed.is_empty() {
+            continue;
+        }
+
+        // Cooldown: skip if we just analyzed less than 1 second ago
+        if last_analysis.elapsed() < cooldown {
             continue;
         }
 
         files_changed_total += changed.len() as u64;
         reanalysis_count += 1;
+        last_analysis = std::time::Instant::now();
 
         match engine.reanalyze(&changed) {
             WatchReanalysis::Delta(delta) => {
