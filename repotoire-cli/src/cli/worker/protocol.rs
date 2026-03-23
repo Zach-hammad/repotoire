@@ -83,6 +83,7 @@ pub enum Event {
     Unchanged {
         id: Option<u64>,
         score: f64,
+        grade: String,
         total_findings: usize,
         elapsed_ms: u64,
     },

@@ -100,6 +100,7 @@ impl WorkerHandler {
                 vec![Event::Unchanged {
                     id: Some(id),
                     score: last.map(|r| r.score.overall).unwrap_or(0.0),
+                    grade: last.map(|r| r.score.grade.clone()).unwrap_or_default(),
                     total_findings: last.map(|r| r.findings.len()).unwrap_or(0),
                     elapsed_ms: 0,
                 }]

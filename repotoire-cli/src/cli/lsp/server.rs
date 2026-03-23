@@ -245,9 +245,9 @@ impl Backend {
                         )
                         .await;
                     }
-                    Event::Unchanged { score, total_findings, .. } => {
+                    Event::Unchanged { score, grade, total_findings, .. } => {
                         // No diagnostic changes, but still send score update
-                        send_score_update(&client, score, "", None, total_findings).await;
+                        send_score_update(&client, score, &grade, None, total_findings).await;
                     }
                     Event::Progress {
                         stage,
