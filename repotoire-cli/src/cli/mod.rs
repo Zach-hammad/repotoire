@@ -336,10 +336,18 @@ Examples:
     ///
     /// Monitors your codebase for saves and runs detectors on changed files.
     /// Uses debouncing to avoid re-running on every keystroke.
+    /// Watch for file changes and re-analyze in real-time (debounced, incremental)
+    ///
+    /// Monitors your codebase for saves and runs detectors on changed files.
+    /// Uses debouncing to avoid re-running on every keystroke.
     Watch {
-        /// Only show high/critical findings
+        /// Minimum severity to display: critical, high, medium, low
+        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
+        severity: Option<String>,
+
+        /// Run all detectors including deep-scan (code smells, style, dead code)
         #[arg(long)]
-        relaxed: bool,
+        all_detectors: bool,
     },
 
     /// Calibrate adaptive thresholds from your codebase
@@ -644,7 +652,9 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
 
         Some(Commands::Doctor) => doctor::run(),
 
-        Some(Commands::Watch { relaxed }) => watch::run(&cli.path, relaxed, false, false, &telemetry),
+        Some(Commands::Watch { severity, all_detectors }) => {
+            watch::run(&cli.path, severity.as_deref(), all_detectors, cli.workers, false, false, &telemetry)
+        }
         Some(Commands::Calibrate) => run_calibrate(&cli.path),
         Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
 
