@@ -159,6 +159,11 @@ impl DiagnosticMap {
         self.map.keys().cloned().collect()
     }
 
+    /// Clear all diagnostics (used when the worker fails permanently).
+    pub fn clear(&mut self) {
+        self.map.clear();
+    }
+
     /// Get the finding at a specific line (1-indexed) for hover/code actions.
     pub fn find_at(&self, uri: &Url, line_1indexed: u32) -> Vec<&Finding> {
         self.map

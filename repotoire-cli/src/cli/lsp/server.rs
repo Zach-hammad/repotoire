@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
+use tower_lsp::lsp_types::notification::Progress;
+use tower_lsp::lsp_types::request::WorkDoneProgressCreate;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
@@ -58,6 +60,9 @@ impl Backend {
         let worker_state = self.worker_state.clone();
 
         tokio::spawn(async move {
+            // Track whether the LSP progress token has been created yet.
+            let mut progress_token_created = false;
+
             loop {
                 // Read one event from the worker in a blocking thread
                 let ws = worker_state.clone();
@@ -73,8 +78,79 @@ impl Backend {
 
                 let event = match event {
                     Ok(Some(ev)) => ev,
-                    Ok(None) => break, // Worker exited
-                    Err(_) => break,   // spawn_blocking panicked
+                    Ok(None) | Err(_) => {
+                        // Worker exited or spawn_blocking panicked — attempt crash recovery
+                        tracing::error!("repotoire worker exited unexpectedly");
+                        client
+                            .show_message(
+                                MessageType::WARNING,
+                                "repotoire worker crashed — attempting restart",
+                            )
+                            .await;
+
+                        // Check restart limit inside the blocking lock
+                        let ws = worker_state.clone();
+                        let workspace_root = {
+                            let state = worker_state.lock().await;
+                            state.workspace_root.clone()
+                        };
+                        let should_restart = tokio::task::spawn_blocking(move || {
+                            let mut state = ws.blocking_lock();
+                            state.worker.should_restart()
+                        })
+                        .await
+                        .unwrap_or(false);
+
+                        if should_restart {
+                            // Sleep 2 seconds before respawning
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                            // Respawn worker and re-send init
+                            let ws = worker_state.clone();
+                            let spawn_result = tokio::task::spawn_blocking(move || {
+                                let mut state = ws.blocking_lock();
+                                state.worker.kill();
+                                state.worker.spawn().and_then(|_| {
+                                    state.worker.send_init(workspace_root.as_ref()).map(|_| ())
+                                })
+                            })
+                            .await;
+
+                            match spawn_result {
+                                Ok(Ok(())) => {
+                                    tracing::info!("repotoire worker restarted successfully");
+                                    // Reset progress token so it gets re-created on next progress event
+                                    progress_token_created = false;
+                                    continue; // Resume the reader loop
+                                }
+                                _ => {
+                                    tracing::error!("repotoire worker failed to restart");
+                                }
+                            }
+                        }
+
+                        // Exceeded retry limit or failed to restart — give up
+                        client
+                            .show_message(
+                                MessageType::ERROR,
+                                "repotoire worker failed permanently — diagnostics cleared",
+                            )
+                            .await;
+
+                        // Clear all diagnostics
+                        let all_uris: Vec<Url> = {
+                            let diag_map = diagnostics.read().await;
+                            diag_map.all_uris()
+                        };
+                        for uri in all_uris {
+                            client.publish_diagnostics(uri, vec![], None).await;
+                        }
+                        {
+                            diagnostics.write().await.clear();
+                        }
+
+                        break;
+                    }
                 };
 
                 // Stale response filtering: discard responses to outdated requests.
@@ -156,12 +232,52 @@ impl Backend {
                         total,
                         ..
                     } => {
-                        // Forward progress as a log message
+                        let token = NumberOrString::String("repotoire-analysis".to_string());
+
+                        // Create the progress token on the first progress event
+                        if !progress_token_created {
+                            let _ = client
+                                .send_request::<WorkDoneProgressCreate>(
+                                    WorkDoneProgressCreateParams {
+                                        token: token.clone(),
+                                    },
+                                )
+                                .await;
+                            // Send Begin to open the progress UI
+                            client
+                                .send_notification::<Progress>(ProgressParams {
+                                    token: token.clone(),
+                                    value: ProgressParamsValue::WorkDone(
+                                        WorkDoneProgress::Begin(WorkDoneProgressBegin {
+                                            title: "Repotoire analysis".to_string(),
+                                            cancellable: Some(false),
+                                            message: None,
+                                            percentage: Some(0),
+                                        }),
+                                    ),
+                                })
+                                .await;
+                            progress_token_created = true;
+                        }
+
+                        // Compute percentage; guard against division by zero
+                        let percentage = if total > 0 {
+                            Some(((done as f64 / total as f64) * 100.0) as u32)
+                        } else {
+                            None
+                        };
+
                         client
-                            .log_message(
-                                MessageType::LOG,
-                                format!("repotoire: {} ({}/{})", stage, done, total),
-                            )
+                            .send_notification::<Progress>(ProgressParams {
+                                token,
+                                value: ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
+                                    WorkDoneProgressReport {
+                                        cancellable: Some(false),
+                                        message: Some(format!("{} ({}/{})", stage, done, total)),
+                                        percentage,
+                                    },
+                                )),
+                            })
                             .await;
                     }
                     Event::Error { message, .. } => {
