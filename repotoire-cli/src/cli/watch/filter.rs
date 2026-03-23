@@ -14,17 +14,32 @@ pub struct WatchFilter {
 
 impl WatchFilter {
     pub fn new(repo_path: &Path) -> Self {
-        let mut builder = ignore::gitignore::GitignoreBuilder::new(repo_path);
+        let repo_path = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(&repo_path);
 
-        // Walk directory tree for nested .gitignore and .repotoireignore files
-        for entry in ignore::WalkBuilder::new(repo_path)
+        // Add root .gitignore and .repotoireignore
+        let gitignore = repo_path.join(".gitignore");
+        if gitignore.exists() {
+            let _ = builder.add(&gitignore);
+        }
+        let repotoireignore = repo_path.join(".repotoireignore");
+        if repotoireignore.exists() {
+            let _ = builder.add(&repotoireignore);
+        }
+
+        // Walk subdirectories for nested ignore files
+        for entry in ignore::WalkBuilder::new(&repo_path)
             .hidden(false)
             .ignore(false)
             .git_ignore(false)
+            .max_depth(Some(10))
             .build()
             .flatten()
         {
             let path = entry.path();
+            if path == gitignore || path == repotoireignore {
+                continue; // already added
+            }
             if path.file_name() == Some(".gitignore".as_ref())
                 || path.file_name() == Some(".repotoireignore".as_ref())
             {
@@ -33,13 +48,13 @@ impl WatchFilter {
         }
 
         let matcher = builder.build().unwrap_or_else(|_| {
-            ignore::gitignore::GitignoreBuilder::new(repo_path)
+            ignore::gitignore::GitignoreBuilder::new(&repo_path)
                 .build()
                 .unwrap()
         });
 
         Self {
-            repo_path: repo_path.to_path_buf(),
+            repo_path,
             matcher,
         }
     }
@@ -54,8 +69,14 @@ impl WatchFilter {
             return false;
         }
 
-        let rel = path.strip_prefix(&self.repo_path).unwrap_or(path);
-        !self.matcher.matched(rel, path.is_dir()).is_ignore() && path.is_file()
+        // Canonicalize the path to match the canonicalized repo_path
+        let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let rel = abs.strip_prefix(&self.repo_path).unwrap_or(&abs);
+        !self
+            .matcher
+            .matched_path_or_any_parents(rel, path.is_dir())
+            .is_ignore()
+            && path.is_file()
     }
 
     /// Collect and deduplicate changed source files from notify events.
