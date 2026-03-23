@@ -634,10 +634,9 @@ impl AnalysisEngine {
         };
 
         // Detect topology change by comparing edge fingerprints.
-        // After load() from disk, precomputed is None — treat as topology changed
-        // since process-local Spur values make fingerprint comparison unreliable.
-        let topology_changed = prev_state.precomputed.is_none()
-            || prev_state.edge_fingerprint != frozen.edge_fingerprint;
+        // Edge fingerprints hash qualified name strings (not process-local Spur keys),
+        // so they are stable across save/load boundaries.
+        let topology_changed = prev_state.edge_fingerprint != frozen.edge_fingerprint;
 
         // Reuse precomputed data when topology is stable
         let cached_gd = if !topology_changed {

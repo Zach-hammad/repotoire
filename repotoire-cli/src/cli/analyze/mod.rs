@@ -51,8 +51,14 @@ pub fn run_engine(
     // Clear per-run caches (important for MCP long-running server)
     crate::parsers::clear_structural_fingerprint_cache();
 
-    // Create engine and run analysis
-    let mut engine = crate::engine::AnalysisEngine::new(path)?;
+    // Try to load a previously saved session for incremental analysis;
+    // fall back to a fresh engine on any failure (version mismatch, missing files, etc.)
+    let canon_for_session = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let session_dir = crate::cache::paths::cache_dir(&canon_for_session).join("session");
+    let mut engine = match crate::engine::AnalysisEngine::load(&session_dir, path) {
+        Ok(e) => e,
+        Err(_) => crate::engine::AnalysisEngine::new(path)?,
+    };
     let result = engine.analyze(&config)?;
 
     let mode_label = match &result.stats.mode {
@@ -479,6 +485,9 @@ pub fn run_engine(
             let _ = cache_results(&repotoire_dir, &health_report, &all_findings_clone);
         });
     }
+
+    // Persist engine session for cross-process incremental analysis
+    let _ = engine.save(&session_dir);
 
     // CI/CD threshold check
     check_fail_threshold(&output.fail_on, &report)?;
