@@ -796,9 +796,18 @@ pub fn finding_to_diagnostic(finding: &Finding) -> Diagnostic {
     }
 }
 
-/// Convert a file path to a URI.
+/// Convert a file path to a URI. Handles relative paths by canonicalizing.
+/// Finding.affected_files may contain relative paths (e.g., "src/main.rs").
 pub fn path_to_uri(path: &PathBuf) -> Option<Url> {
-    Url::from_file_path(path).ok()
+    // Try as-is first (absolute paths)
+    Url::from_file_path(path)
+        .or_else(|_| {
+            // Relative path — canonicalize to make absolute
+            path.canonicalize()
+                .map_err(|_| ())
+                .and_then(|abs| Url::from_file_path(abs))
+        })
+        .ok()
 }
 
 /// Manages the diagnostic state: maps file URIs to their current diagnostics.
@@ -899,17 +908,17 @@ impl DiagnosticMap {
         self.map.keys().cloned().collect()
     }
 
-    /// Get the finding at a specific URI and line (for hover/code actions).
-    pub fn find_at(&self, uri: &Url, line: u32) -> Vec<&Finding> {
+    /// Get the finding at a specific line (1-indexed) for hover/code actions.
+    pub fn find_at(&self, uri: &Url, line_1indexed: u32) -> Vec<&Finding> {
         self.map
             .get(uri)
             .map(|entries| {
                 entries
                     .iter()
                     .filter(|(f, _)| {
-                        let start = f.line_start.unwrap_or(0);
+                        let start = f.line_start.unwrap_or(1);
                         let end = f.line_end.unwrap_or(start);
-                        line >= start.saturating_sub(1) && line <= end
+                        line_1indexed >= start && line_1indexed <= end
                     })
                     .map(|(f, _)| f)
                     .collect()
@@ -1365,12 +1374,14 @@ impl WorkerClient {
         Ok(())
     }
 
-    /// Send the init command and return the next request ID.
-    pub fn send_init(&mut self) -> Result<u64> {
+    /// Send the init command. Uses the provided path (workspace root from LSP),
+    /// falling back to the CLI path if not provided.
+    pub fn send_init(&mut self, workspace_root: Option<&PathBuf>) -> Result<u64> {
         let id = self.next_id();
+        let path = workspace_root.cloned().unwrap_or_else(|| self.repo_path.clone());
         let cmd = protocol::Command::Init {
             id,
-            path: self.repo_path.clone(),
+            path,
             config: self.config.clone(),
         };
         self.send_command(&cmd)?;
@@ -1639,12 +1650,11 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        // Spawn worker and send init
+        // Spawn worker and send init with the workspace root from initialize()
         let mut state = self.worker_state.lock().await;
-        if let Some(_root) = &state.workspace_root {
-            let _ = state.worker.spawn();
-            let _ = state.worker.send_init();
-        }
+        let root = state.workspace_root.clone();
+        let _ = state.worker.spawn();
+        let _ = state.worker.send_init(root.as_ref());
         drop(state);
 
         // Start reading worker events
@@ -1669,8 +1679,9 @@ impl LanguageServer for Backend {
         if let Ok(path) = uri.to_file_path() {
             let mut state = self.worker_state.lock().await;
             state.pending_files.insert(path);
-            // TODO: debounce — flush pending_files after 200ms
-            // For now, flush immediately
+            // TODO: debounce — flush pending_files after 200ms (Task 11)
+            // WARNING: send_analyze is sync I/O — must use spawn_blocking in production.
+            // This skeleton flushes immediately for simplicity; Task 11 adds proper debounce.
             let files: Vec<PathBuf> = state.pending_files.drain().collect();
             if let Ok(id) = state.worker.send_analyze(files) {
                 state.latest_request_id = id;
