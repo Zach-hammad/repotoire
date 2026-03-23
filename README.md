@@ -55,21 +55,30 @@ N+1 queries · Sync in async · String concat in loops · Regex compilation in l
 ## Install
 
 ```bash
+# Quick install (Linux/macOS — downloads latest binary)
+curl -fsSL https://raw.githubusercontent.com/Zach-hammad/repotoire/main/scripts/install.sh | bash
+
 # From crates.io (requires Rust toolchain)
 cargo install repotoire
+
+# Homebrew (macOS)
+brew tap Zach-hammad/repotoire
+brew install repotoire
 
 # From source
 git clone https://github.com/Zach-hammad/repotoire
 cd repotoire/repotoire-cli
 cargo build --release
+```
 
-# Binary download (Linux x86_64)
-curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
-sudo mv repotoire /usr/local/bin/
+### Editor Integration
 
-# Homebrew (macOS)
-brew tap Zach-hammad/repotoire
-brew install repotoire
+```bash
+# VS Code — install the extension
+code --install-extension packages/vscode-repotoire/repotoire-0.1.0.vsix
+
+# Any editor — configure your LSP client to run:
+repotoire lsp
 ```
 
 ## Usage
