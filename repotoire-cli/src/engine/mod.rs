@@ -1772,4 +1772,60 @@ def greet(name):
         // previous_health should be None (first run)
         assert!(ctx.previous_health.is_none());
     }
+
+    #[test]
+    fn test_full_incremental_pipeline_correctness() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("main.py"),
+            "import helper\n\ndef main():\n    helper.greet()\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("helper.py"),
+            "def greet():\n    print('hello')\n",
+        )
+        .unwrap();
+
+        let config = AnalysisConfig {
+            no_git: true,
+            ..Default::default()
+        };
+
+        // Cold analysis
+        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let cold_result = engine.analyze(&config).unwrap();
+        assert!(matches!(cold_result.stats.mode, AnalysisMode::Cold));
+        let cold_files = cold_result.stats.files_analyzed;
+        assert!(cold_files >= 2);
+        let cold_score = cold_result.score.overall;
+        let cold_findings_count = cold_result.findings.len();
+
+        // Save
+        let session_dir = tempfile::tempdir().unwrap();
+        engine.save(session_dir.path()).unwrap();
+
+        // No changes → should be Cached
+        let mut engine2 = AnalysisEngine::load(session_dir.path(), dir.path()).unwrap();
+        let cached_result = engine2.analyze(&config).unwrap();
+        assert!(matches!(cached_result.stats.mode, AnalysisMode::Cached));
+        assert_eq!(cached_result.score.overall, cold_score);
+        assert_eq!(cached_result.findings.len(), cold_findings_count);
+
+        // Modify one file → should be Incremental
+        std::fs::write(
+            dir.path().join("helper.py"),
+            "def greet():\n    print('hello world')\n\ndef farewell():\n    print('bye')\n",
+        )
+        .unwrap();
+
+        let mut engine3 = AnalysisEngine::load(session_dir.path(), dir.path()).unwrap();
+        let incr_result = engine3.analyze(&config).unwrap();
+        assert!(matches!(
+            incr_result.stats.mode,
+            AnalysisMode::Incremental { .. }
+        ));
+        assert!(incr_result.score.overall > 0.0);
+        assert_eq!(incr_result.stats.files_analyzed, cold_files);
+    }
 }
