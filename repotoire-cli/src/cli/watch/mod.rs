@@ -5,12 +5,12 @@
 
 pub mod delta;
 pub mod display;
+pub mod filter;
 
 use anyhow::Result;
 use console::style;
 use notify::RecursiveMode;
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -19,14 +19,9 @@ use crate::engine::{AnalysisConfig, AnalysisEngine};
 use crate::models::Severity;
 use delta::compute_delta;
 
-/// Supported source file extensions
-const WATCH_EXTENSIONS: &[&str] = &[
-    "rs", "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "go", "java", "c", "h", "cpp",
-    "cc", "cxx", "hpp", "cs", "kt", "kts",
-];
-
 pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
     let repo_path = std::fs::canonicalize(path)?;
+    let filter = filter::WatchFilter::new(&repo_path);
     let session_start = std::time::Instant::now();
 
     // Deprecation warning for --relaxed
@@ -98,20 +93,7 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool, telemetry: &
     // Main event loop
     while let Ok(events) = rx.recv() {
         // Collect unique changed source files
-        let changed_files: Vec<PathBuf> = events
-            .iter()
-            .flat_map(|event| event.paths.iter())
-            .filter(|p| {
-                p.extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|ext| WATCH_EXTENSIONS.contains(&ext))
-                    && !is_ignored_path(p, &repo_path)
-                    && p.is_file()
-            })
-            .cloned()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
+        let changed_files: Vec<PathBuf> = filter.collect_changed(&events);
 
         if changed_files.is_empty() {
             continue;
@@ -181,19 +163,4 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool, telemetry: &
     Ok(())
 }
 
-/// Check if path should be ignored (build dirs, node_modules, etc.)
-fn is_ignored_path(path: &Path, repo_path: &Path) -> bool {
-    let rel = path.strip_prefix(repo_path).unwrap_or(path);
-    let rel_str = rel.to_string_lossy();
-
-    rel_str.contains("target/")
-        || rel_str.contains("node_modules/")
-        || rel_str.contains(".git/")
-        || rel_str.contains(".repotoire/")
-        || rel_str.contains("__pycache__/")
-        || rel_str.contains(".next/")
-        || rel_str.contains("dist/")
-        || rel_str.contains("build/")
-        || rel_str.starts_with('.')
-}
 
