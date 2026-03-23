@@ -1,0 +1,57 @@
+{
+  "name": "repotoire",
+  "displayName": "Repotoire",
+  "description": "Graph-powered code analysis — inline diagnostics, code actions, and health scoring",
+  "version": "0.1.0",
+  "publisher": "repotoire",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Zach-hammad/repotoire"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:python",
+    "onLanguage:typescript",
+    "onLanguage:javascript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascriptreact",
+    "onLanguage:rust",
+    "onLanguage:go",
+    "onLanguage:java",
+    "onLanguage:c",
+    "onLanguage:cpp",
+    "onLanguage:csharp"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Repotoire",
+      "properties": {
+        "repotoire.path": {
+          "type": "string",
+          "default": "repotoire",
+          "description": "Path to the repotoire binary"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}
