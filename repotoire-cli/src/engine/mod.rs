@@ -523,7 +523,7 @@ impl AnalysisEngine {
 
         // Take the previous state (we'll put it back at the end)
         let prev_state = self.state.take().expect("incremental requires state");
-        let prev_co_change = prev_state.co_change;
+        let mut prev_co_change = prev_state.co_change;
 
         // Evict changed files from the global file cache so detectors read fresh content
         crate::cache::global_cache().evict(&delta_files);
@@ -537,54 +537,90 @@ impl AnalysisEngine {
             })
         })?;
 
-        // Stage 3: Graph — patch existing mutable graph with delta.
-        // If no mutable_graph is cached (e.g., after load from disk), rebuild from scratch.
-        let mutable_graph = prev_state.mutable_graph.unwrap_or_else(|| {
-            // Rebuild a mutable GraphStore from the frozen CodeGraph.
-            // This is a clone + rebuild, but only happens on the first incremental
-            // run after a load() from disk.
-            let store = crate::graph::GraphStore::in_memory();
-            // We can't easily reconstruct a GraphStore from a CodeGraph without
-            // re-inserting all nodes/edges, so fall back to a cold rebuild.
-            // The incremental path will still work correctly — it just re-adds
-            // the new parse results to a fresh graph.
-            Arc::new(store)
-        });
-
-        let graph_out = timed(&mut timings, "graph", || {
-            graph::graph_patch_stage(&graph::GraphPatchInput {
-                mutable_graph,
-                changed_files: &changes.changed,
-                removed_files: &changes.removed,
-                new_parse_results: &parse_out.results,
-                repo_path: &self.repo_path,
-            })
-        })?;
-
-        // Stage 4: Git enrich — enrich the patched mutable graph
-        let git_out = if !config.no_git {
-            timed(&mut timings, "git_enrich", || {
-                git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
+        // Stage 3+4+freeze: Graph patch, git enrich, and freeze.
+        // Two paths depending on whether a mutable GraphStore is cached.
+        let (frozen, file_churn, co_change, mutable_for_state) = if let Some(mutable_graph) = prev_state.mutable_graph {
+            // Path A: In-process incremental (mutable GraphStore available)
+            let graph_out = timed(&mut timings, "graph", || {
+                graph::graph_patch_stage(&graph::GraphPatchInput {
+                    mutable_graph,
+                    changed_files: &changes.changed,
+                    removed_files: &changes.removed,
+                    new_parse_results: &parse_out.results,
                     repo_path: &self.repo_path,
-                    graph: &graph_out.mutable_graph,
-                    co_change_config: self.project_config.co_change.to_runtime(),
                 })
-            })?
+            })?;
+
+            let git_out = if !config.no_git {
+                timed(&mut timings, "git_enrich", || {
+                    git_enrich::git_enrich_stage(&git_enrich::GitEnrichInput {
+                        repo_path: &self.repo_path,
+                        graph: &graph_out.mutable_graph,
+                        co_change_config: self.project_config.co_change.to_runtime(),
+                    })
+                })?
+            } else {
+                git_enrich::GitEnrichOutput::skipped()
+            };
+
+            let file_churn = Arc::new(git_out.file_churn);
+            let co_change = if config.no_git { prev_co_change.take() } else { Some(git_out.co_change_matrix) };
+
+            let frozen = timed(&mut timings, "freeze", || {
+                graph::freeze_graph(
+                    &graph_out.mutable_graph,
+                    graph_out.value_store,
+                    co_change.as_ref(),
+                )
+            });
+
+            (frozen, file_churn, co_change, Some(graph_out.mutable_graph))
         } else {
-            git_enrich::GitEnrichOutput::skipped()
+            // Path B: After-load — round-trip CodeGraph via GraphBuilder (zero-copy when possible)
+            let prev_graph = prev_state.graph; // move Arc<CodeGraph> out of prev_state
+
+            let builder = timed(&mut timings, "graph", || {
+                let mut b = match Arc::try_unwrap(prev_graph) {
+                    Ok(graph) => graph.into_builder(),      // zero-copy
+                    Err(arc) => arc.clone_into_builder(),    // fallback clone
+                };
+                let rel_changed: Vec<std::path::PathBuf> = changes.changed.iter()
+                    .filter_map(|p| p.strip_prefix(&self.repo_path).ok().map(|r| r.to_path_buf()))
+                    .collect();
+                let rel_removed: Vec<std::path::PathBuf> = changes.removed.iter()
+                    .filter_map(|p| p.strip_prefix(&self.repo_path).ok().map(|r| r.to_path_buf()))
+                    .collect();
+                graph_builder_patch::patch_builder(
+                    &mut b,
+                    &rel_changed,
+                    &rel_removed,
+                    &parse_out.results,
+                );
+                b
+            });
+
+            // Skip full git enrich — loaded graph already has git data for unchanged files.
+            // Compute file churn (lightweight) for detectors.
+            let file_churn = Arc::new(if !config.no_git {
+                timed(&mut timings, "git_enrich", || {
+                    git_enrich::compute_file_churn(&self.repo_path)
+                })
+            } else {
+                std::collections::HashMap::new()
+            });
+
+            let co_change = prev_co_change.take();
+
+            let frozen = timed(&mut timings, "freeze", || {
+                graph::freeze_builder(
+                    builder,
+                    None,
+                    co_change.as_ref(),
+                )
+            });
+
+            (frozen, file_churn, co_change, None)
         };
-
-        // Extract file churn before moving git_out fields
-        let file_churn = Arc::new(git_out.file_churn);
-
-        // Freeze: convert mutable GraphStore → immutable CodeGraph with indexes
-        let frozen = timed(&mut timings, "freeze", || {
-            graph::freeze_graph(
-                &graph_out.mutable_graph,
-                graph_out.value_store,
-                Some(&git_out.co_change_matrix),
-            )
-        });
 
         // Stage 5: Calibrate — reuse cached style_profile, rebuild ngram if None
         let style_profile = prev_state.style_profile;
@@ -695,9 +731,9 @@ impl AnalysisEngine {
                 .collect(),
             source_files: all_files,
             graph: frozen.graph,
-            mutable_graph: Some(graph_out.mutable_graph),
+            mutable_graph: mutable_for_state,
             edge_fingerprint: frozen.edge_fingerprint,
-            co_change: if config.no_git { prev_co_change } else { Some(git_out.co_change_matrix) },
+            co_change,
             precomputed: Some(detect_out.precomputed),
             style_profile,
             ngram_model,
