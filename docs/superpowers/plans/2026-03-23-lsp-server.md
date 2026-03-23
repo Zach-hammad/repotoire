@@ -823,7 +823,10 @@ impl DiagnosticMap {
     }
 
     /// Set all diagnostics from a full findings list (used on `ready` event).
-    pub fn set_all(&mut self, findings: &[Finding]) {
+    /// Returns URIs that were removed (had diagnostics before, don't now).
+    /// The caller must publish empty diagnostics for these to clear stale underlines.
+    pub fn set_all(&mut self, findings: &[Finding]) -> Vec<Url> {
+        let old_uris: std::collections::HashSet<Url> = self.map.keys().cloned().collect();
         self.map.clear();
         for finding in findings {
             if let Some(path) = finding.affected_files.first() {
@@ -836,6 +839,11 @@ impl DiagnosticMap {
                 }
             }
         }
+
+        // Return URIs that had diagnostics before but don't now — caller must
+        // publish empty diagnostics for these to clear stale editor underlines.
+        let new_uris: std::collections::HashSet<Url> = self.map.keys().cloned().collect();
+        old_uris.difference(&new_uris).cloned().collect()
     }
 
     /// Fingerprint a finding for matching — same key as compute_delta uses.
@@ -1582,7 +1590,9 @@ impl Backend {
         });
     }
 
-    async fn publish_all_diagnostics(&self) {
+    /// Publish all diagnostics. `removed_uris` are files that no longer have
+    /// findings — we must publish empty diagnostics to clear stale underlines.
+    async fn publish_all_diagnostics(&self, removed_uris: Vec<Url>) {
         // Collect diagnostics under read lock, then publish outside the lock
         let to_publish: Vec<(Url, Vec<Diagnostic>)> = {
             let diag_map = self.diagnostics.read().await;
@@ -1598,6 +1608,10 @@ impl Backend {
         // Lock is dropped here — publish without holding it
         for (uri, diags) in to_publish {
             self.client.publish_diagnostics(uri, diags, None).await;
+        }
+        // Clear stale diagnostics for files that no longer have findings
+        for uri in removed_uris {
+            self.client.publish_diagnostics(uri, vec![], None).await;
         }
     }
 
