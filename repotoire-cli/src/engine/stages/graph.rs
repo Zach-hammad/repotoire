@@ -1,6 +1,7 @@
 //! Stage 3: Graph construction, patching, and freeze.
 
 use crate::git::co_change::CoChangeMatrix;
+use crate::graph::builder::GraphBuilder;
 use crate::graph::frozen::CodeGraph;
 use crate::graph::GraphStore;
 use crate::parsers::ParseResult;
@@ -145,5 +146,25 @@ pub fn graph_patch_stage(input: &GraphPatchInput) -> Result<GraphOutput> {
             mutable_graph: graph,
             value_store: None,
         })
+    }
+}
+
+/// Freeze a GraphBuilder into an immutable CodeGraph with pre-built indexes.
+pub fn freeze_builder(
+    builder: GraphBuilder,
+    value_store: Option<Arc<ValueStore>>,
+    co_change: Option<&CoChangeMatrix>,
+) -> FrozenGraphOutput {
+    let code_graph = if let Some(cc) = co_change {
+        builder.freeze_with_co_change(cc)
+    } else {
+        builder.freeze()
+    };
+    let edge_fingerprint = code_graph.edge_fingerprint();
+
+    FrozenGraphOutput {
+        graph: Arc::new(code_graph),
+        value_store,
+        edge_fingerprint,
     }
 }

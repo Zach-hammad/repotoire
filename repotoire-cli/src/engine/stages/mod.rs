@@ -8,6 +8,7 @@ pub mod collect;
 pub mod detect;
 pub mod git_enrich;
 pub mod graph;
+pub mod graph_builder_patch;
 pub mod parse;
 pub mod postprocess;
 pub mod score;
