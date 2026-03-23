@@ -805,8 +805,12 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
         }
 
         Some(Commands::Lsp) => {
-            // TODO: implement in Task 10
-            anyhow::bail!("LSP server not yet implemented")
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(crate::cli::lsp::run(
+                cli.path.clone(),
+                cli.workers,
+                false, // all_detectors default
+            ))
         }
 
         Some(Commands::Worker) => {
