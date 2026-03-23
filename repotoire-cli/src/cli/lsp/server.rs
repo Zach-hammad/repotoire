@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -21,6 +22,9 @@ pub struct Backend {
     /// Write-heavy state (worker communication, debounce).
     /// Separate from diagnostics to avoid contention.
     worker_state: Arc<Mutex<WorkerState>>,
+    /// Debounce generation counter. Incremented on every save.
+    /// The debounce task checks if the generation is still current after 200ms.
+    debounce_generation: Arc<AtomicU64>,
 }
 
 struct WorkerState {
@@ -41,6 +45,7 @@ impl Backend {
                 pending_files: HashSet::new(),
                 workspace_root: None,
             })),
+            debounce_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -71,6 +76,17 @@ impl Backend {
                     Ok(None) => break, // Worker exited
                     Err(_) => break,   // spawn_blocking panicked
                 };
+
+                // Stale response filtering: discard responses to outdated requests.
+                // Events with id: None are unsolicited (filesystem watcher) — never stale.
+                if let Some(event_id) = event.id() {
+                    let state = worker_state.lock().await;
+                    if event_id < state.latest_request_id {
+                        // Stale response — a newer analyze request has been issued since
+                        // this event was generated. Discard to avoid overwriting fresher results.
+                        continue;
+                    }
+                }
 
                 match event {
                     Event::Ready {
@@ -288,15 +304,46 @@ impl LanguageServer for Backend {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
         if let Ok(path) = uri.to_file_path() {
-            let mut state = self.worker_state.lock().await;
-            state.pending_files.insert(path);
-            // TODO: debounce — flush pending_files after 200ms (Task 11)
-            // WARNING: send_analyze is sync I/O — must use spawn_blocking in production.
-            // This skeleton flushes immediately for simplicity; Task 11 adds proper debounce.
-            let files: Vec<PathBuf> = state.pending_files.drain().collect();
-            if let Ok(id) = state.worker.send_analyze(files) {
-                state.latest_request_id = id;
+            // Add file to pending set
+            {
+                let mut state = self.worker_state.lock().await;
+                state.pending_files.insert(path);
             }
+
+            // Increment debounce generation to cancel any in-flight debounce task
+            let gen = self.debounce_generation.fetch_add(1, Ordering::SeqCst) + 1;
+
+            // Clone Arcs for the debounce task
+            let debounce_gen = self.debounce_generation.clone();
+            let worker_state = self.worker_state.clone();
+
+            // Spawn a debounce task: wait 200ms, then flush if no newer save arrived
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+                // Check if our generation is still current (no newer save arrived)
+                if debounce_gen.load(Ordering::SeqCst) != gen {
+                    return; // A newer save arrived — let that task flush instead
+                }
+
+                // Flush pending files as one analyze command via spawn_blocking
+                let ws = worker_state.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let mut state = ws.blocking_lock();
+                    let files: Vec<PathBuf> = state.pending_files.drain().collect();
+                    if files.is_empty() {
+                        return None;
+                    }
+                    state.worker.send_analyze(files).ok()
+                })
+                .await;
+
+                // Update latest_request_id with the id returned by send_analyze
+                if let Ok(Some(id)) = result {
+                    let mut state = worker_state.lock().await;
+                    state.latest_request_id = id;
+                }
+            });
         }
     }
 
