@@ -3,6 +3,8 @@
 //! Watches your codebase and re-analyzes on file changes using
 //! `AnalysisEngine` for incremental analysis with cross-file context.
 
+pub mod delta;
+
 use anyhow::Result;
 use console::style;
 use notify::RecursiveMode;
@@ -12,77 +14,15 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::engine::{AnalysisConfig, AnalysisEngine, AnalysisResult};
-use crate::models::{Finding, Severity};
+use crate::engine::{AnalysisConfig, AnalysisEngine};
+use crate::models::Severity;
+use delta::{compute_delta, WatchDelta};
 
 /// Supported source file extensions
 const WATCH_EXTENSIONS: &[&str] = &[
     "rs", "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "go", "java", "c", "h", "cpp",
     "cc", "cxx", "hpp", "cs", "kt", "kts",
 ];
-
-/// Delta between two consecutive analysis results.
-struct WatchDelta {
-    new_findings: Vec<Finding>,
-    fixed_findings: Vec<Finding>,
-    total_findings: usize,
-    score: Option<f64>,
-    score_delta: Option<f64>,
-}
-
-/// Compute the delta between a new result and an optional previous result.
-fn compute_delta(result: &AnalysisResult, prev: Option<&AnalysisResult>) -> WatchDelta {
-    let score = Some(result.score.overall);
-    let total_findings = result.findings.len();
-
-    let Some(prev) = prev else {
-        // No previous result — everything is "new"
-        return WatchDelta {
-            new_findings: Vec::new(),
-            fixed_findings: Vec::new(),
-            total_findings,
-            score,
-            score_delta: None,
-        };
-    };
-
-    let score_delta = Some(result.score.overall - prev.score.overall);
-
-    // Build sets of finding fingerprints for comparison.
-    // A finding is identified by (detector, file, line_start).
-    let fingerprint = |f: &Finding| -> (String, Option<PathBuf>, Option<u32>) {
-        (
-            f.detector.clone(),
-            f.affected_files.first().cloned(),
-            f.line_start,
-        )
-    };
-
-    let prev_set: HashSet<_> = prev.findings.iter().map(&fingerprint).collect();
-    let curr_set: HashSet<_> = result.findings.iter().map(&fingerprint).collect();
-
-    let new_findings: Vec<Finding> = result
-        .findings
-        .iter()
-        .filter(|f| !prev_set.contains(&fingerprint(f)))
-        .cloned()
-        .collect();
-
-    let fixed_findings: Vec<Finding> = prev
-        .findings
-        .iter()
-        .filter(|f| !curr_set.contains(&fingerprint(f)))
-        .cloned()
-        .collect();
-
-    WatchDelta {
-        new_findings,
-        fixed_findings,
-        total_findings,
-        score,
-        score_delta,
-    }
-}
 
 pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
     let repo_path = std::fs::canonicalize(path)?;
@@ -197,7 +137,7 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool, telemetry: &
         reanalysis_count += 1;
 
         // Compute delta against previous result
-        let delta = compute_delta(&result, last_result.as_ref());
+        let delta = compute_delta(&result, last_result.as_ref(), changed_files.clone(), elapsed);
 
         // Filter by severity if relaxed mode
         let delta = if relaxed {
@@ -208,7 +148,7 @@ pub fn run(path: &Path, relaxed: bool, no_emoji: bool, quiet: bool, telemetry: &
 
         // Display results
         total_catches += delta.new_findings.len() as u32;
-        display_delta(&delta, &changed_files, &repo_path, elapsed, no_emoji, quiet);
+        display_delta(&delta, &repo_path, no_emoji, quiet);
 
         last_result = Some(result);
         iteration += 1;
@@ -265,22 +205,23 @@ fn filter_delta_relaxed(delta: WatchDelta) -> WatchDelta {
         total_findings: delta.total_findings,
         score: delta.score,
         score_delta: delta.score_delta,
+        elapsed: delta.elapsed,
+        changed_files: delta.changed_files,
     }
 }
 
 /// Display the results of an incremental update.
 fn display_delta(
     delta: &WatchDelta,
-    changed_files: &[PathBuf],
     repo_path: &Path,
-    elapsed: Duration,
     no_emoji: bool,
     quiet: bool,
 ) {
     let time = chrono::Local::now().format("%H:%M:%S");
 
     // Build a display-friendly list of changed files (relative paths)
-    let file_list: String = changed_files
+    let file_list: String = delta
+        .changed_files
         .iter()
         .map(|p| {
             p.strip_prefix(repo_path)
@@ -299,7 +240,7 @@ fn display_delta(
                 style(format!("[{}]", time)).dim(),
                 if no_emoji { "→" } else { "📝" },
                 style(&file_list).dim(),
-                elapsed.as_millis(),
+                delta.elapsed.as_millis(),
                 delta.total_findings,
                 score_suffix(delta),
             );
@@ -313,7 +254,7 @@ fn display_delta(
         style(format!("[{}]", time)).dim(),
         if no_emoji { "→" } else { "📝" },
         style(&file_list).cyan().bold(),
-        elapsed.as_millis(),
+        delta.elapsed.as_millis(),
     );
 
     // Show new findings
@@ -357,7 +298,8 @@ fn display_delta(
     }
 
     // Score summary
-    if let Some(score) = delta.score {
+    {
+        let score = delta.score;
         let delta_str = match delta.score_delta {
             Some(d) if d > 0.5 => format!(" {}", style(format!("+{:.1}", d)).green()),
             Some(d) if d < -0.5 => format!(" {}", style(format!("{:.1}", d)).red()),
@@ -371,12 +313,10 @@ fn display_delta(
 
 /// Format a score delta suffix for the compact summary line.
 fn score_suffix(delta: &WatchDelta) -> String {
-    match (delta.score, delta.score_delta) {
-        (Some(score), Some(d)) if d.abs() > 0.05 => {
-            format!(", score {:.1} ({:+.1})", score, d)
-        }
-        (Some(score), _) => format!(", score {:.1}", score),
-        _ => String::new(),
+    let score = delta.score;
+    match delta.score_delta {
+        Some(d) if d.abs() > 0.05 => format!(", score {:.1} ({:+.1})", score, d),
+        _ => format!(", score {:.1}", score),
     }
 }
 
