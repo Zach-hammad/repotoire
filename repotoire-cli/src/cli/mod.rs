@@ -14,6 +14,7 @@ mod init;
 mod status;
 mod tui;
 pub mod watch;
+pub mod worker;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
