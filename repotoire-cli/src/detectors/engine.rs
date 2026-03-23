@@ -95,6 +95,46 @@ impl PrecomputedAnalysis {
             co_change_summary: Arc::clone(&self.co_change_summary),
         }
     }
+
+    /// Build an [`AnalysisContext`] scoped to a subset of files.
+    ///
+    /// The returned context contains a `FileIndex` filtered to only the given
+    /// `scoped_files`, so detectors iterate over just those files.  All other
+    /// fields (graph, taint, HMM, etc.) are shared via `Arc` clones.
+    pub fn to_context_scoped<'g>(
+        &self,
+        graph: &'g dyn crate::graph::GraphQuery,
+        resolver: &crate::calibrate::ThresholdResolver,
+        scoped_files: &[std::path::PathBuf],
+    ) -> super::AnalysisContext<'g> {
+        let scoped_set: std::collections::HashSet<&std::path::PathBuf> =
+            scoped_files.iter().collect();
+        let file_data: Vec<_> = self
+            .file_index
+            .all()
+            .iter()
+            .filter(|entry| scoped_set.contains(&entry.path))
+            .map(|entry| (entry.path.clone(), Arc::clone(&entry.content), entry.flags))
+            .collect();
+        let scoped_file_index = Arc::new(super::FileIndex::new(file_data));
+
+        super::AnalysisContext {
+            graph,
+            files: scoped_file_index,
+            functions: Arc::clone(&self.contexts),
+            taint: Arc::clone(&self.taint_results),
+            detector_ctx: Arc::clone(&self.detector_context),
+            hmm_classifications: Arc::clone(&self.hmm_with_confidence),
+            resolver: Arc::new(resolver.clone()),
+            reachability: Arc::clone(&self.reachability),
+            public_api: Arc::clone(&self.public_api),
+            module_metrics: Arc::clone(&self.module_metrics),
+            class_cohesion: Arc::clone(&self.class_cohesion),
+            decorator_index: Arc::clone(&self.decorator_index),
+            git_churn: Arc::clone(&self.git_churn),
+            co_change_summary: Arc::clone(&self.co_change_summary),
+        }
+    }
 }
 
 // ── precompute_gd_startup ────────────────────────────────────────────────────
