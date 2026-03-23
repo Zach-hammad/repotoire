@@ -343,7 +343,8 @@ impl WorkerHandler {
             Ok(result) => {
                 let score = result.score.overall;
                 let grade = result.score.grade.clone();
-                let findings = result.findings.clone();
+                // Move findings out of result to avoid unnecessary clone
+                let findings = result.findings;
                 let elapsed_ms = 0; // TODO: track elapsed in initial_analyze
                 self.engine = Some(engine);
                 vec![Event::Ready {
@@ -415,11 +416,14 @@ impl WorkerHandler {
 
         match engine.initial_analyze() {
             Ok(result) => {
+                // Move findings out — engine already stored its own clone in last_result
+                let score = result.score.overall;
+                let grade = result.score.grade.clone();
                 vec![Event::Ready {
                     id: Some(id),
-                    findings: result.findings.clone(),
-                    score: result.score.overall,
-                    grade: result.score.grade.clone(),
+                    findings: result.findings,
+                    score,
+                    grade,
                     elapsed_ms: 0,
                 }]
             }
@@ -852,8 +856,12 @@ impl DiagnosticMap {
                         let before = entries.len();
                         entries.retain(|(f, _)| Self::fingerprint(f) != fixed_fp);
                         if entries.len() != before {
-                            changed_uris.push(uri);
+                            changed_uris.push(uri.clone());
                         }
+                    }
+                    // Clean up empty entries to prevent memory leak
+                    if self.map.get(&uri).map(|e| e.is_empty()).unwrap_or(false) {
+                        self.map.remove(&uri);
                     }
                 }
             }
@@ -1512,11 +1520,15 @@ use crate::cli::worker::protocol::Event;
 
 pub struct Backend {
     client: Client,
-    state: Arc<Mutex<ServerState>>,
+    /// Read-heavy state (hover, code_action read; ready/delta write).
+    /// Use RwLock to avoid blocking reads during diagnostic publishing.
+    diagnostics: Arc<tokio::sync::RwLock<DiagnosticMap>>,
+    /// Write-heavy state (worker communication, debounce).
+    /// Separate from diagnostics to avoid contention.
+    worker_state: Arc<Mutex<WorkerState>>,
 }
 
-struct ServerState {
-    diagnostic_map: DiagnosticMap,
+struct WorkerState {
     worker: WorkerClient,
     latest_request_id: u64,
     pending_files: HashSet<PathBuf>,
@@ -1527,8 +1539,8 @@ impl Backend {
     pub fn new(client: Client, worker: WorkerClient) -> Self {
         Self {
             client,
-            state: Arc::new(Mutex::new(ServerState {
-                diagnostic_map: DiagnosticMap::new(),
+            diagnostics: Arc::new(tokio::sync::RwLock::new(DiagnosticMap::new())),
+            worker_state: Arc::new(Mutex::new(WorkerState {
                 worker,
                 latest_request_id: 0,
                 pending_files: HashSet::new(),
@@ -1540,22 +1552,41 @@ impl Backend {
     /// Start the background worker event reader.
     pub fn start_worker_reader(&self) {
         let client = self.client.clone();
-        let state = self.state.clone();
+        let diagnostics = self.diagnostics.clone();
+        let worker_state = self.worker_state.clone();
         tokio::spawn(async move {
             // Read events from worker in a blocking thread
-            // and publish diagnostics / send notifications
-            // Implementation: loop calling spawn_blocking(read_event),
-            // then process the event on the async side
+            // and publish diagnostics / send notifications.
+            //
+            // Pattern: use spawn_blocking for the sync read_event() call,
+            // then process the event on the async side.
+            //
+            // For diagnostic publishing: acquire the RwLock as write,
+            // update the map, collect the URIs+diagnostics to publish,
+            // DROP the lock, THEN publish (publish is async and should
+            // not hold the lock).
+            //
+            // For stale filtering: check event.id() against
+            // worker_state.lock().latest_request_id.
         });
     }
 
     async fn publish_all_diagnostics(&self) {
-        let state = self.state.lock().await;
-        for uri in state.diagnostic_map.all_uris() {
-            let diags = state.diagnostic_map.get_diagnostics(&uri);
-            self.client
-                .publish_diagnostics(uri, diags, None)
-                .await;
+        // Collect diagnostics under read lock, then publish outside the lock
+        let to_publish: Vec<(Url, Vec<Diagnostic>)> = {
+            let diag_map = self.diagnostics.read().await;
+            diag_map
+                .all_uris()
+                .into_iter()
+                .map(|uri| {
+                    let diags = diag_map.get_diagnostics(&uri);
+                    (uri, diags)
+                })
+                .collect()
+        };
+        // Lock is dropped here — publish without holding it
+        for (uri, diags) in to_publish {
+            self.client.publish_diagnostics(uri, diags, None).await;
         }
     }
 
@@ -1585,7 +1616,7 @@ impl LanguageServer for Backend {
         // Store workspace root
         if let Some(root) = params.root_uri {
             if let Ok(path) = root.to_file_path() {
-                self.state.lock().await.workspace_root = Some(path);
+                self.worker_state.lock().await.workspace_root = Some(path);
             }
         }
 
@@ -1609,8 +1640,8 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _: InitializedParams) {
         // Spawn worker and send init
-        let mut state = self.state.lock().await;
-        if let Some(root) = &state.workspace_root {
+        let mut state = self.worker_state.lock().await;
+        if let Some(_root) = &state.workspace_root {
             let _ = state.worker.spawn();
             let _ = state.worker.send_init();
         }
@@ -1621,15 +1652,13 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> Result<()> {
-        // Send shutdown command, then drop the lock before sleeping
         {
-            let mut state = self.state.lock().await;
+            let mut state = self.worker_state.lock().await;
             let _ = state.worker.send_shutdown();
         }
-        // Give worker 5 seconds to exit, then force kill
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         {
-            let mut state = self.state.lock().await;
+            let mut state = self.worker_state.lock().await;
             state.worker.kill();
         }
         Ok(())
@@ -1638,7 +1667,7 @@ impl LanguageServer for Backend {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
         if let Ok(path) = uri.to_file_path() {
-            let mut state = self.state.lock().await;
+            let mut state = self.worker_state.lock().await;
             state.pending_files.insert(path);
             // TODO: debounce — flush pending_files after 200ms
             // For now, flush immediately
@@ -1652,8 +1681,8 @@ impl LanguageServer for Backend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
         let line = params.text_document_position_params.position.line + 1; // 1-indexed
-        let state = self.state.lock().await;
-        let findings = state.diagnostic_map.find_at(&uri, line);
+        let diag_map = self.diagnostics.read().await;
+        let findings = diag_map.find_at(&uri, line);
 
         if let Some(finding) = findings.first() {
             if let Some(md) = render_hover(finding) {
@@ -1672,8 +1701,8 @@ impl LanguageServer for Backend {
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let line = params.range.start.line + 1; // 1-indexed
-        let state = self.state.lock().await;
-        let findings = state.diagnostic_map.find_at(&uri, line);
+        let diag_map = self.diagnostics.read().await;
+        let findings = diag_map.find_at(&uri, line);
 
         let mut actions: Vec<CodeActionOrCommand> = Vec::new();
         for finding in findings {
