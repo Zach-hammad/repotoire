@@ -108,6 +108,10 @@ sha2 = "0.10"
 lasso = { version = "0.7.3", features = ["multi-threaded", "serialize"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
+# LSP server
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "macros", "time", "sync"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+tower-lsp = "0.20"
 
 # Profiling / allocator (optional)
 dhat = { version = "0.3", optional = true }

@@ -11,9 +11,11 @@ mod findings;
 mod fix;
 mod graph;
 mod init;
+pub mod lsp;
 mod status;
 mod tui;
-mod watch;
+pub mod watch;
+pub mod worker;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -41,9 +43,9 @@ fn parse_workers(s: &str) -> Result<usize, String> {
 #[command(
     version,
     about = "Graph-powered code health analysis — detect code smells, security issues, and architectural debt across 9 languages",
-    long_about = "Repotoire builds a knowledge graph of your codebase and runs 114 pure Rust \
-detectors to find code smells, security vulnerabilities, and architectural issues \
-that traditional linters miss.\n\n\
+    long_about = "Repotoire builds a knowledge graph of your codebase and runs 106 pure Rust \
+detectors (73 default + 33 deep-scan) to find code smells, security vulnerabilities, \
+and architectural issues that traditional linters miss.\n\n\
 100% LOCAL by default — No account needed. No data leaves your machine unless you opt in.\n\n\
 Run without a subcommand to analyze the current directory:\n  \
 repotoire .\n\n\
@@ -79,7 +81,7 @@ pub enum Commands {
     /// Initialize a repotoire.toml config file with example settings
     Init,
 
-    /// Analyze codebase for issues (runs all 114 detectors by default)
+    /// Analyze codebase for issues (runs 73 default detectors, or all 106 with --all-detectors)
     #[command(after_help = "\
 Examples:
   repotoire analyze .                                Analyze current directory
@@ -336,10 +338,18 @@ Examples:
     ///
     /// Monitors your codebase for saves and runs detectors on changed files.
     /// Uses debouncing to avoid re-running on every keystroke.
+    /// Watch for file changes and re-analyze in real-time (debounced, incremental)
+    ///
+    /// Monitors your codebase for saves and runs detectors on changed files.
+    /// Uses debouncing to avoid re-running on every keystroke.
     Watch {
-        /// Only show high/critical findings
+        /// Minimum severity to display: critical, high, medium, low
+        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
+        severity: Option<String>,
+
+        /// Run all detectors including deep-scan (code smells, style, dead code)
         #[arg(long)]
-        relaxed: bool,
+        all_detectors: bool,
     },
 
     /// Calibrate adaptive thresholds from your codebase
@@ -419,6 +429,13 @@ Examples:
         #[arg(long, default_value = "20")]
         top: usize,
     },
+
+    /// Start the LSP server (stdio transport, for editor integration)
+    Lsp,
+
+    /// Internal: analysis worker process (not user-facing)
+    #[command(name = "__worker", hide = true)]
+    Worker,
 }
 
 #[derive(Subcommand, Debug)]
@@ -467,6 +484,8 @@ fn extract_command_name(cmd: &Option<Commands>) -> (String, Option<String>) {
             ConfigAction::Show => ("config".into(), Some("show".into())),
             ConfigAction::Set { .. } => ("config".into(), Some("set".into())),
         },
+        Some(Commands::Lsp) => ("lsp".into(), None),
+        Some(Commands::Worker) => ("worker".into(), None),
         None => ("analyze".into(), None),
     }
 }
@@ -644,7 +663,9 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
 
         Some(Commands::Doctor) => doctor::run(),
 
-        Some(Commands::Watch { relaxed }) => watch::run(&cli.path, relaxed, false, false, &telemetry),
+        Some(Commands::Watch { severity, all_detectors }) => {
+            watch::run(&cli.path, severity.as_deref(), all_detectors, cli.workers, false, false, &telemetry)
+        }
         Some(Commands::Calibrate) => run_calibrate(&cli.path),
         Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
 
@@ -781,6 +802,19 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
 
         Some(Commands::Debt { filter, top }) => {
             debt::run(&cli.path, filter.as_deref(), top)
+        }
+
+        Some(Commands::Lsp) => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(crate::cli::lsp::run(
+                cli.path.clone(),
+                cli.workers,
+                false, // all_detectors default
+            ))
+        }
+
+        Some(Commands::Worker) => {
+            crate::cli::worker::run()
         }
 
         None => {

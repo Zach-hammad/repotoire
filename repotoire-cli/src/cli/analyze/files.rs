@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Supported file extensions for analysis
-pub(super) const SUPPORTED_EXTENSIONS: &[&str] = &[
+pub(crate) const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "pyi", // Python
     "ts", "tsx", // TypeScript
     "js", "jsx", "mjs",  // JavaScript

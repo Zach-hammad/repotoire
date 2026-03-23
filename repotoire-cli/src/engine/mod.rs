@@ -81,8 +81,9 @@ impl Default for AnalysisConfig {
 }
 
 /// How the analysis was performed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum AnalysisMode {
+    #[default]
     Cold,
     Incremental { files_changed: usize },
     Cached,
@@ -97,7 +98,7 @@ pub struct ScoreResult {
 }
 
 /// Stats from each pipeline phase.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnalysisStats {
     pub mode: AnalysisMode,
     pub files_analyzed: usize,
