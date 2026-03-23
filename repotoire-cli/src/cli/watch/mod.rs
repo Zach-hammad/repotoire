@@ -5,6 +5,7 @@
 
 pub mod delta;
 pub mod display;
+pub mod engine;
 pub mod filter;
 
 use anyhow::Result;
