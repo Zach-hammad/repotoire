@@ -576,30 +576,23 @@ impl AnalysisEngine {
 
             (frozen, file_churn, co_change, Some(graph_out.mutable_graph))
         } else {
-            // Path B: After-load — round-trip CodeGraph via GraphBuilder (zero-copy when possible)
-            let prev_graph = prev_state.graph; // move Arc<CodeGraph> out of prev_state
+            // Path B: After-load — reuse loaded CodeGraph directly.
+            //
+            // Skip graph rebuild entirely: patch_builder produces slightly different
+            // edges than the original build_graph (simplified call resolution), which
+            // causes edge fingerprint mismatches and forces topology_changed=true,
+            // defeating the precompute cache. Instead, reuse the loaded graph as-is.
+            //
+            // Trade-off: the graph doesn't reflect the changed file's structural
+            // changes (new functions, removed classes). But per-file detectors read
+            // file content (not graph structure), and graph-wide detectors use cached
+            // findings. The graph will be fully rebuilt on the next cold analysis.
+            let frozen = graph::FrozenGraphOutput {
+                graph: prev_state.graph,
+                value_store: None,
+                edge_fingerprint: prev_state.edge_fingerprint,
+            };
 
-            let builder = timed(&mut timings, "graph", || {
-                let mut b = match Arc::try_unwrap(prev_graph) {
-                    Ok(graph) => graph.into_builder(),      // zero-copy
-                    Err(arc) => arc.clone_into_builder(),    // fallback clone
-                };
-                let rel_changed: Vec<std::path::PathBuf> = changes.changed.iter()
-                    .filter_map(|p| p.strip_prefix(&self.repo_path).ok().map(|r| r.to_path_buf()))
-                    .collect();
-                let rel_removed: Vec<std::path::PathBuf> = changes.removed.iter()
-                    .filter_map(|p| p.strip_prefix(&self.repo_path).ok().map(|r| r.to_path_buf()))
-                    .collect();
-                graph_builder_patch::patch_builder(
-                    &mut b,
-                    &rel_changed,
-                    &rel_removed,
-                    &parse_out.results,
-                );
-                b
-            });
-
-            // Skip full git enrich — loaded graph already has git data for unchanged files.
             // Compute file churn (lightweight) for detectors.
             let file_churn = Arc::new(if !config.no_git {
                 timed(&mut timings, "git_enrich", || {
@@ -610,14 +603,6 @@ impl AnalysisEngine {
             });
 
             let co_change = prev_co_change.take();
-
-            let frozen = timed(&mut timings, "freeze", || {
-                graph::freeze_builder(
-                    builder,
-                    None,
-                    co_change.as_ref(),
-                )
-            });
 
             (frozen, file_churn, co_change, None)
         };
