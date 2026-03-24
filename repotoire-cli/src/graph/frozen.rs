@@ -376,7 +376,7 @@ impl CodeGraph {
         self.indexes.primitives.modularity
     }
 
-    pub fn hidden_coupling(&self) -> &[(NodeIndex, NodeIndex, f32, f32)] {
+    pub fn hidden_coupling(&self) -> &[(NodeIndex, NodeIndex, f32, f32, f32)] {
         &self.indexes.primitives.hidden_coupling
     }
 

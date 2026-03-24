@@ -1031,7 +1031,7 @@ impl AnalysisEngine {
         let hidden_coupling: Vec<(String, String, f32)> = graph
             .hidden_coupling_pairs()
             .iter()
-            .filter_map(|&(a, b, w, _lift)| {
+            .filter_map(|&(a, b, w, _lift, _confidence)| {
                 let na = graph.node_idx(a)?;
                 let nb = graph.node_idx(b)?;
                 Some((

@@ -90,25 +90,21 @@ impl Detector for HiddenCouplingDetector {
 
         let mut findings = Vec::new();
         let min_weight: f32 = self.config.get_option_or("min_weight", 1.0);
-        let min_lift: f32 = self.config.get_option_or("min_lift", 2.0);
 
-        for &(file_a_idx, file_b_idx, weight, lift) in pairs {
+        for &(file_a_idx, file_b_idx, weight, lift, confidence) in pairs {
             if weight < min_weight {
                 continue;
             }
-            if lift < min_lift {
-                continue;
-            }
 
-            // Score combines lift (statistical surprise) with weight (evidence volume).
-            // lift alone can be high for rarely-changing files; sqrt(weight) dampens noise.
-            let score = lift * weight.sqrt();
+            // Score combines three signals:
+            // - confidence: ensures coupling is consistent (not just incidental)
+            // - lift: ensures it's statistically surprising (not just a frequently-changed file)
+            // - sqrt(weight): adds evidence weight (decay-adjusted proxy for count)
+            let score = confidence * lift * weight.sqrt();
 
-            let severity = if score >= 10.0 {
-                Severity::Critical
-            } else if score >= 6.0 {
+            let severity = if score >= 8.0 {
                 Severity::High
-            } else if score >= 3.0 {
+            } else if score >= 4.0 {
                 Severity::Medium
             } else {
                 Severity::Low
@@ -149,20 +145,20 @@ impl Detector for HiddenCouplingDetector {
                 id: String::new(),
                 detector: "hidden-coupling".to_string(),
                 severity,
-                confidence: Some(if lift >= 5.0 { 0.95 } else if lift >= 3.0 { 0.85 } else { 0.7 }),
+                confidence: Some(confidence.min(0.95) as f64),
                 deterministic: true,
                 title: format!(
-                    "Hidden coupling: {} and {} (lift: {:.1}x, weight: {:.1})",
+                    "Hidden coupling: {} and {} (confidence: {:.0}%, lift: {:.1}x)",
                     file_a.rsplit('/').next().unwrap_or(&file_a),
                     file_b.rsplit('/').next().unwrap_or(&file_b),
-                    lift,
-                    weight
+                    confidence * 100.0,
+                    lift
                 ),
                 description: format!(
-                    "Hidden coupling detected: `{}` and `{}` co-change {:.1}x more than expected \
-                     by chance (weight: {:.2}). They have no import or call relationship. \
-                     Consider adding an explicit dependency or extracting shared logic.",
-                    file_a, file_b, lift, weight
+                    "Hidden coupling detected: `{}` and `{}` co-change {:.0}% of the time \
+                     ({:.1}x more than expected by chance). They have no import or call \
+                     relationship. Consider adding an explicit dependency or extracting shared logic.",
+                    file_a, file_b, confidence * 100.0, lift
                 ),
                 affected_files: vec![PathBuf::from(&file_a), PathBuf::from(&file_b)],
                 suggested_fix: Some(
@@ -222,20 +218,18 @@ mod tests {
         builder.add_edge(file_api, f1, CodeEdge::contains());
         builder.add_edge(file_db, f2, CodeEdge::contains());
 
-        // Add a call edge between the functions so graph primitives compute
-        // (primitives requires non-empty call edges to compute at all)
-        // BUT: this call edge is function-to-function within the same file direction,
-        // not between the two files we care about. We need a call edge somewhere
-        // so primitives doesn't bail early.
-        // Actually we need f1 to call f2 for the call graph to exist,
-        // but that would create a structural edge between the files.
-        // Instead, add a third helper function so we have call edges but no
-        // direct structural edge between the two target files.
-        let f3 = builder.add_node(CodeNode::function("helper", "src/util/helpers.rs"));
-        let file_util = builder.add_node(CodeNode::file("src/util/helpers.rs"));
-        builder.add_edge(file_util, f3, CodeEdge::contains());
+        // Add call edges so graph primitives compute (non-empty call edges required).
+        // Each target file calls its own separate helper to avoid creating a 2-hop
+        // transitive structural path between routes.rs and models.rs.
+        let f3 = builder.add_node(CodeNode::function("helper_a", "src/util/helpers_a.rs"));
+        let file_util_a = builder.add_node(CodeNode::file("src/util/helpers_a.rs"));
+        builder.add_edge(file_util_a, f3, CodeEdge::contains());
         builder.add_edge(f1, f3, CodeEdge::calls());
-        builder.add_edge(f2, f3, CodeEdge::calls());
+
+        let f4 = builder.add_node(CodeNode::function("helper_b", "src/util/helpers_b.rs"));
+        let file_util_b = builder.add_node(CodeNode::file("src/util/helpers_b.rs"));
+        builder.add_edge(file_util_b, f4, CodeEdge::contains());
+        builder.add_edge(f2, f4, CodeEdge::calls());
 
         // Build co-change matrix: routes.rs and models.rs frequently change together.
         // 3 commits with decay=1.0 each => accumulated weight=3.0 (above min_weight=1.0).
@@ -254,8 +248,8 @@ mod tests {
             (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
             (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
             // Unrelated commits to establish baseline change frequency
-            (now, vec!["src/util/helpers.rs".to_string(), "src/util/config.rs".to_string()]),
-            (now, vec!["src/util/helpers.rs".to_string(), "src/util/config.rs".to_string()]),
+            (now, vec!["src/unrelated/alpha.rs".to_string(), "src/unrelated/beta.rs".to_string()]),
+            (now, vec!["src/unrelated/alpha.rs".to_string(), "src/unrelated/beta.rs".to_string()]),
             (now, vec!["src/other/foo.rs".to_string(), "src/other/bar.rs".to_string()]),
             (now, vec!["src/other/foo.rs".to_string(), "src/other/bar.rs".to_string()]),
             (now, vec!["src/other/baz.rs".to_string()]),
@@ -288,7 +282,12 @@ mod tests {
             "Should mention models.rs: {}",
             findings[0].description
         );
-        // Title should show lift
+        // Title should show confidence and lift
+        assert!(
+            findings[0].title.contains("confidence:"),
+            "Title should show confidence: {}",
+            findings[0].title
+        );
         assert!(
             findings[0].title.contains("lift:"),
             "Title should show lift: {}",
@@ -324,9 +323,9 @@ mod tests {
 
     #[test]
     fn test_severity_thresholds() {
-        // Verify severity is based on lift-weighted score, not raw weight.
-        // score = lift * sqrt(weight)
-        // Critical >= 10.0, High >= 6.0, Medium >= 3.0, Low < 3.0
+        // Verify severity is based on confidence-lift-weighted score.
+        // score = confidence * lift * sqrt(weight)
+        // High >= 8.0, Medium >= 4.0, Low < 4.0
         let detector = HiddenCouplingDetector::new();
 
         // Empty graph → no findings (sanity check)

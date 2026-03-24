@@ -56,7 +56,7 @@ pub struct GraphPrimitives {
 
     // ── Hidden coupling: co-change without structural edge (Phase B) ──
     // NodeIndex values are File-level node indices. Tuple: (file_a, file_b, weight, lift).
-    pub(crate) hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32)>,
+    pub(crate) hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32, f32)>,
 }
 
 impl GraphPrimitives {
@@ -964,7 +964,7 @@ fn compute_weighted_phase(
     co_change: &CoChangeMatrix,
     graph: &StableGraph<CodeNode, CodeEdge>,
     edge_fingerprint: u64,
-) -> (HashMap<NodeIndex, f64>, HashMap<NodeIndex, f64>, HashMap<NodeIndex, usize>, f64, Vec<(NodeIndex, NodeIndex, f32, f32)>) {
+) -> (HashMap<NodeIndex, f64>, HashMap<NodeIndex, f64>, HashMap<NodeIndex, usize>, f64, Vec<(NodeIndex, NodeIndex, f32, f32, f32)>) {
     let (overlay, hidden_coupling) = build_weighted_overlay(
         functions, files, all_call_edges, all_import_edges, co_change, graph,
     );
@@ -1003,7 +1003,7 @@ fn build_weighted_overlay(
     all_import_edges: &[(NodeIndex, NodeIndex)],
     co_change: &CoChangeMatrix,
     graph: &StableGraph<CodeNode, CodeEdge>,
-) -> (StableGraph<NodeIndex, f32>, Vec<(NodeIndex, NodeIndex, f32, f32)>) {
+) -> (StableGraph<NodeIndex, f32>, Vec<(NodeIndex, NodeIndex, f32, f32, f32)>) {
     // 1. Build idx_map: original NodeIndex → overlay NodeIndex
     let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
     let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
@@ -1080,8 +1080,81 @@ fn build_weighted_overlay(
         overlay.add_edge(overlay_src, overlay_tgt, weight);
     }
 
-    // 4. Hidden coupling: co-change pairs with NO structural edges between files
-    let mut hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32)> = Vec::new();
+    // 4a. Extend structural connectivity with containment hierarchy.
+    //     Files sharing a parent module (e.g., src/detectors/eval.rs and src/detectors/mod.rs)
+    //     are structurally related even without explicit call/import edges.
+    //     This is language-agnostic: Rust mod.rs, Python __init__.py, JS index.ts, etc.
+    {
+        // Group files by parent directory (StrKey of dir path)
+        let si = crate::graph::interner::global_interner();
+        let mut dir_to_files: HashMap<String, Vec<StrKey>> = HashMap::new();
+        for &file_idx in files {
+            let node = &graph[file_idx];
+            let path = si.resolve(node.file_path);
+            if let Some((dir, _)) = path.rsplit_once('/') {
+                dir_to_files.entry(dir.to_string()).or_default().push(node.file_path);
+            }
+        }
+
+        // For each directory, find the index/mod/init file and connect it to siblings
+        for (_dir, file_keys) in &dir_to_files {
+            // Find aggregator files (mod.rs, __init__.py, index.ts, etc.)
+            let aggregators: Vec<StrKey> = file_keys.iter().copied().filter(|&k| {
+                let name = si.resolve(k);
+                let basename = name.rsplit('/').next().unwrap_or(name);
+                matches!(basename,
+                    "mod.rs" | "__init__.py" | "index.ts" | "index.js" |
+                    "index.tsx" | "index.jsx" | "index.mjs" | "mod.go"
+                )
+            }).collect();
+
+            // Connect each aggregator to all other files in the same directory
+            for &agg in &aggregators {
+                for &sibling in file_keys {
+                    if agg != sibling {
+                        let (lo, hi) = if agg <= sibling { (agg, sibling) } else { (sibling, agg) };
+                        structurally_connected_files.insert((lo, hi));
+                    }
+                }
+            }
+        }
+    }
+
+    // 4b. Extend structural connectivity with 2-hop transitive connections.
+    //     If file A is structurally connected to file C, and C is connected to B,
+    //     then A and B are transitively connected — not "hidden" coupling.
+    {
+        // Build adjacency: file_key → set of connected file_keys
+        let mut adjacency: HashMap<StrKey, HashSet<StrKey>> = HashMap::new();
+        for &(lo, hi) in &structurally_connected_files {
+            adjacency.entry(lo).or_default().insert(hi);
+            adjacency.entry(hi).or_default().insert(lo);
+        }
+
+        // For each file, connect all pairs of its 1-hop neighbors (creating 2-hop connections)
+        let mut two_hop: Vec<(StrKey, StrKey)> = Vec::new();
+        for (&file, neighbors) in &adjacency {
+            for &neighbor in neighbors {
+                // file → neighbor is 1-hop. neighbor → neighbor's neighbors is 2-hop from file.
+                if let Some(second_hop) = adjacency.get(&neighbor) {
+                    for &distant in second_hop {
+                        if distant != file {
+                            let (lo, hi) = if file <= distant { (file, distant) } else { (distant, file) };
+                            two_hop.push((lo, hi));
+                        }
+                    }
+                }
+            }
+        }
+
+        for (lo, hi) in two_hop {
+            structurally_connected_files.insert((lo, hi));
+        }
+    }
+
+    // 5. Hidden coupling: co-change pairs with NO structural edges between files
+    //    (after containment + 2-hop filtering)
+    let mut hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32, f32)> = Vec::new();  // (file_a, file_b, weight, lift, confidence)
 
     // Build a lookup from StrKey → File-level NodeIndex
     let mut file_key_to_node: HashMap<StrKey, NodeIndex> = HashMap::new();
@@ -1100,6 +1173,25 @@ fn build_weighted_overlay(
 
         // Skip if there's already a structural edge between these files
         if structurally_connected_files.contains(&(lo, hi)) {
+            continue;
+        }
+
+        // Filter 1: Minimum co-change count (support) — need enough evidence
+        let pair_count = co_change.pair_commit_count(key_a, key_b);
+        if pair_count < 3 {
+            continue;
+        }
+
+        // Filter 2: Minimum confidence — must co-change meaningfully often
+        let confidence = co_change.confidence(key_a, key_b);
+        if confidence < 0.15 {
+            continue;
+        }
+
+        // Filter 3: Hub penalty — skip if either file couples with too many others
+        let degree_a = co_change.coupling_degree(key_a);
+        let degree_b = co_change.coupling_degree(key_b);
+        if degree_a > 20 || degree_b > 20 {
             continue;
         }
 
@@ -1130,7 +1222,8 @@ fn build_weighted_overlay(
             (file_key_to_node.get(&key_a), file_key_to_node.get(&key_b))
         {
             let lift = co_change.lift(key_a, key_b).unwrap_or(1.0);
-            hidden_coupling.push((file_node_a, file_node_b, co_change_boost, lift));
+            let confidence = co_change.confidence(key_a, key_b);
+            hidden_coupling.push((file_node_a, file_node_b, co_change_boost, lift, confidence));
         }
     }
 
@@ -2310,7 +2403,7 @@ mod tests {
 
         // Hidden coupling should be recorded at file level
         assert_eq!(hidden_coupling.len(), 1, "Should have 1 hidden coupling entry");
-        let (hc_a, hc_b, hc_w, hc_lift) = hidden_coupling[0];
+        let (hc_a, hc_b, hc_w, hc_lift, hc_confidence) = hidden_coupling[0];
 
         // The file-level NodeIndex values should be from the files parameter
         let hc_files: HashSet<NodeIndex> = [hc_a, hc_b].into_iter().collect();
@@ -2326,6 +2419,11 @@ mod tests {
         assert!(
             hc_lift > 0.0,
             "Hidden coupling lift should be positive, got {hc_lift}"
+        );
+        // Confidence should be 1.0 since both files appear only in these 3 commits together
+        assert!(
+            hc_confidence > 0.0,
+            "Hidden coupling confidence should be positive, got {hc_confidence}"
         );
     }
 

@@ -62,6 +62,13 @@ pub struct CoChangeMatrix {
     file_weights: HashMap<StrKey, f32>,
     /// Total decay weight across all analyzed commits. Used to compute lift.
     total_decay_weight: f32,
+    // ── Integer count fields for confidence/support computation ──
+    /// How many commits touched both files A and B (integer count, not pruned).
+    pair_counts: HashMap<(StrKey, StrKey), u32>,
+    /// How many commits touched file A (integer count, not pruned).
+    file_counts: HashMap<StrKey, u32>,
+    /// Number of distinct files each file couples with (precomputed for hub detection).
+    coupling_degrees: HashMap<StrKey, usize>,
 }
 
 impl CoChangeMatrix {
@@ -73,6 +80,9 @@ impl CoChangeMatrix {
             commits_analyzed: 0,
             file_weights: HashMap::new(),
             total_decay_weight: 0.0,
+            pair_counts: HashMap::new(),
+            file_counts: HashMap::new(),
+            coupling_degrees: HashMap::new(),
         }
     }
 
@@ -125,6 +135,38 @@ impl CoChangeMatrix {
     /// Number of unique files tracked in this matrix.
     pub fn file_count(&self) -> usize {
         self.file_weights.len()
+    }
+
+    /// Number of commits that touched both files (integer count).
+    pub fn pair_commit_count(&self, a: StrKey, b: StrKey) -> u32 {
+        let (lo, hi) = canonical_pair(a, b);
+        self.pair_counts.get(&(lo, hi)).copied().unwrap_or(0)
+    }
+
+    /// Number of commits that touched this file (integer count).
+    pub fn file_commit_count(&self, file: StrKey) -> u32 {
+        self.file_counts.get(&file).copied().unwrap_or(0)
+    }
+
+    /// Symmetric confidence: min(P(B|A), P(A|B)).
+    /// Measures the weaker direction of coupling.
+    /// - 0.0 = no coupling
+    /// - 0.3 = moderate (files co-change 30% of the time)
+    /// - 0.8+ = strong coupling (almost always co-change)
+    pub fn confidence(&self, a: StrKey, b: StrKey) -> f32 {
+        let pair = self.pair_commit_count(a, b);
+        if pair == 0 { return 0.0; }
+        let count_a = self.file_commit_count(a);
+        let count_b = self.file_commit_count(b);
+        if count_a == 0 || count_b == 0 { return 0.0; }
+        let conf_ab = pair as f32 / count_a as f32;
+        let conf_ba = pair as f32 / count_b as f32;
+        conf_ab.min(conf_ba)
+    }
+
+    /// Number of files this file couples with (precomputed for hub detection).
+    pub fn coupling_degree(&self, file: StrKey) -> usize {
+        self.coupling_degrees.get(&file).copied().unwrap_or(0)
     }
 
     /// Compute Bayesian-smoothed lift for a file pair.
@@ -188,6 +230,8 @@ impl CoChangeMatrix {
         let mut file_weights: HashMap<StrKey, f32> = HashMap::new();
         let mut total_decay_weight: f32 = 0.0;
         let mut commits_analyzed: usize = 0;
+        let mut pair_counts: HashMap<(StrKey, StrKey), u32> = HashMap::new();
+        let mut file_counts: HashMap<StrKey, u32> = HashMap::new();
 
         let limit = commits.len().min(config.max_commits);
 
@@ -211,6 +255,7 @@ impl CoChangeMatrix {
             // Track per-file weights and total decay weight
             for &file_key in &keys {
                 *file_weights.entry(file_key).or_insert(0.0) += decay;
+                *file_counts.entry(file_key).or_insert(0) += 1;
             }
             total_decay_weight += decay;
 
@@ -218,12 +263,22 @@ impl CoChangeMatrix {
             for i in 0..keys.len() {
                 for j in (i + 1)..keys.len() {
                     *entries.entry((keys[i], keys[j])).or_insert(0.0) += decay;
+                    *pair_counts.entry((keys[i], keys[j])).or_insert(0) += 1;
                 }
             }
         }
 
-        // Prune entries below min_weight
+        // Prune decay-weighted entries below min_weight.
+        // Note: pair_counts and file_counts are NOT pruned — they must
+        // remain complete for accurate confidence computation.
         entries.retain(|_, w| *w >= config.min_weight);
+
+        // Precompute coupling degrees for hub detection
+        let mut coupling_degrees: HashMap<StrKey, usize> = HashMap::new();
+        for &(a, b) in pair_counts.keys() {
+            *coupling_degrees.entry(a).or_insert(0) += 1;
+            *coupling_degrees.entry(b).or_insert(0) += 1;
+        }
 
         Self {
             entries,
@@ -231,6 +286,9 @@ impl CoChangeMatrix {
             commits_analyzed,
             file_weights,
             total_decay_weight,
+            pair_counts,
+            file_counts,
+            coupling_degrees,
         }
     }
 }
@@ -530,7 +588,9 @@ mod tests {
         // file_weight(a.rs) = 3.0, file_weight(b.rs) = 2.0
         // total_decay_weight = 5.0
         // co_change(a,b) = 2.0
-        // lift(a,b) = 2.0 * 5.0 / (3.0 * 2.0) = 10.0 / 6.0 = 1.667
+        // N = 7 unique files, alpha = 1.0
+        // smoothed_lift = (2.0 + 1.0) * (5.0 + 1.0 * 49) / ((3.0 + 7.0) * (2.0 + 7.0))
+        //               = 3.0 * 54.0 / (10.0 * 9.0) = 162.0 / 90.0 = 1.8
         let commits = vec![
             commit_at(now, 0, vec!["a.rs", "b.rs"]),
             commit_at(now, 0, vec!["a.rs", "b.rs"]),
@@ -546,7 +606,9 @@ mod tests {
         let kb = si.get("b.rs").expect("b.rs interned");
 
         let lift = m.lift(ka, kb).expect("lift should be computable");
-        let expected = 2.0 * 5.0 / (3.0 * 2.0);
+        // Bayesian-smoothed lift with alpha=1.0, n=7:
+        let n: f32 = 7.0;
+        let expected = (2.0 + 1.0) * (5.0 + 1.0 * n * n) / ((3.0 + 1.0 * n) * (2.0 + 1.0 * n));
         assert!(
             (lift - expected).abs() < 0.05,
             "expected lift ~{expected:.3}, got {lift:.3}"
@@ -554,13 +616,15 @@ mod tests {
 
         // Lift for a pair that always co-changes with nothing else:
         // d.rs and e.rs: co_change=1.0, file_weight(d)=1.0, file_weight(e)=1.0
-        // lift = 1.0 * 5.0 / (1.0 * 1.0) = 5.0
+        // smoothed_lift = (1.0 + 1.0) * (5.0 + 49.0) / ((1.0 + 7.0) * (1.0 + 7.0))
+        //               = 2.0 * 54.0 / (8.0 * 8.0) = 108.0 / 64.0 = 1.6875
         let kd = si.get("d.rs").expect("d.rs interned");
         let ke = si.get("e.rs").expect("e.rs interned");
         let lift_de = m.lift(kd, ke).expect("lift should be computable for d,e");
+        let expected_de = (1.0 + 1.0) * (5.0 + 1.0 * n * n) / ((1.0 + 1.0 * n) * (1.0 + 1.0 * n));
         assert!(
-            (lift_de - 5.0).abs() < 0.05,
-            "expected lift ~5.0 for exclusive pair, got {lift_de:.3}"
+            (lift_de - expected_de).abs() < 0.05,
+            "expected lift ~{expected_de:.3} for exclusive pair, got {lift_de:.3}"
         );
     }
 

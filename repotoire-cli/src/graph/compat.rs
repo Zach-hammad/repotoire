@@ -480,7 +480,7 @@ impl super::traits::GraphQuery for CodeGraph {
     fn weighted_betweenness_idx(&self, idx: NodeIndex) -> f64 { self.weighted_betweenness(idx) }
     fn community_idx(&self, idx: NodeIndex) -> Option<usize> { self.community(idx) }
     fn modularity(&self) -> f64 { self.graph_modularity() }
-    fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32, f32)] { self.hidden_coupling() }
+    fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32, f32, f32)] { self.hidden_coupling() }
 }
 
 // ==================== GraphQuery for Arc<CodeGraph> ====================
@@ -743,7 +743,7 @@ impl super::traits::GraphQuery for std::sync::Arc<CodeGraph> {
     fn weighted_betweenness_idx(&self, idx: NodeIndex) -> f64 { <CodeGraph as super::traits::GraphQuery>::weighted_betweenness_idx(self, idx) }
     fn community_idx(&self, idx: NodeIndex) -> Option<usize> { <CodeGraph as super::traits::GraphQuery>::community_idx(self, idx) }
     fn modularity(&self) -> f64 { <CodeGraph as super::traits::GraphQuery>::modularity(self) }
-    fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32, f32)] { <CodeGraph as super::traits::GraphQuery>::hidden_coupling_pairs(self) }
+    fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32, f32, f32)] { <CodeGraph as super::traits::GraphQuery>::hidden_coupling_pairs(self) }
 }
 
 #[cfg(test)]
