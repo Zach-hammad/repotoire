@@ -1156,6 +1156,23 @@ fn build_weighted_overlay(
     //    (after containment + 2-hop filtering)
     let mut hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32, f32)> = Vec::new();  // (file_a, file_b, weight, lift, confidence)
 
+    // Compute adaptive hub threshold: p90 of coupling degrees.
+    // Files in the top 10% by coupling degree are hubs (infrastructure files
+    // that co-change with everything). Adapts to repo size automatically.
+    let hub_threshold = {
+        let mut degrees: Vec<usize> = co_change.iter()
+            .flat_map(|(&(a, b), _)| [co_change.coupling_degree(a), co_change.coupling_degree(b)])
+            .collect();
+        degrees.sort_unstable();
+        degrees.dedup();
+        if degrees.is_empty() {
+            20 // fallback
+        } else {
+            let p90_idx = (degrees.len() as f32 * 0.9) as usize;
+            degrees[p90_idx.min(degrees.len() - 1)].max(10) // floor at 10
+        }
+    };
+
     // Build a lookup from StrKey → File-level NodeIndex
     let mut file_key_to_node: HashMap<StrKey, NodeIndex> = HashMap::new();
     for &file_idx in files {
@@ -1188,10 +1205,11 @@ fn build_weighted_overlay(
             continue;
         }
 
-        // Filter 3: Hub penalty — skip if either file couples with too many others
+        // Filter 3: Hub penalty — skip if either file is in the top 10% by coupling degree.
+        // Adapts to repo size: absolute threshold (20) is too strict for large repos.
         let degree_a = co_change.coupling_degree(key_a);
         let degree_b = co_change.coupling_degree(key_b);
-        if degree_a > 20 || degree_b > 20 {
+        if degree_a > hub_threshold || degree_b > hub_threshold {
             continue;
         }
 
