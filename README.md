@@ -6,7 +6,7 @@ Repotoire builds a knowledge graph of your codebase and runs 106 detectors (73 d
 
 [![Crates.io](https://img.shields.io/crates/v/repotoire.svg)](https://crates.io/crates/repotoire)
 [![CI](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml/badge.svg)](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ```bash
 cargo install repotoire
@@ -70,6 +70,20 @@ git clone https://github.com/Zach-hammad/repotoire
 cd repotoire/repotoire-cli
 cargo build --release
 ```
+
+### Claude Code Integration
+
+The installer automatically sets up a Claude Code pre-commit hook. When Claude tries to commit code, repotoire checks for security and architecture issues first:
+
+```
+Repotoire found 3 critical issues:
+- [CRITICAL] SQL Injection (src/db/queries.ts:42)
+- [CRITICAL] Command Injection (src/routes/admin.ts:89)
+- [HIGH] Hardcoded credentials (src/config.ts:12)
+Fix these before committing.
+```
+
+Critical/high findings block the commit. Medium/low are advisory. No configuration needed — it just works after install.
 
 ### Editor Integration
 

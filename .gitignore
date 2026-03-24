@@ -105,3 +105,4 @@ benchmark/*/results.json
 repotoire-vscode/
 .worktrees/
 benchmark-output/
+seed-results/
