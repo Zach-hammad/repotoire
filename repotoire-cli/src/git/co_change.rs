@@ -58,6 +58,10 @@ pub struct CoChangeMatrix {
     half_life_days: f64,
     /// Number of commits that were analyzed (after filtering)
     commits_analyzed: usize,
+    /// Per-file decay-weighted change frequency. Used to compute lift.
+    file_weights: HashMap<StrKey, f32>,
+    /// Total decay weight across all analyzed commits. Used to compute lift.
+    total_decay_weight: f32,
 }
 
 impl CoChangeMatrix {
@@ -67,6 +71,8 @@ impl CoChangeMatrix {
             entries: HashMap::new(),
             half_life_days: 90.0,
             commits_analyzed: 0,
+            file_weights: HashMap::new(),
+            total_decay_weight: 0.0,
         }
     }
 
@@ -106,6 +112,33 @@ impl CoChangeMatrix {
         self.weight(ka, kb)
     }
 
+    /// Per-file decay-weighted change frequency for a single file.
+    pub fn file_weight(&self, file: StrKey) -> Option<f32> {
+        self.file_weights.get(&file).copied()
+    }
+
+    /// Total decay weight across all analyzed commits.
+    pub fn total_decay_weight(&self) -> f32 {
+        self.total_decay_weight
+    }
+
+    /// Compute lift for a file pair: how much more they co-change than expected by chance.
+    ///
+    /// `lift(A,B) = co_change_weight(A,B) * total_decay_weight / (file_weight(A) * file_weight(B))`
+    ///
+    /// Lift = 1.0 means co-change is exactly expected by chance.
+    /// Lift > 1.0 means more co-change than expected (real coupling signal).
+    /// Returns `None` if either file has no recorded changes or total weight is zero.
+    pub fn lift(&self, a: StrKey, b: StrKey) -> Option<f32> {
+        let pair_weight = self.weight(a, b)?;
+        let weight_a = self.file_weight(a)?;
+        let weight_b = self.file_weight(b)?;
+        if weight_a == 0.0 || weight_b == 0.0 || self.total_decay_weight == 0.0 {
+            return None;
+        }
+        Some(pair_weight * self.total_decay_weight / (weight_a * weight_b))
+    }
+
     /// Iterate over all `((a, b), weight)` entries.
     pub fn iter(&self) -> impl Iterator<Item = (&(StrKey, StrKey), &f32)> {
         self.entries.iter()
@@ -125,6 +158,8 @@ impl CoChangeMatrix {
         let si = global_interner();
         let ln2: f64 = std::f64::consts::LN_2;
         let mut entries: HashMap<(StrKey, StrKey), f32> = HashMap::new();
+        let mut file_weights: HashMap<StrKey, f32> = HashMap::new();
+        let mut total_decay_weight: f32 = 0.0;
         let mut commits_analyzed: usize = 0;
 
         let limit = commits.len().min(config.max_commits);
@@ -146,6 +181,12 @@ impl CoChangeMatrix {
             keys.sort();
             keys.dedup();
 
+            // Track per-file weights and total decay weight
+            for &file_key in &keys {
+                *file_weights.entry(file_key).or_insert(0.0) += decay;
+            }
+            total_decay_weight += decay;
+
             // Generate all (N choose 2) pairs
             for i in 0..keys.len() {
                 for j in (i + 1)..keys.len() {
@@ -161,6 +202,8 @@ impl CoChangeMatrix {
             entries,
             half_life_days: config.half_life_days,
             commits_analyzed,
+            file_weights,
+            total_decay_weight,
         }
     }
 }
@@ -386,5 +429,120 @@ mod tests {
 
         // Two near-recent commits should accumulate to ~2.0
         assert!(w > 1.5, "expected accumulated weight > 1.5, got {w}");
+    }
+
+    #[test]
+    fn test_file_weights_tracked() {
+        let now = Utc::now();
+        let config = CoChangeConfig {
+            min_weight: 0.01,
+            ..default_config()
+        };
+
+        // File A appears in 3 commits, file B in 2, file C in 1
+        let commits = vec![
+            commit_at(now, 0, vec!["a.rs", "b.rs"]),
+            commit_at(now, 0, vec!["a.rs", "b.rs"]),
+            commit_at(now, 0, vec!["a.rs", "c.rs"]),
+        ];
+
+        let m = CoChangeMatrix::from_commits(&commits, &config, now);
+
+        let si = global_interner();
+        let ka = si.get("a.rs").expect("a.rs should be interned");
+        let kb = si.get("b.rs").expect("b.rs should be interned");
+        let kc = si.get("c.rs").expect("c.rs should be interned");
+
+        let wa = m.file_weight(ka).expect("a.rs should have file weight");
+        let wb = m.file_weight(kb).expect("b.rs should have file weight");
+        let wc = m.file_weight(kc).expect("c.rs should have file weight");
+
+        // All commits at age=0, so decay=1.0 for each
+        assert!((wa - 3.0).abs() < 0.01, "a.rs appears in 3 commits, expected ~3.0, got {wa}");
+        assert!((wb - 2.0).abs() < 0.01, "b.rs appears in 2 commits, expected ~2.0, got {wb}");
+        assert!((wc - 1.0).abs() < 0.01, "c.rs appears in 1 commit, expected ~1.0, got {wc}");
+    }
+
+    #[test]
+    fn test_total_decay_weight() {
+        let now = Utc::now();
+        let config = CoChangeConfig {
+            min_weight: 0.01,
+            ..default_config()
+        };
+
+        let commits = vec![
+            commit_at(now, 0, vec!["a.rs", "b.rs"]),
+            commit_at(now, 0, vec!["c.rs", "d.rs"]),
+            commit_at(now, 0, vec!["e.rs"]),
+        ];
+
+        let m = CoChangeMatrix::from_commits(&commits, &config, now);
+
+        // 3 commits, all at age=0 so decay=1.0 each => total=3.0
+        assert!(
+            (m.total_decay_weight() - 3.0).abs() < 0.01,
+            "expected total_decay_weight ~3.0, got {}",
+            m.total_decay_weight()
+        );
+    }
+
+    #[test]
+    fn test_lift_computation() {
+        let now = Utc::now();
+        let config = CoChangeConfig {
+            min_weight: 0.01,
+            ..default_config()
+        };
+
+        // 5 commits total:
+        // - 2 commits touch both a.rs and b.rs (co-change weight = 2.0)
+        // - 1 commit touches only a.rs with c.rs (a.rs file_weight += 1)
+        // - 2 commits touch unrelated files
+        //
+        // file_weight(a.rs) = 3.0, file_weight(b.rs) = 2.0
+        // total_decay_weight = 5.0
+        // co_change(a,b) = 2.0
+        // lift(a,b) = 2.0 * 5.0 / (3.0 * 2.0) = 10.0 / 6.0 = 1.667
+        let commits = vec![
+            commit_at(now, 0, vec!["a.rs", "b.rs"]),
+            commit_at(now, 0, vec!["a.rs", "b.rs"]),
+            commit_at(now, 0, vec!["a.rs", "c.rs"]),
+            commit_at(now, 0, vec!["d.rs", "e.rs"]),
+            commit_at(now, 0, vec!["f.rs", "g.rs"]),
+        ];
+
+        let m = CoChangeMatrix::from_commits(&commits, &config, now);
+
+        let si = global_interner();
+        let ka = si.get("a.rs").expect("a.rs interned");
+        let kb = si.get("b.rs").expect("b.rs interned");
+
+        let lift = m.lift(ka, kb).expect("lift should be computable");
+        let expected = 2.0 * 5.0 / (3.0 * 2.0);
+        assert!(
+            (lift - expected).abs() < 0.05,
+            "expected lift ~{expected:.3}, got {lift:.3}"
+        );
+
+        // Lift for a pair that always co-changes with nothing else:
+        // d.rs and e.rs: co_change=1.0, file_weight(d)=1.0, file_weight(e)=1.0
+        // lift = 1.0 * 5.0 / (1.0 * 1.0) = 5.0
+        let kd = si.get("d.rs").expect("d.rs interned");
+        let ke = si.get("e.rs").expect("e.rs interned");
+        let lift_de = m.lift(kd, ke).expect("lift should be computable for d,e");
+        assert!(
+            (lift_de - 5.0).abs() < 0.05,
+            "expected lift ~5.0 for exclusive pair, got {lift_de:.3}"
+        );
+    }
+
+    #[test]
+    fn test_lift_none_for_missing_files() {
+        let m = CoChangeMatrix::empty();
+        let si = global_interner();
+        let ka = si.intern("nonexistent_a.rs");
+        let kb = si.intern("nonexistent_b.rs");
+        assert!(m.lift(ka, kb).is_none(), "lift should be None for files not in matrix");
     }
 }

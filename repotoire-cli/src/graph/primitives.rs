@@ -55,8 +55,8 @@ pub struct GraphPrimitives {
     pub(crate) modularity: f64,
 
     // ── Hidden coupling: co-change without structural edge (Phase B) ──
-    // NodeIndex values are File-level node indices.
-    pub(crate) hidden_coupling: Vec<(NodeIndex, NodeIndex, f32)>,
+    // NodeIndex values are File-level node indices. Tuple: (file_a, file_b, weight, lift).
+    pub(crate) hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32)>,
 }
 
 impl GraphPrimitives {
@@ -964,7 +964,7 @@ fn compute_weighted_phase(
     co_change: &CoChangeMatrix,
     graph: &StableGraph<CodeNode, CodeEdge>,
     edge_fingerprint: u64,
-) -> (HashMap<NodeIndex, f64>, HashMap<NodeIndex, f64>, HashMap<NodeIndex, usize>, f64, Vec<(NodeIndex, NodeIndex, f32)>) {
+) -> (HashMap<NodeIndex, f64>, HashMap<NodeIndex, f64>, HashMap<NodeIndex, usize>, f64, Vec<(NodeIndex, NodeIndex, f32, f32)>) {
     let (overlay, hidden_coupling) = build_weighted_overlay(
         functions, files, all_call_edges, all_import_edges, co_change, graph,
     );
@@ -1003,7 +1003,7 @@ fn build_weighted_overlay(
     all_import_edges: &[(NodeIndex, NodeIndex)],
     co_change: &CoChangeMatrix,
     graph: &StableGraph<CodeNode, CodeEdge>,
-) -> (StableGraph<NodeIndex, f32>, Vec<(NodeIndex, NodeIndex, f32)>) {
+) -> (StableGraph<NodeIndex, f32>, Vec<(NodeIndex, NodeIndex, f32, f32)>) {
     // 1. Build idx_map: original NodeIndex → overlay NodeIndex
     let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
     let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
@@ -1081,7 +1081,7 @@ fn build_weighted_overlay(
     }
 
     // 4. Hidden coupling: co-change pairs with NO structural edges between files
-    let mut hidden_coupling: Vec<(NodeIndex, NodeIndex, f32)> = Vec::new();
+    let mut hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32)> = Vec::new();
 
     // Build a lookup from StrKey → File-level NodeIndex
     let mut file_key_to_node: HashMap<StrKey, NodeIndex> = HashMap::new();
@@ -1125,11 +1125,12 @@ fn build_weighted_overlay(
             }
         }
 
-        // Record hidden coupling at file level
+        // Record hidden coupling at file level with lift
         if let (Some(&file_node_a), Some(&file_node_b)) =
             (file_key_to_node.get(&key_a), file_key_to_node.get(&key_b))
         {
-            hidden_coupling.push((file_node_a, file_node_b, co_change_boost));
+            let lift = co_change.lift(key_a, key_b).unwrap_or(1.0);
+            hidden_coupling.push((file_node_a, file_node_b, co_change_boost, lift));
         }
     }
 
@@ -2309,7 +2310,7 @@ mod tests {
 
         // Hidden coupling should be recorded at file level
         assert_eq!(hidden_coupling.len(), 1, "Should have 1 hidden coupling entry");
-        let (hc_a, hc_b, hc_w) = hidden_coupling[0];
+        let (hc_a, hc_b, hc_w, hc_lift) = hidden_coupling[0];
 
         // The file-level NodeIndex values should be from the files parameter
         let hc_files: HashSet<NodeIndex> = [hc_a, hc_b].into_iter().collect();
@@ -2320,6 +2321,11 @@ mod tests {
         assert!(
             (hc_w - expected_boost).abs() < 1e-6,
             "Hidden coupling weight should be {expected_boost}, got {hc_w}"
+        );
+        // Lift should be > 1.0 since these files always co-change (2 files, 3 commits)
+        assert!(
+            hc_lift > 0.0,
+            "Hidden coupling lift should be positive, got {hc_lift}"
         );
     }
 

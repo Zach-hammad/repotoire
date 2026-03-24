@@ -1,0 +1,1791 @@
+{
+  "overall_score": 82.02,
+  "grade": "B-",
+  "structure_score": 97.64999999999999,
+  "quality_score": 43.79999999999998,
+  "architecture_score": 99.39999999999999,
+  "findings": [
+    {
+      "id": "59ffb0b6f29f9e7e",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: build_app (755 lines)",
+      "description": "Function 'build_app' has 755 lines (effective threshold: 150).",
+      "affected_files": [
+        "src/bin/bat/clap_app.rs"
+      ],
+      "line_start": 21,
+      "line_end": 776,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "40279102614949f8",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 63)",
+      "description": "Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/bin/bat/main.rs::list_themes:196 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/bin/bat/main.rs::run:345 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/bin/bat/main.rs::run_controller:277. Aggregate complexity: 63.",
+      "affected_files": [
+        "src/bin/bat/main.rs"
+      ],
+      "line_start": 196,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "2106ea25e9409463",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "high",
+      "title": "Architectural Bottleneck: open (architectural hub)",
+      "description": "Function 'open' is called by 22 functions and has complexity 26. Changes here are high-risk.\n\nBetweenness centrality: 0.1915 - this function sits on many execution paths between other functions.\n\n📊 Threshold: 20 (adaptive) | Actual: 26 | Default would be: 20 | Profile: p90=7, p95=13, mean=3.3, n=491",
+      "affected_files": [
+        "src/lessopen.rs"
+      ],
+      "line_start": 77,
+      "line_end": 199,
+      "suggested_fix": "This is a critical hub. Ensure comprehensive test coverage, add defensive error handling, and consider circuit breaker pattern.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.85,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "26",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "bba1f9c1721e6ce4",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 7 functions in call cycle (complexity 36)",
+      "description": "Mutual recursion detected: 7 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/vscreen.rs::impl<EscapeSequenceOffsetsIterator<'a>>::chars_take_while:371 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/vscreen.rs::impl<EscapeSequenceOffsetsIterator<'a>>::next_csi:477 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/vscreen.rs::impl<EscapeSequenceOffsetsIterator<'a>>::next_nf:510 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/vscreen.rs::impl<EscapeSequenceOffsetsIterator<'a>>::next_osc:413 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/vscreen.rs::impl<EscapeSequenceOffsetsIterator<'a>>::next_sequence:393 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/vscreen.rs::impl<EscapeSequenceOffsetsIterator<'a>>::next_text:388 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/vscreen.rs::impl<Iterator for EscapeSequenceOffsetsIterator<'_>>::next:544. Aggregate complexity: 36.",
+      "affected_files": [
+        "src/vscreen.rs"
+      ],
+      "line_start": 371,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Large (1-3 days)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "064eaea02de0eb06",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 31)",
+      "description": "Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/tests/benchmarks/highlighting-speed-src/jquery.js::mightThrow:3524 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/tests/benchmarks/highlighting-speed-src/jquery.js::resolve:3520. Aggregate complexity: 31.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 3524,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.7999999999999999,
+      "deterministic": true,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "51c05c3a2f7504cd",
+      "detector": "EmptyCatchDetector",
+      "severity": "high",
+      "title": "Empty catch block swallows exceptions",
+      "description": "[COMPOUND: 2 co-located issues] This catch block silently swallows exceptions, hiding potential bugs.\n\n**Risk Assessment:**\n⚠️ `XMLHttpRequest` appears to do I/O",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 9461,
+      "line_end": 9461,
+      "suggested_fix": "This swallows I/O or network exceptions - very dangerous!\nAt minimum, log the exception:\n```python\nexcept Exception as e:\nlogger.error(f\"Operation failed: {e}\")\n```",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-390",
+      "why_it_matters": "Swallowed exceptions hide bugs and make debugging extremely difficult. When something fails silently, you may not know until much later.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: bincode 1.3.3 (RUSTSEC-2025-0141)",
+      "description": "**RUSTSEC-2025-0141** in `bincode@1.3.3` (crates.io)\n\nNo description available\n\n**Advisory**: RUSTSEC-2025-0141\n**Ecosystem**: crates.io",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: yaml-rust 0.4.5 (RUSTSEC-2024-0320)",
+      "description": "**RUSTSEC-2024-0320** in `yaml-rust@0.4.5` (crates.io)\n\nNo description available\n\n**Advisory**: RUSTSEC-2024-0320\n**Ecosystem**: crates.io",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "2afeea7a90917f9b",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "build/application.rs"
+      ],
+      "line_start": 37,
+      "line_end": 37,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.29999999999999993,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "bundled_code"
+      }
+    },
+    {
+      "id": "5595ed572e938310",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "build/application.rs"
+      ],
+      "line_start": 38,
+      "line_end": 38,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.29999999999999993,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "bundled_code"
+      }
+    },
+    {
+      "id": "e7a240da8cfec69c",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "build/syntax_mapping.rs"
+      ],
+      "line_start": 78,
+      "line_end": 78,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.29999999999999993,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "bundled_code"
+      }
+    },
+    {
+      "id": "95c49fb397e10a6b",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "build/syntax_mapping.rs"
+      ],
+      "line_start": 86,
+      "line_end": 86,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.29999999999999993,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "bundled_code"
+      }
+    },
+    {
+      "id": "90054e3f48122c70",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "examples/advanced.rs"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "180f22afbc6a90a1",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "examples/buffer.rs"
+      ],
+      "line_start": 19,
+      "line_end": 19,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "c210460392a5aba3",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "examples/cat.rs"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "7c2e5bf0c99b9b21",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "examples/inputs.rs"
+      ],
+      "line_start": 18,
+      "line_end": 18,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "be9e081235ccfa8f",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "examples/simple.rs"
+      ],
+      "line_start": 5,
+      "line_end": 5,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "ffda05dd3e79b78d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "examples/yaml.rs"
+      ],
+      "line_start": 27,
+      "line_end": 27,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "56d170647976200e",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "examples/yaml.rs"
+      ],
+      "line_start": 35,
+      "line_end": 35,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "12ec3889280b0821",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/bin/bat/app.rs"
+      ],
+      "line_start": 85,
+      "line_end": 85,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d8657474ca5f8e39",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 27)",
+      "description": "Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/bin/bat/app.rs::impl<App>::display_help:136 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/bat/src/bin/bat/app.rs::impl<App>::new:56. Aggregate complexity: 27.",
+      "affected_files": [
+        "src/bin/bat/app.rs"
+      ],
+      "line_start": 136,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "b75561773821750a",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/bin/bat/app.rs"
+      ],
+      "line_start": 196,
+      "line_end": 196,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b6a3a9948b2dc8cd",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/bin/bat/app.rs"
+      ],
+      "line_start": 253,
+      "line_end": 253,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "07f1dcd6f40b9d0b",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/bin/bat/app.rs"
+      ],
+      "line_start": 655,
+      "line_end": 655,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b5c3e89485c4b8f3",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/bin/bat/app.rs"
+      ],
+      "line_start": 659,
+      "line_end": 659,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f7121f85f6d4eff0",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/bin/bat/app.rs"
+      ],
+      "line_start": 662,
+      "line_end": 662,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5d2105be6cf66aeb",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/bin/bat/main.rs"
+      ],
+      "line_start": 263,
+      "line_end": 263,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2fb7d6e8143cc1ec",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: run",
+      "description": "Function 'run' is a statistical complexity outlier (z-score: 6.8, complexity: 37).",
+      "affected_files": [
+        "src/bin/bat/main.rs"
+      ],
+      "line_start": 345,
+      "line_end": 426,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1d9ac164d1b9e79d",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: run_with_error_handler",
+      "description": "Function 'run_with_error_handler' is a statistical complexity outlier (z-score: 4.8, complexity: 27).",
+      "affected_files": [
+        "src/controller.rs"
+      ],
+      "line_start": 47,
+      "line_end": 139,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "bdff894c8c0c92db",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/preprocessor.rs"
+      ],
+      "line_start": 56,
+      "line_end": 56,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ea6d83da00b89eff",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/preprocessor.rs"
+      ],
+      "line_start": 105,
+      "line_end": 105,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ba5b212e3db3429f",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/preprocessor.rs"
+      ],
+      "line_start": 110,
+      "line_end": 110,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "34595ea59f1371c0",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/pretty_printer.rs"
+      ],
+      "line_start": 272,
+      "line_end": 272,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "070f546434028f94",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: print_line (323 lines)",
+      "description": "Function 'print_line' has 323 lines (effective threshold: 150).",
+      "affected_files": [
+        "src/printer.rs"
+      ],
+      "line_start": 619,
+      "line_end": 942,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "903cd60c5efb3234",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/printer.rs"
+      ],
+      "line_start": 872,
+      "line_end": 872,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "a2773f32b3513bf9",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/style.rs"
+      ],
+      "line_start": 152,
+      "line_end": 152,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "630698b5c150f437",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/style.rs"
+      ],
+      "line_start": 153,
+      "line_end": 153,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c7618534e4e4952b",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n✓ Uses Promise combinators (good pattern)\n⚠️ 274 anonymous functions - consider naming them",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 1134,
+      "line_end": 1134,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "9b8585cac97fc393",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 1248,
+      "line_end": 1248,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "828331a1df982690",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 1287,
+      "line_end": 1287,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "b64c7515a1bbe7a4",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 1291,
+      "line_end": 1291,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "136279725e5cefcc",
+      "detector": "EmptyCatchDetector",
+      "severity": "medium",
+      "title": "Empty catch block swallows exceptions",
+      "description": "[COMPOUND: 2 co-located issues] This catch block silently swallows exceptions, hiding potential bugs.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 1501,
+      "line_end": 1501,
+      "suggested_fix": "Log the exception or handle it appropriately:\n- Add logging to track failures\n- Re-raise if recovery isn't possible\n- Handle specific exception types",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-390",
+      "why_it_matters": "Swallowed exceptions hide bugs and make debugging extremely difficult. When something fails silently, you may not know until much later.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0d5ac7d297feff15",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 2710,
+      "line_end": 2710,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "8563a90f97d2561f",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 2723,
+      "line_end": 2723,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "86eae5554f5af19d",
+      "detector": "EmptyCatchDetector",
+      "severity": "medium",
+      "title": "Empty catch block swallows exceptions",
+      "description": "[COMPOUND: 2 co-located issues] This catch block silently swallows exceptions, hiding potential bugs.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 4210,
+      "line_end": 4210,
+      "suggested_fix": "Log the exception or handle it appropriately:\n- Add logging to track failures\n- Re-raise if recovery isn't possible\n- Handle specific exception types",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-390",
+      "why_it_matters": "Swallowed exceptions hide bugs and make debugging extremely difficult. When something fails silently, you may not know until much later.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "4c1defa12e3717e0",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 4773,
+      "line_end": 4773,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "ab2669da58c88ba1",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 2 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 4854,
+      "line_end": 4854,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "63c78a7c01c93965",
+      "detector": "EmptyCatchDetector",
+      "severity": "medium",
+      "title": "Empty catch block swallows exceptions",
+      "description": "[COMPOUND: 2 co-located issues] This catch block silently swallows exceptions, hiding potential bugs.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 4879,
+      "line_end": 4879,
+      "suggested_fix": "Log the exception or handle it appropriately:\n- Add logging to track failures\n- Re-raise if recovery isn't possible\n- Handle specific exception types",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-390",
+      "why_it_matters": "Swallowed exceptions hide bugs and make debugging extremely difficult. When something fails silently, you may not know until much later.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "12caecb24c7ccdb6",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 5603,
+      "line_end": 5603,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "67c3be3405fb349b",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 3 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 5965,
+      "line_end": 5965,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "9d0d82323acb50cf",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 3 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 5968,
+      "line_end": 5968,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0e88fe500193acd2",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 3 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 5969,
+      "line_end": 5969,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "505f664fb0c5d987",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 3 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 5981,
+      "line_end": 5981,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "b8f51fd4f3b8d990",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 3 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 5987,
+      "line_end": 5987,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "8fc8a2b1cadbf542",
+      "detector": "EmptyCatchDetector",
+      "severity": "medium",
+      "title": "Empty catch block swallows exceptions",
+      "description": "[COMPOUND: 3 co-located issues] This catch block silently swallows exceptions, hiding potential bugs.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 5988,
+      "line_end": 5988,
+      "suggested_fix": "Log the exception or handle it appropriately:\n- Add logging to track failures\n- Re-raise if recovery isn't possible\n- Handle specific exception types",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-390",
+      "why_it_matters": "Swallowed exceptions hide bugs and make debugging extremely difficult. When something fails silently, you may not know until much later.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e61f2357aa275c29",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 9795,
+      "line_end": 9795,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "ca4cdbac9ba97540",
+      "detector": "CommandInjectionDetector",
+      "severity": "medium",
+      "title": "Potential command injection",
+      "description": "[Non-production path] subprocess with shell=True allows shell injection through any unsanitized input.",
+      "affected_files": [
+        "tests/snapshots/generate_snapshots.py"
+      ],
+      "line_start": 32,
+      "line_end": 32,
+      "suggested_fix": "Use subprocess/spawn with array arguments instead of shell string. Never interpolate user input into commands.",
+      "estimated_effort": "45 minutes",
+      "category": "security",
+      "cwe_id": "CWE-78",
+      "why_it_matters": "Attackers could execute arbitrary system commands by injecting shell metacharacters.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "cb99759434e45483",
+      "detector": "CommandInjectionDetector",
+      "severity": "medium",
+      "title": "Potential command injection",
+      "description": "[Non-production path] subprocess with shell=True allows shell injection through any unsanitized input.",
+      "affected_files": [
+        "tests/snapshots/generate_snapshots.py"
+      ],
+      "line_start": 37,
+      "line_end": 37,
+      "suggested_fix": "Use subprocess/spawn with array arguments instead of shell string. Never interpolate user input into commands.",
+      "estimated_effort": "45 minutes",
+      "category": "security",
+      "cwe_id": "CWE-78",
+      "why_it_matters": "Attackers could execute arbitrary system commands by injecting shell metacharacters.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "70028d196d8e5437",
+      "detector": "CommandInjectionDetector",
+      "severity": "medium",
+      "title": "Potential command injection",
+      "description": "[Non-production path] subprocess with shell=True allows shell injection through any unsanitized input.",
+      "affected_files": [
+        "tests/snapshots/generate_snapshots.py"
+      ],
+      "line_start": 52,
+      "line_end": 52,
+      "suggested_fix": "Use subprocess/spawn with array arguments instead of shell string. Never interpolate user input into commands.",
+      "estimated_effort": "45 minutes",
+      "category": "security",
+      "cwe_id": "CWE-78",
+      "why_it_matters": "Attackers could execute arbitrary system commands by injecting shell metacharacters.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "b5c4f2a6c3ca85d5",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 9 levels in to_tokens",
+      "description": "9 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `to_tokens`\n\nThreshold: 5 (adaptive) | Actual: 9 | Default would be: 5 | Profile: p90=2, p95=3, mean=0.9, n=491",
+      "affected_files": [
+        "build/syntax_mapping.rs"
+      ],
+      "line_start": 206,
+      "line_end": 206,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.29999999999999993,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "9",
+        "confidence_signals": "bundled_code",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "a36be5fc7e3acf75",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: config (250 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'config' has 250 lines (effective threshold: 150).\n\n**Graph Analysis:**\nHigh complexity density: 0.31 (complexity 78 / 250 lines)\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "src/bin/bat/app.rs"
+      ],
+      "line_start": 275,
+      "line_end": 525,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle_src()` for src operations\n  - `handle_bat()` for bat operations\n  - `handle_assets()` for assets operations",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4090f840cdb5744f",
+      "detector": "CircularDependencyDetector",
+      "severity": "low",
+      "title": "Circular dependency: 2 files",
+      "description": "Mutual dependency between: decorations.rs ↔ printer.rs\n\n**Weakest link to break:** `decorations.rs` → `printer.rs` (1 import)",
+      "affected_files": [
+        "src/decorations.rs",
+        "src/printer.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `decorations.rs` → `printer.rs` (weakest coupling: 1 imports)\n\nSince `decorations.rs` only imports 1 symbol(s) from `printer.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "582d8a9632115f1f",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 9 levels in print_line",
+      "description": "9 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `print_line`\nHigh complexity: 68 (nesting compounds this)\nContains 1 match/switch level(s) (discounted from raw depth 10)\nExisting helpers that could reduce nesting: generate, char_width, highlight_regions_for_line\n\nThreshold: 5 (adaptive) | Actual: 9 | Default would be: 5 | Profile: p90=2, p95=3, mean=0.9, n=491",
+      "affected_files": [
+        "src/printer.rs"
+      ],
+      "line_start": 819,
+      "line_end": 819,
+      "suggested_fix": "This function already has helpers like `generate`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "9",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "3e051f4454b7b0f9",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: apply, call",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 695,
+      "line_end": 695,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "a465c3138b0b2451",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: fn",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 886,
+      "line_end": 886,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "602ee2bf5058bff8",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "[COMPOUND: 2 co-located issues] Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: call",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 1501,
+      "line_end": 1501,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "29494031d38e00f8",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: mightThrow",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 3603,
+      "line_end": 3603,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "39e98d4d2a23efd0",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "[COMPOUND: 2 co-located issues] Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: getData",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 4210,
+      "line_end": 4210,
+      "suggested_fix": "Based on the operations in your try block, consider catching:\n  • TypeError (network errors), AbortError\n\nExample:\n```python\nexcept (TypeError (network errors), AbortError) as e:\nlogger.error(f\"Operation failed: {e}\")\n```",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "51ff1013b0f699a2",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "[COMPOUND: 3 co-located issues] Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: getAll, cleanData",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 5988,
+      "line_end": 5988,
+      "suggested_fix": "Based on the operations in your try block, consider catching:\n  • TypeError (network errors), AbortError\n\nExample:\n```python\nexcept (TypeError (network errors), AbortError) as e:\nlogger.error(f\"Operation failed: {e}\")\n```",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "60fd0688de8e420f",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: defaultPrefilter (170 lines)",
+      "description": "Function 'defaultPrefilter' has 170 lines (effective threshold: 150).",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 6860,
+      "line_end": 7030,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "5c6df6f4ac1ea7aa",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: DOMParser, parseFromString",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 8399,
+      "line_end": 8399,
+      "suggested_fix": "Based on the operations in your try block, consider catching:\n  • SyntaxError (for JSON.parse)\n\nExample:\n```python\nexcept (SyntaxError (for JSON.parse)) as e:\nlogger.error(f\"Operation failed: {e}\")\n```",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "584728582dbb4dc6",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: conv",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 8788,
+      "line_end": 8788,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "4a7c48819c5ce33c",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 9063,
+      "line_end": 9063,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "202f00b5d7a40a1d",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "[COMPOUND: 2 co-located issues] Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: XMLHttpRequest",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/jquery.js"
+      ],
+      "line_start": 9461,
+      "line_end": 9461,
+      "suggested_fix": "Based on the operations in your try block, consider catching:\n  • TypeError (network errors), AbortError\n\nExample:\n```python\nexcept (TypeError (network errors), AbortError) as e:\nlogger.error(f\"Operation failed: {e}\")\n```",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "9b47eca08b603f5b",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: test_argsort (135 lines)",
+      "description": "Function 'test_argsort' has 135 lines (effective threshold: 100).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/numpy_test_multiarray.py"
+      ],
+      "line_start": 2003,
+      "line_end": 2138,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "a500dc3639711476",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: test_partition (206 lines)",
+      "description": "Function 'test_partition' has 206 lines (effective threshold: 100).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/numpy_test_multiarray.py"
+      ],
+      "line_start": 2440,
+      "line_end": 2646,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "9a792b709ae91431",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: test_ufunc_binop_interaction (182 lines)",
+      "description": "Function 'test_ufunc_binop_interaction' has 182 lines (effective threshold: 100).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/numpy_test_multiarray.py"
+      ],
+      "line_start": 3362,
+      "line_end": 3544,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "023ebb3c674173fd",
+      "detector": "EmptyCatchDetector",
+      "severity": "low",
+      "title": "Empty catch block swallows exceptions",
+      "description": "This catch block silently swallows exceptions, hiding potential bugs.\n\n**Risk Assessment:**\n⚠️ `close` appears to do I/O",
+      "affected_files": [
+        "tests/benchmarks/highlighting-speed-src/numpy_test_multiarray.py"
+      ],
+      "line_start": 4927,
+      "line_end": 4927,
+      "suggested_fix": "Log the exception or handle it appropriately:\n- Add logging to track failures\n- Re-raise if recovery isn't possible\n- Handle specific exception types",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-390",
+      "why_it_matters": "Swallowed exceptions hide bugs and make debugging extremely difficult. When something fails silently, you may not know until much later.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "80f524413c202d91",
+      "detector": "ImplicitCoercionDetector",
+      "severity": "low",
+      "title": "Loose equality (==) used",
+      "description": "== performs type coercion which can cause subtle bugs.",
+      "affected_files": [
+        "tests/syntax-tests/highlighted/JavaScript/test.js"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Use === for strict equality:\n```javascript\n// Instead of:\nif (value == 'string') { ... }\n\n// Use:\nif (value === 'string') { ... }\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Type coercion in == can cause unexpected behavior:\n• '1' == 1 is true\n• '' == false is true\n• [] == false is true\nUse === to compare both value AND type.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "f01a1e4dfd640be7",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: test",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'test' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 4 times in this file",
+      "affected_files": [
+        "tests/syntax-tests/source/JavaScript/test.js"
+      ],
+      "line_start": 18,
+      "line_end": 18,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0d8acd4d642966d9",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: rain",
+      "description": "[COMPOUND: 2 co-located issues] Global mutable state 'rain' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 9 times in this file",
+      "affected_files": [
+        "tests/syntax-tests/source/JavaScript/test.js"
+      ],
+      "line_start": 43,
+      "line_end": 43,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "1f008dbff218653f",
+      "detector": "ImplicitCoercionDetector",
+      "severity": "low",
+      "title": "Loose equality (==) used",
+      "description": "[COMPOUND: 2 co-located issues] == performs type coercion which can cause subtle bugs.",
+      "affected_files": [
+        "tests/syntax-tests/source/JavaScript/test.js"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Use === for strict equality:\n```javascript\n// Instead of:\nif (value == 'string') { ... }\n\n// Use:\nif (value === 'string') { ... }\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Type coercion in == can cause unexpected behavior:\n• '1' == 1 is true\n• '' == false is true\n• [] == false is true\nUse === to compare both value AND type.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "ed6a0e5f96dd7bd9",
+      "detector": "WildcardImportsDetector",
+      "severity": "low",
+      "title": "Wildcard import: time",
+      "description": "Wildcard imports pollute namespace and hide dependencies.",
+      "affected_files": [
+        "tests/syntax-tests/source/Python/battest.py"
+      ],
+      "line_start": 4,
+      "line_end": 4,
+      "suggested_fix": "Import specific names instead.",
+      "estimated_effort": "5 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Makes code harder to understand and refactor. Tools can't determine where names come from.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 6,
+    "medium": 53,
+    "low": 24,
+    "info": 0,
+    "total": 83
+  },
+  "total_files": 105,
+  "total_functions": 1516,
+  "total_classes": 183,
+  "total_loc": 35542
+}
+
+Phase timings (cold):
+  calibrate        0.021s  (1.3%)
+  collect          0.013s  (0.8%)
+  detect           1.059s  (65.2%)
+  freeze           0.027s  (1.7%)
+  git_enrich       0.175s  (10.8%)
+  graph            0.019s  (1.2%)
+  parse            0.307s  (18.9%)
+  postprocess      0.001s  (0.1%)
+  score            0.001s  (0.1%)
+  TOTAL            1.625s

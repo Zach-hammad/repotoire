@@ -1,0 +1,2516 @@
+{
+  "overall_score": 71.32,
+  "grade": "C-",
+  "structure_score": 80.79999999999995,
+  "quality_score": 30.0,
+  "architecture_score": 100.0,
+  "findings": [
+    {
+      "id": "94d727e5a660b57a",
+      "detector": "InsecureCookieDetector",
+      "severity": "critical",
+      "title": "Cookie missing HttpOnly flags",
+      "description": "[COMPOUND: 2 co-located issues] Cookie is missing security flags that protect against common attacks.\n\n**Analysis:**\n🔐 remember-me/login cookie - high value target\n❌ Missing: HttpOnly, Secure, SameSite",
+      "affected_files": [
+        "examples/cookies/index.js"
+      ],
+      "line_start": 43,
+      "line_end": 43,
+      "suggested_fix": "```javascript\nres.cookie('cookie_name', value, {\nhttpOnly: true,  // Prevents JavaScript access\nsecure: true,    // HTTPS only\nsameSite: 'lax'  // CSRF protection\n});\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1004",
+      "why_it_matters": "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n• **Secure** ensures cookies are only sent over HTTPS\n• **SameSite** prevents CSRF attacks by controlling cross-site requests",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "333396204d1a9c51",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 20%\n🛣️ Routes: 9\n❌ Missing: helmet, rate-limit, body-parser-limit",
+      "affected_files": [
+        "examples/auth/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "c6aa0e8bbc64cf54",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 8\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/cookies/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3d8ebb8e798b0d25",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 7\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/error-pages/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2a2cb42f002ef30e",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 6\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/error/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e8bc3093d336258b",
+      "detector": "ExpressSecurityDetector",
+      "severity": "high",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 8\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/mvc/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "6be2a30d6837932f",
+      "detector": "CallbackHellDetector",
+      "severity": "high",
+      "title": "Callback hell (6 levels deep)",
+      "description": "Deeply nested callbacks (6 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 58 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.render.js"
+      ],
+      "line_start": 163,
+      "line_end": 163,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "1 hour",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e61ff90b69a10d79",
+      "detector": "CallbackHellDetector",
+      "severity": "high",
+      "title": "Callback hell (9 levels deep)",
+      "description": "Deeply nested callbacks (9 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 99 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/express.json.js"
+      ],
+      "line_start": 198,
+      "line_end": 198,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "1 hour",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "888e2248beaa2cdd",
+      "detector": "CallbackHellDetector",
+      "severity": "high",
+      "title": "Callback hell (6 levels deep)",
+      "description": "Deeply nested callbacks (6 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 25 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.host.js"
+      ],
+      "line_start": 127,
+      "line_end": 127,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "1 hour",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "230c066e226fa06b",
+      "detector": "CallbackHellDetector",
+      "severity": "high",
+      "title": "Callback hell (6 levels deep)",
+      "description": "Deeply nested callbacks (6 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 29 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.hostname.js"
+      ],
+      "line_start": 127,
+      "line_end": 127,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "1 hour",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "312fbbd19bb165c0",
+      "detector": "CallbackHellDetector",
+      "severity": "high",
+      "title": "Callback hell (6 levels deep)",
+      "description": "Deeply nested callbacks (6 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 18 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.ip.js"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "1 hour",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "a3caf962af192507",
+      "detector": "CallbackHellDetector",
+      "severity": "high",
+      "title": "Callback hell (6 levels deep)",
+      "description": "Deeply nested callbacks (6 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 14 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.ips.js"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "1 hour",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "9e5363c516f17f0d",
+      "detector": "CallbackHellDetector",
+      "severity": "high",
+      "title": "Callback hell (6 levels deep)",
+      "description": "Deeply nested callbacks (6 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 19 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.protocol.js"
+      ],
+      "line_start": 86,
+      "line_end": 86,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "1 hour",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "f38068be8911c3f5",
+      "detector": "CallbackHellDetector",
+      "severity": "high",
+      "title": "Callback hell (6 levels deep)",
+      "description": "Deeply nested callbacks (6 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 18 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.secure.js"
+      ],
+      "line_start": 89,
+      "line_end": 89,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "1 hour",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "8138cb4ebe1bd283",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "high",
+      "title": "XSS: innerHTML assignment",
+      "description": "[COMPOUND: 2 co-located issues] **Direct innerHTML assignment can lead to XSS vulnerabilities**\n\n**Location**: test/res.redirect.js:115\n\n**Code snippet**:\n```\nvar xss = 'javascript:eval(document.body.innerHTML=`<p>XSS</p>`);';\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-79: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.",
+      "affected_files": [
+        "test/res.redirect.js"
+      ],
+      "line_start": 115,
+      "line_end": 115,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Use textContent for text** (auto-escapes):\n```javascript\n// Instead of:\nelement.innerHTML = userInput;\n\n// Use:\nelement.textContent = userInput;\n```\n\n2. **Use DOM APIs for structure**:\n```javascript\nconst span = document.createElement('span');\nspan.textContent = userInput;\nelement.appendChild(span);\n```\n\n3. **If HTML is required**, sanitize first:\n```javascript\nimport DOMPurify from 'dompurify';\nelement.innerHTML = DOMPurify.sanitize(userInput);\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "f161095481cacadd",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "high",
+      "title": "XSS: innerHTML assignment",
+      "description": "[COMPOUND: 2 co-located issues] **Direct innerHTML assignment can lead to XSS vulnerabilities**\n\n**Location**: test/res.redirect.js:116\n\n**Code snippet**:\n```\nvar encodedXss = 'javascript:eval(document.body.innerHTML=%60%3Cp%3EXSS%3C/p%3E%60);';\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-79: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.",
+      "affected_files": [
+        "test/res.redirect.js"
+      ],
+      "line_start": 116,
+      "line_end": 116,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Use textContent for text** (auto-escapes):\n```javascript\n// Instead of:\nelement.innerHTML = userInput;\n\n// Use:\nelement.textContent = userInput;\n```\n\n2. **Use DOM APIs for structure**:\n```javascript\nconst span = document.createElement('span');\nspan.textContent = userInput;\nelement.appendChild(span);\n```\n\n3. **If HTML is required**, sanitize first:\n```javascript\nimport DOMPurify from 'dompurify';\nelement.innerHTML = DOMPurify.sanitize(userInput);\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "333396204d1a9c51",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 20%\n🛣️ Routes: 9\n❌ Missing: helmet, rate-limit, body-parser-limit",
+      "affected_files": [
+        "examples/auth/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "333396204d1a9c51",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "No global error handler",
+      "description": "Express apps should have a global error handler to prevent stack traces from leaking.\n\n**App Analysis:**\n📊 Security Score: 20%\n🛣️ Routes: 9\n❌ Missing: helmet, rate-limit, body-parser-limit",
+      "affected_files": [
+        "examples/auth/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Add a global error handler:\n```javascript\n// Error handler must be the LAST middleware\napp.use((err, req, res, next) => {\nconsole.error(err.stack);\nres.status(500).json({\nerror: process.env.NODE_ENV === 'production' \n? 'Internal server error' \n: err.message\n});\n});\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-209",
+      "why_it_matters": "Unhandled errors leak stack traces and internal details.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "757f8b8199208b7a",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/content-negotiation/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "bfba19e9960bccf2",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/cookie-sessions/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "c6aa0e8bbc64cf54",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing rate limiting",
+      "description": "[COMPOUND: 2 co-located issues] Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 8\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/cookies/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "c6aa0e8bbc64cf54",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "No authentication middleware detected",
+      "description": "[COMPOUND: 2 co-located issues] This Express app has 8 routes but no apparent authentication.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 8\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/cookies/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Consider adding authentication:\n```javascript\n// Using Passport.js\nconst passport = require('passport');\napp.use(passport.initialize());\napp.use('/api/protected', passport.authenticate('jwt'));\n\n// Or custom middleware\nconst requireAuth = (req, res, next) => {\nif (!req.user) return res.status(401).json({ error: 'Unauthorized' });\nnext();\n};\n```",
+      "estimated_effort": "1-2 hours",
+      "category": "security",
+      "cwe_id": "CWE-306",
+      "why_it_matters": "APIs without authentication are open to abuse.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "c6aa0e8bbc64cf54",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "No global error handler",
+      "description": "[COMPOUND: 2 co-located issues] Express apps should have a global error handler to prevent stack traces from leaking.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 8\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/cookies/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Add a global error handler:\n```javascript\n// Error handler must be the LAST middleware\napp.use((err, req, res, next) => {\nconsole.error(err.stack);\nres.status(500).json({\nerror: process.env.NODE_ENV === 'production' \n? 'Internal server error' \n: err.message\n});\n});\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-209",
+      "why_it_matters": "Unhandled errors leak stack traces and internal details.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2df53b6ea24f4fd6",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "[COMPOUND: 2 co-located issues] Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/downloads/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "64b01b93e595c1c7",
+      "detector": "PathTraversalDetector",
+      "severity": "medium",
+      "title": "Path traversal in file download",
+      "description": "[Non-production path] [COMPOUND: 2 co-located issues] File download/send function with user-controlled path. Attackers could download arbitrary files from the server.",
+      "affected_files": [
+        "examples/downloads/index.js"
+      ],
+      "line_start": 27,
+      "line_end": 27,
+      "suggested_fix": "Use res.download() with { root: '/safe/base/dir' } option, or validate resolved path is within allowed directory.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-22",
+      "why_it_matters": "Attackers could download sensitive configuration files, source code, or credentials from the server.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "10b0426805f5a9dd",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/ejs/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3d8ebb8e798b0d25",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 7\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/error-pages/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3d8ebb8e798b0d25",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "No authentication middleware detected",
+      "description": "This Express app has 7 routes but no apparent authentication.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 7\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/error-pages/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Consider adding authentication:\n```javascript\n// Using Passport.js\nconst passport = require('passport');\napp.use(passport.initialize());\napp.use('/api/protected', passport.authenticate('jwt'));\n\n// Or custom middleware\nconst requireAuth = (req, res, next) => {\nif (!req.user) return res.status(401).json({ error: 'Unauthorized' });\nnext();\n};\n```",
+      "estimated_effort": "1-2 hours",
+      "category": "security",
+      "cwe_id": "CWE-306",
+      "why_it_matters": "APIs without authentication are open to abuse.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2a2cb42f002ef30e",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 6\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/error/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2a2cb42f002ef30e",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "No authentication middleware detected",
+      "description": "This Express app has 6 routes but no apparent authentication.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 6\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/error/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Consider adding authentication:\n```javascript\n// Using Passport.js\nconst passport = require('passport');\napp.use(passport.initialize());\napp.use('/api/protected', passport.authenticate('jwt'));\n\n// Or custom middleware\nconst requireAuth = (req, res, next) => {\nif (!req.user) return res.status(401).json({ error: 'Unauthorized' });\nnext();\n};\n```",
+      "estimated_effort": "1-2 hours",
+      "category": "security",
+      "cwe_id": "CWE-306",
+      "why_it_matters": "APIs without authentication are open to abuse.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "afc9fb415ae5e232",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 1\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/hello-world/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0122a2f66c72398c",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/markdown/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "58ee43d9eac68b81",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 3\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/multi-router/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e8bc3093d336258b",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 8\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/mvc/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e8bc3093d336258b",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "No authentication middleware detected",
+      "description": "This Express app has 8 routes but no apparent authentication.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 8\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/mvc/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Consider adding authentication:\n```javascript\n// Using Passport.js\nconst passport = require('passport');\napp.use(passport.initialize());\napp.use('/api/protected', passport.authenticate('jwt'));\n\n// Or custom middleware\nconst requireAuth = (req, res, next) => {\nif (!req.user) return res.status(401).json({ error: 'Unauthorized' });\nnext();\n};\n```",
+      "estimated_effort": "1-2 hours",
+      "category": "security",
+      "cwe_id": "CWE-306",
+      "why_it_matters": "APIs without authentication are open to abuse.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "60e3c259e3b48663",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 1\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/mvc/lib/boot.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "aea5305069188dad",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/online/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "7c197e43210b300b",
+      "detector": "ExpressSecurityDetector",
+      "severity": "medium",
+      "title": "Express app missing helmet",
+      "description": "Helmet sets important security headers to protect against common attacks.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 3\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/params/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use helmet:\n```bash\nnpm install helmet\n```\n```javascript\nconst helmet = require('helmet');\napp.use(helmet());\n\n// Or with custom config:\napp.use(helmet({\ncontentSecurityPolicy: {\ndirectives: {\ndefaultSrc: [\"'self'\"],\nscriptSrc: [\"'self'\", \"trusted-cdn.com\"],\n},\n},\n}));\n```",
+      "estimated_effort": "10 minutes",
+      "category": "security",
+      "cwe_id": "CWE-693",
+      "why_it_matters": "Without helmet, your app is missing:\n• X-Content-Type-Options (prevents MIME sniffing)\n• X-Frame-Options (prevents clickjacking)\n• X-XSS-Protection (legacy XSS filter)\n• Strict-Transport-Security (enforces HTTPS)\n• Content-Security-Policy (prevents XSS)",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "20c6e2ee3ad8fa4c",
+      "detector": "GlobalVariablesDetector",
+      "severity": "medium",
+      "title": "Global mutable variable: users",
+      "description": "Global mutable state 'users' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 17 times in this file",
+      "affected_files": [
+        "examples/resource/index.js"
+      ],
+      "line_start": 30,
+      "line_end": 30,
+      "suggested_fix": "Many usages - consider:\n1. Encapsulate in a module with getter/setter\n2. Convert to a class instance\n3. Pass as parameter instead",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "d5723bde301c4b74",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 132 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/Router.js"
+      ],
+      "line_start": 255,
+      "line_end": 255,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "621ed1a01f55fe8b",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 21 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.route.js"
+      ],
+      "line_start": 187,
+      "line_end": 187,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e8cc56e03c3ebcc4",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 190 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.router.js"
+      ],
+      "line_start": 49,
+      "line_end": 49,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2c22a6e395fc851b",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 151 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/express.static.js"
+      ],
+      "line_start": 282,
+      "line_end": 282,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "d351800e297ddc0c",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "[COMPOUND: 2 co-located issues] Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 109 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/express.urlencoded.js"
+      ],
+      "line_start": 166,
+      "line_end": 166,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "d88907cbb8185f74",
+      "detector": "StringConcatLoopDetector",
+      "severity": "medium",
+      "title": "String concatenation in loop",
+      "description": "[COMPOUND: 2 co-located issues] Variable 'str' concatenated 2 times inside loop (started line 186).\n\n**Performance:** O(n²) time complexity. Each concatenation creates a new string and copies all previous characters.\n\nFor 1000 iterations, this copies ~500,000 characters instead of 1000.",
+      "affected_files": [
+        "test/express.urlencoded.js"
+      ],
+      "line_start": 187,
+      "line_end": 187,
+      "suggested_fix": "Use array and join:\n```javascript\nconst parts = items.map(item => String(item));\nconst result = parts.join('');\n```\nOr use template literals with reduce:\n```javascript\nconst result = items.reduce((acc, item) => `${acc}${item}`, '');\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "String concatenation in loops creates O(n²) time complexity due to immutable string copying.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "31a8523679216ee3",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 9 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/middleware.basic.js"
+      ],
+      "line_start": 28,
+      "line_end": 28,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "eeba1e3f78e88eda",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 12 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.acceptsCharsets.js"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0e3335c42dfd39dd",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 9 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.acceptsLanguages.js"
+      ],
+      "line_start": 43,
+      "line_end": 43,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e869397ac6f5c966",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 19 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.query.js"
+      ],
+      "line_start": 55,
+      "line_end": 55,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "cf4a9c5c3c8cee30",
+      "detector": "CallbackHellDetector",
+      "severity": "medium",
+      "title": "Callback hell (5 levels deep)",
+      "description": "Deeply nested callbacks (5 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 18 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.range.js"
+      ],
+      "line_start": 91,
+      "line_end": 91,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "b66eafb2fc717031",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 2 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "test/res.redirect.js"
+      ],
+      "line_start": 115,
+      "line_end": 115,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "cf0b26e71cf41a86",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 2 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "test/res.redirect.js"
+      ],
+      "line_start": 116,
+      "line_end": 116,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "333396204d1a9c51",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/auth/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "757f8b8199208b7a",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/content-negotiation/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "757f8b8199208b7a",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/content-negotiation/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "bfba19e9960bccf2",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/cookie-sessions/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "bfba19e9960bccf2",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/cookie-sessions/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "c6aa0e8bbc64cf54",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "[COMPOUND: 2 co-located issues] Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/cookies/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2df53b6ea24f4fd6",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "[COMPOUND: 2 co-located issues] Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/downloads/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2df53b6ea24f4fd6",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "[COMPOUND: 2 co-located issues] Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/downloads/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "10b0426805f5a9dd",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/ejs/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "10b0426805f5a9dd",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/ejs/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3d8ebb8e798b0d25",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/error-pages/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2a2cb42f002ef30e",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/error/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "afc9fb415ae5e232",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 1\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/hello-world/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "afc9fb415ae5e232",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/hello-world/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0122a2f66c72398c",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/markdown/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0122a2f66c72398c",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/markdown/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "58ee43d9eac68b81",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 3\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/multi-router/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "58ee43d9eac68b81",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/multi-router/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e8bc3093d336258b",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/mvc/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "60e3c259e3b48663",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 1\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/mvc/lib/boot.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "60e3c259e3b48663",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/mvc/lib/boot.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "aea5305069188dad",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 2\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/online/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "aea5305069188dad",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/online/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "7c197e43210b300b",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "Express app missing rate limiting",
+      "description": "Rate limiting prevents brute force attacks and DoS.\n\n**App Analysis:**\n📊 Security Score: 0%\n🛣️ Routes: 3\n❌ Missing: helmet, rate-limit, body-parser-limit, auth-middleware",
+      "affected_files": [
+        "examples/params/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Install and use express-rate-limit:\n```bash\nnpm install express-rate-limit\n```\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst limiter = rateLimit({\nwindowMs: 15 * 60 * 1000, // 15 minutes\nmax: 100, // limit each IP to 100 requests per windowMs\nmessage: 'Too many requests, please try again later.',\n});\n\napp.use(limiter);\n\n// Stricter limits for auth endpoints\nconst authLimiter = rateLimit({\nwindowMs: 15 * 60 * 1000,\nmax: 5,\n});\napp.use('/api/auth', authLimiter);\n```",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-770",
+      "why_it_matters": "Without rate limiting, attackers can:\n• Brute force passwords\n• Scrape data at scale\n• DoS your API\n• Abuse expensive endpoints",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "7c197e43210b300b",
+      "detector": "ExpressSecurityDetector",
+      "severity": "low",
+      "title": "No body size limit configured",
+      "description": "Large request bodies can be used for DoS attacks.",
+      "affected_files": [
+        "examples/params/index.js"
+      ],
+      "line_start": 1,
+      "line_end": 1,
+      "suggested_fix": "Set body size limits:\n```javascript\napp.use(express.json({ limit: '10kb' }));\napp.use(express.urlencoded({ limit: '10kb', extended: true }));\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-400",
+      "why_it_matters": "Large payloads can exhaust server memory.",
+      "confidence": 0.6,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "6b36a40a1eaac597",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: statSync",
+      "affected_files": [
+        "lib/view.js"
+      ],
+      "line_start": 202,
+      "line_end": 202,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0b784d1de2ad0aa6",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 52 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/Route.js"
+      ],
+      "line_start": 52,
+      "line_end": 52,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "db7fa9ff1cb2c32a",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 19 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/acceptance/auth.js"
+      ],
+      "line_start": 31,
+      "line_end": 31,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "dae6c909b78e1106",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 7 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/acceptance/cookie-sessions.js"
+      ],
+      "line_start": 23,
+      "line_end": 23,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "ece5d12a2ce41605",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 12 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/acceptance/cookies.js"
+      ],
+      "line_start": 26,
+      "line_end": 26,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "83b56a862f9e2ada",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 24 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/acceptance/error-pages.js"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "df32aeef2868db29",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 27 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/acceptance/mvc.js"
+      ],
+      "line_start": 38,
+      "line_end": 38,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "09ca9aceb591ac86",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 21 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/acceptance/route-separation.js"
+      ],
+      "line_start": 66,
+      "line_end": 66,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "a1f7b741db69501a",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 12 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/acceptance/vhost.js"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "64ff28c76faa3e8c",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 25 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/acceptance/web-service.js"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "6b41f5052e1b4d0c",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 13 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.engine.js"
+      ],
+      "line_start": 25,
+      "line_end": 25,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "78ae0f8d63d389d2",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 11 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.head.js"
+      ],
+      "line_start": 36,
+      "line_end": 36,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "9e9eea4576a65b59",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 11 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.listen.js"
+      ],
+      "line_start": 20,
+      "line_end": 20,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3753f4623db195c4",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.",
+      "affected_files": [
+        "test/app.locals.js"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "c9c8d96189f379ce",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 30 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.options.js"
+      ],
+      "line_start": 83,
+      "line_end": 83,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "710b780697540ce9",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 59 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.param.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "5dee49ded96f3aba",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 23 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.request.js"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "fb6f3829e59c7168",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 23 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.response.js"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "d9a821e5110205ec",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: RegExp",
+      "affected_files": [
+        "test/app.router.js"
+      ],
+      "line_start": 1214,
+      "line_end": 1214,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "13706f33a26a7654",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 12 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.routes.error.js"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "6e116545c985c445",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 51 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/app.use.js"
+      ],
+      "line_start": 26,
+      "line_end": 26,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "5182cabf964a3378",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 36 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/config.js"
+      ],
+      "line_start": 42,
+      "line_end": 42,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "92af6fd9f52242c9",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: SyntaxError, parse",
+      "affected_files": [
+        "test/express.json.js"
+      ],
+      "line_start": 745,
+      "line_end": 745,
+      "suggested_fix": "Based on the operations in your try block, consider catching:\n  • SyntaxError (for JSON.parse)\n\nExample:\n```python\nexcept (SyntaxError (for JSON.parse)) as e:\nlogger.error(f\"Operation failed: {e}\")\n```",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e47b5bc6ad66013a",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 68 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/express.raw.js"
+      ],
+      "line_start": 161,
+      "line_end": 161,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "1c18a2d6796a2245",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 77 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/express.text.js"
+      ],
+      "line_start": 165,
+      "line_end": 165,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "5d384e0ad93fa353",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 21 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.accepts.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "875ea933bf74400f",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 6 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.acceptsEncodings.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0e9cbda79c4baec1",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 14 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.baseUrl.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "297b9c3fc85defaf",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 10 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.fresh.js"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "5b47df4c296fee1f",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 10 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.get.js"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "f1769702d059164c",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 28 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.is.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "309d63e33779c00b",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.",
+      "affected_files": [
+        "test/req.path.js"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "15c5ad8677c4e1ba",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.",
+      "affected_files": [
+        "test/req.route.js"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3142013c12c708f7",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.",
+      "affected_files": [
+        "test/req.signedCookies.js"
+      ],
+      "line_start": 14,
+      "line_end": 14,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "051b1bbce24f9acf",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n⚠️ 8 anonymous functions - consider naming them",
+      "affected_files": [
+        "test/req.stale.js"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Refactor options:\n1. Convert to async/await (recommended)\n2. Extract nested callbacks into named functions\n3. Use Promise.all() for parallel operations",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "37b2f531d6044880",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: replace, generateVariableLookup",
+      "affected_files": [
+        "test/support/tmpl.js"
+      ],
+      "line_start": 14,
+      "line_end": 14,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    }
+  ],
+  "findings_summary": {
+    "critical": 1,
+    "high": 15,
+    "medium": 36,
+    "low": 61,
+    "info": 0,
+    "total": 113
+  },
+  "total_files": 141,
+  "total_functions": 127,
+  "total_classes": 0,
+  "total_loc": 11589
+}
+
+Phase timings (cold):
+  calibrate        0.007s  (3.3%)
+  collect          0.004s  (1.8%)
+  detect           0.104s  (50.6%)
+  freeze           0.000s  (0.2%)
+  git_enrich       0.029s  (13.9%)
+  graph            0.003s  (1.4%)
+  parse            0.054s  (26.2%)
+  postprocess      0.001s  (0.5%)
+  score            0.001s  (0.6%)
+  TOTAL            0.206s

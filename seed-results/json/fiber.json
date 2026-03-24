@@ -1,0 +1,653 @@
+{
+  "overall_score": 79.295,
+  "grade": "C+",
+  "structure_score": 98.60000000000001,
+  "quality_score": 34.400000000000006,
+  "architecture_score": 98.45,
+  "findings": [
+    {
+      "id": "6d090e9ea82ca4e8",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "critical",
+      "title": "Architectural Bottleneck: Test (architectural hub)",
+      "description": "Function 'Test' is called by 572 functions and has complexity 26. Changes here are high-risk.\n\nBetweenness centrality: 0.1959 - this function sits on many execution paths between other functions.\n\n📊 Threshold: 20 (adaptive) | Actual: 26 | Default would be: 20 | Profile: p90=10, p95=15, mean=4.0, n=1309",
+      "affected_files": [
+        "app.go"
+      ],
+      "line_start": 1170,
+      "line_end": 1278,
+      "suggested_fix": "This is a critical hub. Ensure comprehensive test coverage, add defensive error handling, and consider circuit breaker pattern.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.85,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "26",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "091959ceecce217b",
+      "detector": "SQLInjectionDetector",
+      "severity": "critical",
+      "title": "SQL Injection (Confirmed via Taint Analysis)",
+      "description": "[COMPOUND: 2 co-located issues] **SQL Injection via Data Flow**\n\nTaint analysis traced a path from user input to a SQL sink:\n\n**Source**: `New` in `middleware/paginate/paginate.go`:46\n**Sink**: `text(` in `middleware/paginate/paginate.go`:85\n**Path**: `New → pageInfo → text( → text(`\n\nThis vulnerability was detected through data flow analysis, which traced how user-controlled data propagates through function calls to reach a dangerous SQL operation without proper sanitization.",
+      "affected_files": [
+        "middleware/paginate/paginate.go"
+      ],
+      "line_start": 85,
+      "line_end": 85,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Use parameterized queries** (preferred):\n```go\n// Instead of:\nquery := fmt.Sprintf(\"SELECT * FROM users WHERE id = %s\", id)\ndb.Query(query)\n\n// Use:\ndb.Query(\"SELECT * FROM users WHERE id = $1\", id)\n```\n\n2. **Use prepared statements**:\n```go\nstmt, err := db.Prepare(\"SELECT * FROM users WHERE id = ?\")\nrows, err := stmt.Query(id)\n```\n\n3. **Use sqlx named parameters**:\n```go\nquery := \"SELECT * FROM users WHERE id = :id\"\nrows, err := db.NamedQuery(query, map[string]interface{}{\"id\": id})\n```\n\n4. **Validate and sanitize input** when parameterization is not possible.",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-89",
+      "why_it_matters": "This SQL injection was confirmed through data flow analysis, tracking user input from its source to the dangerous SQL operation. This is a high-confidence finding.",
+      "confidence": 0.85,
+      "deterministic": false
+    },
+    {
+      "id": "e4e6b37a8bed4e93",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 1 issue",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (line 947)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "app.go"
+      ],
+      "line_start": 947,
+      "line_end": 947,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "16b6b857c38d5730",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 11 functions in call cycle (complexity 71)",
+      "description": "Mutual recursion detected: 11 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/adapter.go::adaptExpressHandler:52 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/adapter.go::collectHandlers:262 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/adapter.go::toFiberHandler:13 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/bind.go::(*Bind).URI:352 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/bind.go::releasePooledBinder:124 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/binder/binder.go::PutToThePool:91 ... (+5 more). Aggregate complexity: 71.",
+      "affected_files": [
+        "binder/binder.go",
+        "ctx.go",
+        "adapter.go",
+        "bind.go",
+        "register.go",
+        "router.go"
+      ],
+      "line_start": 52,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Large (1-3 days)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "dd3275d464fccc31",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 5 issues",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Debug flags (line 519)\n• Mock/stub objects (lines 592, 595, 861, 862)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "client/client.go"
+      ],
+      "line_start": 519,
+      "line_end": 862,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "4dfa68a072081e79",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 9 functions in call cycle (complexity 32)",
+      "description": "Mutual recursion detected: 9 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/client/core.go::(*core).execFunc:74 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/client/core.go::(*core).execute:209 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/client/request.go::(*Request).Get:633 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/client/request.go::(*Request).Put:648 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/client/request.go::(*Request).Reset:680 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/client/request.go::(*Request).Send:673 ... (+3 more). Aggregate complexity: 32.",
+      "affected_files": [
+        "client/core.go",
+        "client/request.go"
+      ],
+      "line_start": 74,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Large (1-3 days)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "fc2cbb33f3dbe0e8",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 1 issue",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (line 663)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "client/request.go"
+      ],
+      "line_start": 663,
+      "line_end": 663,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "582c37737a4c9f7d",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 1 issue",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (line 161)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "group.go"
+      ],
+      "line_start": 161,
+      "line_end": 161,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f0f374f3450ee8e5",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 47)",
+      "description": "[COMPOUND: 2 co-located issues] Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/listen.go::(*App).Listen:172 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/listen.go::(*App).createListener:307 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/prefork.go::(*App).prefork:37. Aggregate complexity: 47.",
+      "affected_files": [
+        "listen.go",
+        "prefork.go"
+      ],
+      "line_start": 172,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "8ecdb68a51bdae7b",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: New (797 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'New' has 797 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "middleware/cache/cache.go"
+      ],
+      "line_start": 109,
+      "line_end": 906,
+      "suggested_fix": "This function calls 5 different modules. Consider extracting:\n  - `handle_idempotency()` for idempotency operations\n  - `handle_limiter()` for limiter operations\n  - `handle_csrf()` for csrf operations",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "cb493f79d7e50ee2",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 190)",
+      "description": "[COMPOUND: 2 co-located issues] Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/middleware/cache/cache.go::New:109 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/middleware/cache/cache.go::makeBuildVaryKeyFunc:1278. Aggregate complexity: 190.",
+      "affected_files": [
+        "middleware/cache/cache.go"
+      ],
+      "line_start": 109,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "8939a7ed63c43d5f",
+      "detector": "NosqlInjectionDetector",
+      "severity": "high",
+      "title": "NoSQL Injection via data flow",
+      "description": "[COMPOUND: 2 co-located issues] **NoSQL Injection (CWE-89)**\n\nAST-based data flow analysis traced taint from `New` (line 46) to sink `text(` (line 85) without sanitization.\n\nConfidence: 85%",
+      "affected_files": [
+        "middleware/paginate/paginate.go"
+      ],
+      "line_start": 85,
+      "line_end": null,
+      "suggested_fix": "Sanitize or validate the input from `New` before passing it to `text(`.",
+      "estimated_effort": null,
+      "category": null,
+      "cwe_id": "CWE-89",
+      "why_it_matters": null,
+      "confidence": 0.95,
+      "deterministic": false
+    },
+    {
+      "id": "d3d12307b7b0c3a7",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 2 issues",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (lines 18, 105)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "register.go"
+      ],
+      "line_start": 18,
+      "line_end": 105,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1573b12d1136b455",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 1 issue",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (line 29)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "router.go"
+      ],
+      "line_start": 29,
+      "line_end": 29,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: github.com/shamaton/msgpack/v3 3.1.0 (GHSA-h9q6-hc68-35rp)",
+      "description": "**GHSA-h9q6-hc68-35rp** in `github.com/shamaton/msgpack/v3@3.1.0` (Go)\n\nNo description available\n\n**Advisory**: GHSA-h9q6-hc68-35rp\n**Ecosystem**: Go",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "4bcc0ed08dbf864f",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 5 functions in call cycle (complexity 18)",
+      "description": "Mutual recursion detected: 5 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/bind.go::(*Bind).Body:385 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/bind.go::(*Bind).CBOR:306 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/bind.go::(*Bind).JSON:291 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/bind.go::(*Bind).MsgPack:366 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/bind.go::(*Bind).XML:320. Aggregate complexity: 18.",
+      "affected_files": [
+        "bind.go"
+      ],
+      "line_start": 385,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "e6877e88ffac3891",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "medium",
+      "title": "Architectural Bottleneck: Listen (architectural hub)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'Listen' is called by 51 functions and has complexity 19. Changes here are high-risk.\n\nBetweenness centrality: 0.0629 - this function sits on many execution paths between other functions.\n\n📊 Threshold: 20 (adaptive) | Actual: 19 | Default would be: 20 | Profile: p90=10, p95=15, mean=4.0, n=1309",
+      "affected_files": [
+        "listen.go"
+      ],
+      "line_start": 172,
+      "line_end": 265,
+      "suggested_fix": "This is a critical hub. Ensure comprehensive test coverage, add defensive error handling, and consider circuit breaker pattern.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.95,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "19",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "f267574da5746d11",
+      "detector": "InsecureCookieDetector",
+      "severity": "medium",
+      "title": "Cookie missing HttpOnly flags",
+      "description": "Cookie is missing security flags that protect against common attacks.\n\n**Analysis:**\n❌ Missing: HttpOnly, Secure, SameSite\n📦 In function: `setSession`",
+      "affected_files": [
+        "middleware/session/session.go"
+      ],
+      "line_start": 428,
+      "line_end": 428,
+      "suggested_fix": "Add httponly, secure, and samesite flags.",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1004",
+      "why_it_matters": "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n• **Secure** ensures cookies are only sent over HTTPS\n• **SameSite** prevents CSRF attacks by controlling cross-site requests",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "48095177f279e3ee",
+      "detector": "InsecureCookieDetector",
+      "severity": "medium",
+      "title": "Cookie missing HttpOnly flags",
+      "description": "Cookie is missing security flags that protect against common attacks.\n\n**Analysis:**\n❌ Missing: HttpOnly, Secure\n📦 In function: `delSession`",
+      "affected_files": [
+        "middleware/session/session.go"
+      ],
+      "line_start": 463,
+      "line_end": 463,
+      "suggested_fix": "Add httponly, secure, and samesite flags.",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1004",
+      "why_it_matters": "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n• **Secure** ensures cookies are only sent over HTTPS\n• **SameSite** prevents CSRF attacks by controlling cross-site requests",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "6a4bf53bf86e373e",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 4 functions in call cycle (complexity 29)",
+      "description": "Mutual recursion detected: 4 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/req.go::(*DefaultReq).Body:149 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/req.go::(*DefaultReq).getBody:1140 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/req.go::(*DefaultReq).tryDecodeBodyInOrder:100 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fiber/res.go::(*DefaultRes).SendStatus:979. Aggregate complexity: 29.",
+      "affected_files": [
+        "req.go",
+        "res.go"
+      ],
+      "line_start": 149,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "88173e1a46c20270",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "medium",
+      "title": "Architectural Bottleneck: Cookie (utility function - expected high fan-in)",
+      "description": "Function 'Cookie' is called by 48 functions and has complexity 16. Changes here are high-risk.\n\nBetweenness centrality: 0.0017 - this function sits on many execution paths between other functions.\n\n**Note:** This function was identified as a utility. High fan-in is expected, but the high complexity may still warrant attention.\n\n📊 Threshold: 20 (adaptive) | Actual: 16 | Default would be: 20 | Profile: p90=10, p95=15, mean=4.0, n=1309",
+      "affected_files": [
+        "res.go"
+      ],
+      "line_start": 253,
+      "line_end": 337,
+      "suggested_fix": "Consider splitting this utility into smaller, focused helpers. High complexity in shared utilities is risky.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.85,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "16",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "30e81ee5b88552a1",
+      "detector": "CircularDependencyDetector",
+      "severity": "low",
+      "title": "Circular dependency: 2 files",
+      "description": "Mutual dependency between: errors.go ↔ errors.go\n\n**Weakest link to break:** `errors.go` → `errors.go` (1 import)",
+      "affected_files": [
+        "client/errors.go",
+        "middleware/logger/errors.go"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `errors.go` → `errors.go` (weakest coupling: 1 imports)\n\nSince `errors.go` only imports 1 symbol(s) from `errors.go`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "e5dfd270e316f8eb",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: DecodeMsg (199 lines)",
+      "description": "Function 'DecodeMsg' has 199 lines (effective threshold: 150).\n\n**Graph Analysis:**\nHigh complexity density: 0.34 (complexity 68 / 199 lines)",
+      "affected_files": [
+        "middleware/cache/manager_msgp.go"
+      ],
+      "line_start": 176,
+      "line_end": 375,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "74abb264458ba8c0",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: EncodeMsg (196 lines)",
+      "description": "Function 'EncodeMsg' has 196 lines (effective threshold: 150).",
+      "affected_files": [
+        "middleware/cache/manager_msgp.go"
+      ],
+      "line_start": 378,
+      "line_end": 574,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1e7d435de6bc2b39",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: UnmarshalMsg (291 lines)",
+      "description": "Function 'UnmarshalMsg' has 291 lines (effective threshold: 150).",
+      "affected_files": [
+        "middleware/cache/manager_msgp.go"
+      ],
+      "line_start": 644,
+      "line_end": 935,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9491dfc938628f0a",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: New (184 lines)",
+      "description": "Function 'New' has 184 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "middleware/cors/cors.go"
+      ],
+      "line_start": 28,
+      "line_end": 212,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle_csrf()` for csrf operations\n  - `handle_log()` for log operations\n  - `handle_cors()` for cors operations",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "25a29e18679f184a",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: New (172 lines)",
+      "description": "Function 'New' has 172 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 21 functions (reduced severity)",
+      "affected_files": [
+        "middleware/csrf/csrf.go"
+      ],
+      "line_start": 50,
+      "line_end": 222,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "766b710edcd34262",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.",
+      "affected_files": [
+        "middleware/encryptcookie/config.go"
+      ],
+      "line_start": 40,
+      "line_end": 40,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "651db43e29cd0be5",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in New",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `New`\nHigh complexity: 19 (nesting compounds this)\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=3, mean=1.0, n=1309",
+      "affected_files": [
+        "middleware/keyauth/keyauth.go"
+      ],
+      "line_start": 73,
+      "line_end": 73,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "5a4fb50ec1778947",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: createTagMap (157 lines)",
+      "description": "Function 'createTagMap' has 157 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 31 functions (reduced severity)\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "middleware/logger/tags.go"
+      ],
+      "line_start": 54,
+      "line_end": 211,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c0bc0a06de672f27",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: SendFile (162 lines)",
+      "description": "Function 'SendFile' has 162 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 4 different modules - possible split points",
+      "affected_files": [
+        "res.go"
+      ],
+      "line_start": 792,
+      "line_end": 954,
+      "suggested_fix": "This function calls 4 different modules. Consider extracting:\n  - `handle_client()` for client operations\n  - `handle_log()` for log operations\n  - `handle_idempotency()` for idempotency operations",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    }
+  ],
+  "findings_summary": {
+    "critical": 2,
+    "high": 12,
+    "medium": 7,
+    "low": 10,
+    "info": 0,
+    "total": 31
+  },
+  "total_files": 241,
+  "total_functions": 3451,
+  "total_classes": 414,
+  "total_loc": 100521
+}
+
+Phase timings (cold):
+  calibrate        0.098s  (6.8%)
+  collect          0.009s  (0.6%)
+  detect           0.573s  (39.7%)
+  freeze           0.154s  (10.7%)
+  git_enrich       0.133s  (9.2%)
+  graph            0.051s  (3.6%)
+  parse            0.419s  (29.0%)
+  postprocess      0.000s  (0.0%)
+  score            0.002s  (0.2%)
+  TOTAL            1.442s

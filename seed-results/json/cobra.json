@@ -1,0 +1,342 @@
+{
+  "overall_score": 98.535,
+  "grade": "A+",
+  "structure_score": 96.89999999999999,
+  "quality_score": 99.25,
+  "architecture_score": 100.0,
+  "findings": [
+    {
+      "id": "01e6572beb708b96",
+      "detector": "DeepNestingDetector",
+      "severity": "high",
+      "title": "Excessive nesting: 15 levels in writePreamble",
+      "description": "15 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `writePreamble`\n\nThreshold: 5 (adaptive) | Actual: 15 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.2, n=269",
+      "affected_files": [
+        "bash_completions.go"
+      ],
+      "line_start": 388,
+      "line_end": 388,
+      "suggested_fix": "Severely nested code. Apply multiple techniques:\n1. Guard clauses: `if (!condition) return;`\n2. Extract Method: pull nested blocks into functions\n3. Replace conditionals with polymorphism\n4. Use functional patterns (map/filter instead of nested loops)",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "15",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "bdb52e539a7b9843",
+      "detector": "DeepNestingDetector",
+      "severity": "high",
+      "title": "Excessive nesting: 24 levels in genBashComp",
+      "description": "[COMPOUND: 2 co-located issues] 24 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `genBashComp`\n\nThreshold: 5 (adaptive) | Actual: 24 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.2, n=269",
+      "affected_files": [
+        "bash_completionsV2.go"
+      ],
+      "line_start": 416,
+      "line_end": 416,
+      "suggested_fix": "Severely nested code. Apply multiple techniques:\n1. Guard clauses: `if (!condition) return;`\n2. Extract Method: pull nested blocks into functions\n3. Replace conditionals with polymorphism\n4. Use functional patterns (map/filter instead of nested loops)",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "24",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "82cb2949a554ece4",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: writePreamble (366 lines)",
+      "description": "Function 'writePreamble' has 366 lines (effective threshold: 150).",
+      "affected_files": [
+        "bash_completions.go"
+      ],
+      "line_start": 36,
+      "line_end": 402,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3eeefd46338370e2",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: genBashComp (436 lines)",
+      "description": "Function 'genBashComp' has 436 lines (effective threshold: 150).",
+      "affected_files": [
+        "bash_completionsV2.go"
+      ],
+      "line_start": 31,
+      "line_end": 467,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "76ebae74cb21e684",
+      "detector": "StringConcatLoopDetector",
+      "severity": "medium",
+      "title": "String concatenation in loop",
+      "description": "[COMPOUND: 2 co-located issues] Variable 'comp' concatenated 2 times inside loop (started line 404).\n\n**Performance:** O(n²) time complexity. Each concatenation creates a new string and copies all previous characters.\n\nFor 1000 iterations, this copies ~500,000 characters instead of 1000.",
+      "affected_files": [
+        "bash_completionsV2.go"
+      ],
+      "line_start": 405,
+      "line_end": 405,
+      "suggested_fix": "Use strings.Builder:\n```go\nvar sb strings.Builder\nfor _, item := range items {\nsb.WriteString(item)\n}\nresult := sb.String()\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "String concatenation in loops creates O(n²) time complexity due to immutable string copying.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "9753b0a692b91d17",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: execute",
+      "description": "Function 'execute' is a statistical complexity outlier (z-score: 7.5, complexity: 38).",
+      "affected_files": [
+        "command.go"
+      ],
+      "line_start": 905,
+      "line_end": 1045,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "023250601f1a272a",
+      "detector": "StringConcatLoopDetector",
+      "severity": "medium",
+      "title": "String concatenation in loop",
+      "description": "Variable 'usage' concatenated 2 times inside loop (started line 863).\n\n**Performance:** O(n²) time complexity. Each concatenation creates a new string and copies all previous characters.\n\nFor 1000 iterations, this copies ~500,000 characters instead of 1000.",
+      "affected_files": [
+        "command.go"
+      ],
+      "line_start": 1225,
+      "line_end": 1225,
+      "suggested_fix": "Use strings.Builder:\n```go\nvar sb strings.Builder\nfor _, item := range items {\nsb.WriteString(item)\n}\nresult := sb.String()\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "String concatenation in loops creates O(n²) time complexity due to immutable string copying.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "323bd12d1b5995d6",
+      "detector": "StringConcatLoopDetector",
+      "severity": "medium",
+      "title": "String concatenation in loop",
+      "description": "[COMPOUND: 2 co-located issues] Variable 'filteringCmd' concatenated 2 times inside loop (started line 241).\n\n**Performance:** O(n²) time complexity. Each concatenation creates a new string and copies all previous characters.\n\nFor 1000 iterations, this copies ~500,000 characters instead of 1000.",
+      "affected_files": [
+        "zsh_completions.go"
+      ],
+      "line_start": 246,
+      "line_end": 246,
+      "suggested_fix": "Use strings.Builder:\n```go\nvar sb strings.Builder\nfor _, item := range items {\nsb.WriteString(item)\n}\nresult := sb.String()\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "String concatenation in loops creates O(n²) time complexity due to immutable string copying.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "fa61f9b11d688221",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: getCompletions (266 lines)",
+      "description": "Function 'getCompletions' has 266 lines (effective threshold: 150).",
+      "affected_files": [
+        "completions.go"
+      ],
+      "line_start": 316,
+      "line_end": 582,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1d070dc130f40bf0",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in getCompletions",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `getCompletions`\nHigh complexity: 57 (nesting compounds this)\nExisting helpers that could reduce nesting: checkIfFlagCompletion, completeRequireFlags, helpOrVersionFlagPresent\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.2, n=269",
+      "affected_files": [
+        "completions.go"
+      ],
+      "line_start": 546,
+      "line_end": 546,
+      "suggested_fix": "This function already has helpers like `checkIfFlagCompletion`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "31649889197cad4f",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: InitDefaultCompletionCmd (182 lines)",
+      "description": "Function 'InitDefaultCompletionCmd' has 182 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 14 functions (reduced severity)",
+      "affected_files": [
+        "completions.go"
+      ],
+      "line_start": 745,
+      "line_end": 927,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6aa01023056b83a3",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: genFishComp (248 lines)",
+      "description": "Function 'genFishComp' has 248 lines (effective threshold: 150).",
+      "affected_files": [
+        "fish_completions.go"
+      ],
+      "line_start": 25,
+      "line_end": 273,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "968812ab50de526a",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: genPowerShellComp (283 lines)",
+      "description": "Function 'genPowerShellComp' has 283 lines (effective threshold: 150).",
+      "affected_files": [
+        "powershell_completions.go"
+      ],
+      "line_start": 28,
+      "line_end": 311,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "8e5de356a845d1c6",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: genZshComp (221 lines)",
+      "description": "Function 'genZshComp' has 221 lines (effective threshold: 150).",
+      "affected_files": [
+        "zsh_completions.go"
+      ],
+      "line_start": 87,
+      "line_end": 308,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0aa444d7d1e16bf8",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 9 levels in genZshComp",
+      "description": "[COMPOUND: 2 co-located issues] 9 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `genZshComp`\n\nThreshold: 5 (adaptive) | Actual: 9 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.2, n=269",
+      "affected_files": [
+        "zsh_completions.go"
+      ],
+      "line_start": 241,
+      "line_end": 241,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "9",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 2,
+    "medium": 6,
+    "low": 7,
+    "info": 0,
+    "total": 15
+  },
+  "total_files": 36,
+  "total_functions": 588,
+  "total_classes": 15,
+  "total_loc": 16636
+}
+
+Phase timings (cold):
+  calibrate        0.014s  (4.6%)
+  collect          0.002s  (0.7%)
+  detect           0.186s  (62.2%)
+  freeze           0.008s  (2.8%)
+  git_enrich       0.012s  (4.0%)
+  graph            0.006s  (2.1%)
+  parse            0.068s  (22.7%)
+  postprocess      0.000s  (0.1%)
+  score            0.002s  (0.5%)
+  TOTAL            0.298s

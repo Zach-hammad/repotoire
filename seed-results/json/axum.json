@@ -1,0 +1,1112 @@
+{
+  "overall_score": 87.04499999999999,
+  "grade": "B+",
+  "structure_score": 99.89999999999999,
+  "quality_score": 57.699999999999996,
+  "architecture_score": 99.25,
+  "findings": [
+    {
+      "id": "86784baf7d40b6e6",
+      "detector": "InsecureCryptoDetector",
+      "severity": "high",
+      "title": "Weak hash algorithm (MD5/SHA1)",
+      "description": "MD5 and SHA1 are cryptographically broken.",
+      "affected_files": [
+        "axum/src/extract/ws.rs"
+      ],
+      "line_start": 935,
+      "line_end": 935,
+      "suggested_fix": "Use SHA-256 or better (SHA-3, BLAKE3).",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-328",
+      "why_it_matters": "Weak hashes can be cracked or collided.",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "6bcc331f58a8259b",
+      "detector": "InsecureCryptoDetector",
+      "severity": "high",
+      "title": "Weak hash algorithm (MD5/SHA1)",
+      "description": "MD5 and SHA1 are cryptographically broken.",
+      "affected_files": [
+        "axum/src/extract/ws.rs"
+      ],
+      "line_start": 936,
+      "line_end": 936,
+      "suggested_fix": "Use SHA-256 or better (SHA-3, BLAKE3).",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-328",
+      "why_it_matters": "Weak hashes can be cracked or collided.",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "06bd6a47f538db6e",
+      "detector": "InsecureCryptoDetector",
+      "severity": "high",
+      "title": "Weak hash algorithm (MD5/SHA1)",
+      "description": "MD5 and SHA1 are cryptographically broken.",
+      "affected_files": [
+        "axum/src/extract/ws.rs"
+      ],
+      "line_start": 937,
+      "line_end": 937,
+      "suggested_fix": "Use SHA-256 or better (SHA-3, BLAKE3).",
+      "estimated_effort": "15 minutes",
+      "category": "security",
+      "cwe_id": "CWE-328",
+      "why_it_matters": "Weak hashes can be cracked or collided.",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "11460ab504195996",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Unreachable code after return",
+      "description": "Code after return/throw/exit will never execute:\n```\n#[cfg(debug_assertions)]\n```",
+      "affected_files": [
+        "axum-macros/src/lib.rs"
+      ],
+      "line_start": 636,
+      "line_end": 636,
+      "suggested_fix": "Remove unreachable code or fix control flow logic.",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Unreachable code indicates logic errors and adds confusion.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "359c545469e6e2c7",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/benches/benches.rs"
+      ],
+      "line_start": 159,
+      "line_end": 159,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5fa7668051403adf",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/benches/benches.rs"
+      ],
+      "line_start": 163,
+      "line_end": 163,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9ff21546a81cdbd4",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/benches/benches.rs"
+      ],
+      "line_start": 164,
+      "line_end": 164,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "44b790aaa508c863",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/benches/benches.rs"
+      ],
+      "line_start": 204,
+      "line_end": 204,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b683bfa868bcb3d2",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/benches/benches.rs"
+      ],
+      "line_start": 205,
+      "line_end": 205,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9d55fe2f2d76cd50",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/benches/benches.rs"
+      ],
+      "line_start": 208,
+      "line_end": 208,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "195c393636df0302",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/benches/benches.rs"
+      ],
+      "line_start": 212,
+      "line_end": 212,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "21362f1c6e68f333",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/benches/benches.rs"
+      ],
+      "line_start": 216,
+      "line_end": 216,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "a1a72ef59bba9bc2",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/extract/ws.rs"
+      ],
+      "line_start": 260,
+      "line_end": 260,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f9fbd210fac3a0db",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/extract/ws.rs"
+      ],
+      "line_start": 395,
+      "line_end": 395,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c6570f1bb3b85837",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/axum/axum/src/response/redirect.rs::impl<Redirect>::location:66` separates components of [1524, 10]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/axum/axum/src/response/redirect.rs::impl<Redirect>::location:66` is a structural bridge. Removing it would split the graph into components of sizes [1524, 10]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "axum/src/response/redirect.rs"
+      ],
+      "line_start": 66,
+      "line_end": 68,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "8de1096cc4a2cb3e",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/routing/route.rs"
+      ],
+      "line_start": 207,
+      "line_end": 207,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f71c842ecba1ad28",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `strip_prefix`: 7 panic-family calls",
+      "description": "Function `strip_prefix` contains 7 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 65, line 72, line 112, line 113, line 114, line 115, line 121. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "axum/src/routing/strip_prefix.rs"
+      ],
+      "line_start": 47,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3a4825188aa91076",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/routing/strip_prefix.rs"
+      ],
+      "line_start": 65,
+      "line_end": 65,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "74227368e5b5ac21",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/routing/strip_prefix.rs"
+      ],
+      "line_start": 72,
+      "line_end": 72,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "33e83d3071603d9c",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/routing/strip_prefix.rs"
+      ],
+      "line_start": 112,
+      "line_end": 112,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d518f2f6d29704be",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/routing/strip_prefix.rs"
+      ],
+      "line_start": 113,
+      "line_end": 113,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "02710475f7ada26b",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/routing/strip_prefix.rs"
+      ],
+      "line_start": 114,
+      "line_end": 114,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "be5e42b7cc98d040",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/routing/strip_prefix.rs"
+      ],
+      "line_start": 115,
+      "line_end": 115,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ca441e5f4a1c4b41",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "axum/src/routing/strip_prefix.rs"
+      ],
+      "line_start": 121,
+      "line_end": 121,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "857d8274d1fe3cda",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/axum/axum/src/serve/listener.rs::impl<Listener for TapIo<L, F>>::accept:234` separates components of [1520, 14]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/axum/axum/src/serve/listener.rs::impl<Listener for TapIo<L, F>>::accept:234` is a structural bridge. Removing it would split the graph into components of sizes [1520, 14]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "axum/src/serve/listener.rs"
+      ],
+      "line_start": 234,
+      "line_end": 238,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "5a7164e49d497b76",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "axum/src/test_helpers/tracing_helpers.rs"
+      ],
+      "line_start": 117,
+      "line_end": 117,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "46af1255908e4b19",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "axum/src/test_helpers/tracing_helpers.rs"
+      ],
+      "line_start": 138,
+      "line_end": 138,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "840ebdcc7b82ae0f",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 5 panic-family calls",
+      "description": "Function `main` contains 5 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 17, line 20, line 21, line 24, line 28. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/auto-reload/src/main.rs"
+      ],
+      "line_start": 12,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "fdf021c1d869399c",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "examples/chat/src/main.rs"
+      ],
+      "line_start": 145,
+      "line_end": 145,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "8125835438e515f4",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "examples/chat/src/main.rs"
+      ],
+      "line_start": 149,
+      "line_end": 149,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "501b98db2845057e",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `compress_response_bodies_with_gzip`: 4 panic-family calls",
+      "description": "Function `compress_response_bodies_with_gzip` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 127, line 131, line 139, line 141. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/compression/src/tests.rs"
+      ],
+      "line_start": 121,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "31264367233affc8",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `compress_response_bodies_with_br`: 4 panic-family calls",
+      "description": "Function `compress_response_bodies_with_br` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 153, line 157, line 164, line 166. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/compression/src/tests.rs"
+      ],
+      "line_start": 147,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "4b73c7e9c4d4e6aa",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `compress_response_bodies_with_zstd`: 4 panic-family calls",
+      "description": "Function `compress_response_bodies_with_zstd` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 178, line 182, line 188, line 190. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/compression/src/tests.rs"
+      ],
+      "line_start": 172,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "461d3504ede445c1",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "examples/dependency-injection/src/main.rs"
+      ],
+      "line_start": 163,
+      "line_end": 163,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "ada6af216e43b735",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "examples/dependency-injection/src/main.rs"
+      ],
+      "line_start": 167,
+      "line_end": 167,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "bbfb05d88bc5a872",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 4 panic-family calls",
+      "description": "Function `main` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 71, line 73, line 74, line 85. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/diesel-async-postgres/src/main.rs"
+      ],
+      "line_start": 58,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "39da40c3b965db4e",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 5 panic-family calls",
+      "description": "Function `main` contains 5 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 68, line 72, line 75, line 76, line 88. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/diesel-postgres/src/main.rs"
+      ],
+      "line_start": 53,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "b233285d9d46e7c2",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "examples/error-handling/src/main.rs"
+      ],
+      "line_start": 127,
+      "line_end": 127,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "0a3eb9c72fee8984",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `native_tls_acceptor`: 4 panic-family calls",
+      "description": "Function `native_tls_acceptor` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 90, line 91, line 93, line 98. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/low-level-native-tls/src/main.rs"
+      ],
+      "line_start": 89,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "1cecd22607fd33cf",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 8 panic-family calls",
+      "description": "Function `main` contains 8 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 28, line 37, line 46, line 48, line 53, line 62, line 65, line 66. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/low-level-openssl/src/main.rs"
+      ],
+      "line_start": 19,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "da9fef082047b58c",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `rustls_server_config`: 4 panic-family calls",
+      "description": "Function `rustls_server_config` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 94, line 97, line 98, line 104. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/low-level-rustls/src/main.rs"
+      ],
+      "line_start": 93,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "f91cd974b3a19d3a",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 4 panic-family calls",
+      "description": "Function `main` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 28, line 35, line 51, line 52. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/mongodb/src/main.rs"
+      ],
+      "line_start": 23,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "28ce7217eac158d8",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `accept_form`: 5 panic-family calls",
+      "description": "Function `accept_form` contains 5 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 66, line 67, line 68, line 69, line 70. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/multipart-form/src/main.rs"
+      ],
+      "line_start": 65,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "341d7e6a5d2dee6f",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 6 panic-family calls",
+      "description": "Function `main` contains 6 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 24, line 26, line 28, line 30, line 45, line 46. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/templates-minijinja/src/main.rs"
+      ],
+      "line_start": 20,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3e7651fe7c7bd9c2",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 4 panic-family calls",
+      "description": "Function `main` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 31, line 32, line 45, line 46. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/tokio-postgres/src/main.rs"
+      ],
+      "line_start": 19,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2022af333d03edb1",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 7 panic-family calls",
+      "description": "Function `main` contains 7 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 27, line 28, line 32, line 33, line 34, line 50, line 51. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/tokio-redis/src/main.rs"
+      ],
+      "line_start": 17,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "322081bd30121ff0",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `server`: 9 panic-family calls",
+      "description": "Function `server` contains 9 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 45, line 47, line 49, line 58, line 59, line 68, line 70, line 74, line 75. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "examples/unix-domain-socket/src/main.rs"
+      ],
+      "line_start": 33,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "9940038f037c19ec",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/axum/examples/versioning/src/main.rs::app:38` separates components of [1517, 17]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/axum/examples/versioning/src/main.rs::app:38` is a structural bridge. Removing it would split the graph into components of sizes [1517, 17]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "examples/versioning/src/main.rs"
+      ],
+      "line_start": 38,
+      "line_end": 40,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.7999999999999999,
+      "deterministic": true,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "6ea7a114abf826c2",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: extract_fields (227 lines)",
+      "description": "Function 'extract_fields' has 227 lines (effective threshold: 150).",
+      "affected_files": [
+        "axum-macros/src/from_request/mod.rs"
+      ],
+      "line_start": 412,
+      "line_end": 639,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0e4091195b6491e1",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: impl_struct_by_extracting_all_at_once (170 lines)",
+      "description": "Function 'impl_struct_by_extracting_all_at_once' has 170 lines (effective threshold: 150).",
+      "affected_files": [
+        "axum-macros/src/from_request/mod.rs"
+      ],
+      "line_start": 699,
+      "line_end": 869,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "4f2fb559004890ca",
+      "detector": "PanicDensityDetector",
+      "severity": "low",
+      "title": "High file-level panic density: 32 panic-family calls",
+      "description": "File `examples/compression/src/tests.rs` contains 32 total panic-family calls (`.unwrap()`, `.expect()`, `panic!()`) outside of test code. Consider refactoring to reduce panic surface.",
+      "affected_files": [
+        "examples/compression/src/tests.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "Consider:\n- Introducing a module-level error type\n- Replacing unwrap chains with `?` propagation\n- Using `anyhow::Context` for better error messages",
+      "estimated_effort": "1-2 hours",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Files with many panic points are hard to maintain and make the overall application fragile. Centralizing error handling improves reliability.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "5f944aa0cbf31831",
+      "detector": "PanicDensityDetector",
+      "severity": "low",
+      "title": "High file-level panic density: 12 panic-family calls",
+      "description": "File `examples/templates-minijinja/src/main.rs` contains 12 total panic-family calls (`.unwrap()`, `.expect()`, `panic!()`) outside of test code. Consider refactoring to reduce panic surface.",
+      "affected_files": [
+        "examples/templates-minijinja/src/main.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "Consider:\n- Introducing a module-level error type\n- Replacing unwrap chains with `?` propagation\n- Using `anyhow::Context` for better error messages",
+      "estimated_effort": "1-2 hours",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Files with many panic points are hard to maintain and make the overall application fragile. Centralizing error handling improves reliability.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "ed9426ae2ee190ec",
+      "detector": "PanicDensityDetector",
+      "severity": "low",
+      "title": "High file-level panic density: 11 panic-family calls",
+      "description": "File `examples/unix-domain-socket/src/main.rs` contains 11 total panic-family calls (`.unwrap()`, `.expect()`, `panic!()`) outside of test code. Consider refactoring to reduce panic surface.",
+      "affected_files": [
+        "examples/unix-domain-socket/src/main.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "Consider:\n- Introducing a module-level error type\n- Replacing unwrap chains with `?` propagation\n- Using `anyhow::Context` for better error messages",
+      "estimated_effort": "1-2 hours",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Files with many panic points are hard to maintain and make the overall application fragile. Centralizing error handling improves reliability.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 3,
+    "medium": 45,
+    "low": 5,
+    "info": 0,
+    "total": 53
+  },
+  "total_files": 296,
+  "total_functions": 2025,
+  "total_classes": 401,
+  "total_loc": 42183
+}
+
+Phase timings (cold):
+  calibrate        0.030s  (2.2%)
+  collect          0.006s  (0.4%)
+  detect           1.075s  (79.3%)
+  freeze           0.053s  (3.9%)
+  git_enrich       0.077s  (5.7%)
+  graph            0.012s  (0.9%)
+  parse            0.099s  (7.3%)
+  postprocess      0.000s  (0.0%)
+  score            0.001s  (0.1%)
+  TOTAL            1.355s

@@ -90,15 +90,25 @@ impl Detector for HiddenCouplingDetector {
 
         let mut findings = Vec::new();
         let min_weight: f32 = self.config.get_option_or("min_weight", 1.0);
+        let min_lift: f32 = self.config.get_option_or("min_lift", 1.5);
 
-        for &(file_a_idx, file_b_idx, weight) in pairs {
+        for &(file_a_idx, file_b_idx, weight, lift) in pairs {
             if weight < min_weight {
                 continue;
             }
+            if lift < min_lift {
+                continue;
+            }
 
-            let severity = if weight >= 1.5 {
+            // Score combines lift (statistical surprise) with weight (evidence volume).
+            // lift alone can be high for rarely-changing files; sqrt(weight) dampens noise.
+            let score = lift * weight.sqrt();
+
+            let severity = if score >= 10.0 {
+                Severity::Critical
+            } else if score >= 6.0 {
                 Severity::High
-            } else if weight >= 0.5 {
+            } else if score >= 3.0 {
                 Severity::Medium
             } else {
                 Severity::Low
@@ -139,19 +149,20 @@ impl Detector for HiddenCouplingDetector {
                 id: String::new(),
                 detector: "hidden-coupling".to_string(),
                 severity,
-                confidence: Some(0.85),
+                confidence: Some(if lift >= 5.0 { 0.95 } else if lift >= 3.0 { 0.85 } else { 0.7 }),
                 deterministic: true,
                 title: format!(
-                    "Hidden coupling: {} and {} (weight: {:.1})",
+                    "Hidden coupling: {} and {} (lift: {:.1}x, weight: {:.1})",
                     file_a.rsplit('/').next().unwrap_or(&file_a),
                     file_b.rsplit('/').next().unwrap_or(&file_b),
+                    lift,
                     weight
                 ),
                 description: format!(
-                    "Hidden coupling detected: `{}` and `{}` co-change frequently (weight: {:.2}) \
-                     but have no import or call relationship. Consider adding an explicit dependency \
-                     or extracting shared logic.",
-                    file_a, file_b, weight
+                    "Hidden coupling detected: `{}` and `{}` co-change {:.1}x more than expected \
+                     by chance (weight: {:.2}). They have no import or call relationship. \
+                     Consider adding an explicit dependency or extracting shared logic.",
+                    file_a, file_b, lift, weight
                 ),
                 affected_files: vec![PathBuf::from(&file_a), PathBuf::from(&file_b)],
                 suggested_fix: Some(
@@ -228,6 +239,11 @@ mod tests {
 
         // Build co-change matrix: routes.rs and models.rs frequently change together.
         // 3 commits with decay=1.0 each => accumulated weight=3.0 (above min_weight=1.0).
+        // Additional commits touching unrelated files raise total_decay_weight,
+        // which increases lift (statistical surprise) for the routes↔models pair.
+        //
+        // lift = co_change(A,B) * total_decay / (file_weight(A) * file_weight(B))
+        //      = 3.0 * 13.0 / (3.0 * 3.0) = 4.33x (well above min_lift=1.5)
         let now = chrono::Utc::now();
         let config = crate::git::co_change::CoChangeConfig {
             min_weight: 0.01,
@@ -237,6 +253,17 @@ mod tests {
             (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
             (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
             (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
+            // Unrelated commits to establish baseline change frequency
+            (now, vec!["src/util/helpers.rs".to_string(), "src/util/config.rs".to_string()]),
+            (now, vec!["src/util/helpers.rs".to_string(), "src/util/config.rs".to_string()]),
+            (now, vec!["src/other/foo.rs".to_string(), "src/other/bar.rs".to_string()]),
+            (now, vec!["src/other/foo.rs".to_string(), "src/other/bar.rs".to_string()]),
+            (now, vec!["src/other/baz.rs".to_string()]),
+            (now, vec!["src/other/qux.rs".to_string()]),
+            (now, vec!["src/other/quux.rs".to_string()]),
+            (now, vec!["src/other/corge.rs".to_string()]),
+            (now, vec!["src/other/grault.rs".to_string()]),
+            (now, vec!["src/other/garply.rs".to_string()]),
         ];
         let co_change =
             crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
@@ -259,6 +286,18 @@ mod tests {
         assert!(
             findings[0].description.contains("models.rs"),
             "Should mention models.rs: {}",
+            findings[0].description
+        );
+        // Title should show lift
+        assert!(
+            findings[0].title.contains("lift:"),
+            "Title should show lift: {}",
+            findings[0].title
+        );
+        // Description should mention "more than expected"
+        assert!(
+            findings[0].description.contains("more than expected"),
+            "Description should reference statistical surprise: {}",
             findings[0].description
         );
     }
@@ -285,13 +324,10 @@ mod tests {
 
     #[test]
     fn test_severity_thresholds() {
-        // Verify severity mapping: >= 1.5 → High, >= 0.5 → Medium, else Low
+        // Verify severity is based on lift-weighted score, not raw weight.
+        // score = lift * sqrt(weight)
+        // Critical >= 10.0, High >= 6.0, Medium >= 3.0, Low < 3.0
         let detector = HiddenCouplingDetector::new();
-
-        // We test severity logic indirectly by checking the weight thresholds
-        // in the detect() method. Since constructing graphs with precise weights
-        // is complex, we verify the empty case and the positive case,
-        // and rely on the direct threshold checks in test_detects_hidden_coupling.
 
         // Empty graph → no findings (sanity check)
         let builder = GraphBuilder::new();

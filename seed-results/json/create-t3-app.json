@@ -1,0 +1,556 @@
+{
+  "overall_score": 85.38999999999999,
+  "grade": "B",
+  "structure_score": 99.55,
+  "quality_score": 54.89999999999999,
+  "architecture_score": 97.0,
+  "findings": [
+    {
+      "id": "8d757e8004c54ef9",
+      "detector": "single-point-of-failure",
+      "severity": "high",
+      "title": "Single point of failure: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/cli/src/index.ts::main:31` dominates 31 functions (21%)",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/cli/src/index.ts::main:31` dominates 31 of 146 functions (21.2%). PageRank percentile: 0%. Blast radius boundary: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/cli/src/utils/getUserPkgManager.ts::getUserPkgManager:3, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/cli/src/utils/parseNameAndPath.ts::parseNameAndPath:20, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/www/src/languages.ts::getIsRtlFromLangCode:34, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/www/src/languages.ts::getLanguageFromURL:7",
+      "affected_files": [
+        "cli/src/helpers/installPackages.ts",
+        "cli/src/helpers/format.ts",
+        "cli/src/helpers/createProject.ts",
+        "cli/src/helpers/git.ts",
+        "cli/src/cli/index.ts",
+        "cli/src/utils/renderTitle.ts",
+        "cli/src/utils/renderVersionWarning.ts",
+        "cli/src/helpers/setImportAlias.ts",
+        "www/src/utils/ogFont.ts",
+        "cli/src/helpers/scaffoldProject.ts",
+        "cli/src/installers/index.ts",
+        "cli/src/helpers/logNextSteps.ts",
+        "cli/src/helpers/installDependencies.ts",
+        "www/src/components/openGraph.tsx",
+        "cli/src/index.ts",
+        "cli/src/utils/getT3Version.ts",
+        "cli/src/helpers/selectBoilerplate.ts",
+        "www/src/pages/og.ts"
+      ],
+      "line_start": 31,
+      "line_end": 116,
+      "suggested_fix": "Consider splitting this function into smaller, independently callable units. Extract sub-functionality behind interfaces so callers have alternative paths.",
+      "estimated_effort": "Large (2-5 days)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A single point of failure means all dependent code paths funnel through one function. If this function has a bug, performance issue, or API change, the blast radius is disproportionately large.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "d8087572112bbf66",
+      "detector": "structural-bridge-risk",
+      "severity": "high",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/cli/src/utils/renderVersionWarning.ts::checkForLatestVersion:45` separates components of [74, 46]",
+      "description": "[COMPOUND: 2 co-located issues] `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/cli/src/utils/renderVersionWarning.ts::checkForLatestVersion:45` is a structural bridge. Removing it would split the graph into components of sizes [74, 46]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "cli/src/utils/renderVersionWarning.ts"
+      ],
+      "line_start": 45,
+      "line_end": 69,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Medium (1-3 days)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "755e323e686160d3",
+      "detector": "structural-bridge-risk",
+      "severity": "high",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/cli/src/utils/renderVersionWarning.ts::getNpmVersion:71` separates components of [73, 47]",
+      "description": "[COMPOUND: 2 co-located issues] `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/create-t3-app/cli/src/utils/renderVersionWarning.ts::getNpmVersion:71` is a structural bridge. Removing it would split the graph into components of sizes [73, 47]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "cli/src/utils/renderVersionWarning.ts"
+      ],
+      "line_start": 71,
+      "line_end": 79,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Medium (1-3 days)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "870a125930698dc8",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "high",
+      "title": "Promise without .catch()",
+      "description": "Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n⚠️ In critical path (auth/payment/user)\n📦 In function: `Home` (1 callers)",
+      "affected_files": [
+        "cli/template/extras/src/app/page/with-auth-trpc-tw.tsx"
+      ],
+      "line_start": 12,
+      "line_end": 12,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c103bbb8d53574cc",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "high",
+      "title": "Promise without .catch()",
+      "description": "Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n⚠️ In critical path (auth/payment/user)\n📦 In function: `Home` (1 callers)",
+      "affected_files": [
+        "cli/template/extras/src/app/page/with-auth-trpc.tsx"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2777d9dfb51b1961",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "high",
+      "title": "Promise without .catch()",
+      "description": "Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n⚠️ In critical path (auth/payment/user)\n📦 In function: `Home` (1 callers)",
+      "affected_files": [
+        "cli/template/extras/src/app/page/with-better-auth-trpc-tw.tsx"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "fbc2d9ed4480cdaf",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "high",
+      "title": "Promise without .catch()",
+      "description": "Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n⚠️ In critical path (auth/payment/user)\n📦 In function: `Home` (1 callers)",
+      "affected_files": [
+        "cli/template/extras/src/app/page/with-better-auth-trpc.tsx"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b9684a7d4feef459",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "high",
+      "title": "Promise without .catch()",
+      "description": "Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n⚠️ In critical path (auth/payment/user)\n📦 In function: `Home` (1 callers)",
+      "affected_files": [
+        "cli/template/extras/src/app/page/with-trpc-tw.tsx"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0974ff72d469bce8",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "high",
+      "title": "Promise without .catch()",
+      "description": "Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n⚠️ In critical path (auth/payment/user)\n📦 In function: `Home` (1 callers)",
+      "affected_files": [
+        "cli/template/extras/src/app/page/with-trpc.tsx"
+      ],
+      "line_start": 10,
+      "line_end": 10,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "669bb4dc014ee21f",
+      "detector": "MissingAwaitDetector",
+      "severity": "high",
+      "title": "Async call without await",
+      "description": "Async function called without await - returns Promise/coroutine, not the actual value.\n\n**Analysis:**\n📦 In async function: `get`\n🔍 Calls a function defined as async in this codebase",
+      "affected_files": [
+        "www/src/pages/og.ts"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Add `await` before the async call.",
+      "estimated_effort": "2 minutes",
+      "category": "bug-risk",
+      "cwe_id": null,
+      "why_it_matters": "Without await, you get a Promise object instead of the actual result.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9f8e59c50687d18d",
+      "detector": "MissingAwaitDetector",
+      "severity": "high",
+      "title": "Async call without await",
+      "description": "Async function called without await - returns Promise/coroutine, not the actual value.\n\n**Analysis:**\n📦 In async function: `get`\n🔍 Calls a function defined as async in this codebase",
+      "affected_files": [
+        "www/src/pages/og.ts"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Add `await` before the async call.",
+      "estimated_effort": "2 minutes",
+      "category": "bug-risk",
+      "cwe_id": null,
+      "why_it_matters": "Without await, you get a Promise object instead of the actual result.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0ed3890a81f4a8d9",
+      "detector": "MissingAwaitDetector",
+      "severity": "high",
+      "title": "Async call without await",
+      "description": "Async function called without await - returns Promise/coroutine, not the actual value.\n\n**Analysis:**\n📦 In async function: `get`\n🔍 Calls a function defined as async in this codebase",
+      "affected_files": [
+        "www/src/pages/og.ts"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Add `await` before the async call.",
+      "estimated_effort": "2 minutes",
+      "category": "bug-risk",
+      "cwe_id": null,
+      "why_it_matters": "Without await, you get a Promise object instead of the actual result.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6c27c75ba6bff193",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: runCli (355 lines)",
+      "description": "Function 'runCli' has 355 lines (effective threshold: 150).",
+      "affected_files": [
+        "cli/src/cli/index.ts"
+      ],
+      "line_start": 78,
+      "line_end": 433,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c4b3db634d3876f3",
+      "detector": "RegexInLoopDetector",
+      "severity": "medium",
+      "title": "Hidden regex in loop: replaceTextInFiles",
+      "description": "Function 'replaceTextInFiles' contains a loop and calls 'replaceTextInFiles' which compiles a regex.\n\n**Call chain:** replaceTextInFiles → replaceTextInFiles\n\nThis may cause regex compilation on every iteration.",
+      "affected_files": [
+        "cli/src/helpers/setImportAlias.ts"
+      ],
+      "line_start": 4,
+      "line_end": 21,
+      "suggested_fix": "Options:\n1. Cache the compiled regex (lazy_static, OnceLock)\n2. Pass pre-compiled regex as parameter\n3. Restructure to compile once before loop",
+      "estimated_effort": "20 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Hidden regex compilation across function boundaries is harder to spot but equally impactful.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "45ee98bd3bbbb31d",
+      "detector": "RegexInLoopDetector",
+      "severity": "medium",
+      "title": "Regex compiled inside loop",
+      "description": "Regex compiled in loop (loop starts line 11).\n\n**Performance impact:** Regex compilation is expensive. In a loop of N iterations, this costs N compilations instead of 1.",
+      "affected_files": [
+        "cli/src/helpers/setImportAlias.ts"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Move regex compilation outside the loop:\n```rust\nlet re = Regex::new(pattern)?;  // Before loop\nfor item in items {\nre.is_match(item);  // Reuse\n}\n```",
+      "estimated_effort": "10 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Regex compilation involves parsing and optimization. Doing it once instead of N times can dramatically improve performance.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "71d4deb4c6256b2a",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "medium",
+      "title": "Promise without .catch()",
+      "description": "[COMPOUND: 2 co-located issues] Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n📦 In function: `checkForLatestVersion` (1 callers)",
+      "affected_files": [
+        "cli/src/utils/renderVersionWarning.ts"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "772177552fefb4c7",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: execSync",
+      "affected_files": [
+        "cli/src/helpers/git.ts"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "658ced8cf46260bc",
+      "detector": "ImplicitCoercionDetector",
+      "severity": "low",
+      "title": "Loose equality (==) used",
+      "description": "[COMPOUND: 2 co-located issues] == performs type coercion which can cause subtle bugs.\n\n**Analysis:**\n📦 In function: `initializeGit` (2 callers)",
+      "affected_files": [
+        "cli/src/helpers/git.ts"
+      ],
+      "line_start": 109,
+      "line_end": 109,
+      "suggested_fix": "Use === for strict equality:\n```javascript\n// Instead of:\nif (value == 'string') { ... }\n\n// Use:\nif (value === 'string') { ... }\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Type coercion in == can cause unexpected behavior:\n• '1' == 1 is true\n• '' == false is true\n• [] == false is true\nUse === to compare both value AND type.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4ac733a71d192976",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "[COMPOUND: 2 co-located issues] Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: getDefaultBranch, getGitVersion, execa, bold, succeed",
+      "affected_files": [
+        "cli/src/helpers/git.ts"
+      ],
+      "line_start": 128,
+      "line_end": 128,
+      "suggested_fix": "Based on the operations in your try block, consider catching:\n  • TypeError (network errors), AbortError\n\nExample:\n```python\nexcept (TypeError (network errors), AbortError) as e:\nlogger.error(f\"Operation failed: {e}\")\n```",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4a04b0fb745bc2b1",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: replace, writeFileSync, readFileSync, switch, providerForPrisma",
+      "affected_files": [
+        "cli/src/installers/betterAuth.ts"
+      ],
+      "line_start": 131,
+      "line_end": 131,
+      "suggested_fix": "Based on the operations in your try block, consider catching:\n  • Error (check error.code for ENOENT, EACCES)\n\nExample:\n```python\nexcept (Error (check error.code for ENOENT, EACCES)) as e:\nlogger.error(f\"Operation failed: {e}\")\n```",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0deac7bedad2d555",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "[COMPOUND: 2 co-located issues] Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: toString, execSync, trim",
+      "affected_files": [
+        "cli/src/utils/renderVersionWarning.ts"
+      ],
+      "line_start": 76,
+      "line_end": 76,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "a951d35dace0962c",
+      "detector": "GlobalVariablesDetector",
+      "severity": "low",
+      "title": "Global mutable variable: post",
+      "description": "Global mutable state 'post' makes code hard to reason about.\n\n**Impact Analysis:**\n📊 Used 3 times in this file",
+      "affected_files": [
+        "cli/template/extras/src/server/api/routers/post/with-auth.ts"
+      ],
+      "line_start": 9,
+      "line_end": 9,
+      "suggested_fix": "Use const if immutable, or encapsulate in a module/class.",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Global state causes hidden dependencies between functions. Changes to globals can have unexpected effects throughout the codebase.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "a51163350e0995d6",
+      "detector": "CallbackHellDetector",
+      "severity": "low",
+      "title": "Callback hell (4 levels deep)",
+      "description": "[COMPOUND: 2 co-located issues] Deeply nested callbacks (4 levels) make code hard to follow.\n\n**Analysis:**\n✓ File already uses async/await in some places",
+      "affected_files": [
+        "www/src/components/landingPage/ClipboardSelect.tsx"
+      ],
+      "line_start": 102,
+      "line_end": 102,
+      "suggested_fix": "This file already uses async/await. Convert remaining callbacks:\n1. Replace `.then()` chains with `await`\n2. Use `try/catch` instead of `.catch()`",
+      "estimated_effort": "30 minutes",
+      "category": "readability",
+      "cwe_id": null,
+      "why_it_matters": "The 'pyramid of doom' hurts readability and makes error handling difficult. Each nesting level increases cognitive load.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "ad7038cda9323b09",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in ClipboardSelect",
+      "description": "[COMPOUND: 2 co-located issues] 8 levels of nesting (threshold: 6).\n\n**Analysis:**\nIn function: `ClipboardSelect`\nHigh complexity: 12 (nesting compounds this)\nExisting helpers that could reduce nesting: handleCopyToClipboard\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=4, p95=5, mean=1.7, n=282",
+      "affected_files": [
+        "www/src/components/landingPage/ClipboardSelect.tsx"
+      ],
+      "line_start": 102,
+      "line_end": 102,
+      "suggested_fix": "This function already has helpers like `handleCopyToClipboard`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "718dc87fe8711d4b",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: CodeCard (189 lines)",
+      "description": "Function 'CodeCard' has 189 lines (effective threshold: 150).",
+      "affected_files": [
+        "www/src/components/landingPage/cli.tsx"
+      ],
+      "line_start": 4,
+      "line_end": 193,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6e6e58104542895e",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 7 levels in OnThisPageLinks",
+      "description": "7 levels of nesting (threshold: 6).\n\n**Analysis:**\nIn function: `OnThisPageLinks`\nHigh complexity: 26 (nesting compounds this)\n\nThreshold: 5 (adaptive) | Actual: 7 | Default would be: 5 | Profile: p90=4, p95=5, mean=1.7, n=282",
+      "affected_files": [
+        "www/src/components/navigation/OnThisPageLinks.tsx"
+      ],
+      "line_start": 51,
+      "line_end": 51,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "7",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 12,
+    "medium": 4,
+    "low": 10,
+    "info": 0,
+    "total": 26
+  },
+  "total_files": 176,
+  "total_functions": 282,
+  "total_classes": 50,
+  "total_loc": 7114
+}
+
+Phase timings (cold):
+  calibrate        0.016s  (4.8%)
+  collect          0.008s  (2.3%)
+  detect           0.116s  (34.6%)
+  freeze           0.002s  (0.6%)
+  git_enrich       0.061s  (18.2%)
+  graph            0.003s  (0.9%)
+  parse            0.127s  (37.7%)
+  postprocess      0.001s  (0.2%)
+  score            0.001s  (0.3%)
+  TOTAL            0.336s

@@ -1,0 +1,1174 @@
+{
+  "overall_score": 76.59664556962026,
+  "grade": "C",
+  "structure_score": 99.35000000000001,
+  "quality_score": 25.10548523206751,
+  "architecture_score": 97.75,
+  "findings": [
+    {
+      "id": "06f62886352ef269",
+      "detector": "RegexDosDetector",
+      "severity": "high",
+      "title": "Potential ReDoS vulnerability",
+      "description": "Regex with nested quantifiers may cause catastrophic backtracking, leading to denial of service.\n\n**Analysis:**\n🔍 Pattern issue: nested quantifiers detected\n📦 In function: `get_go_mod_version` (1 callers)",
+      "affected_files": [
+        "src/modules/golang.rs"
+      ],
+      "line_start": 104,
+      "line_end": 104,
+      "suggested_fix": "Consider using bounded repetition or atomic groups:\n```rust\n// Use the regex crate which has built-in protections\n// Or add length limits:\nif input.len() > 10_000 { return Err(\"Input too long\"); }\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1333",
+      "why_it_matters": "ReDoS attacks exploit regex backtracking to consume CPU:\n• A malicious input can take exponential time to evaluate\n• Single requests can freeze the server\n• Input like 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa!' on /(a+)+$/ can hang",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "d296f31c1901d1b0",
+      "detector": "single-point-of-failure",
+      "severity": "high",
+      "title": "Single point of failure: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/mod.rs::handle:118` dominates 332 functions (16%)",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/mod.rs::handle:118` dominates 332 of 2130 functions (15.6%). PageRank percentile: 0%. Blast radius boundary: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/config.rs::impl<StarshipConfig>::get_config:191, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/config.rs::impl<StarshipConfig>::get_module_config:178, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/config.rs::parse_style_string:365, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/context.rs::home_dir:498, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/context.rs::impl<Context<'a>>::dir_contents:389 (+57 more)",
+      "affected_files": [
+        "src/modules/openstack.rs",
+        "src/modules/ruby.rs",
+        "src/modules/git_metrics.rs",
+        "src/modules/shlvl.rs",
+        "src/modules/meson.rs",
+        "src/modules/sudo.rs",
+        "src/modules/ocaml.rs",
+        "src/modules/gcloud.rs",
+        "src/modules/directory.rs",
+        "src/modules/typst.rs",
+        "src/formatter/string_formatter.rs",
+        "src/modules/cpp.rs",
+        "src/modules/git_branch.rs",
+        "src/modules/username.rs",
+        "src/modules/vcsh.rs",
+        "src/modules/aws.rs",
+        "src/modules/memory_usage.rs",
+        "src/modules/xmake.rs",
+        "src/modules/zig.rs",
+        "src/modules/perl.rs",
+        "src/modules/helm.rs",
+        "src/modules/localip.rs",
+        "src/modules/vlang.rs",
+        "src/modules/line_break.rs",
+        "src/modules/character.rs",
+        "src/modules/elixir.rs",
+        "src/modules/spack.rs",
+        "src/modules/package.rs",
+        "src/modules/dotnet.rs",
+        "src/modules/git_status.rs",
+        "src/modules/nodejs.rs",
+        "src/modules/red.rs",
+        "src/modules/deno.rs",
+        "src/modules/pulumi.rs",
+        "src/modules/netns.rs",
+        "src/modules/swift.rs",
+        "src/modules/direnv.rs",
+        "src/modules/nim.rs",
+        "src/modules/docker_context.rs",
+        "src/modules/pixi.rs",
+        "src/utils.rs",
+        "src/modules/bun.rs",
+        "src/modules/conda.rs",
+        "src/modules/crystal.rs",
+        "src/modules/haxe.rs",
+        "src/modules/quarto.rs",
+        "src/modules/singularity.rs",
+        "src/modules/battery.rs",
+        "src/configs/directory.rs",
+        "src/modules/env_var.rs",
+        "src/modules/haskell.rs",
+        "src/modules/cobol.rs",
+        "src/modules/solidity.rs",
+        "src/modules/hostname.rs",
+        "src/modules/vcs.rs",
+        "src/modules/scala.rs",
+        "src/modules/c.rs",
+        "src/modules/daml.rs",
+        "src/modules/nats.rs",
+        "src/modules/dart.rs",
+        "src/modules/status.rs",
+        "src/modules/cmd_duration.rs",
+        "src/config.rs",
+        "src/modules/nix_shell.rs",
+        "src/modules/azure.rs",
+        "src/modules/rust.rs",
+        "src/modules/fortran.rs",
+        "src/modules/purescript.rs",
+        "src/modules/vagrant.rs",
+        "src/modules/fill.rs",
+        "src/modules/erlang.rs",
+        "src/modules/container.rs",
+        "src/modules/custom.rs",
+        "src/modules/raku.rs",
+        "src/modules/os.rs",
+        "src/modules/hg_branch.rs",
+        "src/modules/cmake.rs",
+        "src/modules/odin.rs",
+        "src/modules/gradle.rs",
+        "src/modules/maven.rs",
+        "src/modules/mise.rs",
+        "src/modules/fossil_metrics.rs",
+        "src/modules/git_state.rs",
+        "src/modules/php.rs",
+        "src/modules/pijul_channel.rs",
+        "src/modules/kotlin.rs",
+        "src/modules/terraform.rs",
+        "src/modules/time.rs",
+        "src/modules/buf.rs",
+        "src/modules/elm.rs",
+        "src/modules/fossil_branch.rs",
+        "src/modules/hg_state.rs",
+        "src/modules/lua.rs",
+        "src/modules/kubernetes.rs",
+        "src/modules/python.rs",
+        "src/modules/guix_shell.rs",
+        "src/modules/rlang.rs",
+        "src/modules/shell.rs",
+        "src/modules/jobs.rs",
+        "src/modules/julia.rs",
+        "src/modules/opa.rs",
+        "src/modules/gleam.rs",
+        "src/modules/mojo.rs",
+        "src/modules/java.rs",
+        "src/modules/git_commit.rs",
+        "src/context_env.rs",
+        "src/modules/fennel.rs",
+        "src/context.rs",
+        "src/modules/golang.rs",
+        "src/modules/mod.rs"
+      ],
+      "line_start": 118,
+      "line_end": 253,
+      "suggested_fix": "Consider splitting this function into smaller, independently callable units. Extract sub-functionality behind interfaces so callers have alternative paths.",
+      "estimated_effort": "Medium (1-2 days)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A single point of failure means all dependent code paths funnel through one function. If this function has a bug, performance issue, or API change, the blast radius is disproportionately large.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "00a20a4fcb79eb4e",
+      "detector": "RegexDosDetector",
+      "severity": "high",
+      "title": "Potential ReDoS vulnerability",
+      "description": "Regex with nested quantifiers may cause catastrophic backtracking, leading to denial of service.\n\n**Analysis:**\n🔍 Pattern issue: nested quantifiers detected\n📦 In function: `get_sbt_version` (0 callers)",
+      "affected_files": [
+        "src/modules/package.rs"
+      ],
+      "line_start": 291,
+      "line_end": 291,
+      "suggested_fix": "Consider using bounded repetition or atomic groups:\n```rust\n// Use the regex crate which has built-in protections\n// Or add length limits:\nif input.len() > 10_000 { return Err(\"Input too long\"); }\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1333",
+      "why_it_matters": "ReDoS attacks exploit regex backtracking to consume CPU:\n• A malicious input can take exponential time to evaluate\n• Single requests can freeze the server\n• Input like 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa!' on /(a+)+$/ can hang",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "9d47b8a175df172e",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/modules/utils/directory_win.rs"
+      ],
+      "line_start": 25,
+      "line_end": 25,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "259c379fd53ca74c",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/modules/utils/directory_win.rs"
+      ],
+      "line_start": 40,
+      "line_end": 40,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "eafb31f457fcfa05",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/modules/utils/directory_win.rs"
+      ],
+      "line_start": 50,
+      "line_end": 50,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6e1d15b41923ce6f",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/modules/utils/directory_win.rs"
+      ],
+      "line_start": 73,
+      "line_end": 73,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "98d66ac52e7314dc",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/modules/utils/directory_win.rs"
+      ],
+      "line_start": 92,
+      "line_end": 92,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f67f01466fa7dc95",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/modules/utils/directory_win.rs"
+      ],
+      "line_start": 110,
+      "line_end": 110,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "62ee85dff9b8c2a8",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/modules/utils/directory_win.rs"
+      ],
+      "line_start": 131,
+      "line_end": 131,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6990e04e63f15306",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/modules/utils/directory_win.rs"
+      ],
+      "line_start": 132,
+      "line_end": 132,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: esbuild 0.21.5 (GHSA-67mh-4wv8-2f99)",
+      "description": "**GHSA-67mh-4wv8-2f99** in `esbuild@0.21.5` (npm)\n\nNo description available\n\n**Advisory**: GHSA-67mh-4wv8-2f99\n**Ecosystem**: npm",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "d40e76be5976c181",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/bug_report.rs"
+      ],
+      "line_start": 171,
+      "line_end": 171,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "16d344c53df12cf2",
+      "detector": "CircularDependencyDetector",
+      "severity": "medium",
+      "title": "Circular dependency: 3 files",
+      "description": "Mutual dependency between: config.rs ↔ context.rs ↔ utils.rs\n\n**Weakest link to break:** `config.rs` → `context.rs` (1 import)",
+      "affected_files": [
+        "src/config.rs",
+        "src/context.rs",
+        "src/utils.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `config.rs` → `context.rs` (weakest coupling: 1 imports)\n\nSince `config.rs` only imports 1 symbol(s) from `context.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "199cb280f1736894",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/config.rs"
+      ],
+      "line_start": 158,
+      "line_end": 158,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "36661d37313c05e5",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/config.rs"
+      ],
+      "line_start": 225,
+      "line_end": 225,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7013d2f155009f97",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 56,
+      "line_end": 56,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "1a614341e9b14cd7",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 62,
+      "line_end": 62,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "fd38fce1752b39f4",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 69,
+      "line_end": 69,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "f1d6f5a7d32e544c",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `print_configuration`: 4 panic-family calls",
+      "description": "[COMPOUND: 2 co-located issues] Function `print_configuration` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 82, line 89, line 111, line 129. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 77,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4b7d885b1cf11ef7",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 82,
+      "line_end": 82,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "89371cbee532022d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 89,
+      "line_end": 89,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "b810b086107d6fef",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 111,
+      "line_end": 111,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d8a3dd823c46d7c9",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 129,
+      "line_end": 129,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "cc063b5b6af93720",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 176,
+      "line_end": 176,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3ef09d594b4bf1ee",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/configure.rs"
+      ],
+      "line_start": 220,
+      "line_end": 220,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "57b9f21f4eb9ea4e",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/formatter/parser.rs"
+      ],
+      "line_start": 19,
+      "line_end": 19,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c892d23c1cf79bfa",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/formatter/parser.rs"
+      ],
+      "line_start": 27,
+      "line_end": 27,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9f4d731c2d0ce665",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/formatter/parser.rs"
+      ],
+      "line_start": 28,
+      "line_end": 28,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "bd0527ea534fa5dc",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/formatter/parser.rs"
+      ],
+      "line_start": 37,
+      "line_end": 37,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "4ef26732a59dcdaf",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 29)",
+      "description": "Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/formatter/string_formatter.rs::impl<StringFormatter<'a>>::new:67 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/formatter/string_formatter.rs::impl<StringFormatter<'a>>::parse:236. Aggregate complexity: 29.",
+      "affected_files": [
+        "src/formatter/string_formatter.rs"
+      ],
+      "line_start": 67,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "bc3279d70fe75f55",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/logger.rs"
+      ],
+      "line_start": 240,
+      "line_end": 240,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2a39dfe45585257d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/modules/azure.rs"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2ee2372e5d4c6829",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/directory.rs::contract_path:215` separates components of [2077, 23]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/directory.rs::contract_path:215` is a structural bridge. Removing it would split the graph into components of sizes [2077, 23]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "src/modules/directory.rs"
+      ],
+      "line_start": 215,
+      "line_end": 242,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "8ea1c93dea7ac839",
+      "detector": "RegexInLoopDetector",
+      "severity": "medium",
+      "title": "Regex compiled inside loop",
+      "description": "Regex compiled in loop (loop starts line 319).\n\n**Performance impact:** Regex compilation is expensive. In a loop of N iterations, this costs N compilations instead of 1.",
+      "affected_files": [
+        "src/modules/directory.rs"
+      ],
+      "line_start": 321,
+      "line_end": 321,
+      "suggested_fix": "Move regex compilation outside the loop:\n```rust\nlet re = Regex::new(pattern)?;  // Before loop\nfor item in items {\nre.is_match(item);  // Reuse\n}\n```",
+      "estimated_effort": "10 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Regex compilation involves parsing and optimization. Doing it once instead of N times can dramatically improve performance.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "31a94ba029a3aecf",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/modules/direnv.rs"
+      ],
+      "line_start": 125,
+      "line_end": 125,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9254409553436134",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/modules/git_metrics.rs"
+      ],
+      "line_start": 373,
+      "line_end": 373,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6847c64c9558b9b4",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/modules/git_status.rs"
+      ],
+      "line_start": 719,
+      "line_end": 719,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "aab2dd6511855796",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/modules/git_status.rs"
+      ],
+      "line_start": 732,
+      "line_end": 732,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3fc364ac6a52a21e",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/jobs.rs::module:7` separates components of [2082, 18]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/jobs.rs::module:7` is a structural bridge. Removing it would split the graph into components of sizes [2082, 18]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "src/modules/jobs.rs"
+      ],
+      "line_start": 7,
+      "line_end": 100,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "25b4bd14542d8811",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/modules/kubernetes.rs"
+      ],
+      "line_start": 233,
+      "line_end": 233,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2122d0006958a38b",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: handle",
+      "description": "Function 'handle' is a statistical complexity outlier (z-score: 18.1, complexity: 107).",
+      "affected_files": [
+        "src/modules/mod.rs"
+      ],
+      "line_start": 118,
+      "line_end": 253,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "e279bfe52c553547",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/modules/mod.rs"
+      ],
+      "line_start": 232,
+      "line_end": 232,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ab09df7cbbe74976",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/nix_shell.rs::module:60` separates components of [2089, 11]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/nix_shell.rs::module:60` is a structural bridge. Removing it would split the graph into components of sizes [2089, 11]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "src/modules/nix_shell.rs"
+      ],
+      "line_start": 60,
+      "line_end": 99,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "fe1ffec63ee13dbc",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/modules/nodejs.rs"
+      ],
+      "line_start": 123,
+      "line_end": 123,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9d74751b21f74616",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/username.rs::module:21` separates components of [2081, 19]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/starship/src/modules/username.rs::module:21` is a structural bridge. Removing it would split the graph into components of sizes [2081, 19]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "src/modules/username.rs"
+      ],
+      "line_start": 21,
+      "line_end": 82,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "ee100a3b81a7a475",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: parse (170 lines)",
+      "description": "Function 'parse' has 170 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 13 functions (reduced severity)\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "src/formatter/string_formatter.rs"
+      ],
+      "line_start": 236,
+      "line_end": 406,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b1dea1c1bd1f6b39",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in parse",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `parse`\nHigh complexity: 27 (nesting compounds this)\nContains 2 match/switch level(s) (discounted from raw depth 10)\nExisting helpers that could reduce nesting: clone_without_meta\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=2, p95=3, mean=1.0, n=2109",
+      "affected_files": [
+        "src/formatter/string_formatter.rs"
+      ],
+      "line_start": 363,
+      "line_end": 363,
+      "suggested_fix": "This function already has helpers like `clone_without_meta`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "32b7ee46d9328b9f",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: module (154 lines)",
+      "description": "Function 'module' has 154 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "src/modules/git_branch.rs"
+      ],
+      "line_start": 14,
+      "line_end": 168,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle_formatter()` for formatter operations\n  - `handle_src()` for src operations\n  - `handle_modules()` for modules operations",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "afa8f391567b21ba",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: module (264 lines)",
+      "description": "Function 'module' has 264 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 13 functions (reduced severity)\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "src/modules/git_metrics.rs"
+      ],
+      "line_start": 17,
+      "line_end": 281,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "760a615d35078418",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: module (159 lines)",
+      "description": "Function 'module' has 159 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "src/modules/git_status.rs"
+      ],
+      "line_start": 31,
+      "line_end": 190,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle_formatter()` for formatter operations\n  - `handle_src()` for src operations\n  - `handle_modules()` for modules operations",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5313baecee60ea58",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: get_repo_status (242 lines)",
+      "description": "Function 'get_repo_status' has 242 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "src/modules/git_status.rs"
+      ],
+      "line_start": 330,
+      "line_end": 572,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle_src()` for src operations\n  - `handle_modules()` for modules operations\n  - `handle_test()` for test operations",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9129fe0bf0cd5ca7",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: test_find_rust_toolchain_file (173 lines)",
+      "description": "Function 'test_find_rust_toolchain_file' has 173 lines (effective threshold: 150).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "src/modules/rust.rs"
+      ],
+      "line_start": 726,
+      "line_end": 899,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "fcbe326f0874b171",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: mock_cmd (415 lines)",
+      "description": "Function 'mock_cmd' has 415 lines (effective threshold: 150).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "src/utils.rs"
+      ],
+      "line_start": 163,
+      "line_end": 578,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 11,
+    "medium": 35,
+    "low": 8,
+    "info": 0,
+    "total": 54
+  },
+  "total_files": 238,
+  "total_functions": 2130,
+  "total_classes": 194,
+  "total_loc": 48687
+}
+
+Phase timings (cold):
+  calibrate        0.043s  (1.8%)
+  collect          0.009s  (0.4%)
+  detect           1.940s  (80.6%)
+  freeze           0.057s  (2.4%)
+  git_enrich       0.236s  (9.8%)
+  graph            0.016s  (0.7%)
+  parse            0.102s  (4.2%)
+  postprocess      0.001s  (0.0%)
+  score            0.001s  (0.1%)
+  TOTAL            2.406s

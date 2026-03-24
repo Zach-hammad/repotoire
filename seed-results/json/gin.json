@@ -1,0 +1,237 @@
+{
+  "overall_score": 96.47,
+  "grade": "A",
+  "structure_score": 99.8,
+  "quality_score": 89.5,
+  "architecture_score": 99.0,
+  "findings": [
+    {
+      "id": "1e68d10d1d06539d",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 2 issues",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (lines 76, 77)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "ginS/gins.go"
+      ],
+      "line_start": 76,
+      "line_end": 77,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5cfb8faa03ab8ee1",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 2 issues",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (lines 41, 126)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "routergroup.go"
+      ],
+      "line_start": 41,
+      "line_end": 126,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2e89fe959a5fae69",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "high",
+      "title": "Architectural Bottleneck: addRoute (architectural hub)",
+      "description": "Function 'addRoute' is called by 25 functions and has complexity 22. Changes here are high-risk.\n\nBetweenness centrality: 0.5730 - this function sits on many execution paths between other functions.\n\n📊 Threshold: 20 (adaptive) | Actual: 22 | Default would be: 20 | Profile: p90=5, p95=9, mean=2.7, n=525",
+      "affected_files": [
+        "tree.go"
+      ],
+      "line_start": 135,
+      "line_end": 249,
+      "suggested_fix": "This is a critical hub. Ensure comprehensive test coverage, add defensive error handling, and consider circuit breaker pattern.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.85,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "22",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: gopkg.in/yaml.v3 3.0.0-20200313102051-9f266ea9e77c (GHSA-hp87-p4gw-j4gq)",
+      "description": "**GHSA-hp87-p4gw-j4gq** in `gopkg.in/yaml.v3@3.0.0-20200313102051-9f266ea9e77c` (Go)\n\nNo description available\n\n**Advisory**: GHSA-hp87-p4gw-j4gq\n**Ecosystem**: Go",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: gopkg.in/yaml.v3 3.0.0-20200313102051-9f266ea9e77c (GO-2022-0603)",
+      "description": "**GO-2022-0603** in `gopkg.in/yaml.v3@3.0.0-20200313102051-9f266ea9e77c` (Go)\n\nNo description available\n\n**Advisory**: GO-2022-0603\n**Ecosystem**: Go",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "b7f65a8bb9269351",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 4 functions in call cycle (complexity 8)",
+      "description": "Mutual recursion detected: 4 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/gin/context.go::(*Context).GetQuery:554 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/gin/context.go::(*Context).GetQueryArray:580 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/gin/context.go::(*Context).Query:525 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/gin/context.go::(*Context).initQueryCache:568. Aggregate complexity: 8.",
+      "affected_files": [
+        "context.go"
+      ],
+      "line_start": 554,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "0f3862a038ddfbab",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: getValue (247 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'getValue' has 247 lines (effective threshold: 150).",
+      "affected_files": [
+        "tree.go"
+      ],
+      "line_start": 418,
+      "line_end": 665,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "d418591e47e4746e",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 9 levels in getValue",
+      "description": "[COMPOUND: 2 co-located issues] 9 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `getValue`\nHigh complexity: 63 (nesting compounds this)\n\nThreshold: 5 (adaptive) | Actual: 9 | Default would be: 5 | Profile: p90=2, p95=3, mean=0.7, n=525",
+      "affected_files": [
+        "tree.go"
+      ],
+      "line_start": 438,
+      "line_end": 438,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "9",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "130956c5fa673f7f",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: findCaseInsensitivePathRec (247 lines)",
+      "description": "Function 'findCaseInsensitivePathRec' has 247 lines (effective threshold: 150).",
+      "affected_files": [
+        "tree.go"
+      ],
+      "line_start": 703,
+      "line_end": 950,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f3b8fa75c837ee29",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in findCaseInsensitivePathRec",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `findCaseInsensitivePathRec`\nHigh complexity: 69 (nesting compounds this)\nExisting helpers that could reduce nesting: shiftNRuneBytes\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=2, p95=3, mean=0.7, n=525",
+      "affected_files": [
+        "tree.go"
+      ],
+      "line_start": 875,
+      "line_end": 875,
+      "suggested_fix": "This function already has helpers like `shiftNRuneBytes`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 3,
+    "medium": 3,
+    "low": 4,
+    "info": 0,
+    "total": 10
+  },
+  "total_files": 99,
+  "total_functions": 1311,
+  "total_classes": 173,
+  "total_loc": 23785
+}
+
+Phase timings (cold):
+  calibrate        0.028s  (4.5%)
+  collect          0.002s  (0.4%)
+  detect           0.399s  (64.2%)
+  freeze           0.022s  (3.6%)
+  git_enrich       0.030s  (4.9%)
+  graph            0.013s  (2.1%)
+  parse            0.123s  (19.8%)
+  postprocess      0.001s  (0.1%)
+  score            0.002s  (0.3%)
+  TOTAL            0.621s

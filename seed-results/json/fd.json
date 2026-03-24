@@ -1,0 +1,372 @@
+{
+  "overall_score": 96.28217391304348,
+  "grade": "A",
+  "structure_score": 99.95,
+  "quality_score": 89.17391304347827,
+  "architecture_score": 98.5,
+  "findings": [
+    {
+      "id": "4bca3e75c5fed5eb",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "src/exit_codes.rs"
+      ],
+      "line_start": 35,
+      "line_end": 35,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2e158c11c3b043f1",
+      "detector": "single-point-of-failure",
+      "severity": "high",
+      "title": "Single point of failure: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/walk.rs::impl<WorkerState>::scan:627` dominates 35 functions (11%)",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/walk.rs::impl<WorkerState>::scan:627` dominates 35 of 319 functions (11.0%). PageRank percentile: 0%. Blast radius boundary: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/cli.rs::impl<Opts>::max_depth:724, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/cli.rs::impl<Opts>::threads:732, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/dir_entry.rs::impl<Colorable for DirEntry>::file_name:132, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/dir_entry.rs::impl<Colorable for DirEntry>::file_type:148, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/dir_entry.rs::impl<Colorable for DirEntry>::metadata:152 (+11 more)",
+      "affected_files": [
+        "src/output.rs",
+        "src/filesystem.rs",
+        "src/dir_entry.rs",
+        "src/filter/size.rs",
+        "src/exec/mod.rs",
+        "src/walk.rs",
+        "src/config.rs",
+        "src/filter/owner.rs",
+        "src/filetypes.rs",
+        "src/filter/time.rs"
+      ],
+      "line_start": 627,
+      "line_end": 663,
+      "suggested_fix": "Consider splitting this function into smaller, independently callable units. Extract sub-functionality behind interfaces so callers have alternative paths.",
+      "estimated_effort": "Medium (1-2 days)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A single point of failure means all dependent code paths funnel through one function. If this function has a bug, performance issue, or API change, the blast radius is disproportionately large.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "15f0436b8cc24e3f",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/cli.rs"
+      ],
+      "line_start": 706,
+      "line_end": 706,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "25014f2d462afb0d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/cli.rs"
+      ],
+      "line_start": 772,
+      "line_end": 772,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "16d344c53df12cf2",
+      "detector": "CircularDependencyDetector",
+      "severity": "medium",
+      "title": "Circular dependency: 4 files",
+      "description": "Mutual dependency between: config.rs ↔ dir_entry.rs ↔ filesystem.rs ↔ filetypes.rs\n\n**Weakest link to break:** `config.rs` → `dir_entry.rs` (1 import)",
+      "affected_files": [
+        "src/config.rs",
+        "src/dir_entry.rs",
+        "src/filesystem.rs",
+        "src/filetypes.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `config.rs` → `dir_entry.rs` (weakest coupling: 1 imports)\n\nSince `config.rs` only imports 1 symbol(s) from `dir_entry.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "e2f85a846de2be06",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/exec/mod.rs"
+      ],
+      "line_start": 158,
+      "line_end": 158,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "051d3a393c94f9e5",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/fmt/mod.rs"
+      ],
+      "line_start": 65,
+      "line_end": 65,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "09e7ee921ecab0ee",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/fmt/mod.rs"
+      ],
+      "line_start": 153,
+      "line_end": 153,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ace4f239f85bdb67",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/main.rs"
+      ],
+      "line_start": 353,
+      "line_end": 353,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9db11f5c53b18225",
+      "detector": "single-point-of-failure",
+      "severity": "medium",
+      "title": "Single point of failure: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/main.rs::run:74` dominates 26 functions (8%)",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/main.rs::run:74` dominates 26 of 319 functions (8.2%). PageRank percentile: 73%. Blast radius boundary: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/cli.rs::impl<Opts>::max_depth:724, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/cli.rs::impl<Opts>::threads:732, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/dir_entry.rs::impl<Colorable for DirEntry>::file_name:132, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/error.rs::print_error:1, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fd/src/filesystem.rs::absolute_path:34 (+2 more)",
+      "affected_files": [
+        "src/regex_helper.rs",
+        "src/main.rs",
+        "src/cli.rs",
+        "src/filesystem.rs",
+        "src/walk.rs"
+      ],
+      "line_start": 74,
+      "line_end": 111,
+      "suggested_fix": "Consider splitting this function into smaller, independently callable units. Extract sub-functionality behind interfaces so callers have alternative paths.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A single point of failure means all dependent code paths funnel through one function. If this function has a bug, performance issue, or API change, the blast radius is disproportionately large.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "ba3442f333d1e01d",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "[COMPOUND: 2 co-located issues] Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "src/walk.rs"
+      ],
+      "line_start": 61,
+      "line_end": 61,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "fb162d113b70603f",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/walk.rs"
+      ],
+      "line_start": 70,
+      "line_end": 70,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "a1020ac8b141d09c",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/walk.rs"
+      ],
+      "line_start": 110,
+      "line_end": 110,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "979cfa939ef3f0de",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/walk.rs"
+      ],
+      "line_start": 430,
+      "line_end": 430,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "b5eaba666266fbbd",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/walk.rs"
+      ],
+      "line_start": 643,
+      "line_end": 643,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6c7633b2f5534557",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "src/walk.rs"
+      ],
+      "line_start": 655,
+      "line_end": 655,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "a9ed5b53b9e3e0d9",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: spawn_senders (181 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'spawn_senders' has 181 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 17 functions (reduced severity)\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "src/walk.rs"
+      ],
+      "line_start": 443,
+      "line_end": 624,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 2,
+    "medium": 14,
+    "low": 1,
+    "info": 0,
+    "total": 17
+  },
+  "total_files": 23,
+  "total_functions": 319,
+  "total_classes": 31,
+  "total_loc": 7784
+}
+
+Phase timings (cold):
+  calibrate        0.005s  (1.0%)
+  collect          0.001s  (0.2%)
+  detect           0.461s  (87.0%)
+  freeze           0.002s  (0.5%)
+  git_enrich       0.016s  (3.1%)
+  graph            0.003s  (0.6%)
+  parse            0.038s  (7.2%)
+  postprocess      0.000s  (0.1%)
+  score            0.001s  (0.2%)
+  TOTAL            0.529s

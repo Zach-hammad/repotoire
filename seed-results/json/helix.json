@@ -1,0 +1,2877 @@
+{
+  "overall_score": 76.3451282051282,
+  "grade": "C",
+  "structure_score": 96.25000000000001,
+  "quality_score": 27.35042735042735,
+  "architecture_score": 98.8,
+  "findings": [
+    {
+      "id": "09f0a22ac533b217",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 6 functions in call cycle (complexity 42)",
+      "description": "Mutual recursion detected: 6 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/doc_formatter.rs::impl<DocumentFormatter<'t>>::advance_grapheme:261 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/doc_formatter.rs::impl<DocumentFormatter<'t>>::advance_to_next_word:359 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/doc_formatter.rs::impl<DocumentFormatter<'t>>::next_grapheme:354 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/doc_formatter.rs::impl<DocumentFormatter<'t>>::next_inline_annotation_grapheme:235 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/doc_formatter.rs::impl<DocumentFormatter<'t>>::peek_grapheme:347 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/doc_formatter.rs::impl<Iterator for DocumentFormatter<'t>>::next:435. Aggregate complexity: 42.",
+      "affected_files": [
+        "helix-core/src/doc_formatter.rs"
+      ],
+      "line_start": 261,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Large (1-3 days)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "28aa542b52b3374f",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/graphemes.rs"
+      ],
+      "line_start": 264,
+      "line_end": 264,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "fc3958c3b8698cda",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/graphemes.rs"
+      ],
+      "line_start": 275,
+      "line_end": 275,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4ad94d673d9126f3",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/graphemes.rs"
+      ],
+      "line_start": 288,
+      "line_end": 288,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "d52ee91644b4fb92",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/graphemes.rs"
+      ],
+      "line_start": 300,
+      "line_end": 300,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "0f74c39c5e86463b",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/text_annotations.rs"
+      ],
+      "line_start": 265,
+      "line_end": 265,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c9cf8c098419e4b4",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/text_annotations.rs"
+      ],
+      "line_start": 271,
+      "line_end": 271,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f121b2548af5b366",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/text_annotations.rs"
+      ],
+      "line_start": 299,
+      "line_end": 299,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "77b299bd5c5dc718",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/text_annotations.rs"
+      ],
+      "line_start": 398,
+      "line_end": 398,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0adcb2e676eb656f",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/text_annotations.rs"
+      ],
+      "line_start": 400,
+      "line_end": 400,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "05bd947cfaaf07df",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-core/src/text_annotations.rs"
+      ],
+      "line_start": 416,
+      "line_end": 416,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ab0e54a5936e6a18",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-event/src/hook.rs"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5a5c87aefce3f54d",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-event/src/hook.rs"
+      ],
+      "line_start": 68,
+      "line_end": 68,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b06ec366305a4b02",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-event/src/hook.rs"
+      ],
+      "line_start": 79,
+      "line_end": 79,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "19b237e12403ad50",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-loader/src/grammar.rs"
+      ],
+      "line_start": 80,
+      "line_end": 80,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d2205da71726f088",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 149,
+      "line_end": 149,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ca765ed1302d899f",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 169,
+      "line_end": 169,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "bdd4e32e38bd27f4",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 198,
+      "line_end": 198,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "97cfd27b46eb6a47",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 200,
+      "line_end": 200,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7ac07ccbfd9fc37e",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 202,
+      "line_end": 202,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "8db7921ee9eeccbb",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 213,
+      "line_end": 213,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6179252fd1541383",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 234,
+      "line_end": 234,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6ede0e81696e3749",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 242,
+      "line_end": 242,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f528c97d424c2524",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 308,
+      "line_end": 308,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "556b60d7676c16da",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 319,
+      "line_end": 319,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ee7f29c62fc1ef84",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 331,
+      "line_end": 331,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "36f13cbe81eb4c32",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 333,
+      "line_end": 333,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9e87c6c78d53a46e",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 397,
+      "line_end": 397,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2ba0c02571f89b23",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 402,
+      "line_end": 402,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "71f5fec99e4dabbb",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 407,
+      "line_end": 407,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d03fccc5ed688fd8",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 415,
+      "line_end": 415,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5d8961a3303285b6",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 453,
+      "line_end": 453,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "243b3db2214865b2",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-stdx/src/faccess.rs"
+      ],
+      "line_start": 455,
+      "line_end": 455,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0ec1b784e2bada38",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-term/src/application.rs"
+      ],
+      "line_start": 519,
+      "line_end": 519,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4ff22cb5fc19e023",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 5 functions in call cycle (complexity 50)",
+      "description": "Mutual recursion detected: 5 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/commands/typed.rs::write_all:889 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/commands/typed.rs::write_all_impl:812 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/document.rs::impl<Document>::auto_format:826 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/document.rs::impl<Document>::format:841 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/document.rs::to_writer:626. Aggregate complexity: 50.",
+      "affected_files": [
+        "helix-term/src/commands/typed.rs",
+        "helix-view/src/document.rs"
+      ],
+      "line_start": 889,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "439d521f531d5af9",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 34)",
+      "description": "[COMPOUND: 2 co-located issues] Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/completion.rs::impl<Completion>::new:132 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/completion.rs::impl<Completion>::score:323 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/completion.rs::lsp_item_to_transaction:582. Aggregate complexity: 34.",
+      "affected_files": [
+        "helix-term/src/ui/completion.rs"
+      ],
+      "line_start": 132,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "6ca71025124451ed",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 51)",
+      "description": "Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/editor.rs::impl<Component for EditorView>::render:1599 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/editor.rs::impl<EditorView>::render_diagnostics:775 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/editor.rs::impl<EditorView>::render_view:77. Aggregate complexity: 51.",
+      "affected_files": [
+        "helix-term/src/ui/editor.rs"
+      ],
+      "line_start": 1599,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "a1a80aff57203cb7",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 43)",
+      "description": "Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/picker.rs::impl<Component for Picker<I, D>>::render:1028 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/picker.rs::impl<Picker<T, D>>::render_picker:684 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/picker.rs::impl<Picker<T, D>>::render_preview:883. Aggregate complexity: 43.",
+      "affected_files": [
+        "helix-term/src/ui/picker.rs"
+      ],
+      "line_start": 1028,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "2574281486bc481a",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 32)",
+      "description": "[COMPOUND: 2 co-located issues] Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/picker.rs::impl<Component for Picker<I, D>>::handle_event:1054 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/picker.rs::impl<Picker<T, D>>::prompt_handle_event:527. Aggregate complexity: 32.",
+      "affected_files": [
+        "helix-term/src/ui/picker.rs"
+      ],
+      "line_start": 1054,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "d85ccb9138aec9f7",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-vcs/src/diff/line_cache.rs"
+      ],
+      "line_start": 95,
+      "line_end": 95,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b4c112c063725e1a",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-vcs/src/diff/line_cache.rs"
+      ],
+      "line_start": 112,
+      "line_end": 112,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9be84ff36608661e",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "helix-view/src/clipboard.rs"
+      ],
+      "line_start": 435,
+      "line_end": 435,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "dbea596d30e6fc21",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 31)",
+      "description": "Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/document.rs::impl<Document>::apply:1634 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/document.rs::impl<Document>::apply_impl:1415 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/document.rs::impl<Document>::apply_inner:1608. Aggregate complexity: 31.",
+      "affected_files": [
+        "helix-view/src/document.rs"
+      ],
+      "line_start": 1634,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "a2a45a777615b2dd",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 56)",
+      "description": "Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/editor.rs::impl<Editor>::move_path:1543 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/handlers/lsp.rs::impl<Editor>::apply_document_resource_op:228 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/handlers/lsp.rs::impl<Editor>::apply_workspace_edit:135. Aggregate complexity: 56.",
+      "affected_files": [
+        "helix-view/src/editor.rs",
+        "helix-view/src/handlers/lsp.rs"
+      ],
+      "line_start": 1543,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: rkyv 0.8.11 (RUSTSEC-2026-0001)",
+      "description": "**RUSTSEC-2026-0001** in `rkyv@0.8.11` (crates.io)\n\nNo description available\n\n**Advisory**: RUSTSEC-2026-0001\n**Ecosystem**: crates.io",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "385baccfd4ed64af",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/command_line.rs"
+      ],
+      "line_start": 841,
+      "line_end": 841,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6adbd13e96238694",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/doc_formatter/test.rs"
+      ],
+      "line_start": 32,
+      "line_end": 32,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "abb50696169e1a38",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/doc_formatter/test.rs"
+      ],
+      "line_start": 41,
+      "line_end": 41,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "71d5f8f9352f8a3c",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/graphemes.rs"
+      ],
+      "line_start": 289,
+      "line_end": 289,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "2b1c55d40ab699ae",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/graphemes.rs"
+      ],
+      "line_start": 301,
+      "line_end": 301,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4ca9ebab50f96805",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/history.rs"
+      ],
+      "line_start": 175,
+      "line_end": 175,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f1bb3de54f75a413",
+      "detector": "RegexDosDetector",
+      "severity": "medium",
+      "title": "Potential ReDoS vulnerability",
+      "description": "Regex with nested quantifiers may cause catastrophic backtracking, leading to denial of service.\n\n**Analysis:**\n🔍 Pattern issue: nested quantifiers detected",
+      "affected_files": [
+        "helix-core/src/history.rs"
+      ],
+      "line_start": 328,
+      "line_end": 328,
+      "suggested_fix": "Consider using bounded repetition or atomic groups:\n```rust\n// Use the regex crate which has built-in protections\n// Or add length limits:\nif input.len() > 10_000 { return Err(\"Input too long\"); }\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1333",
+      "why_it_matters": "ReDoS attacks exploit regex backtracking to consume CPU:\n• A malicious input can take exponential time to evaluate\n• Single requests can freeze the server\n• Input like 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa!' on /(a+)+$/ can hang",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "e0f6c7cf99504aca",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `new`: 4 panic-family calls",
+      "description": "[COMPOUND: 2 co-located issues] Function `new` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 93, line 96, line 102, line 106. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "helix-core/src/increment/date_time.rs"
+      ],
+      "line_start": 84,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "6a0ae6c7d92b3a65",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/increment/date_time.rs"
+      ],
+      "line_start": 93,
+      "line_end": 93,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "82894836af161e4e",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/increment/date_time.rs"
+      ],
+      "line_start": 96,
+      "line_end": 96,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4724d1d610737a41",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/increment/date_time.rs"
+      ],
+      "line_start": 102,
+      "line_end": 102,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f5ac75c51151375e",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/increment/date_time.rs"
+      ],
+      "line_start": 106,
+      "line_end": 106,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "50eeb98c59da91c3",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/indent.rs"
+      ],
+      "line_start": 172,
+      "line_end": 172,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7016f5721a4216c2",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/indent.rs"
+      ],
+      "line_start": 181,
+      "line_end": 181,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "fdd91a2d8dc006ec",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/indent.rs"
+      ],
+      "line_start": 844,
+      "line_end": 844,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "800b2c860ba4ef2d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/line_ending.rs"
+      ],
+      "line_start": 148,
+      "line_end": 148,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6ef3a9621ada2d8e",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/match_brackets.rs"
+      ],
+      "line_start": 90,
+      "line_end": 90,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "93402c80aa1ae887",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/match_brackets.rs"
+      ],
+      "line_start": 91,
+      "line_end": 91,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ab86813f067828e9",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/movement.rs"
+      ],
+      "line_start": 472,
+      "line_end": 472,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "fd9a9655a24f547d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/selection.rs"
+      ],
+      "line_start": 584,
+      "line_end": 584,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "db43bec4b24e6a68",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/selection.rs"
+      ],
+      "line_start": 591,
+      "line_end": 591,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6da90b7ab01e3329",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/selection.rs"
+      ],
+      "line_start": 592,
+      "line_end": 592,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5a8fa9ee0f48977d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/selection.rs"
+      ],
+      "line_start": 617,
+      "line_end": 617,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5befa93734ba1137",
+      "detector": "CircularDependencyDetector",
+      "severity": "medium",
+      "title": "Circular dependency: 4 files",
+      "description": "Mutual dependency between: snippets.rs ↔ active.rs ↔ elaborate.rs ↔ render.rs\n\n**Weakest link to break:** `snippets.rs` → `active.rs` (1 import)",
+      "affected_files": [
+        "helix-core/src/snippets.rs",
+        "helix-core/src/snippets/active.rs",
+        "helix-core/src/snippets/elaborate.rs",
+        "helix-core/src/snippets/render.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `snippets.rs` → `active.rs` (weakest coupling: 1 imports)\n\nSince `snippets.rs` only imports 1 symbol(s) from `active.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "76ce787bfb24fa53",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/snippets/active.rs"
+      ],
+      "line_start": 101,
+      "line_end": 101,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "388d98ae267e526d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/snippets/active.rs"
+      ],
+      "line_start": 107,
+      "line_end": 107,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c795b779b22e3acd",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/snippets/elaborate.rs"
+      ],
+      "line_start": 67,
+      "line_end": 67,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6ed5b3b3398fab27",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 5 functions in call cycle (complexity 15)",
+      "description": "Mutual recursion detected: 5 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/snippets/elaborate.rs::impl<Snippet>::elaborate:119 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/snippets/elaborate.rs::impl<Snippet>::elaborate_choice:160 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/snippets/elaborate.rs::impl<Snippet>::elaborate_placeholder:177 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/snippets/elaborate.rs::impl<Snippet>::elaborate_transform:202 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-core/src/snippets/elaborate.rs::impl<Snippet>::new:33. Aggregate complexity: 15.",
+      "affected_files": [
+        "helix-core/src/snippets/elaborate.rs"
+      ],
+      "line_start": 119,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "c9374e7f8b065822",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/snippets/elaborate.rs"
+      ],
+      "line_start": 331,
+      "line_end": 331,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d85719f9fb181a8c",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "helix-core/src/snippets/elaborate.rs"
+      ],
+      "line_start": 351,
+      "line_end": 351,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "225b00461dd5e1b5",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `print`: 5 panic-family calls",
+      "description": "Function `print` contains 5 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 62, line 88, line 119, line 121, line 127. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "helix-core/src/test.rs"
+      ],
+      "line_start": 36,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "e728cce802121577",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 4 functions in call cycle (complexity 23)",
+      "description": "Mutual recursion detected: 4 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-dap/src/transport.rs::impl<Transport>::process_server_message:203 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-dap/src/transport.rs::impl<Transport>::recv:246 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-dap/src/transport.rs::impl<Transport>::send:302 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-dap/src/transport.rs::impl<Transport>::send_inner:289. Aggregate complexity: 23.",
+      "affected_files": [
+        "helix-dap/src/transport.rs"
+      ],
+      "line_start": 203,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "1113dd34307d195f",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 28)",
+      "description": "Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-stdx/src/env.rs::current_working_dir:17 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-stdx/src/path.rs::canonicalize:134 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-stdx/src/path.rs::normalize:63. Aggregate complexity: 28.",
+      "affected_files": [
+        "helix-stdx/src/env.rs",
+        "helix-stdx/src/path.rs"
+      ],
+      "line_start": 17,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "b3a4cabe63efac90",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 4 functions in call cycle (complexity 24)",
+      "description": "Mutual recursion detected: 4 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-stdx/src/rope.rs::impl<RopeGraphemes<'a>>::next:607 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-stdx/src/rope.rs::impl<RopeGraphemes<'a>>::next_impl:633 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-stdx/src/rope.rs::impl<RopeGraphemes<'a>>::prev:615 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-stdx/src/rope.rs::impl<RopeGraphemes<'a>>::prev_impl:667. Aggregate complexity: 24.",
+      "affected_files": [
+        "helix-stdx/src/rope.rs"
+      ],
+      "line_start": 607,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "6090dd4061cd8c13",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `find_rc_exe`: 6 panic-family calls",
+      "description": "Function `find_rc_exe` contains 6 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 74, line 81, line 89, line 128, line 132, line 134. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "helix-term/build.rs"
+      ],
+      "line_start": 59,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "17182a4aacc30329",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 29)",
+      "description": "[COMPOUND: 2 co-located issues] Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/application.rs::impl<Application>::new:107 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/application.rs::setup_integration_logging:85. Aggregate complexity: 29.",
+      "affected_files": [
+        "helix-term/src/application.rs"
+      ],
+      "line_start": 107,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "ad4af973f92a2554",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `handle_signals`: 4 panic-family calls",
+      "description": "[COMPOUND: 2 co-located issues] Function `handle_signals` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 512, line 547, line 555, line 564. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "helix-term/src/application.rs"
+      ],
+      "line_start": 509,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "54cb25b303b4266e",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: handle_language_server_message",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_language_server_message' is a statistical complexity outlier (z-score: 13.0, complexity: 76).",
+      "affected_files": [
+        "helix-term/src/application.rs"
+      ],
+      "line_start": 762,
+      "line_end": 1175,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "397759a8209dc321",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `shell`: 4 panic-family calls",
+      "description": "Function `shell` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 6510, line 6512, line 6517, line 6519. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "helix-term/src/commands.rs"
+      ],
+      "line_start": 6455,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "767bde3af5167c72",
+      "detector": "CircularDependencyDetector",
+      "severity": "medium",
+      "title": "Circular dependency: 3 files",
+      "description": "Mutual dependency between: keymap.rs ↔ default.rs ↔ macros.rs\n\n**Weakest link to break:** `keymap.rs` → `default.rs` (1 import)",
+      "affected_files": [
+        "helix-term/src/keymap.rs",
+        "helix-term/src/keymap/default.rs",
+        "helix-term/src/keymap/macros.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `keymap.rs` → `default.rs` (weakest coupling: 1 imports)\n\nSince `keymap.rs` only imports 1 symbol(s) from `default.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "2b1bda7a1429ac27",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: default (405 lines)",
+      "description": "Function 'default' has 405 lines (effective threshold: 150).",
+      "affected_files": [
+        "helix-term/src/keymap/default.rs"
+      ],
+      "line_start": 7,
+      "line_end": 412,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "90099e2a294122e9",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: handle_mouse_event",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_mouse_event' is a statistical complexity outlier (z-score: 6.5, complexity: 40).",
+      "affected_files": [
+        "helix-term/src/ui/editor.rs"
+      ],
+      "line_start": 1183,
+      "line_end": 1410,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "9d154c799ee0ced0",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: handle_event",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_event' is a statistical complexity outlier (z-score: 5.1, complexity: 32).",
+      "affected_files": [
+        "helix-term/src/ui/editor.rs"
+      ],
+      "line_start": 1432,
+      "line_end": 1597,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "212cf1c3a0f98e36",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: handle_event",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_event' is a statistical complexity outlier (z-score: 4.8, complexity: 30).",
+      "affected_files": [
+        "helix-term/src/ui/picker.rs"
+      ],
+      "line_start": 1054,
+      "line_end": 1168,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "009c9c941b7f95fb",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: handle_event",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_event' is a statistical complexity outlier (z-score: 6.7, complexity: 41).",
+      "affected_files": [
+        "helix-term/src/ui/prompt.rs"
+      ],
+      "line_start": 602,
+      "line_end": 759,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "7b4c6fafbf9127a1",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 25)",
+      "description": "Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/prompt.rs::impl<Component for Prompt>::render:761 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/ui/prompt.rs::impl<Prompt>::render_prompt:404. Aggregate complexity: 25.",
+      "affected_files": [
+        "helix-term/src/ui/prompt.rs"
+      ],
+      "line_start": 761,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "7212aaf486f15b80",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 29)",
+      "description": "Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-tui/src/backend/termina.rs::impl<TerminaBackend>::detect_capabilities:128 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-tui/src/backend/termina.rs::impl<TerminaBackend>::new:86. Aggregate complexity: 29.",
+      "affected_files": [
+        "helix-tui/src/backend/termina.rs"
+      ],
+      "line_start": 128,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "2d0ad055fb0e2467",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-tui/src/widgets/list.rs::impl<StatefulWidget for List<'a>>::render:137` separates components of [3427, 14]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-tui/src/widgets/list.rs::impl<StatefulWidget for List<'a>>::render:137` is a structural bridge. Removing it would split the graph into components of sizes [3427, 14]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "helix-tui/src/widgets/list.rs"
+      ],
+      "line_start": 137,
+      "line_end": 241,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "8f4586fcdab19d6b",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Unreachable code after return",
+      "description": "Code after return/throw/exit will never execute:\n```\n#[cfg(not(feature = \"term\"))]\n```",
+      "affected_files": [
+        "helix-view/src/clipboard.rs"
+      ],
+      "line_start": 128,
+      "line_end": 128,
+      "suggested_fix": "Remove unreachable code or fix control flow logic.",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Unreachable code indicates logic errors and adds confusion.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "666b670bfb753fea",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 5 functions in call cycle (complexity 17)",
+      "description": "Mutual recursion detected: 5 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/editor.rs::impl<CursorCache>::get:2482 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/editor.rs::impl<CursorShapeConfig>::from_mode:732 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/editor.rs::impl<Editor>::cursor:2232 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/view.rs::impl<View>::screen_coords_at_pos:408 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/view.rs::impl<View>::text_annotations:443. Aggregate complexity: 17.",
+      "affected_files": [
+        "helix-view/src/editor.rs",
+        "helix-view/src/view.rs"
+      ],
+      "line_start": 2482,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "43965c1912005f4d",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 26)",
+      "description": "Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/expansion.rs::expand:106 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/expansion.rs::expand_inner:187 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-view/src/expansion.rs::expand_shell:139. Aggregate complexity: 26.",
+      "affected_files": [
+        "helix-view/src/expansion.rs"
+      ],
+      "line_start": 106,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "5f016e5858164372",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: handle_debugger_message",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_debugger_message' is a statistical complexity outlier (z-score: 15.3, complexity: 89).",
+      "affected_files": [
+        "helix-view/src/handlers/dap.rs"
+      ],
+      "line_start": 147,
+      "line_end": 545,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "b43462b1eb02be57",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: handle_debugger_message (398 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_debugger_message' has 398 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "helix-view/src/handlers/dap.rs"
+      ],
+      "line_start": 147,
+      "line_end": 545,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle_handlers()` for handlers operations\n  - `handle_snippets()` for snippets operations\n  - `handle_src()` for src operations",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "47cb8239ff62973a",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "medium",
+      "title": "Architectural Bottleneck: width (utility function - expected high fan-in)",
+      "description": "Function 'width' is called by 33 functions and has complexity 59. Changes here are high-risk.\n\nBetweenness centrality: 0.0000 - this function sits on many execution paths between other functions.\n\n**Note:** This function was identified as a utility. High fan-in is expected, but the high complexity may still warrant attention.\n\n📊 Threshold: 20 (adaptive) | Actual: 59 | Default would be: 20 | Profile: p90=8, p95=13, mean=3.5, n=3431",
+      "affected_files": [
+        "helix-view/src/input.rs"
+      ],
+      "line_start": 253,
+      "line_end": 325,
+      "suggested_fix": "Consider splitting this utility into smaller, focused helpers. High complexity in shared utilities is risky.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.85,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "59",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "d1bb319d9a68424b",
+      "detector": "CircularDependencyDetector",
+      "severity": "low",
+      "title": "Circular dependency: 2 files",
+      "description": "Mutual dependency between: config.rs ↔ syntax.rs\n\n**Weakest link to break:** `config.rs` → `syntax.rs` (1 import)",
+      "affected_files": [
+        "helix-core/src/config.rs",
+        "helix-core/src/syntax.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `config.rs` → `syntax.rs` (weakest coupling: 1 imports)\n\nSince `config.rs` only imports 1 symbol(s) from `syntax.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "73fb5da12446164d",
+      "detector": "CircularDependencyDetector",
+      "severity": "low",
+      "title": "Circular dependency: 2 files",
+      "description": "Mutual dependency between: doc_formatter.rs ↔ text_annotations.rs\n\n**Weakest link to break:** `doc_formatter.rs` → `text_annotations.rs` (1 import)",
+      "affected_files": [
+        "helix-core/src/doc_formatter.rs",
+        "helix-core/src/text_annotations.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `doc_formatter.rs` → `text_annotations.rs` (weakest coupling: 1 imports)\n\nSince `doc_formatter.rs` only imports 1 symbol(s) from `text_annotations.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "de3f94379e67e6d0",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: parse_variable_transform (251 lines)",
+      "description": "Function 'parse_variable_transform' has 251 lines (effective threshold: 150).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "helix-core/src/snippets/parser.rs"
+      ],
+      "line_start": 682,
+      "line_end": 933,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "e6d1c198570ac8da",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in update_positions",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `update_positions`\nContains 1 match/switch level(s) (discounted from raw depth 9)\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-core/src/transaction.rs"
+      ],
+      "line_start": 412,
+      "line_end": 412,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "93ac358b21902010",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.",
+      "affected_files": [
+        "helix-loader/src/grammar.rs"
+      ],
+      "line_start": 37,
+      "line_end": 37,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b6bc706182c72da0",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.",
+      "affected_files": [
+        "helix-loader/src/grammar.rs"
+      ],
+      "line_start": 208,
+      "line_end": 208,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c1dc64916ecbb892",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "Catching generic Exception hides bugs and makes debugging difficult.",
+      "affected_files": [
+        "helix-loader/src/grammar.rs"
+      ],
+      "line_start": 226,
+      "line_end": 226,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "fe2cb390d3852e84",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: build_tree_sitter_library (182 lines)",
+      "description": "Function 'build_tree_sitter_library' has 182 lines (effective threshold: 150).",
+      "affected_files": [
+        "helix-loader/src/grammar.rs"
+      ],
+      "line_start": 439,
+      "line_end": 621,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "684f8f867a405fa5",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: initialize (189 lines)",
+      "description": "Function 'initialize' has 189 lines (effective threshold: 150).",
+      "affected_files": [
+        "helix-lsp/src/client.rs"
+      ],
+      "line_start": 568,
+      "line_end": 757,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "fa1c173800b5245f",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in send",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `send`\nContains 1 match/switch level(s) (discounted from raw depth 9)\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-lsp/src/transport.rs"
+      ],
+      "line_start": 423,
+      "line_end": 423,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "936299120bafcd19",
+      "detector": "PanicDensityDetector",
+      "severity": "low",
+      "title": "High file-level panic density: 14 panic-family calls",
+      "description": "File `helix-term/build.rs` contains 14 total panic-family calls (`.unwrap()`, `.expect()`, `panic!()`) outside of test code. Consider refactoring to reduce panic surface.",
+      "affected_files": [
+        "helix-term/build.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "Consider:\n- Introducing a module-level error type\n- Replacing unwrap chains with `?` propagation\n- Using `anyhow::Context` for better error messages",
+      "estimated_effort": "1-2 hours",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Files with many panic points are hard to maintain and make the overall application fragile. Centralizing error handling improves reliability.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0662cc5ab6d82893",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 9 levels in find_rc_exe",
+      "description": "9 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `find_rc_exe`\nHigh complexity: 20 (nesting compounds this)\nContains 1 match/switch level(s) (discounted from raw depth 10)\n\nThreshold: 5 (adaptive) | Actual: 9 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-term/build.rs"
+      ],
+      "line_start": 107,
+      "line_end": 107,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "9",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "68ab4a15e7e4098f",
+      "detector": "PanicDensityDetector",
+      "severity": "low",
+      "title": "High file-level panic density: 11 panic-family calls",
+      "description": "File `helix-term/src/application.rs` contains 11 total panic-family calls (`.unwrap()`, `.expect()`, `panic!()`) outside of test code. Consider refactoring to reduce panic surface.",
+      "affected_files": [
+        "helix-term/src/application.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "Consider:\n- Introducing a module-level error type\n- Replacing unwrap chains with `?` propagation\n- Using `anyhow::Context` for better error messages",
+      "estimated_effort": "1-2 hours",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Files with many panic points are hard to maintain and make the overall application fragile. Centralizing error handling improves reliability.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "18af12509f060d29",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: new (159 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'new' has 159 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 18 functions (reduced severity)\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "helix-term/src/application.rs"
+      ],
+      "line_start": 107,
+      "line_end": 266,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "95dff5a5d2c21422",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: handle_language_server_message (413 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_language_server_message' has 413 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 37 functions (reduced severity)\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "helix-term/src/application.rs"
+      ],
+      "line_start": 762,
+      "line_end": 1175,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "0eb288adf739a280",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 9 levels in handle_language_server_message",
+      "description": "9 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `handle_language_server_message`\nEntry point/handler (reduced severity)\nHigh complexity: 76 (nesting compounds this)\nContains 4 match/switch level(s) (discounted from raw depth 11)\nExisting helpers that could reduce nesting: handle_show_document, handle_show_message\n\nThreshold: 5 (adaptive) | Actual: 9 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-term/src/application.rs"
+      ],
+      "line_start": 1057,
+      "line_end": 1057,
+      "suggested_fix": "This function already has helpers like `handle_show_document`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "9",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "cf48cc0e5fd717e5",
+      "detector": "PanicDensityDetector",
+      "severity": "low",
+      "title": "High file-level panic density: 19 panic-family calls",
+      "description": "File `helix-term/src/commands.rs` contains 19 total panic-family calls (`.unwrap()`, `.expect()`, `panic!()`) outside of test code. Consider refactoring to reduce panic surface.",
+      "affected_files": [
+        "helix-term/src/commands.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "Consider:\n- Introducing a module-level error type\n- Replacing unwrap chains with `?` propagation\n- Using `anyhow::Context` for better error messages",
+      "estimated_effort": "1-2 hours",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Files with many panic points are hard to maintain and make the overall application fragile. Centralizing error handling improves reliability.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ab5770280c089823",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: global_search (247 lines)",
+      "description": "Function 'global_search' has 247 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 17 functions (reduced severity)",
+      "affected_files": [
+        "helix-term/src/commands.rs"
+      ],
+      "line_start": 2476,
+      "line_end": 2723,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "04c9f59eb0574750",
+      "detector": "CircularDependencyDetector",
+      "severity": "low",
+      "title": "Circular dependency: 2 files",
+      "description": "Mutual dependency between: dap.rs ↔ dap.rs\n\n**Weakest link to break:** `dap.rs` → `dap.rs` (1 import)",
+      "affected_files": [
+        "helix-term/src/commands/dap.rs",
+        "helix-view/src/handlers/dap.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `dap.rs` → `dap.rs` (weakest coupling: 1 imports)\n\nSince `dap.rs` only imports 1 symbol(s) from `dap.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "676685aa781b54b9",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: code_action (169 lines)",
+      "description": "Function 'code_action' has 169 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 24 functions (reduced severity)\nCalls 4 different modules - possible split points",
+      "affected_files": [
+        "helix-term/src/commands/lsp.rs"
+      ],
+      "line_start": 657,
+      "line_end": 826,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5ec8ede743fd4ab1",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in code_action",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `code_action`\nHigh complexity: 19 (nesting compounds this)\nContains 1 match/switch level(s) (discounted from raw depth 9)\nExisting helpers that could reduce nesting: action_category, action_fixes_diagnostics, action_preferred\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-term/src/commands/lsp.rs"
+      ],
+      "line_start": 795,
+      "line_end": 795,
+      "suggested_fix": "This function already has helpers like `action_category`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "005021eb6625637f",
+      "detector": "mutual-recursion",
+      "severity": "low",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 20)",
+      "description": "Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/commands/lsp.rs::create_rename_prompt:1131 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/helix/helix-term/src/commands/lsp.rs::rename_symbol:1092. Aggregate complexity: 20.",
+      "affected_files": [
+        "helix-term/src/commands/lsp.rs"
+      ],
+      "line_start": 1131,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "01524629da42b011",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: compute_inlay_hints_for_view (169 lines)",
+      "description": "Function 'compute_inlay_hints_for_view' has 169 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 16 functions (reduced severity)",
+      "affected_files": [
+        "helix-term/src/commands/lsp.rs"
+      ],
+      "line_start": 1289,
+      "line_end": 1458,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "8e84d1704ea6aee1",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: syntax_workspace_symbol_picker (242 lines)",
+      "description": "Function 'syntax_workspace_symbol_picker' has 242 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 29 functions (reduced severity)\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "helix-term/src/commands/syntax.rs"
+      ],
+      "line_start": 196,
+      "line_end": 438,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5abb86f08c03e94f",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in syntax_workspace_symbol_picker",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `syntax_workspace_symbol_picker`\nHigh complexity: 30 (nesting compounds this)\nExisting helpers that could reduce nesting: syntax_for_path\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-term/src/commands/syntax.rs"
+      ],
+      "line_start": 373,
+      "line_end": 373,
+      "suggested_fix": "This function already has helpers like `syntax_for_path`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "5bec99c72fde4223",
+      "detector": "CircularDependencyDetector",
+      "severity": "low",
+      "title": "Circular dependency: 2 files",
+      "description": "Mutual dependency between: compositor.rs ↔ job.rs\n\n**Weakest link to break:** `compositor.rs` → `job.rs` (1 import)",
+      "affected_files": [
+        "helix-term/src/compositor.rs",
+        "helix-term/src/job.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `compositor.rs` → `job.rs` (weakest coupling: 1 imports)\n\nSince `compositor.rs` only imports 1 symbol(s) from `job.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For small cycles:**\n1. Merge tightly coupled modules if they're always used together\n2. Use TYPE_CHECKING (Python) or type-only imports (TS) for type hints\n3. Extract common code to a third module",
+      "estimated_effort": "Small (2-4 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "bdc568bf85d5a4ab",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: new (189 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'new' has 189 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 24 functions (reduced severity)\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "helix-term/src/ui/completion.rs"
+      ],
+      "line_start": 132,
+      "line_end": 321,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "1176417930c977b4",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: render_view (170 lines)",
+      "description": "Function 'render_view' has 170 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 43 functions (reduced severity)\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "helix-term/src/ui/editor.rs"
+      ],
+      "line_start": 77,
+      "line_end": 247,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "4848fff035a45b55",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: handle_mouse_event (227 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_mouse_event' has 227 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 22 functions (reduced severity)\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "helix-term/src/ui/editor.rs"
+      ],
+      "line_start": 1183,
+      "line_end": 1410,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "8310b29b54d66112",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: handle_event (165 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_event' has 165 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 19 functions (reduced severity)",
+      "affected_files": [
+        "helix-term/src/ui/editor.rs"
+      ],
+      "line_start": 1432,
+      "line_end": 1597,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "f20d6591d8df9d7f",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 10 levels in handle_event",
+      "description": "10 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `handle_event`\nEntry point/handler (reduced severity)\nHigh complexity: 32 (nesting compounds this)\nContains 2 match/switch level(s) (discounted from raw depth 12)\nExisting helpers that could reduce nesting: canonicalize_key, handle_event, command_mode\n\nThreshold: 5 (adaptive) | Actual: 10 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-term/src/ui/editor.rs"
+      ],
+      "line_start": 1512,
+      "line_end": 1512,
+      "suggested_fix": "This function already has helpers like `canonicalize_key`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "1 hour",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "10",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "f173095402bb2735",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: parse (193 lines)",
+      "description": "Function 'parse' has 193 lines (effective threshold: 150).",
+      "affected_files": [
+        "helix-term/src/ui/markdown.rs"
+      ],
+      "line_start": 172,
+      "line_end": 365,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "833786858ad63157",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in raw_regex_prompt",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `raw_regex_prompt`\nContains 1 match/switch level(s) (discounted from raw depth 9)\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-term/src/ui/mod.rs"
+      ],
+      "line_start": 161,
+      "line_end": 161,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "a13445d2533b2fa7",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: render_picker (197 lines)",
+      "description": "Function 'render_picker' has 197 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 27 functions (reduced severity)\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "helix-term/src/ui/picker.rs"
+      ],
+      "line_start": 684,
+      "line_end": 881,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1156ef35b784ae59",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 9 levels in render_picker",
+      "description": "9 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `render_picker`\nHigh complexity: 20 (nesting compounds this)\nExisting helpers that could reduce nesting: from\n\nThreshold: 5 (adaptive) | Actual: 9 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-term/src/ui/picker.rs"
+      ],
+      "line_start": 806,
+      "line_end": 806,
+      "suggested_fix": "This function already has helpers like `from`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "9",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "11a940956bc31e5c",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: parse_query_test (163 lines)",
+      "description": "Function 'parse_query_test' has 163 lines (effective threshold: 150).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "helix-term/src/ui/picker/query.rs"
+      ],
+      "line_start": 168,
+      "line_end": 331,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "69a93c3a16fa5e5e",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: render_prompt (194 lines)",
+      "description": "Function 'render_prompt' has 194 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 18 functions (reduced severity)",
+      "affected_files": [
+        "helix-term/src/ui/prompt.rs"
+      ],
+      "line_start": 404,
+      "line_end": 598,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "e20cb679210db012",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: handle_event (157 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_event' has 157 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 25 functions (reduced severity)",
+      "affected_files": [
+        "helix-term/src/ui/prompt.rs"
+      ],
+      "line_start": 602,
+      "line_end": 759,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "3221b56eb62f7e13",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in handle_event",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `handle_event`\nEntry point/handler (reduced severity)\nHigh complexity: 41 (nesting compounds this)\nContains 1 match/switch level(s) (discounted from raw depth 9)\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-term/src/ui/prompt.rs"
+      ],
+      "line_start": 690,
+      "line_end": 690,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "bb3c1344a6024ffb",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: inner_takes_into_account_the_borders (272 lines)",
+      "description": "Function 'inner_takes_into_account_the_borders' has 272 lines (effective threshold: 150).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "helix-tui/src/widgets/block.rs"
+      ],
+      "line_start": 202,
+      "line_end": 474,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "16a2a184d21308ed",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: save_impl (191 lines)",
+      "description": "Function 'save_impl' has 191 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 11 functions (reduced severity)",
+      "affected_files": [
+        "helix-view/src/document.rs"
+      ],
+      "line_start": 982,
+      "line_end": 1173,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c480f8aa7eaf24ba",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: apply_impl (191 lines)",
+      "description": "Function 'apply_impl' has 191 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 13 functions (reduced severity)",
+      "affected_files": [
+        "helix-view/src/document.rs"
+      ],
+      "line_start": 1415,
+      "line_end": 1606,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "620ee09e7c0b74de",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 9 levels in handle_debugger_message",
+      "description": "9 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `handle_debugger_message`\nEntry point/handler (reduced severity)\nHigh complexity: 89 (nesting compounds this)\nContains 3 match/switch level(s) (discounted from raw depth 11)\n\nThreshold: 5 (adaptive) | Actual: 9 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-view/src/handlers/dap.rs"
+      ],
+      "line_start": 290,
+      "line_end": 290,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "9",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "8d7e1ed71eae7923",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 8 levels in apply_workspace_edit",
+      "description": "8 levels of nesting (threshold: 7).\n\n**Analysis:**\nIn function: `apply_workspace_edit`\nEntry point/handler (reduced severity)\nHigh complexity: 18 (nesting compounds this)\nContains 2 match/switch level(s) (discounted from raw depth 10)\nExisting helpers that could reduce nesting: apply_document_resource_op, apply_text_edits\n\nThreshold: 5 (adaptive) | Actual: 8 | Default would be: 5 | Profile: p90=3, p95=4, mean=1.1, n=3431",
+      "affected_files": [
+        "helix-view/src/handlers/lsp.rs"
+      ],
+      "line_start": 173,
+      "line_end": 173,
+      "suggested_fix": "This function already has helpers like `apply_document_resource_op`. Consider:\n1. Extract more nested blocks into similar helpers\n2. Use guard clauses (early returns) to reduce nesting\n3. Replace nested ifs with switch/match",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "8",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "5afbdc8c7505d9e5",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: parsing_valid_macros (164 lines)",
+      "description": "Function 'parsing_valid_macros' has 164 lines (effective threshold: 150).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "helix-view/src/input.rs"
+      ],
+      "line_start": 902,
+      "line_end": 1066,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ca292efc26c7c412",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: test_text_pos_at_screen_coords (167 lines)",
+      "description": "Function 'test_text_pos_at_screen_coords' has 167 lines (effective threshold: 150).\n\n**Graph Analysis:**\nTest function (severity capped at Low)",
+      "affected_files": [
+        "helix-view/src/view.rs"
+      ],
+      "line_start": 706,
+      "line_end": 873,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 44,
+    "medium": 55,
+    "low": 46,
+    "info": 0,
+    "total": 145
+  },
+  "total_files": 243,
+  "total_functions": 3622,
+  "total_classes": 996,
+  "total_loc": 99396
+}
+
+Phase timings (cold):
+  calibrate        0.080s  (3.1%)
+  collect          0.010s  (0.4%)
+  detect           1.144s  (43.5%)
+  freeze           0.212s  (8.1%)
+  git_enrich       0.930s  (35.4%)
+  graph            0.028s  (1.1%)
+  parse            0.216s  (8.2%)
+  postprocess      0.001s  (0.1%)
+  score            0.003s  (0.1%)
+  TOTAL            2.630s

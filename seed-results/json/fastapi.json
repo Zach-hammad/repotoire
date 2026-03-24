@@ -1,0 +1,1662 @@
+{
+  "overall_score": 67.24499999999999,
+  "grade": "D+",
+  "structure_score": 64.49999999999997,
+  "quality_score": 40.400000000000006,
+  "architecture_score": 97.75,
+  "findings": [
+    {
+      "id": "70a7df56a20ab1c1",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "critical",
+      "title": "Architectural Bottleneck: jsonable_encoder (architectural hub)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'jsonable_encoder' is called by 38 functions and has complexity 35. Changes here are high-risk.\n\nBetweenness centrality: 0.1640 - this function sits on many execution paths between other functions.\n\n📊 Threshold: 20 (adaptive) | Actual: 35 | Default would be: 20 | Profile: p90=4, p95=8, mean=2.6, n=1060",
+      "affected_files": [
+        "fastapi/encoders.py"
+      ],
+      "line_start": 112,
+      "line_end": 347,
+      "suggested_fix": "This is a critical hub. Ensure comprehensive test coverage, add defensive error handling, and consider circuit breaker pattern.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.95,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "35",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "84c8c1e61540fb71",
+      "detector": "UnsafeTemplateDetector",
+      "severity": "high",
+      "title": "XSS: innerHTML assignment",
+      "description": "[COMPOUND: 4 co-located issues] **Direct innerHTML assignment can lead to XSS vulnerabilities**\n\n**Location**: docs/en/docs/js/termynal.js:226\n\n**Code snippet**:\n```\ndiv.innerHTML = `<span ${this._attributes(line)}>${line.value || ''}</span>`;\n```\n\nCross-Site Scripting (XSS) vulnerabilities occur when untrusted data is included\nin web pages without proper validation or escaping. Attackers can inject malicious\nscripts that:\n- Steal user session cookies\n- Capture keystrokes and credentials\n- Redirect users to malicious sites\n- Deface the application\n\nThis vulnerability is classified as **CWE-79: Improper Neutralization of\nInput During Web Page Generation ('Cross-site Scripting')**.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 226,
+      "line_end": 226,
+      "suggested_fix": "**Recommended fixes**:\n\n1. **Use textContent for text** (auto-escapes):\n```javascript\n// Instead of:\nelement.innerHTML = userInput;\n\n// Use:\nelement.textContent = userInput;\n```\n\n2. **Use DOM APIs for structure**:\n```javascript\nconst span = document.createElement('span');\nspan.textContent = userInput;\nelement.appendChild(span);\n```\n\n3. **If HTML is required**, sanitize first:\n```javascript\nimport DOMPurify from 'dompurify';\nelement.innerHTML = DOMPurify.sanitize(userInput);\n```",
+      "estimated_effort": "Medium (1-4 hours)",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS vulnerabilities allow attackers to execute scripts in users' browsers, potentially stealing sensitive data or hijacking user sessions.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e166c1564ee8038a",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 1 issue",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (line 28)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "docs_src/body_updates/tutorial002_py310.py"
+      ],
+      "line_start": 28,
+      "line_end": 28,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9826bdb929e327bf",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 1 issue",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (line 83)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "docs_src/sql_databases/tutorial002_an_py310.py"
+      ],
+      "line_start": 83,
+      "line_end": 83,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6768400c2d4b8b93",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 1 issue",
+      "description": "Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (line 80)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "docs_src/sql_databases/tutorial002_py310.py"
+      ],
+      "line_start": 80,
+      "line_end": 80,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d57b0ad8beef7cf8",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: __init__ (959 lines)",
+      "description": "Function '__init__' has 959 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 57,
+      "line_end": 1016,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5744c6b97a3c0741",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: get (371 lines)",
+      "description": "Function 'get' has 371 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 1563,
+      "line_end": 1934,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "35e73602edb67a12",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 2 issues",
+      "description": "[COMPOUND: 2 co-located issues] Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (lines 3811, 4163)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 3811,
+      "line_end": 4163,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "272de97ef865f168",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: Path (341 lines)",
+      "description": "Function 'Path' has 341 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/param_functions.py"
+      ],
+      "line_start": 13,
+      "line_end": 354,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "8284b239a92d8f48",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: Query (341 lines)",
+      "description": "Function 'Query' has 341 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/param_functions.py"
+      ],
+      "line_start": 357,
+      "line_end": 698,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3e78996e030cfd95",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: Header (314 lines)",
+      "description": "Function 'Header' has 314 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/param_functions.py"
+      ],
+      "line_start": 701,
+      "line_end": 1015,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1b868b5a1837764b",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: Cookie (302 lines)",
+      "description": "Function 'Cookie' has 302 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/param_functions.py"
+      ],
+      "line_start": 1018,
+      "line_end": 1320,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3583c669973d5e51",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: Body (327 lines)",
+      "description": "Function 'Body' has 327 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/param_functions.py"
+      ],
+      "line_start": 1323,
+      "line_end": 1650,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b4973019a7f01e3d",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: Form (312 lines)",
+      "description": "Function 'Form' has 312 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/param_functions.py"
+      ],
+      "line_start": 1653,
+      "line_end": 1965,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "db3a3e035804a8da",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: File (312 lines)",
+      "description": "Function 'File' has 312 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/param_functions.py"
+      ],
+      "line_start": 1968,
+      "line_end": 2280,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0d7aeadd7ec6111a",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: get (375 lines)",
+      "description": "Function 'get' has 375 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 1831,
+      "line_end": 2206,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "789ca30b1f8a959c",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: put (380 lines)",
+      "description": "Function 'put' has 380 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 2208,
+      "line_end": 2588,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f4279da31e645b8f",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: post (380 lines)",
+      "description": "Function 'post' has 380 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 2590,
+      "line_end": 2970,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "cc275218db1076ab",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: delete (375 lines)",
+      "description": "Function 'delete' has 375 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 2972,
+      "line_end": 3347,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "47b40caa16868061",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: options (375 lines)",
+      "description": "Function 'options' has 375 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 3349,
+      "line_end": 3724,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "adcca78242211a33",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: head (380 lines)",
+      "description": "Function 'head' has 380 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 3726,
+      "line_end": 4106,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ce42cdf1a09db1e4",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: patch (380 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'patch' has 380 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 4108,
+      "line_end": 4488,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "3f22cd4a633f6a80",
+      "detector": "TestInProductionDetector",
+      "severity": "high",
+      "title": "Test code in production: 1 issue",
+      "description": "[COMPOUND: 2 co-located issues] Test utilities and patterns found in what appears to be production code.\n\n**Found:**\n• Mock/stub objects (line 4108)\n⚠️ This file is imported by production code!",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 4108,
+      "line_end": 4108,
+      "suggested_fix": "Options:\n\n1. **Move to test files:** If this is test code, move it to a test directory\n2. **Use TYPE_CHECKING:** For type hints only, wrap imports in `if TYPE_CHECKING:`\n3. **Environment check:** If needed at runtime, guard with environment variable\n\n```python\n# Instead of:\nfrom unittest.mock import Mock\n\n# Use:\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\nfrom unittest.mock import Mock\n```",
+      "estimated_effort": "15 minutes",
+      "category": "code-quality",
+      "cwe_id": "CWE-489",
+      "why_it_matters": "This test code is imported by production code. Test dependencies add bloat, security risks, and can cause unexpected behavior in production.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "5248117ad252f687",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: trace (380 lines)",
+      "description": "Function 'trace' has 380 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 4490,
+      "line_end": 4870,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f83e8058a32eb8d9",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/custom.js::loadVisibleTermynals:101` separates components of [5052, 10]",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/custom.js::loadVisibleTermynals:101` is a structural bridge. Removing it would split the graph into components of sizes [5052, 10]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "docs/en/docs/js/custom.js"
+      ],
+      "line_start": 101,
+      "line_end": 109,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.7999999999999999,
+      "deterministic": true,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3792d9a4ee0df61d",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "medium",
+      "title": "Promise without .catch()",
+      "description": "Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n📦 In function: `handleSponsorImages` (1 callers)",
+      "affected_files": [
+        "docs/en/docs/js/custom.js"
+      ],
+      "line_start": 151,
+      "line_end": 151,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "557751350ce4f384",
+      "detector": "EmptyCatchDetector",
+      "severity": "medium",
+      "title": "Empty catch block swallows exceptions",
+      "description": "[COMPOUND: 2 co-located issues] This catch block silently swallows exceptions, hiding potential bugs.",
+      "affected_files": [
+        "docs/en/docs/js/custom.js"
+      ],
+      "line_start": 200,
+      "line_end": 200,
+      "suggested_fix": "Log the exception or handle it appropriately:\n- Add logging to track failures\n- Re-raise if recovery isn't possible\n- Handle specific exception types",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-390",
+      "why_it_matters": "Swallowed exceptions hide bugs and make debugging extremely difficult. When something fails silently, you may not know until much later.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "03a80f4111018871",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/termynal.js::Termynal.init:74` separates components of [5051, 11]",
+      "description": "[COMPOUND: 2 co-located issues] `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/termynal.js::Termynal.init:74` is a structural bridge. Removing it would split the graph into components of sizes [5051, 11]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 74,
+      "line_end": 91,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.8999999999999999,
+      "deterministic": true,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "2eefe2997fd9cb81",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 2 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 86,
+      "line_end": 86,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "a0916b1270b5db37",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/termynal.js::Termynal.start:96` separates components of [5042, 20]",
+      "description": "[COMPOUND: 2 co-located issues] `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/termynal.js::Termynal.start:96` is a structural bridge. Removing it would split the graph into components of sizes [5042, 20]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 96,
+      "line_end": 127,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 0.8999999999999999,
+      "deterministic": true,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "507819c92b181677",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "medium",
+      "title": "Async function called without error handling",
+      "description": "[COMPOUND: 3 co-located issues] Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n🔍 Calls async function without await or .catch\n📦 In function: `start` (2 callers)",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 122,
+      "line_end": 122,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "582bb0c065ca3708",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 3 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 133,
+      "line_end": 133,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "c6063b8deb37669d",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 3 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 138,
+      "line_end": 138,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e5a5fcb49f3b668c",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 2 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 152,
+      "line_end": 152,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "ebb7d382281501d6",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 4 functions in call cycle (complexity 12)",
+      "description": "[COMPOUND: 2 co-located issues] Mutual recursion detected: 4 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/termynal.js::Termynal.addRestart:157 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/termynal.js::Termynal.generateRestart:129 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/termynal.js::Termynal.init:74 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/docs/en/docs/js/termynal.js::Termynal.start:96. Aggregate complexity: 12.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 157,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.8999999999999999,
+      "deterministic": true,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "694d9c89205bd28a",
+      "detector": "UnhandledPromiseDetector",
+      "severity": "medium",
+      "title": "Promise without .catch()",
+      "description": "[COMPOUND: 4 co-located issues] Promise rejection may go unhandled, causing silent failures or crashes.\n\n**Analysis:**\n📦 In function: `_wait` (3 callers)",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 213,
+      "line_end": 213,
+      "suggested_fix": "Options:\n\n**1. Add .catch():**\n```javascript\nfetchData()\n.then(data => process(data))\n.catch(err => console.error('Failed:', err));\n```\n\n**2. Use try/catch with await:**\n```javascript\ntry {\nconst data = await fetchData();\nprocess(data);\n} catch (err) {\nconsole.error('Failed:', err);\n}\n```",
+      "estimated_effort": "5 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-755",
+      "why_it_matters": "Unhandled promise rejections can crash Node.js (--unhandled-rejections=strict) or cause silent failures that are hard to debug.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "4b962df0fdfcd6f0",
+      "detector": "XssDetector",
+      "severity": "medium",
+      "title": "Potential XSS vulnerability",
+      "description": "[COMPOUND: 4 co-located issues] Direct HTML injection can lead to XSS attacks.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 226,
+      "line_end": 226,
+      "suggested_fix": "Sanitize input or use textContent instead.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-79",
+      "why_it_matters": "XSS allows attackers to execute scripts in users' browsers.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "555fd3290d2fcb56",
+      "detector": "StringConcatLoopDetector",
+      "severity": "medium",
+      "title": "String concatenation in loop",
+      "description": "[COMPOUND: 4 co-located issues] Variable 'attrs' concatenated 3 times inside loop (started line 240).\n\n**Performance:** O(n²) time complexity. Each concatenation creates a new string and copies all previous characters.\n\nFor 1000 iterations, this copies ~500,000 characters instead of 1000.",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 243,
+      "line_end": 243,
+      "suggested_fix": "Use array and join:\n```javascript\nconst parts = items.map(item => String(item));\nconst result = parts.join('');\n```\nOr use template literals with reduce:\n```javascript\nconst result = items.reduce((acc, item) => `${acc}${item}`, '');\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "String concatenation in loops creates O(n²) time complexity due to immutable string copying.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "e41108cd63edd0ec",
+      "detector": "MutableDefaultArgsDetector",
+      "severity": "medium",
+      "title": "Mutable default list `[]`",
+      "description": "Mutable default `t = []` is shared between all calls to `read_items`.\nThis is a classic Python gotcha that causes surprising bugs.\n\n**Analysis:**\n📞 Called 1 times in codebase\n🌐 Public function (could be called from external code)",
+      "affected_files": [
+        "docs_src/query_params_str_validations/tutorial013_py310.py"
+      ],
+      "line_start": 7,
+      "line_end": 7,
+      "suggested_fix": "Use `None` as default and create the list inside the function:\n\n```python\ndef func(t: list = None):\nt = t if t is not None else []\n```",
+      "estimated_effort": "5 minutes",
+      "category": "bug-risk",
+      "cwe_id": "CWE-1188",
+      "why_it_matters": "Python evaluates default arguments once at function definition time, not at each call. If you mutate a mutable default (list, dict, set), the mutation persists across calls, causing data to leak between invocations.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "bb46b23d9b4b6420",
+      "detector": "InsecureCookieDetector",
+      "severity": "medium",
+      "title": "Cookie missing HttpOnly flags",
+      "description": "Cookie is missing security flags that protect against common attacks.\n\n**Analysis:**\n❌ Missing: HttpOnly, Secure, SameSite\n📦 In function: `create_cookie`",
+      "affected_files": [
+        "docs_src/response_cookies/tutorial001_py310.py"
+      ],
+      "line_start": 11,
+      "line_end": 11,
+      "suggested_fix": "```python\nresponse.set_cookie(\n'cookie_name',\nvalue,\nhttponly=True,   # Prevents JavaScript access\nsecure=True,     # HTTPS only\nsamesite='Lax'   # CSRF protection\n)\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1004",
+      "why_it_matters": "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n• **Secure** ensures cookies are only sent over HTTPS\n• **SameSite** prevents CSRF attacks by controlling cross-site requests",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "feba887f659c9da8",
+      "detector": "InsecureCookieDetector",
+      "severity": "medium",
+      "title": "Cookie missing HttpOnly flags",
+      "description": "Cookie is missing security flags that protect against common attacks.\n\n**Analysis:**\n❌ Missing: HttpOnly, Secure, SameSite\n📦 In function: `create_cookie`",
+      "affected_files": [
+        "docs_src/response_cookies/tutorial002_py310.py"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "```python\nresponse.set_cookie(\n'cookie_name',\nvalue,\nhttponly=True,   # Prevents JavaScript access\nsecure=True,     # HTTPS only\nsamesite='Lax'   # CSRF protection\n)\n```",
+      "estimated_effort": "5 minutes",
+      "category": "security",
+      "cwe_id": "CWE-1004",
+      "why_it_matters": "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n• **Secure** ensures cookies are only sent over HTTPS\n• **SameSite** prevents CSRF attacks by controlling cross-site requests",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "6b7bed75b4d3b4b6",
+      "detector": "JwtWeakDetector",
+      "severity": "medium",
+      "title": "JWT using symmetric algorithm (HS256)",
+      "description": "HS256 uses a shared secret. If the secret is weak or leaked, attackers can forge tokens. Consider RS256/ES256.",
+      "affected_files": [
+        "docs_src/security/tutorial004_an_py310.py"
+      ],
+      "line_start": 14,
+      "line_end": 14,
+      "suggested_fix": "Consider using asymmetric algorithms:\n\n```python\n# RS256 (RSA) or ES256 (ECDSA) recommended\njwt.encode(payload, private_key, algorithm='RS256')\n\n# If using HS256, ensure secret is:\n# - At least 256 bits (32 bytes)\n# - Cryptographically random\n# - Never hardcoded\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-327",
+      "why_it_matters": "JWT vulnerabilities can allow attackers to forge authentication tokens, impersonate users, escalate privileges, or bypass authorization entirely.",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "bdd39e7998eecdd5",
+      "detector": "JwtWeakDetector",
+      "severity": "medium",
+      "title": "JWT using symmetric algorithm (HS256)",
+      "description": "HS256 uses a shared secret. If the secret is weak or leaked, attackers can forge tokens. Consider RS256/ES256.",
+      "affected_files": [
+        "docs_src/security/tutorial004_py310.py"
+      ],
+      "line_start": 13,
+      "line_end": 13,
+      "suggested_fix": "Consider using asymmetric algorithms:\n\n```python\n# RS256 (RSA) or ES256 (ECDSA) recommended\njwt.encode(payload, private_key, algorithm='RS256')\n\n# If using HS256, ensure secret is:\n# - At least 256 bits (32 bytes)\n# - Cryptographically random\n# - Never hardcoded\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-327",
+      "why_it_matters": "JWT vulnerabilities can allow attackers to forge authentication tokens, impersonate users, escalate privileges, or bypass authorization entirely.",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "38d111ebb90f4dd3",
+      "detector": "JwtWeakDetector",
+      "severity": "medium",
+      "title": "JWT using symmetric algorithm (HS256)",
+      "description": "HS256 uses a shared secret. If the secret is weak or leaked, attackers can forge tokens. Consider RS256/ES256.",
+      "affected_files": [
+        "docs_src/security/tutorial005_an_py310.py"
+      ],
+      "line_start": 18,
+      "line_end": 18,
+      "suggested_fix": "Consider using asymmetric algorithms:\n\n```python\n# RS256 (RSA) or ES256 (ECDSA) recommended\njwt.encode(payload, private_key, algorithm='RS256')\n\n# If using HS256, ensure secret is:\n# - At least 256 bits (32 bytes)\n# - Cryptographically random\n# - Never hardcoded\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-327",
+      "why_it_matters": "JWT vulnerabilities can allow attackers to forge authentication tokens, impersonate users, escalate privileges, or bypass authorization entirely.",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "ae2f5772618e08e7",
+      "detector": "JwtWeakDetector",
+      "severity": "medium",
+      "title": "JWT using symmetric algorithm (HS256)",
+      "description": "HS256 uses a shared secret. If the secret is weak or leaked, attackers can forge tokens. Consider RS256/ES256.",
+      "affected_files": [
+        "docs_src/security/tutorial005_py310.py"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Consider using asymmetric algorithms:\n\n```python\n# RS256 (RSA) or ES256 (ECDSA) recommended\njwt.encode(payload, private_key, algorithm='RS256')\n\n# If using HS256, ensure secret is:\n# - At least 256 bits (32 bytes)\n# - Cryptographically random\n# - Never hardcoded\n```",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-327",
+      "why_it_matters": "JWT vulnerabilities can allow attackers to forge authentication tokens, impersonate users, escalate privileges, or bypass authorization entirely.",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "b8d6707f910214ad",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 4 functions in call cycle (complexity 14)",
+      "description": "Mutual recursion detected: 4 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/fastapi/_compat/v2.py::get_flat_models_from_annotation:433 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/fastapi/_compat/v2.py::get_flat_models_from_field:449 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/fastapi/_compat/v2.py::get_flat_models_from_fields:465 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/fastapi/fastapi/_compat/v2.py::get_flat_models_from_model:424. Aggregate complexity: 14.",
+      "affected_files": [
+        "fastapi/_compat/v2.py"
+      ],
+      "line_start": 433,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "a9547c0841c22164",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: put (376 lines)",
+      "description": "Function 'put' has 376 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 1936,
+      "line_end": 2312,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "abc97bce3417ec7d",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: post (376 lines)",
+      "description": "Function 'post' has 376 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 2314,
+      "line_end": 2690,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5086f1169b7057ad",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: delete (371 lines)",
+      "description": "Function 'delete' has 371 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 2692,
+      "line_end": 3063,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "4d46d246aaa46b0a",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: options (371 lines)",
+      "description": "Function 'options' has 371 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 3065,
+      "line_end": 3436,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7130b1b6688b969a",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: head (371 lines)",
+      "description": "Function 'head' has 371 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 3438,
+      "line_end": 3809,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c0c68a0bae94513d",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: patch (376 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'patch' has 376 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 3811,
+      "line_end": 4187,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "66e481ee9d679bc1",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: trace (371 lines)",
+      "description": "Function 'trace' has 371 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 4189,
+      "line_end": 4560,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "68a0ba4bdccd0d9f",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: jsonable_encoder (235 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'jsonable_encoder' has 235 lines (effective threshold: 100).\n\n**Graph Analysis:**\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "fastapi/encoders.py"
+      ],
+      "line_start": 112,
+      "line_end": 347,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle__compat()` for _compat operations\n  - `handle_fastapi()` for fastapi operations\n  - `handle_js()` for js operations",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "e1711029b9a4da26",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: get_request_handler (378 lines)",
+      "description": "Function 'get_request_handler' has 378 lines (effective threshold: 100).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 14 functions (reduced severity)\nCalls 4 different modules - possible split points",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 351,
+      "line_end": 729,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "40e9fa17fb8aa99c",
+      "detector": "LongMethodsDetector",
+      "severity": "medium",
+      "title": "Long method: __init__ (283 lines)",
+      "description": "Function '__init__' has 283 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 1032,
+      "line_end": 1315,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "bfbb99c800553c7b",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "medium",
+      "title": "Architectural Bottleneck: include_router (utility function - expected high fan-in)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'include_router' is called by 18 functions and has complexity 29. Changes here are high-risk.\n\nBetweenness centrality: 0.0450 - this function sits on many execution paths between other functions.\n\n**Note:** This function was identified as a utility. High fan-in is expected, but the high complexity may still warrant attention.\n\n📊 Threshold: 20 (adaptive) | Actual: 29 | Default would be: 20 | Profile: p90=4, p95=8, mean=2.6, n=1060",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 1578,
+      "line_end": 1829,
+      "suggested_fix": "Consider splitting this utility into smaller, focused helpers. High complexity in shared utilities is risky.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.95,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "29",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "69ec1ff1734bf58a",
+      "detector": "StringConcatLoopDetector",
+      "severity": "medium",
+      "title": "String concatenation in loop",
+      "description": "Variable 'message' concatenated 4 times inside loop (started line 125).\n\n**Performance:** O(n²) time complexity. Each concatenation creates a new string and copies all previous characters.\n\nFor 1000 iterations, this copies ~500,000 characters instead of 1000.",
+      "affected_files": [
+        "scripts/deploy_docs_status.py"
+      ],
+      "line_start": 126,
+      "line_end": 126,
+      "suggested_fix": "Use list and join:\n```python\nparts = []\nfor item in items:\nparts.append(str(item))\nresult = ''.join(parts)\n```\nOr use a list comprehension:\n```python\nresult = ''.join(str(item) for item in items)\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "String concatenation in loops creates O(n²) time complexity due to immutable string copying.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "775f479c4dee622c",
+      "detector": "MutableDefaultArgsDetector",
+      "severity": "medium",
+      "title": "Mutable default list `[]`",
+      "description": "Mutable default `t = []` is shared between all calls to `get_query_list_default`.\nThis is a classic Python gotcha that causes surprising bugs.\n\n**Analysis:**\n📞 Called 1 times in codebase\n⚠️ Function modifies `t` - bug will definitely manifest!\n🌐 Public function (could be called from external code)",
+      "affected_files": [
+        "tests/main.py"
+      ],
+      "line_start": 207,
+      "line_end": 207,
+      "suggested_fix": "Use `None` as default and create the list inside the function:\n\n```python\ndef func(t: list = None):\nt = t if t is not None else []\n```",
+      "estimated_effort": "5 minutes",
+      "category": "bug-risk",
+      "cwe_id": "CWE-1188",
+      "why_it_matters": "Python evaluates default arguments once at function definition time, not at each call. If you mutate a mutable default (list, dict, set), the mutation persists across calls, causing data to leak between invocations.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "18a5017cbd15d000",
+      "detector": "BroadExceptionDetector",
+      "severity": "low",
+      "title": "Broad exception catch",
+      "description": "[COMPOUND: 2 co-located issues] Catching generic Exception hides bugs and makes debugging difficult.\n\n**Analysis:**\n📞 Try block calls: URL, links, hasAttribute, setAttribute",
+      "affected_files": [
+        "docs/en/docs/js/custom.js"
+      ],
+      "line_start": 200,
+      "line_end": 200,
+      "suggested_fix": "Catch specific exceptions instead of generic Exception.",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": null,
+      "why_it_matters": "Broad exception catches mask unexpected errors like TypeErrors or AttributeErrors that indicate bugs in your code.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "df7c021318db366e",
+      "detector": "ImplicitCoercionDetector",
+      "severity": "low",
+      "title": "Loose equality (==) used",
+      "description": "[COMPOUND: 3 co-located issues] == performs type coercion which can cause subtle bugs.\n\n**Analysis:**\n📦 In function: `start` (2 callers)",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 104,
+      "line_end": 104,
+      "suggested_fix": "Use === for strict equality:\n```javascript\n// Instead of:\nif (value == 'string') { ... }\n\n// Use:\nif (value === 'string') { ... }\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Type coercion in == can cause unexpected behavior:\n• '1' == 1 is true\n• '' == false is true\n• [] == false is true\nUse === to compare both value AND type.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "3420c6048d836a38",
+      "detector": "ImplicitCoercionDetector",
+      "severity": "low",
+      "title": "Loose equality (==) used",
+      "description": "[COMPOUND: 3 co-located issues] == performs type coercion which can cause subtle bugs.\n\n**Analysis:**\n📦 In function: `start` (2 callers)",
+      "affected_files": [
+        "docs/en/docs/js/termynal.js"
+      ],
+      "line_start": 110,
+      "line_end": 110,
+      "suggested_fix": "Use === for strict equality:\n```javascript\n// Instead of:\nif (value == 'string') { ... }\n\n// Use:\nif (value === 'string') { ... }\n```",
+      "estimated_effort": "2 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Type coercion in == can cause unexpected behavior:\n• '1' == 1 is true\n• '' == false is true\n• [] == false is true\nUse === to compare both value AND type.",
+      "confidence": 0.6499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "74d09bd8e52614bf",
+      "detector": "GeneratorMisuseDetector",
+      "severity": "low",
+      "title": "Single-yield generator: `get_db`",
+      "description": "Generator `get_db` only yields once and not in a loop. Consider using a simple function with return instead.\n\n**Why it matters:** Single-yield generators add complexity without the lazy evaluation benefits.",
+      "affected_files": [
+        "docs_src/dependencies/tutorial010_py310.py"
+      ],
+      "line_start": 12,
+      "line_end": null,
+      "suggested_fix": "Convert to a simple function:\n\n```python\n# Instead of:\ndef get_db(...):\nyield some_value\n\n# Use:\ndef get_db(...):\nreturn some_value\n```",
+      "estimated_effort": "10 minutes",
+      "category": "code-quality",
+      "cwe_id": null,
+      "why_it_matters": "Single-yield generators require callers to use next() or iterate, adding complexity without benefits.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "57deaab10cac0fcd",
+      "detector": "DeepNestingDetector",
+      "severity": "low",
+      "title": "Excessive nesting: 7 levels",
+      "description": "7 levels of nesting (threshold: 6).\n\nThreshold: 5 (adaptive) | Actual: 7 | Default would be: 5 | Profile: p90=3, p95=4, mean=2.0, n=1060",
+      "affected_files": [
+        "docs_src/path_operation_advanced_configuration/tutorial006_py310.py"
+      ],
+      "line_start": 27,
+      "line_end": 27,
+      "suggested_fix": "Extract nested logic into functions or use early returns.",
+      "estimated_effort": "30 minutes",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Deep nesting makes code hard to read and maintain. Each level increases cognitive load exponentially.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "7",
+        "default_threshold": "5",
+        "effective_threshold": "5",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "7c45181023c8f58c",
+      "detector": "InsecureDeserializeDetector",
+      "severity": "low",
+      "title": "Insecure deserialization: Deserialization",
+      "description": "Deserializing user-controlled data with Deserialization can lead to Remote Code Execution.\n\n**Analysis:**\n🔧 Method: Deserialization\n⚠️ Risk: May be unsafe\n📦 In function: `create_item` (1 callers)\n✅ Validation/schema check found nearby",
+      "affected_files": [
+        "docs_src/path_operation_advanced_configuration/tutorial007_py310.py"
+      ],
+      "line_start": 25,
+      "line_end": 25,
+      "suggested_fix": "Validate schema before deserializing user input.",
+      "estimated_effort": "30 minutes",
+      "category": "security",
+      "cwe_id": "CWE-502",
+      "why_it_matters": "Insecure deserialization can allow attackers to:\n• Execute arbitrary code on the server\n• Bypass authentication\n• Perform denial of service\n• Access sensitive data",
+      "confidence": 0.75,
+      "deterministic": false
+    },
+    {
+      "id": "ad90fe71d49b4ca1",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: include_router (203 lines)",
+      "description": "Function 'include_router' has 203 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/applications.py"
+      ],
+      "line_start": 1358,
+      "line_end": 1561,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3e16fe1acf6310b4",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: analyze_param (166 lines)",
+      "description": "Function 'analyze_param' has 166 lines (effective threshold: 100).\n\n**Graph Analysis:**\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "fastapi/dependencies/utils.py"
+      ],
+      "line_start": 393,
+      "line_end": 559,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle_dependencies()` for dependencies operations\n  - `handle_fastapi()` for fastapi operations\n  - `handle__compat()` for _compat operations",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2b37a0b71d05ac9e",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: solve_dependencies (137 lines)",
+      "description": "Function 'solve_dependencies' has 137 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/dependencies/utils.py"
+      ],
+      "line_start": 598,
+      "line_end": 735,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "08a4ef847dd462c0",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: get_swagger_ui_html (154 lines)",
+      "description": "Function 'get_swagger_ui_html' has 154 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/openapi/docs.py"
+      ],
+      "line_start": 40,
+      "line_end": 194,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7ee5bc259926e3b0",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: get_redoc_html (101 lines)",
+      "description": "Function 'get_redoc_html' has 101 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/openapi/docs.py"
+      ],
+      "line_start": 197,
+      "line_end": 298,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ba5fa739a2237078",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: get_openapi_path (218 lines)",
+      "description": "Function 'get_openapi_path' has 218 lines (effective threshold: 100).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 12 functions (reduced severity)\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "fastapi/openapi/utils.py"
+      ],
+      "line_start": 260,
+      "line_end": 478,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "16408b26a4db246c",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: __init__ (102 lines)",
+      "description": "Function '__init__' has 102 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/params.py"
+      ],
+      "line_start": 29,
+      "line_end": 131,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1d120b6b11db1e74",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: __init__ (105 lines)",
+      "description": "Function '__init__' has 105 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/params.py"
+      ],
+      "line_start": 470,
+      "line_end": 575,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "0d56324b9704f685",
+      "detector": "EmptyCatchDetector",
+      "severity": "low",
+      "title": "Empty catch block swallows exceptions",
+      "description": "This catch block silently swallows exceptions, hiding potential bugs.\n\n**Risk Assessment:**\n⚠️ `send` appears to do I/O",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 577,
+      "line_end": 577,
+      "suggested_fix": "Log the exception or handle it appropriately:\n- Add logging to track failures\n- Re-raise if recovery isn't possible\n- Handle specific exception types",
+      "estimated_effort": "10 minutes",
+      "category": "error-handling",
+      "cwe_id": "CWE-390",
+      "why_it_matters": "Swallowed exceptions hide bugs and make debugging extremely difficult. When something fails silently, you may not know until much later.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3a68762b047a9e5e",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: __init__ (164 lines)",
+      "description": "Function '__init__' has 164 lines (effective threshold: 100).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 14 functions (reduced severity)\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 812,
+      "line_end": 976,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "990e8e596ec773ff",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: include_router (251 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'include_router' has 251 lines (effective threshold: 100).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 7 functions (reduced severity)",
+      "affected_files": [
+        "fastapi/routing.py"
+      ],
+      "line_start": 1578,
+      "line_end": 1829,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "aa505dca1d5fa1ab",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: __init__ (101 lines)",
+      "description": "Function '__init__' has 101 lines (effective threshold: 100).",
+      "affected_files": [
+        "fastapi/security/oauth2.py"
+      ],
+      "line_start": 226,
+      "line_end": 327,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "91b1afa5cdff308c",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: main (120 lines)",
+      "description": "Function 'main' has 120 lines (effective threshold: 100).\n\n**Graph Analysis:**\nCalls 3 different modules - possible split points",
+      "affected_files": [
+        "scripts/deploy_docs_status.py"
+      ],
+      "line_start": 25,
+      "line_end": 145,
+      "suggested_fix": "This function calls 3 different modules. Consider extracting:\n  - `handle_settings()` for settings operations\n  - `handle_scripts()` for scripts operations\n  - `handle_tests()` for tests operations",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "fb9ef3f044bf5f5b",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: remove_unused_docs_src (106 lines)",
+      "description": "Function 'remove_unused_docs_src' has 106 lines (effective threshold: 100).",
+      "affected_files": [
+        "scripts/docs.py"
+      ],
+      "line_start": 549,
+      "line_end": 655,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "debbc7d0e99a47c1",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: main (122 lines)",
+      "description": "Function 'main' has 122 lines (effective threshold: 100).",
+      "affected_files": [
+        "scripts/notify_translations.py"
+      ],
+      "line_start": 306,
+      "line_end": 428,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    },
+    {
+      "id": "6338047d94ac29cd",
+      "detector": "GeneratorMisuseDetector",
+      "severity": "low",
+      "title": "Generator always list()-wrapped: `iter_en_paths_to_translate`",
+      "description": "Generator `iter_en_paths_to_translate` is always wrapped in `list()`, defeating lazy evaluation.\n\n**Analysis:** No callers consume this generator lazily.",
+      "affected_files": [
+        "scripts/translate.py"
+      ],
+      "line_start": 174,
+      "line_end": null,
+      "suggested_fix": "Consider returning a list directly:\n\n```python\n# Instead of:\ndef iter_en_paths_to_translate(...):\nfor item in items:\nyield transform(item)\n\n# result = list(iter_en_paths_to_translate(...))  # Always converted\n\n# Use:\ndef iter_en_paths_to_translate(...):\nreturn [transform(item) for item in items]\n```",
+      "estimated_effort": "15 minutes",
+      "category": "performance",
+      "cwe_id": null,
+      "why_it_matters": "Generators wrapped in list() lose lazy evaluation benefits and add unnecessary overhead.",
+      "confidence": 0.5499999999999999,
+      "deterministic": false,
+      "threshold_metadata": {
+        "confidence_signals": "non_production_path"
+      }
+    }
+  ],
+  "findings_summary": {
+    "critical": 1,
+    "high": 23,
+    "medium": 35,
+    "low": 22,
+    "info": 0,
+    "total": 81
+  },
+  "total_files": 1122,
+  "total_functions": 4315,
+  "total_classes": 636,
+  "total_loc": 107325
+}
+
+Phase timings (cold):
+  calibrate        0.037s  (2.0%)
+  collect          0.019s  (1.1%)
+  detect           0.521s  (28.7%)
+  freeze           0.318s  (17.5%)
+  git_enrich       0.692s  (38.2%)
+  graph            0.032s  (1.8%)
+  parse            0.188s  (10.4%)
+  postprocess      0.001s  (0.0%)
+  score            0.002s  (0.1%)
+  TOTAL            1.812s

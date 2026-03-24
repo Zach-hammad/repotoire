@@ -1,0 +1,2356 @@
+{
+  "overall_score": 75.87545454545455,
+  "grade": "C",
+  "structure_score": 97.2,
+  "quality_score": 25.568181818181817,
+  "architecture_score": 97.75,
+  "findings": [
+    {
+      "id": "be6ac1c04e245fe2",
+      "detector": "CircularDependencyDetector",
+      "severity": "high",
+      "title": "Circular dependency: 5 files",
+      "description": "Mutual dependency between: cli.rs ↔ event.rs ↔ logging.rs ↔ scheduler.rs ↔ window_context.rs\n\n**Weakest link to break:** `cli.rs` → `event.rs` (1 import)",
+      "affected_files": [
+        "alacritty/src/cli.rs",
+        "alacritty/src/event.rs",
+        "alacritty/src/logging.rs",
+        "alacritty/src/scheduler.rs",
+        "alacritty/src/window_context.rs"
+      ],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": "🔗 **Best place to break:** `cli.rs` → `event.rs` (weakest coupling: 1 imports)\n\nSince `cli.rs` only imports 1 symbol(s) from `event.rs`, consider:\n- Move those symbols to a shared module\n- Pass them as parameters instead of importing\n- Use dependency injection\n\n**For large cycles:**\n1. Extract shared interfaces/types into a new `types.py` or `interfaces.ts`\n2. Apply the Dependency Inversion Principle\n3. Consider restructuring into layers",
+      "estimated_effort": "Medium (1-2 days)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Circular dependencies make code harder to understand, test, and maintain. They can cause import errors at runtime and make it difficult to refactor individual modules.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "e447263e55556a09",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 3 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/clipboard.rs"
+      ],
+      "line_start": 25,
+      "line_end": 25,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "bc1fc888f8d50ad3",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/daemon.rs"
+      ],
+      "line_start": 74,
+      "line_end": 74,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f4bee430900d5341",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/daemon.rs"
+      ],
+      "line_start": 121,
+      "line_end": 121,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "17ec10b47563c0d9",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/daemon.rs"
+      ],
+      "line_start": 145,
+      "line_end": 145,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "a79b56c6f4a12389",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/daemon.rs"
+      ],
+      "line_start": 151,
+      "line_end": 151,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "605da12d8d6a2d5f",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/daemon.rs"
+      ],
+      "line_start": 164,
+      "line_end": 164,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "281b4b0df6d45b62",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/display/mod.rs"
+      ],
+      "line_start": 583,
+      "line_end": 583,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "cd1fdf4eed10b87b",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/display/mod.rs"
+      ],
+      "line_start": 1466,
+      "line_end": 1466,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ae6eb6ba2b54c543",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 478,
+      "line_end": 478,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "66393103dcb24cad",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 531,
+      "line_end": 531,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "d4dd1879fe79bac9",
+      "detector": "GodClassDetector",
+      "severity": "high",
+      "title": "God class detected: ActionContext",
+      "description": "Class 'ActionContext' shows signs of being a god class: very high method count (56).\n\n**Role Analysis:** Application — Standard application class\n\n**Metrics:**\n- Methods: 56\n- Total complexity: 1\n- Lines of code: 66\n\n📊 Threshold: 20 (adaptive) | Actual: 56 | Default would be: 20 | Profile: p90=0, p95=1, mean=0.4, n=280",
+      "affected_files": [
+        "alacritty/src/input/mod.rs"
+      ],
+      "line_start": 82,
+      "line_end": 147,
+      "suggested_fix": "Refactor 'ActionContext' to reduce its responsibilities:\n**Note:** This class was identified as Application (Standard application class). Thresholds adjusted accordingly.\n\n1. **Extract related methods into separate classes**\n- Look for method groups that work with the same data\n- Create focused classes with single responsibilities\n\n**Apply SOLID principles:**\n- Single Responsibility: Each class should have one reason to change\n- Open/Closed: Extend behavior without modifying existing code\n- Interface Segregation: Create specific interfaces\n- Dependency Inversion: Depend on abstractions",
+      "estimated_effort": "Large (1-2 weeks)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "God classes violate the Single Responsibility Principle. They are difficult to understand, test, and maintain. Changes to one part may unexpectedly affect other parts, leading to bugs and technical debt.",
+      "confidence": 0.7,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "56",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "f30735f325f2a4b9",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/logging.rs"
+      ],
+      "line_start": 204,
+      "line_end": 204,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "8e010e61b6a8086c",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/macos/locale.rs"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5a5c78fa6597473a",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/macos/locale.rs"
+      ],
+      "line_start": 17,
+      "line_end": 17,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "07011023440592eb",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/macos/locale.rs"
+      ],
+      "line_start": 30,
+      "line_end": 30,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "24746961537665e8",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/macos/locale.rs"
+      ],
+      "line_start": 38,
+      "line_end": 38,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7b8cd3d1eb5e1c3f",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/macos/locale.rs"
+      ],
+      "line_start": 40,
+      "line_end": 40,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b34dd55c936f9dbb",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/macos/locale.rs"
+      ],
+      "line_start": 45,
+      "line_end": 45,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c50e5bff93ed3721",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/macos/mod.rs"
+      ],
+      "line_start": 8,
+      "line_end": 8,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "a966cf7c77602cce",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/macos/proc.rs"
+      ],
+      "line_start": 59,
+      "line_end": 59,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ea2565061e47d04a",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/main.rs"
+      ],
+      "line_start": 77,
+      "line_end": 77,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "61eafbbba51a54f0",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/main.rs"
+      ],
+      "line_start": 174,
+      "line_end": 174,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "f7655e0824c8ae30",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/main.rs"
+      ],
+      "line_start": 234,
+      "line_end": 234,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7c441d41c5397a07",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/panic.rs"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "4bd71c043fb660be",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/polling/ipc.rs"
+      ],
+      "line_start": 42,
+      "line_end": 42,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "78fbe07a5ba6a0cb",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 100,
+      "line_end": 100,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "a770bf60e331a4f4",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 167,
+      "line_end": 167,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c8ecb2b2e2f3530f",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 249,
+      "line_end": 249,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6f7704fec54d6ea4",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 258,
+      "line_end": 258,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2ab85f01eecd9d06",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 269,
+      "line_end": 269,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "830f2075b999226f",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 287,
+      "line_end": 287,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "49656ff7ef8baa22",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 307,
+      "line_end": 307,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6f43d14586067bf5",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 324,
+      "line_end": 324,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "8e1f4fcb3f87eec7",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 332,
+      "line_end": 332,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3fe430086aead06a",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 366,
+      "line_end": 366,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "69959177ec3fa91b",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "[COMPOUND: 2 co-located issues] Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 398,
+      "line_end": 398,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "4f98e473167a6735",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/platform.rs"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "2fa589dd99a2f744",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/platform.rs"
+      ],
+      "line_start": 77,
+      "line_end": 77,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "8e4a00b71f4ea2ca",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/platform.rs"
+      ],
+      "line_start": 139,
+      "line_end": 139,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c3b57152a0c9655c",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/platform.rs"
+      ],
+      "line_start": 167,
+      "line_end": 167,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "e6522bf94e9618bd",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/rects.rs"
+      ],
+      "line_start": 276,
+      "line_end": 276,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7fb9e2f2ae419914",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/rects.rs"
+      ],
+      "line_start": 321,
+      "line_end": 321,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "8460198ddc70318c",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/rects.rs"
+      ],
+      "line_start": 338,
+      "line_end": 338,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ac19784b4a3a3f64",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/rects.rs"
+      ],
+      "line_start": 402,
+      "line_end": 402,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c6ae6661585efbfa",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/rects.rs"
+      ],
+      "line_start": 472,
+      "line_end": 472,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "cf31b32ebfd7faa3",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 42,
+      "line_end": 42,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7004dc8af3df5329",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 45,
+      "line_end": 45,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c2448605458fa851",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 62,
+      "line_end": 62,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "705608f88e447db6",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 77,
+      "line_end": 77,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "a72798f4e44748ee",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 106,
+      "line_end": 106,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ef84ad43e694c0d6",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 109,
+      "line_end": 109,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "6849f6c83bfecad7",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 134,
+      "line_end": 134,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1a8723bb16b8393a",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 141,
+      "line_end": 141,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "35fa745d0f091516",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 148,
+      "line_end": 148,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9172cf6b25cfc8cc",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 153,
+      "line_end": 153,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "3cdb90b547fb8b26",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 163,
+      "line_end": 163,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1e63a39a07c4a64a",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 170,
+      "line_end": 170,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "e1ef91a29349eaae",
+      "detector": "UnsafeWithoutSafetyCommentDetector",
+      "severity": "high",
+      "title": "unsafe block without SAFETY comment",
+      "description": "Unsafe blocks should document why they're safe. Add a `// SAFETY:` comment.",
+      "affected_files": [
+        "alacritty/src/renderer/shader.rs"
+      ],
+      "line_start": 175,
+      "line_end": 175,
+      "suggested_fix": "Add a SAFETY comment:\n```rust\n// SAFETY: [explain invariants]\nunsafe { ... }\n```",
+      "estimated_effort": "15 minutes",
+      "category": "safety",
+      "cwe_id": "CWE-119",
+      "why_it_matters": "Unsafe code bypasses Rust's safety guarantees. SAFETY comments are essential for code review.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b5d15e714f858ef3",
+      "detector": "LongMethodsDetector",
+      "severity": "high",
+      "title": "Long method: box_drawing (548 lines)",
+      "description": "Function 'box_drawing' has 548 lines (effective threshold: 150).",
+      "affected_files": [
+        "alacritty/src/renderer/text/builtin_font.rs"
+      ],
+      "line_start": 49,
+      "line_end": 597,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "5fb0c330beba9e56",
+      "detector": "mutual-recursion",
+      "severity": "high",
+      "title": "Mutual recursion: 7 functions in call cycle (complexity 66)",
+      "description": "Mutual recursion detected: 7 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty_terminal/src/term/search.rs::impl<Iterator for RegexIter<'_, T>>::next:662 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty_terminal/src/term/search.rs::impl<RegexIter<'a, T>>::next_match:651 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty_terminal/src/term/search.rs::impl<Term<T>>::regex_search:260 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty_terminal/src/term/search.rs::impl<Term<T>>::regex_search_internal:274 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty_terminal/src/term/search.rs::impl<Term<T>>::regex_search_left:228 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty_terminal/src/term/search.rs::impl<Term<T>>::regex_search_right:244 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty_terminal/src/term/search.rs::impl<Term<T>>::skip_fullwidth:436. Aggregate complexity: 66.",
+      "affected_files": [
+        "alacritty_terminal/src/term/search.rs"
+      ],
+      "line_start": 662,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Large (1-3 days)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: bytes 1.10.1 (GHSA-434x-w66g-qw3r)",
+      "description": "**GHSA-434x-w66g-qw3r** in `bytes@1.10.1` (crates.io)\n\nNo description available\n\n**Advisory**: GHSA-434x-w66g-qw3r\n**Ecosystem**: crates.io",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "f5a133ddebaa29c7",
+      "detector": "DepAuditDetector",
+      "severity": "medium",
+      "title": "Vulnerable dependency: bytes 1.10.1 (RUSTSEC-2026-0007)",
+      "description": "**RUSTSEC-2026-0007** in `bytes@1.10.1` (crates.io)\n\nNo description available\n\n**Advisory**: RUSTSEC-2026-0007\n**Ecosystem**: crates.io",
+      "affected_files": [],
+      "line_start": null,
+      "line_end": null,
+      "suggested_fix": null,
+      "estimated_effort": null,
+      "category": "security",
+      "cwe_id": null,
+      "why_it_matters": null,
+      "confidence": 0.99,
+      "deterministic": false
+    },
+    {
+      "id": "f2621b0de132c98e",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `main`: 4 panic-family calls",
+      "description": "[COMPOUND: 2 co-located issues] Function `main` contains 4 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 15, line 16, line 24, line 29. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "alacritty/build.rs"
+      ],
+      "line_start": 8,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "ef478604bf32f67c",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/build.rs"
+      ],
+      "line_start": 15,
+      "line_end": 15,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "52febd23198a45a2",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/build.rs"
+      ],
+      "line_start": 16,
+      "line_end": 16,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "0be9b2f5ada9745d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/build.rs"
+      ],
+      "line_start": 24,
+      "line_end": 24,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "01aab7a71de07291",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/build.rs"
+      ],
+      "line_start": 29,
+      "line_end": 29,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "0541628ee8de5c55",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 3 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/clipboard.rs"
+      ],
+      "line_start": 37,
+      "line_end": 37,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "ee1499742a4fcf4e",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 3 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/clipboard.rs"
+      ],
+      "line_start": 44,
+      "line_end": 44,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "74e118caa4205a3e",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Unreachable code after return",
+      "description": "[COMPOUND: 3 co-located issues] Code after return/throw/exit will never execute:\n```\n#[cfg(all(feature = \"x11\", not(any(target_os = \"macos\", windows))))]\n```",
+      "affected_files": [
+        "alacritty/src/clipboard.rs"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Remove unreachable code or fix control flow logic.",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Unreachable code indicates logic errors and adds confusion.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "d868be8721170a98",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 3 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/clipboard.rs"
+      ],
+      "line_start": 48,
+      "line_end": 48,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "1159d25e28e5b3d7",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 3 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/clipboard.rs"
+      ],
+      "line_start": 49,
+      "line_end": 49,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "3a9097a9fbe6b071",
+      "detector": "UnreachableCodeDetector",
+      "severity": "medium",
+      "title": "Unreachable code after return",
+      "description": "Code after return/throw/exit will never execute:\n```\n#[cfg(not(any(feature = \"x11\", target_os = \"macos\", windows)))]\n```",
+      "affected_files": [
+        "alacritty/src/clipboard.rs"
+      ],
+      "line_start": 52,
+      "line_end": 52,
+      "suggested_fix": "Remove unreachable code or fix control flow logic.",
+      "estimated_effort": "10 minutes",
+      "category": "dead-code",
+      "cwe_id": "CWE-561",
+      "why_it_matters": "Unreachable code indicates logic errors and adds confusion.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "4e9e68cb1d10a6f3",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 2 functions in call cycle (complexity 25)",
+      "description": "Mutual recursion detected: 2 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/monitor.rs::impl<ConfigMonitor>::hash_paths:179 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/monitor.rs::impl<ConfigMonitor>::new:33. Aggregate complexity: 25.",
+      "affected_files": [
+        "alacritty/src/config/monitor.rs"
+      ],
+      "line_start": 179,
+      "line_end": null,
+      "suggested_fix": "Consider refactoring to eliminate direct mutual calls. Common strategies: merge the two functions, use a callback parameter, or introduce a shared data structure that both functions operate on.",
+      "estimated_effort": "Small (1-4 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "e383702d9657aa8e",
+      "detector": "single-point-of-failure",
+      "severity": "medium",
+      "title": "Single point of failure: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/event.rs::impl<input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>>>::handle_event:1841` dominates 118 functions (8%)",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/event.rs::impl<input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>>>::handle_event:1841` dominates 118 of 1515 functions (7.8%). PageRank percentile: 80%. Blast radius boundary: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/clipboard.rs::impl<Clipboard>::store:58, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/font.rs::impl<Font>::with_size:49, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/mod.rs::load:121, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/ui_config.rs::impl<Program>::args:640, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/window.rs::impl<WindowConfig>::fullscreen:130 (+62 more)",
+      "affected_files": [
+        "alacritty/src/config/ui_config.rs",
+        "alacritty/src/config/bindings.rs",
+        "alacritty/src/input/keyboard.rs",
+        "alacritty/src/input/mod.rs",
+        "alacritty/src/event.rs",
+        "alacritty/src/message_bar.rs",
+        "alacritty/src/display/bell.rs",
+        "alacritty/src/display/mod.rs",
+        "alacritty_terminal/src/term/mod.rs",
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 1841,
+      "line_end": 2069,
+      "suggested_fix": "Consider splitting this function into smaller, independently callable units. Extract sub-functionality behind interfaces so callers have alternative paths.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A single point of failure means all dependent code paths funnel through one function. If this function has a bug, performance issue, or API change, the blast radius is disproportionately large.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "331fa373a409d04f",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/daemon.rs"
+      ],
+      "line_start": 154,
+      "line_end": 154,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "667b555a7607459b",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/content.rs"
+      ],
+      "line_start": 67,
+      "line_end": 67,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d5bfdd240a46a6a7",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/content.rs"
+      ],
+      "line_start": 139,
+      "line_end": 139,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "7bf0c312da6b497a",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/content.rs"
+      ],
+      "line_start": 141,
+      "line_end": 141,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "80fb06788f6c46c7",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/content.rs"
+      ],
+      "line_start": 282,
+      "line_end": 282,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "440bb393878e386d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/content.rs"
+      ],
+      "line_start": 414,
+      "line_end": 414,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "dc8738d5a1bb7016",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 4 functions in call cycle (complexity 14)",
+      "description": "Mutual recursion detected: 4 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/display/content.rs::impl<From<&'a HintState> for Hint<'a>>::from:501 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/display/content.rs::impl<HintMatches<'a>>::visible_regex_matches:524 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/display/content.rs::impl<RenderableContent<'a>>::new:41 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/display/content.rs::impl<RenderableCursor>::new_hidden:410. Aggregate complexity: 14.",
+      "affected_files": [
+        "alacritty/src/display/content.rs"
+      ],
+      "line_start": 501,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "24259399656cdbcd",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/mod.rs"
+      ],
+      "line_start": 752,
+      "line_end": 752,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "88fc6bc3a5ffd336",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/mod.rs"
+      ],
+      "line_start": 753,
+      "line_end": 753,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "84dbcc0afddb07fb",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/mod.rs"
+      ],
+      "line_start": 933,
+      "line_end": 933,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "71ba6083a6c9f545",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/mod.rs"
+      ],
+      "line_start": 1201,
+      "line_end": 1201,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "91ba6d7729e5bd41",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 204,
+      "line_end": 204,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "843e6c232511d086",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 222,
+      "line_end": 222,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "b45ee6c8e82f2529",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 483,
+      "line_end": 483,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "a02b83712e8911ec",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 528,
+      "line_end": 528,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "2fdbe8ee26c455f7",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "[COMPOUND: 2 co-located issues] Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 536,
+      "line_end": 536,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "51d3160dc42aec0d",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/event.rs"
+      ],
+      "line_start": 119,
+      "line_end": 119,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "1afabd698b512aa5",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/event.rs"
+      ],
+      "line_start": 175,
+      "line_end": 175,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c702ee7cc691e9a6",
+      "detector": "UnwrapWithoutContextDetector",
+      "severity": "medium",
+      "title": "Panic risk: unwrap() without context",
+      "description": "Using `unwrap()` can cause panics. Consider `?`, `unwrap_or`, or proper error handling.",
+      "affected_files": [
+        "alacritty/src/event.rs"
+      ],
+      "line_start": 859,
+      "line_end": 859,
+      "suggested_fix": "Replace with proper error handling:\n```rust\nlet value = result?;\nlet value = result.unwrap_or_default();\nlet value = result.expect(\"failed to X because Y\");\n```",
+      "estimated_effort": "10 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Panics crash the program without recovery. Using proper error handling makes code more robust and debuggable.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "c5d018167e0123b8",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: handle_event",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_event' is a statistical complexity outlier (z-score: 8.8, complexity: 62).",
+      "affected_files": [
+        "alacritty/src/event.rs"
+      ],
+      "line_start": 1841,
+      "line_end": 2069,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "e72c1088bf4ddc3b",
+      "detector": "single-point-of-failure",
+      "severity": "medium",
+      "title": "Single point of failure: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/input/keyboard.rs::impl<Processor<T, A>>::key_input:22` dominates 59 functions (4%)",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/input/keyboard.rs::impl<Processor<T, A>>::key_input:22` dominates 59 of 1515 functions (3.9%). PageRank percentile: 46%. Blast radius boundary: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/bindings.rs::impl<Binding<T>>::is_triggered_by:54, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/mod.rs::load:121, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/ui_config.rs::impl<Program>::args:640, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/window.rs::impl<WindowConfig>::fullscreen:130, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/window.rs::impl<WindowConfig>::option_as_alt:144 (+46 more)",
+      "affected_files": [
+        "alacritty/src/input/keyboard.rs",
+        "alacritty/src/input/mod.rs",
+        "alacritty/src/config/ui_config.rs",
+        "alacritty_terminal/src/term/mod.rs",
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 22,
+      "line_end": 103,
+      "suggested_fix": "Consider splitting this function into smaller, independently callable units. Extract sub-functionality behind interfaces so callers have alternative paths.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A single point of failure means all dependent code paths funnel through one function. If this function has a bug, performance issue, or API change, the blast radius is disproportionately large.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "42cbfd1f9dfbfe61",
+      "detector": "AIComplexitySpikeDetector",
+      "severity": "medium",
+      "title": "Complexity Outlier: execute",
+      "description": "[COMPOUND: 2 co-located issues] Function 'execute' is a statistical complexity outlier (z-score: 14.1, complexity: 97).",
+      "affected_files": [
+        "alacritty/src/input/mod.rs"
+      ],
+      "line_start": 170,
+      "line_end": 445,
+      "suggested_fix": "Review and refactor - consider breaking into smaller functions",
+      "estimated_effort": "Medium (1-2 hours)",
+      "category": "complexity",
+      "cwe_id": null,
+      "why_it_matters": "Complexity outliers indicate functions that need review and decomposition",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "0d1218420bcb3c08",
+      "detector": "structural-bridge-risk",
+      "severity": "medium",
+      "title": "Structural bridge: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/logging.rs::impl<OnDemandLogFile>::path:236` separates components of [1382, 17]",
+      "description": "[COMPOUND: 2 co-located issues] `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/logging.rs::impl<OnDemandLogFile>::path:236` is a structural bridge. Removing it would split the graph into components of sizes [1382, 17]. All communication between these components currently flows through this single node.",
+      "affected_files": [
+        "alacritty/src/logging.rs"
+      ],
+      "line_start": 236,
+      "line_end": 238,
+      "suggested_fix": "Reduce coupling through this node by introducing alternative call paths, extracting shared interfaces, or splitting the bridge function into independently accessible units.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A structural bridge is a single node whose failure disconnects entire subsystems. This creates fragile architecture where a bug, API change, or refactor in one function can cascade to all dependent components.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "611e5459df53ed73",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "medium",
+      "title": "Architectural Bottleneck: text (architectural hub)",
+      "description": "Function 'text' is called by 16 functions and has complexity 15. Changes here are high-risk.\n\nBetweenness centrality: 0.0814 - this function sits on many execution paths between other functions.\n\n📊 Threshold: 20 (adaptive) | Actual: 15 | Default would be: 20 | Profile: p90=7, p95=11, mean=3.2, n=1500",
+      "affected_files": [
+        "alacritty/src/message_bar.rs"
+      ],
+      "line_start": 39,
+      "line_end": 109,
+      "suggested_fix": "This is a critical hub. Ensure comprehensive test coverage, add defensive error handling, and consider circuit breaker pattern.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.85,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "15",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "e9e8992ed5338219",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 28)",
+      "description": "Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/migrate/mod.rs::migrate:16 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/migrate/mod.rs::migrate_config:62 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/migrate/mod.rs::migrate_imports:130. Aggregate complexity: 28.",
+      "affected_files": [
+        "alacritty/src/migrate/mod.rs"
+      ],
+      "line_start": 16,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "1271ace1ea5cac96",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 3 functions in call cycle (complexity 24)",
+      "description": "[COMPOUND: 2 co-located issues] Mutual recursion detected: 3 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/renderer/mod.rs::impl<GlExtensions>::contains:358 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/renderer/mod.rs::impl<Renderer>::new:119 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/renderer/mod.rs::impl<Renderer>::supports_robustness:304. Aggregate complexity: 24.",
+      "affected_files": [
+        "alacritty/src/renderer/mod.rs"
+      ],
+      "line_start": 358,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 1.0,
+      "deterministic": true
+    },
+    {
+      "id": "244e62de7b92c059",
+      "detector": "mutual-recursion",
+      "severity": "medium",
+      "title": "Mutual recursion: 4 functions in call cycle (complexity 13)",
+      "description": "Mutual recursion detected: 4 functions form a call cycle. Cycle: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/renderer/text/glyph_cache.rs::impl<GlyphCache>::compute_font_keys:127 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/renderer/text/glyph_cache.rs::impl<GlyphCache>::load_regular_font:165 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/renderer/text/glyph_cache.rs::impl<GlyphCache>::make_desc:182 -> /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/renderer/text/glyph_cache.rs::impl<GlyphCache>::new:82. Aggregate complexity: 13.",
+      "affected_files": [
+        "alacritty/src/renderer/text/glyph_cache.rs"
+      ],
+      "line_start": 127,
+      "line_end": null,
+      "suggested_fix": "Break the cycle by extracting shared logic into a common helper, introducing an event system, or restructuring the call chain to be unidirectional.",
+      "estimated_effort": "Medium (4-8 hours)",
+      "category": "code_smell",
+      "cwe_id": null,
+      "why_it_matters": "Mutual recursion creates tight coupling between functions, making them impossible to understand, test, or refactor independently. It can also cause stack overflows if the recursion depth is unbounded.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "0cb51e581404c3c2",
+      "detector": "single-point-of-failure",
+      "severity": "medium",
+      "title": "Single point of failure: `/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/display/mod.rs::impl<Display>::draw:775` dominates 56 functions (4%)",
+      "description": "`/tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/display/mod.rs::impl<Display>::draw:775` dominates 56 of 1515 functions (3.7%). PageRank percentile: 0%. Blast radius boundary: /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/cursor.rs::impl<Cursor>::thickness:43, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/ui_config.rs::impl<UiConfig>::window_opacity:146, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/window.rs::impl<WindowConfig>::fullscreen:130, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/config/window.rs::impl<WindowConfig>::theme:153, /tmp/nix-shell-540336-2497635915/tmp.zZnau8nCIx/alacritty/alacritty/src/display/bell.rs::impl<VisualBell>::intensity_at_instant:46 (+54 more)",
+      "affected_files": [
+        "alacritty/src/renderer/text/mod.rs",
+        "alacritty/src/config/color.rs",
+        "alacritty/src/config/window.rs",
+        "alacritty/src/display/damage.rs",
+        "alacritty/src/message_bar.rs",
+        "alacritty/src/display/content.rs",
+        "alacritty/src/display/mod.rs",
+        "alacritty/src/display/bell.rs",
+        "alacritty/src/event.rs",
+        "alacritty/src/renderer/mod.rs",
+        "alacritty/src/display/meter.rs",
+        "alacritty/src/renderer/rects.rs",
+        "alacritty/src/display/window.rs"
+      ],
+      "line_start": 775,
+      "line_end": 1047,
+      "suggested_fix": "Consider splitting this function into smaller, independently callable units. Extract sub-functionality behind interfaces so callers have alternative paths.",
+      "estimated_effort": "Small (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "A single point of failure means all dependent code paths funnel through one function. If this function has a bug, performance issue, or API change, the blast radius is disproportionately large.",
+      "confidence": 0.95,
+      "deterministic": true
+    },
+    {
+      "id": "9400cf4ce4f9afff",
+      "detector": "PanicDensityDetector",
+      "severity": "medium",
+      "title": "High panic density in `write_ref_test_results`: 5 panic-family calls",
+      "description": "Function `write_ref_test_results` contains 5 calls to `.unwrap()`, `.expect()`, or `panic!()` at line 508, line 512, line 518, line 522, line 526. This makes the function fragile and likely to panic at runtime.",
+      "affected_files": [
+        "alacritty/src/window_context.rs"
+      ],
+      "line_start": 502,
+      "line_end": null,
+      "suggested_fix": "Reduce panic points by:\n- Using `?` operator for error propagation\n- Using `unwrap_or` / `unwrap_or_default` / `unwrap_or_else`\n- Returning `Result<T, E>` instead of panicking\n- Extracting fallible logic into a helper that returns Result",
+      "estimated_effort": "30 minutes",
+      "category": "reliability",
+      "cwe_id": null,
+      "why_it_matters": "Functions with many panic points are fragile. A single unexpected None/Err will crash the program. Consolidating error handling makes code more robust and easier to reason about.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "04063dab331f5512",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "alacritty_terminal/src/tty/windows/blocking.rs"
+      ],
+      "line_start": 105,
+      "line_end": 105,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "d619462702c8c6ff",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "alacritty_terminal/src/tty/windows/blocking.rs"
+      ],
+      "line_start": 117,
+      "line_end": 117,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ebf038a040290557",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "alacritty_terminal/src/tty/windows/blocking.rs"
+      ],
+      "line_start": 203,
+      "line_end": 203,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "52017eb979055b99",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "alacritty_terminal/src/tty/windows/blocking.rs"
+      ],
+      "line_start": 214,
+      "line_end": 214,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9b189623e1423b5e",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "alacritty_terminal/src/tty/windows/blocking.rs"
+      ],
+      "line_start": 258,
+      "line_end": 258,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ee3cf3ebd5eaae35",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "alacritty_terminal/src/tty/windows/child.rs"
+      ],
+      "line_start": 46,
+      "line_end": 46,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "9857b8ab0a98c86d",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "alacritty_terminal/src/tty/windows/child.rs"
+      ],
+      "line_start": 102,
+      "line_end": 102,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "454da5aff335eb94",
+      "detector": "MutexPoisoningRiskDetector",
+      "severity": "medium",
+      "title": "Mutex poisoning risk",
+      "description": "Using .lock().unwrap() will panic if the mutex is poisoned. Consider handling the PoisonError or using parking_lot::Mutex.",
+      "affected_files": [
+        "alacritty_terminal/src/tty/windows/child.rs"
+      ],
+      "line_start": 106,
+      "line_end": 106,
+      "suggested_fix": "Handle poisoning: `mutex.lock().unwrap_or_else(|e| e.into_inner())`\nOr use `parking_lot::Mutex` which has no poisoning.",
+      "estimated_effort": "15 minutes",
+      "category": "reliability",
+      "cwe_id": "CWE-667",
+      "why_it_matters": "Poisoned mutexes cause cascading panics across threads.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "43f6d9762d610d1a",
+      "detector": "ArchitecturalBottleneckDetector",
+      "severity": "medium",
+      "title": "Architectural Bottleneck: motion (architectural hub)",
+      "description": "Function 'motion' is called by 17 functions and has complexity 33. Changes here are high-risk.\n\nBetweenness centrality: 0.4027 - this function sits on many execution paths between other functions.\n\n📊 Threshold: 20 (adaptive) | Actual: 33 | Default would be: 20 | Profile: p90=7, p95=11, mean=3.2, n=1500",
+      "affected_files": [
+        "alacritty_terminal/src/vi_mode.rs"
+      ],
+      "line_start": 74,
+      "line_end": 186,
+      "suggested_fix": "This is a critical hub. Ensure comprehensive test coverage, add defensive error handling, and consider circuit breaker pattern.",
+      "estimated_effort": "Large (4-8 hours)",
+      "category": "architecture",
+      "cwe_id": null,
+      "why_it_matters": "Bottlenecks are single points of failure that amplify bugs. High fan-in with high complexity means many callers depend on risky code.",
+      "confidence": 0.85,
+      "deterministic": false,
+      "threshold_metadata": {
+        "actual_value": "33",
+        "default_threshold": "20",
+        "effective_threshold": "20",
+        "threshold_source": "adaptive"
+      }
+    },
+    {
+      "id": "4742f185406ab282",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: deserialize (211 lines)",
+      "description": "Function 'deserialize' has 211 lines (effective threshold: 150).",
+      "affected_files": [
+        "alacritty/src/config/bindings.rs"
+      ],
+      "line_start": 945,
+      "line_end": 1156,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "ffdb6f28721d5982",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: draw (272 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'draw' has 272 lines (effective threshold: 150).\n\n**Graph Analysis:**\nOrchestrator pattern: calls 63 functions (reduced severity)\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "alacritty/src/display/mod.rs"
+      ],
+      "line_start": 775,
+      "line_end": 1047,
+      "suggested_fix": "This appears to be an orchestrator function (coordinates many calls).\nIf it must remain long, ensure it:\n1. Has clear section comments\n2. Handles errors at each step\n3. Has a clear flow (consider a state machine for complex flows)",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "9710563b366dce8e",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: user_event (179 lines)",
+      "description": "Function 'user_event' has 179 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "alacritty/src/event.rs"
+      ],
+      "line_start": 285,
+      "line_end": 464,
+      "suggested_fix": "This function calls 5 different modules. Consider extracting:\n  - `handle_polling()` for polling operations\n  - `handle_text()` for text operations\n  - `handle_term()` for term operations",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    },
+    {
+      "id": "678cbf3b0abb2d03",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: handle_event (228 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'handle_event' has 228 lines (effective threshold: 150).\n\n**Graph Analysis:**\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "alacritty/src/event.rs"
+      ],
+      "line_start": 1841,
+      "line_end": 2069,
+      "suggested_fix": "This function calls 5 different modules. Consider extracting:\n  - `handle_text()` for text operations\n  - `handle_term()` for term operations\n  - `handle_src()` for src operations",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "e9ee68a584df7c00",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: execute (275 lines)",
+      "description": "[COMPOUND: 2 co-located issues] Function 'execute' has 275 lines (effective threshold: 150).\n\n**Graph Analysis:**\nHigh complexity density: 0.35 (complexity 97 / 275 lines)\nCalls 5 different modules - possible split points",
+      "affected_files": [
+        "alacritty/src/input/mod.rs"
+      ],
+      "line_start": 170,
+      "line_end": 445,
+      "suggested_fix": "This function calls 5 different modules. Consider extracting:\n  - `handle_text()` for text operations\n  - `handle_display()` for display operations\n  - `handle_grid()` for grid operations",
+      "estimated_effort": "1-2 hours",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7999999999999999,
+      "deterministic": false
+    },
+    {
+      "id": "9f44a3cb3d88b662",
+      "detector": "LongMethodsDetector",
+      "severity": "low",
+      "title": "Long method: regex_search_internal (159 lines)",
+      "description": "Function 'regex_search_internal' has 159 lines (effective threshold: 150).",
+      "affected_files": [
+        "alacritty_terminal/src/term/search.rs"
+      ],
+      "line_start": 274,
+      "line_end": 433,
+      "suggested_fix": "Break into smaller, focused functions.",
+      "estimated_effort": "30 minutes",
+      "category": "maintainability",
+      "cwe_id": null,
+      "why_it_matters": "Long methods are hard to understand, test, and maintain. Each function should do one thing well.",
+      "confidence": 0.7,
+      "deterministic": false
+    }
+  ],
+  "findings_summary": {
+    "critical": 0,
+    "high": 61,
+    "medium": 53,
+    "low": 6,
+    "info": 0,
+    "total": 120
+  },
+  "total_files": 88,
+  "total_functions": 1515,
+  "total_classes": 288,
+  "total_loc": 33207
+}
+
+Phase timings (cold):
+  calibrate        0.037s  (2.6%)
+  collect          0.004s  (0.3%)
+  detect           0.744s  (52.1%)
+  freeze           0.044s  (3.1%)
+  git_enrich       0.503s  (35.2%)
+  graph            0.013s  (0.9%)
+  parse            0.080s  (5.6%)
+  postprocess      0.001s  (0.1%)
+  score            0.001s  (0.1%)
+  TOTAL            1.429s
