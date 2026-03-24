@@ -115,11 +115,93 @@ install() {
         info "Verified: ${installed_version}"
     fi
 
+    # Install Claude Code hook
+    install_claude_hook
+
     echo ""
     info "Get started:"
     echo "  repotoire analyze ."
     echo "  repotoire lsp          # for editor integration"
     echo ""
+}
+
+# Install Claude Code pre-commit hook
+install_claude_hook() {
+    local hook_dir="$HOME/.repotoire/hooks"
+    local hook_script="$hook_dir/pre-commit.sh"
+    local claude_settings="$HOME/.claude/settings.json"
+
+    # Create hook directory
+    mkdir -p "$hook_dir"
+
+    # Write the hook script
+    cat > "$hook_script" << 'HOOKEOF'
+#!/usr/bin/env bash
+# Repotoire pre-commit hook for Claude Code.
+# Blocks commits with critical/high findings. Medium/low are advisory.
+set -euo pipefail
+command -v repotoire &>/dev/null || exit 0
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
+if ! echo "$COMMAND" | grep -q 'git commit'; then
+    exit 0
+fi
+OUTPUT=$(repotoire analyze --format json --severity medium 2>/dev/null) || true
+HAS_CRITICAL=$(echo "$OUTPUT" | jq -r '.findings_summary.critical // 0' 2>/dev/null) || HAS_CRITICAL=0
+HAS_HIGH=$(echo "$OUTPUT" | jq -r '.findings_summary.high // 0' 2>/dev/null) || HAS_HIGH=0
+if [ "$HAS_CRITICAL" -gt 0 ] 2>/dev/null || [ "$HAS_HIGH" -gt 0 ] 2>/dev/null; then
+    SUMMARY=$(echo "$OUTPUT" | jq -r '[.findings[] | select(.severity == "critical" or .severity == "high")] | map("- [\(.severity | ascii_upcase)] \(.title) (\(.affected_files[0] // "unknown"):\(.line_start // "?"))") | join("\n")' 2>/dev/null) || SUMMARY="Run 'repotoire analyze' for details."
+    jq -n --arg reason "$(printf "Repotoire found %d critical and %d high severity issues:\n\n%s\n\nFix these before committing." "$HAS_CRITICAL" "$HAS_HIGH" "$SUMMARY")" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$reason}}'
+    exit 0
+fi
+exit 0
+HOOKEOF
+    chmod +x "$hook_script"
+    info "Installed hook script to ${hook_script}"
+
+    # Merge into Claude Code settings.json
+    if ! command -v jq &>/dev/null; then
+        warn "jq not found — skipping Claude Code hook setup."
+        warn "Install jq and re-run, or manually add the hook to ${claude_settings}"
+        return
+    fi
+
+    mkdir -p "$HOME/.claude"
+
+    local hook_entry
+    hook_entry=$(jq -n --arg cmd "$hook_script" '{
+        hooks: {
+            PreToolUse: [{
+                matcher: "Bash",
+                hooks: [{
+                    type: "command",
+                    command: $cmd
+                }]
+            }]
+        }
+    }')
+
+    if [ -f "$claude_settings" ]; then
+        # Check if hook already exists
+        if jq -e '.hooks.PreToolUse[]?.hooks[]? | select(.command | contains("repotoire"))' "$claude_settings" &>/dev/null; then
+            info "Claude Code hook already configured"
+            return
+        fi
+
+        # Merge: add our PreToolUse entry to existing hooks
+        local merged
+        merged=$(jq --argjson new "$hook_entry" '
+            .hooks //= {} |
+            .hooks.PreToolUse //= [] |
+            .hooks.PreToolUse += $new.hooks.PreToolUse
+        ' "$claude_settings")
+        echo "$merged" > "$claude_settings"
+    else
+        # Create new settings file
+        echo "$hook_entry" > "$claude_settings"
+    fi
+
+    info "Claude Code hook configured — repotoire will check code before commits"
 }
 
 install "$@"
