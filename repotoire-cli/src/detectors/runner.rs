@@ -199,11 +199,27 @@ pub fn inject_taint_precomputed(
 
 // ── filter_test_file_findings ────────────────────────────────────────────────
 
-/// Remove findings where **all** affected files are test files.
+/// Remove findings where **all** affected files are test files, and downgrade
+/// findings where **all** affected files are non-production code (scripts,
+/// benchmarks, tools, examples) to LOW severity.
 ///
 /// Findings with no affected files are kept (can't determine origin).
 pub fn filter_test_file_findings(findings: &mut Vec<Finding>) {
     let before = findings.len();
+
+    // Downgrade non-production findings to LOW before filtering tests
+    for f in findings.iter_mut() {
+        if !f.affected_files.is_empty()
+            && f.affected_files.iter().all(|p| super::base::is_non_production_file(p))
+            && f.severity != crate::models::Severity::Low
+            && f.severity != crate::models::Severity::Info
+        {
+            debug!("Downgrading non-production finding to LOW: {}", f.title);
+            f.severity = crate::models::Severity::Low;
+        }
+    }
+
+    // Remove test-only findings
     findings.retain(|f| {
         if f.affected_files.is_empty() {
             return true; // keep — unknown origin

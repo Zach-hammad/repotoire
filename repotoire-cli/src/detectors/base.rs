@@ -207,6 +207,32 @@ impl DetectorConfig {
     }
 }
 
+/// Check if a file path is non-production code (scripts, benchmarks, tools, examples, docs).
+///
+/// Findings on non-production files are downgraded to LOW severity in the
+/// post-detection filter, since they don't represent production risk.
+/// This is separate from test files (which are filtered out entirely).
+pub fn is_non_production_file(path: &std::path::Path) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase();
+    path_str.contains("/scripts/")
+        || path_str.contains("/benchmarks/")
+        || path_str.contains("/benchmark/")
+        || path_str.contains("/tools/")
+        || path_str.contains("/examples/")
+        || path_str.contains("/example/")
+        || path_str.contains("/docs/")
+        || path_str.contains("/doc/")
+        || path_str.contains("/contrib/")
+        || path_str.contains("/misc/")
+        || path_str.contains("/hack/")
+        || path_str.contains("/utils/") && path_str.contains(".py") // utility scripts
+        || path_str.starts_with("scripts/")
+        || path_str.starts_with("benchmarks/")
+        || path_str.starts_with("tools/")
+        || path_str.starts_with("examples/")
+        || path_str.starts_with("docs/")
+}
+
 /// Check if a file path appears to be a test file
 /// Used by security detectors to avoid flagging test certificates, test fixtures, etc.
 pub fn is_test_file(path: &std::path::Path) -> bool {
