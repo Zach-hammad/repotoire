@@ -174,21 +174,11 @@ impl InsecureTlsDetector {
         }
     }
 
-    fn scan_files(&self) -> Vec<Finding> {
-        use crate::detectors::walk_source_files;
-
+    fn scan_files(&self, file_list: &[(&Path, &str)]) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut seen: HashSet<(String, u32)> = HashSet::new();
 
-        if !self.repository_path.exists() {
-            return findings;
-        }
-
-        let extensions = &[
-            "py", "pyi", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "kt", "kts", "rs",
-        ];
-
-        for path in walk_source_files(&self.repository_path, Some(extensions)) {
+        for (path, content) in file_list {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -199,19 +189,10 @@ impl InsecureTlsDetector {
                 continue;
             }
 
-            let rel_path = path
-                .strip_prefix(&self.repository_path)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+            let rel_path = path.to_string_lossy().to_string();
 
             // Downgrade severity in test files
             let is_test = is_test_file(Path::new(&rel_path));
-
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
 
             if content.len() > 500_000 {
                 continue;
@@ -412,9 +393,21 @@ impl Detector for InsecureTlsDetector {
     fn bypass_postprocessor(&self) -> bool {
         true
     }
-    fn detect(&self, _ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
         debug!("Starting insecure TLS detection");
-        let findings = self.scan_files();
+        let fp = ctx.as_file_provider();
+        let extensions: &[&str] = &[
+            "py", "pyi", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "kt", "kts", "rs",
+        ];
+        let paths = fp.files_with_extensions(extensions);
+        let mut file_list: Vec<(&Path, String)> = Vec::new();
+        for path in &paths {
+            if let Some(content) = fp.content(path) {
+                file_list.push((path, content.as_ref().clone()));
+            }
+        }
+        let file_refs: Vec<(&Path, &str)> = file_list.iter().map(|(p, c)| (*p, c.as_str())).collect();
+        let findings = self.scan_files(&file_refs);
         info!("InsecureTlsDetector found {} findings", findings.len());
         Ok(findings)
     }
@@ -444,31 +437,24 @@ impl super::RegisteredDetector for InsecureTlsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn test_python_verify_false() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("client.py");
-        std::fs::write(&file, "response = requests.get(url, verify=False)\n").expect("should write test file");
-
-        let detector = InsecureTlsDetector::new(dir.path());
-        let findings = detector.scan_files();
+        let detector = InsecureTlsDetector::new(Path::new("."));
+        let path = Path::new("client.py");
+        let content = "response = requests.get(url, verify=False)\n";
+        let findings = detector.scan_files(&[(path, content)]);
         assert!(!findings.is_empty(), "Should detect verify=False");
         assert_eq!(findings[0].severity, Severity::High);
     }
 
     #[test]
     fn test_js_reject_unauthorized() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("client.js");
-        std::fs::write(
-            &file,
-            "const agent = new https.Agent({ rejectUnauthorized: false });\n",
-        )
-        .expect("should write test file");
-
-        let detector = InsecureTlsDetector::new(dir.path());
-        let findings = detector.scan_files();
+        let detector = InsecureTlsDetector::new(Path::new("."));
+        let path = Path::new("client.js");
+        let content = "const agent = new https.Agent({ rejectUnauthorized: false });\n";
+        let findings = detector.scan_files(&[(path, content)]);
         assert!(
             !findings.is_empty(),
             "Should detect rejectUnauthorized: false"
@@ -477,31 +463,19 @@ mod tests {
 
     #[test]
     fn test_go_insecure_skip_verify() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("client.go");
-        std::fs::write(
-            &file,
-            "tlsConfig := &tls.Config{InsecureSkipVerify: true}\n",
-        )
-        .expect("should write test file");
-
-        let detector = InsecureTlsDetector::new(dir.path());
-        let findings = detector.scan_files();
+        let detector = InsecureTlsDetector::new(Path::new("."));
+        let path = Path::new("client.go");
+        let content = "tlsConfig := &tls.Config{InsecureSkipVerify: true}\n";
+        let findings = detector.scan_files(&[(path, content)]);
         assert!(!findings.is_empty(), "Should detect InsecureSkipVerify");
     }
 
     #[test]
     fn test_rust_danger_accept() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("client.rs");
-        std::fs::write(
-            &file,
-            "let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build()?;\n",
-        )
-        .expect("should write test file");
-
-        let detector = InsecureTlsDetector::new(dir.path());
-        let findings = detector.scan_files();
+        let detector = InsecureTlsDetector::new(Path::new("."));
+        let path = Path::new("client.rs");
+        let content = "let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build()?;\n";
+        let findings = detector.scan_files(&[(path, content)]);
         assert!(
             !findings.is_empty(),
             "Should detect danger_accept_invalid_certs"
@@ -510,29 +484,19 @@ mod tests {
 
     #[test]
     fn test_java_trust_all() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("Client.java");
-        std::fs::write(
-            &file,
-            "TrustManager[] trustAllCerts = new TrustAllCerts();\n",
-        )
-        .expect("should write test file");
-
-        let detector = InsecureTlsDetector::new(dir.path());
-        let findings = detector.scan_files();
+        let detector = InsecureTlsDetector::new(Path::new("."));
+        let path = Path::new("Client.java");
+        let content = "TrustManager[] trustAllCerts = new TrustAllCerts();\n";
+        let findings = detector.scan_files(&[(path, content)]);
         assert!(!findings.is_empty(), "Should detect TrustAllCerts");
     }
 
     #[test]
     fn test_test_file_downgraded() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let test_dir = dir.path().join("tests");
-        std::fs::create_dir_all(&test_dir).expect("should write test file");
-        let file = test_dir.join("test_client.py");
-        std::fs::write(&file, "response = requests.get(url, verify=False)\n").expect("should write test file");
-
-        let detector = InsecureTlsDetector::new(dir.path());
-        let findings = detector.scan_files();
+        let detector = InsecureTlsDetector::new(Path::new("."));
+        let path = Path::new("tests/test_client.py");
+        let content = "response = requests.get(url, verify=False)\n";
+        let findings = detector.scan_files(&[(path, content)]);
         assert!(!findings.is_empty(), "Should still detect in test files");
         assert_eq!(
             findings[0].severity,
@@ -543,27 +507,19 @@ mod tests {
 
     #[test]
     fn test_clean_code_no_findings() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("client.py");
-        std::fs::write(
-            &file,
-            "response = requests.get(url)\nprint(response.status_code)\n",
-        )
-        .expect("should write test file");
-
-        let detector = InsecureTlsDetector::new(dir.path());
-        let findings = detector.scan_files();
+        let detector = InsecureTlsDetector::new(Path::new("."));
+        let path = Path::new("client.py");
+        let content = "response = requests.get(url)\nprint(response.status_code)\n";
+        let findings = detector.scan_files(&[(path, content)]);
         assert!(findings.is_empty(), "Clean code should have no findings");
     }
 
     #[test]
     fn test_python_cert_none() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("server.py");
-        std::fs::write(&file, "ctx = ssl.create_default_context()\nctx.check_hostname = False\nctx.verify_mode = ssl.CERT_NONE\n").expect("should write test file");
-
-        let detector = InsecureTlsDetector::new(dir.path());
-        let findings = detector.scan_files();
+        let detector = InsecureTlsDetector::new(Path::new("."));
+        let path = Path::new("server.py");
+        let content = "ctx = ssl.create_default_context()\nctx.check_hostname = False\nctx.verify_mode = ssl.CERT_NONE\n";
+        let findings = detector.scan_files(&[(path, content)]);
         assert!(
             findings.len() >= 2,
             "Should detect both check_hostname and CERT_NONE. Found: {}",

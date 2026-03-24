@@ -147,28 +147,26 @@ impl UnsafeTemplateDetector {
         )
     }
 
-    /// Scan Python files for template vulnerabilities
-    fn scan_python_files(&self) -> Vec<Finding> {
-        use crate::detectors::walk_source_files;
-
+    /// Scan Python files for template vulnerabilities using the given FileProvider.
+    fn scan_python_files(
+        &self,
+        fp: &crate::detectors::analysis_context::AnalysisContextFileProvider<'_>,
+    ) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        // Walk through Python files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["py"])) {
-            let rel_path = path
-                .strip_prefix(&self.repository_path)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+        // Walk through Python files via FileProvider
+        for path in fp.files_with_extension("py") {
+            let rel_path = path.to_string_lossy().to_string();
 
             if self.should_exclude(&rel_path) {
                 continue;
             }
 
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let content = match fp.content(path) {
+                Some(c) => c,
+                None => continue,
             };
+            let content = content.as_str();
 
             if content.len() > 500_000 {
                 continue;
@@ -239,10 +237,11 @@ impl UnsafeTemplateDetector {
         findings
     }
 
-    /// Scan JavaScript/TypeScript files for XSS vulnerabilities
-    fn scan_javascript_files(&self) -> Vec<Finding> {
-        use crate::detectors::walk_source_files;
-
+    /// Scan JavaScript/TypeScript files for XSS vulnerabilities using the given FileProvider.
+    fn scan_javascript_files(
+        &self,
+        fp: &crate::detectors::analysis_context::AnalysisContextFileProvider<'_>,
+    ) -> Vec<Finding> {
         let mut findings = Vec::new();
 
         // Pre-compile static-assignment regexes outside the file loop
@@ -258,22 +257,19 @@ impl UnsafeTemplateDetector {
         });
         let static_outerhtml_pat = &*STATIC_OUTERHTML;
 
-        // Walk through JS/TS files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["js", "jsx", "ts", "tsx"])) {
-            let rel_path = path
-                .strip_prefix(&self.repository_path)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+        // Walk through JS/TS files via FileProvider
+        for path in fp.files_with_extensions(&["js", "jsx", "ts", "tsx"]) {
+            let rel_path = path.to_string_lossy().to_string();
 
             if self.should_exclude(&rel_path) {
                 continue;
             }
 
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let content = match fp.content(path) {
+                Some(c) => c,
+                None => continue,
             };
+            let content = content.as_str();
 
             if content.len() > 500_000 {
                 continue;
@@ -353,28 +349,26 @@ impl UnsafeTemplateDetector {
         findings
     }
 
-    /// Scan Vue files for v-html directive
-    fn scan_vue_files(&self) -> Vec<Finding> {
-        use crate::detectors::walk_source_files;
-
+    /// Scan Vue files for v-html directive using the given FileProvider.
+    fn scan_vue_files(
+        &self,
+        fp: &crate::detectors::analysis_context::AnalysisContextFileProvider<'_>,
+    ) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        // Walk through Vue files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["vue"])) {
-            let rel_path = path
-                .strip_prefix(&self.repository_path)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+        // Walk through Vue files via FileProvider
+        for path in fp.files_with_extension("vue") {
+            let rel_path = path.to_string_lossy().to_string();
 
             if self.should_exclude(&rel_path) {
                 continue;
             }
 
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let content = match fp.content(path) {
+                Some(c) => c,
+                None => continue,
             };
+            let content = content.as_str();
 
             if content.len() > 500_000 {
                 continue;
@@ -684,21 +678,20 @@ impl Detector for UnsafeTemplateDetector {
         let graph = ctx.graph;
         debug!("Starting unsafe template detection");
 
+        let fp = ctx.as_file_provider();
         let mut findings = Vec::new();
 
-        if self.repository_path.exists() {
-            // Scan Python files
-            findings.extend(self.scan_python_files());
+        // Scan Python files
+        findings.extend(self.scan_python_files(&fp));
 
-            if findings.len() < self.max_findings {
-                // Scan JavaScript/TypeScript files
-                findings.extend(self.scan_javascript_files());
-            }
+        if findings.len() < self.max_findings {
+            // Scan JavaScript/TypeScript files
+            findings.extend(self.scan_javascript_files(&fp));
+        }
 
-            if findings.len() < self.max_findings {
-                // Scan Vue files
-                findings.extend(self.scan_vue_files());
-            }
+        if findings.len() < self.max_findings {
+            // Scan Vue files
+            findings.extend(self.scan_vue_files(&fp));
         }
 
         // Truncate to max_findings
@@ -842,17 +835,13 @@ mod tests {
     fn test_no_finding_for_static_innerhtml() {
         use crate::graph::GraphStore;
 
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("app.js");
-        std::fs::write(
-            &file,
-            "function clearContent(el) {\n    el.innerHTML = \"\";\n}\nfunction setLoading(el) {\n    el.innerHTML = \"<div>Loading...</div>\";\n}\n",
-        )
-        .expect("should write test file");
+        let content = "function clearContent(el) {\n    el.innerHTML = \"\";\n}\nfunction setLoading(el) {\n    el.innerHTML = \"<div>Loading...</div>\";\n}\n";
 
         let store = GraphStore::in_memory();
-        let detector = UnsafeTemplateDetector::with_repository_path(dir.path().to_path_buf());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let detector = UnsafeTemplateDetector::with_repository_path(std::path::PathBuf::from("/mock/repo"));
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("app.js", content),
+        ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         let innerhtml_findings: Vec<_> = findings
             .iter()

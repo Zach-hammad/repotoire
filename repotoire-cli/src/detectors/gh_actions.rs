@@ -66,19 +66,8 @@ impl GHActionsInjectionDetector {
     }
 
     /// Scan a workflow file for dangerous patterns
-    fn scan_workflow_file(&self, file_path: &Path) -> Vec<InjectionMatch> {
-        let content = match std::fs::read_to_string(file_path) {
-            Ok(c) => c,
-            Err(e) => {
-                debug!("Failed to read {:?}: {}", file_path, e);
-                return Vec::new();
-            }
-        };
-
-        let rel_path = file_path
-            .strip_prefix(&self.repository_path)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| file_path.to_string_lossy().to_string());
+    fn scan_workflow_file(&self, file_path: &Path, content: &str) -> Vec<InjectionMatch> {
+        let rel_path = file_path.to_string_lossy().to_string();
 
         let dangerous = &*DANGEROUS_PATTERN;
         let run_block = &*RUN_BLOCK_PATTERN;
@@ -292,32 +281,37 @@ impl Detector for GHActionsInjectionDetector {
         &["yml", "yaml"]
     }
 
-    fn detect(&self, _ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
-        let workflows_dir = self.repository_path.join(".github").join("workflows");
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let fp = ctx.as_file_provider();
 
-        if !workflows_dir.exists() {
-            debug!("No .github/workflows directory found");
+        // Get all YAML files and filter to .github/workflows/
+        let yaml_files = fp.files_with_extensions(&["yml", "yaml"]);
+        let workflow_files: Vec<&Path> = yaml_files
+            .into_iter()
+            .filter(|p| p.to_string_lossy().contains(".github/workflows/"))
+            .collect();
+
+        if workflow_files.is_empty() {
+            debug!("No .github/workflows YAML files found");
             return Ok(Vec::new());
         }
 
-        info!("Scanning GitHub Actions workflows in {:?}", workflows_dir);
+        info!("Scanning {} GitHub Actions workflow files", workflow_files.len());
 
         let mut all_matches = Vec::new();
 
-        // Scan all YAML files
-        for entry in std::fs::read_dir(&workflows_dir)? {
-            let entry = entry?;
-            let path = entry.path();
+        // Scan all workflow YAML files
+        for path in workflow_files {
+            let content = match fp.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
 
-            if let Some(ext) = path.extension() {
-                if ext == "yml" || ext == "yaml" {
-                    let matches = self.scan_workflow_file(&path);
-                    all_matches.extend(matches);
+            let matches = self.scan_workflow_file(path, &content);
+            all_matches.extend(matches);
 
-                    if all_matches.len() >= self.max_findings {
-                        break;
-                    }
-                }
+            if all_matches.len() >= self.max_findings {
+                break;
             }
         }
 

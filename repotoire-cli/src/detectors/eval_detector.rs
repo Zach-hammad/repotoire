@@ -345,33 +345,26 @@ impl EvalDetector {
         None
     }
 
-    /// Scan source files for dangerous patterns
-    fn scan_source_files(&self) -> Vec<Finding> {
-        use crate::detectors::walk_source_files;
-
+    /// Scan source files for dangerous patterns using the given FileProvider.
+    fn scan_source_files_from_provider(
+        &self,
+        fp: &crate::detectors::analysis_context::AnalysisContextFileProvider<'_>,
+    ) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut seen_locations: HashSet<(String, u32)> = HashSet::new();
 
-        if !self.repository_path.exists() {
-            return findings;
-        }
-
-        // Walk through Python files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["py"])) {
-            let rel_path = path
-                .strip_prefix(&self.repository_path)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+        // Walk through Python files via FileProvider
+        for path in fp.files_with_extension("py") {
+            let rel_path = path.to_string_lossy().to_string();
 
             if self.should_exclude(&rel_path) {
                 continue;
             }
 
             // Cheap pre-filter: skip files without any eval/exec keywords
-            let raw = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let raw = match fp.content(path) {
+                Some(c) => c,
+                None => continue,
             };
             if !raw.contains("eval(")
                 && !raw.contains("exec(")
@@ -385,7 +378,7 @@ impl EvalDetector {
                 continue;
             }
 
-            let content = match crate::cache::global_cache().masked_content(&path) {
+            let content = match fp.masked_content(path) {
                 Some(c) => c.to_string(),
                 None => continue,
             };
@@ -639,7 +632,8 @@ impl Detector for EvalDetector {
         debug!("Starting eval/exec detection");
 
         // Primary detection is via source scanning
-        let mut findings = self.scan_source_files();
+        let fp = ctx.as_file_provider();
+        let mut findings = self.scan_source_files_from_provider(&fp);
 
         // Run taint analysis to adjust severity based on data flow (precomputed or fallback)
         let mut taint_results = if let Some(cross) = self.precomputed_cross.get() {
@@ -720,21 +714,13 @@ mod tests {
 
     #[test]
     fn test_detects_eval_with_variable() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("handler.py");
-        std::fs::write(
-            &file,
-            r#"
-def process(user_input):
-    result = eval(user_input)
-    return result
-"#,
-        )
-        .expect("should write test file");
+        let content = "def process(user_input):\n    result = eval(user_input)\n    return result\n";
 
         let store = GraphStore::in_memory();
-        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("handler.py", content),
+        ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -745,18 +731,13 @@ def process(user_input):
 
     #[test]
     fn test_no_finding_for_management_command() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let mgmt_dir = dir.path().join("management").join("commands");
-        std::fs::create_dir_all(&mgmt_dir).expect("should write test file");
-        let file = mgmt_dir.join("shell.py");
-        std::fs::write(
-            &file,
-            "def handle(self, **options):\n    code = compile(source, '<shell>', 'exec')\n    exec(code)\n",
-        ).expect("should write test file");
+        let content = "def handle(self, **options):\n    code = compile(source, '<shell>', 'exec')\n    exec(code)\n";
 
         let store = GraphStore::in_memory();
-        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("management/commands/shell.py", content),
+        ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -767,17 +748,13 @@ def process(user_input):
 
     #[test]
     fn test_no_finding_for_method_eval() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("smartif.py");
-        std::fs::write(
-            &file,
-            "class Operator:\n    def eval(self, context):\n        return self.value\n\nresult = op.eval(context)\n",
-        )
-        .expect("should write test file");
+        let content = "class Operator:\n    def eval(self, context):\n        return self.value\n\nresult = op.eval(context)\n";
 
         let store = GraphStore::in_memory();
-        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("smartif.py", content),
+        ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         let eval_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("eval")).collect();
         assert!(eval_findings.is_empty(), "Should not flag .eval() method call. Found: {:?}",
@@ -786,17 +763,13 @@ def process(user_input):
 
     #[test]
     fn test_no_finding_for_safe_subprocess() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("runner.py");
-        std::fs::write(
-            &file,
-            "import subprocess\n\ndef run_command(args):\n    result = subprocess.run(args, capture_output=True)\n    return result.stdout\n",
-        )
-        .expect("should write test file");
+        let content = "import subprocess\n\ndef run_command(args):\n    result = subprocess.run(args, capture_output=True)\n    return result.stdout\n";
 
         let store = GraphStore::in_memory();
-        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("runner.py", content),
+        ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         let subprocess_findings: Vec<_> = findings.iter().filter(|f| {
             f.title.contains("subprocess") || f.title.contains("command") || f.title.contains("Shell") || f.title.contains("shell")
@@ -807,20 +780,13 @@ def process(user_input):
 
     #[test]
     fn test_no_finding_for_literal_eval() {
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let file = dir.path().join("safe.py");
-        std::fs::write(
-            &file,
-            r#"
-import ast
-data = ast.literal_eval("[1, 2, 3]")
-"#,
-        )
-        .expect("should write test file");
+        let content = "import ast\ndata = ast.literal_eval(\"[1, 2, 3]\")\n";
 
         let store = GraphStore::in_memory();
-        let detector = EvalDetector::with_repository_path(dir.path().to_path_buf());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("safe.py", content),
+        ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

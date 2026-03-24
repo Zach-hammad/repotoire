@@ -479,47 +479,37 @@ impl SQLInjectionDetector {
         false
     }
 
-    /// Scan source files for dangerous SQL patterns
-    fn scan_source_files(&self) -> Vec<Finding> {
-        use crate::detectors::walk_source_files;
-
+    /// Scan source files for dangerous SQL patterns using the given FileProvider.
+    fn scan_source_files_from_provider(
+        &self,
+        fp: &crate::detectors::analysis_context::AnalysisContextFileProvider<'_>,
+    ) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut seen_locations: HashSet<(String, u32)> = HashSet::new();
 
-        if !self.repository_path.exists() {
-            debug!("Repository path does not exist: {:?}", self.repository_path);
-            return findings;
-        }
-
         // Detect ORMs/frameworks to skip safe parameterized patterns
-        let detected_frameworks = detect_frameworks(&self.repository_path);
+        let detected_frameworks = detect_frameworks(fp.repo_path());
         debug!(
             "Detected {} frameworks for ORM pattern detection",
             detected_frameworks.len()
         );
 
-        debug!("Scanning for SQL injection in: {:?}", self.repository_path);
+        debug!("Scanning for SQL injection via FileProvider");
 
-        // Walk through Python, JavaScript, TypeScript, and Go files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(
-            &self.repository_path,
-            Some(&["py", "js", "ts", "go", "java"]),
-        ) {
-            if self.should_exclude(&path) {
+        // Walk through Python, JavaScript, TypeScript, and Go files via FileProvider
+        for path in fp.files_with_extensions(&["py", "js", "ts", "go", "java"]) {
+            if self.should_exclude(path) {
                 debug!("Excluding file: {:?}", path);
                 continue;
             }
 
-            let rel_path = path
-                .strip_prefix(&self.repository_path)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+            let rel_path = path.to_string_lossy().to_string();
 
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let content = match fp.content(path) {
+                Some(c) => c,
+                None => continue,
             };
+            let content = content.as_str();
 
             // Skip very large files
             if content.len() > 500_000 {
@@ -831,7 +821,8 @@ impl Detector for SQLInjectionDetector {
         debug!("Starting SQL injection detection with taint analysis");
 
         // Step 1: Run pattern-based detection (existing logic)
-        let mut findings = self.scan_source_files();
+        let fp = ctx.as_file_provider();
+        let mut findings = self.scan_source_files_from_provider(&fp);
 
         // Step 2: Run graph-based taint analysis to find data flow paths
         // Use precomputed results if available, otherwise fall back to own analysis
