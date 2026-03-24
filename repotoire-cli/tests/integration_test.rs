@@ -116,7 +116,7 @@ fn test_analyze_fixtures_produces_findings() {
 
     // Run analysis on fixtures with JSON output
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     // Should exit successfully
     assert_eq!(
@@ -153,7 +153,7 @@ fn test_analyze_fixtures_finds_code_smells() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -189,7 +189,7 @@ fn test_json_output_is_valid() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -232,7 +232,7 @@ fn test_json_findings_have_required_fields() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -278,7 +278,7 @@ fn test_json_findings_summary_counts() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -351,7 +351,6 @@ fn test_sarif_output_is_valid_json() {
         &[
             "--format",
             "sarif",
-            "--no-git",
             "-o",
             output_file.to_str().unwrap(),
         ],
@@ -380,7 +379,6 @@ fn test_sarif_output_has_required_structure() {
         &[
             "--format",
             "sarif",
-            "--no-git",
             "-o",
             output_file.to_str().unwrap(),
         ],
@@ -435,7 +433,6 @@ fn test_sarif_results_have_required_fields() {
         &[
             "--format",
             "sarif",
-            "--no-git",
             "-o",
             output_file.to_str().unwrap(),
         ],
@@ -494,7 +491,6 @@ fn test_sarif_rules_are_defined() {
         &[
             "--format",
             "sarif",
-            "--no-git",
             "-o",
             output_file.to_str().unwrap(),
         ],
@@ -545,7 +541,7 @@ fn test_scoring_produces_valid_scores() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -595,7 +591,7 @@ fn test_scoring_produces_valid_grades() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -616,7 +612,7 @@ fn test_scoring_grade_matches_score() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -662,7 +658,7 @@ fn test_bad_code_has_lower_score_than_good_code() {
     std::fs::copy(&good_file, good_dir.path().join("simple_valid.py")).unwrap();
 
     let (good_stdout, good_stderr, good_exit) =
-        run_analyze(good_dir.path(), &["--format", "json", "--no-git"]);
+        run_analyze(good_dir.path(), &["--format", "json"]);
 
     assert_eq!(good_exit, 0, "Good code analysis failed: {}", good_stderr);
 
@@ -672,7 +668,7 @@ fn test_bad_code_has_lower_score_than_good_code() {
     std::fs::copy(&bad_file, bad_dir.path().join("god_class.py")).unwrap();
 
     let (bad_stdout, bad_stderr, bad_exit) =
-        run_analyze(bad_dir.path(), &["--format", "json", "--no-git"]);
+        run_analyze(bad_dir.path(), &["--format", "json"]);
 
     assert_eq!(bad_exit, 0, "Bad code analysis failed: {}", bad_stderr);
 
@@ -724,7 +720,7 @@ fn test_fail_on_critical() {
     // This might not trigger depending on findings, but we test the flag works
     let (_stdout, _stderr, _exit_code) = run_analyze(
         workspace.path(),
-        &["--format", "json", "--no-git", "--fail-on", "critical"],
+        &["--format", "json", "--fail-on", "critical"],
     );
 
     // Exit code should be 0 (no critical) or 1 (has critical)
@@ -740,7 +736,7 @@ fn test_severity_filter() {
     // We verify the command runs successfully.
     let (stdout, stderr, exit_code) = run_analyze(
         workspace.path(),
-        &["--format", "json", "--no-git", "--severity", "high"],
+        &["--format", "json", "--severity", "high"],
     );
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
@@ -770,7 +766,7 @@ fn test_top_limit() {
 
     let (stdout, stderr, exit_code) = run_analyze(
         workspace.path(),
-        &["--format", "json", "--no-git", "--top", "3"],
+        &["--format", "json", "--top", "3"],
     );
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
@@ -790,7 +786,7 @@ fn test_text_format_output() {
 
     let (stdout, stderr, exit_code) = run_analyze(
         workspace.path(),
-        &["--format", "text", "--no-git", "--no-emoji"],
+        &["--format", "text", "--no-emoji"],
     );
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
@@ -812,7 +808,7 @@ fn test_empty_directory() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
 
     let (stdout, stderr, exit_code) =
-        run_analyze(temp_dir.path(), &["--format", "json", "--no-git"]);
+        run_analyze(temp_dir.path(), &["--format", "json"]);
 
     // Should handle gracefully - either exit 0 with empty findings or print a message
     // The exact behavior depends on implementation
@@ -841,7 +837,7 @@ fn test_file_counts_are_accurate() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -887,7 +883,7 @@ fn test_detects_long_parameter_list() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -911,7 +907,7 @@ fn test_detects_complexity_issues() {
     let workspace = create_test_workspace();
 
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--no-git"]);
+        run_analyze(workspace.path(), &["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
