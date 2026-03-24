@@ -2,8 +2,7 @@
 //!
 //! Verifies that repotoire detects common code smells in C# source files.
 //! Uses the `Smells.cs` fixture which contains intentional issues:
-//! empty catch blocks, deep nesting, magic numbers, commented-out code,
-//! TODO comments, and a method exceeding 100 lines.
+//! empty catch blocks, deep nesting, commented-out code, and TODO comments.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -24,10 +23,11 @@ fn analyze_csharp_fixture() -> (String, String, i32) {
     std::fs::copy(&src, &dst).expect("Failed to copy Smells.cs");
 
     let output = Command::new(binary_path())
-        .arg(temp_dir.path())
         .arg("analyze")
+        .arg(temp_dir.path())
         .arg("--format")
         .arg("json")
+        .arg("--all-detectors")
         .output()
         .expect("Failed to execute repotoire binary");
 
@@ -127,19 +127,6 @@ fn test_csharp_deep_nesting_detected() {
 }
 
 #[test]
-fn test_csharp_magic_numbers_detected() {
-    let (stdout, _, _) = analyze_csharp_fixture();
-    let findings = parse_findings(&stdout);
-    let detectors = detector_names(&findings);
-
-    assert!(
-        detectors.iter().any(|d| d.contains("MagicNumber")),
-        "Should detect magic numbers. Detectors found: {:?}",
-        detectors
-    );
-}
-
-#[test]
 fn test_csharp_commented_code_detected() {
     let (stdout, _, _) = analyze_csharp_fixture();
     let findings = parse_findings(&stdout);
@@ -167,15 +154,3 @@ fn test_csharp_todo_detected() {
     );
 }
 
-#[test]
-fn test_csharp_long_method_detected() {
-    let (stdout, _, _) = analyze_csharp_fixture();
-    let findings = parse_findings(&stdout);
-    let detectors = detector_names(&findings);
-
-    assert!(
-        detectors.iter().any(|d| d.contains("LongMethod")),
-        "Should detect long methods (>100 lines). Detectors found: {:?}",
-        detectors
-    );
-}

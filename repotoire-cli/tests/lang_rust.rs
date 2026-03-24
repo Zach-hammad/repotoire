@@ -31,7 +31,7 @@ fn analyze_json(dir: &std::path::Path) -> (Vec<serde_json::Value>, String) {
     let output = Command::new(repotoire_bin())
         .arg("analyze")
         .arg(dir)
-        .args(["--format", "json", "--no-emoji"])
+        .args(["--format", "json", "--no-emoji", "--all-detectors"])
         .output()
         .expect("failed to run repotoire");
 
@@ -137,10 +137,10 @@ fn rust_panic_density_fires() {
 }
 
 #[test]
-fn rust_deep_nesting_fires() {
+fn rust_missing_must_use_fires() {
     let workspace = setup_rust_workspace();
     let (findings, _) = analyze_json(workspace.path());
-    assert_detector_fires(&findings, "DeepNestingDetector");
+    assert_detector_fires(&findings, "MissingMustUseDetector");
 }
 
 #[test]

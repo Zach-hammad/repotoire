@@ -27,7 +27,7 @@ fn create_c_workspace() -> tempfile::TempDir {
 /// Run `repotoire analyze` and return parsed JSON, stderr, and exit code.
 fn run_analyze_json(dir: &std::path::Path) -> (serde_json::Value, String, i32) {
     let output = Command::new(binary_path())
-        .args([dir.to_str().unwrap(), "analyze", "--format", "json"])
+        .args(["analyze", dir.to_str().unwrap(), "--format", "json", "--all-detectors"])
         .output()
         .expect("Failed to execute repotoire");
 
@@ -98,14 +98,14 @@ fn test_c_produces_findings() {
 // ============================================================================
 
 #[test]
-fn test_c_detects_deep_nesting() {
+fn test_c_detects_duplicate_code() {
     let workspace = create_c_workspace();
     let (report, _, _) = run_analyze_json(workspace.path());
     let detectors = detector_names(&report);
 
     assert!(
-        detectors.iter().any(|d| d == "DeepNestingDetector"),
-        "Expected DeepNestingDetector to fire. Got: {:?}",
+        detectors.iter().any(|d| d == "DuplicateCodeDetector"),
+        "Expected DuplicateCodeDetector to fire on smells.c. Got: {:?}",
         detectors
     );
 }

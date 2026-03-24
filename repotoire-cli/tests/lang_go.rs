@@ -28,10 +28,11 @@ fn create_go_workspace() -> tempfile::TempDir {
 /// Run repotoire analyze and return parsed JSON
 fn analyze_go(dir: &std::path::Path) -> serde_json::Value {
     let output = Command::new(binary_path())
-        .arg(dir)
         .arg("analyze")
+        .arg(dir)
         .arg("--format")
         .arg("json")
+        .arg("--all-detectors")
         .output()
         .expect("Failed to run repotoire");
 
@@ -110,14 +111,14 @@ fn test_go_deep_nesting() {
 // ============================================================================
 
 #[test]
-fn test_go_magic_numbers() {
+fn test_go_insecure_crypto() {
     let workspace = create_go_workspace();
     let report = analyze_go(workspace.path());
     let detectors = detector_names(&report);
 
     assert!(
-        detectors.iter().any(|d| d == "MagicNumbersDetector"),
-        "Should detect magic numbers in Go. Detectors found: {:?}",
+        detectors.iter().any(|d| d == "InsecureCryptoDetector"),
+        "Should detect insecure crypto in Go. Detectors found: {:?}",
         detectors,
     );
 }

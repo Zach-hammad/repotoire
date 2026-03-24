@@ -30,7 +30,7 @@ fn create_python_workspace() -> tempfile::TempDir {
 /// Run `repotoire analyze` and return parsed JSON, stderr, and exit code.
 fn run_analyze_json(dir: &std::path::Path) -> (serde_json::Value, String, i32) {
     let output = Command::new(binary_path())
-        .args([dir.to_str().unwrap(), "analyze", "--format", "json"])
+        .args(["analyze", dir.to_str().unwrap(), "--format", "json", "--all-detectors"])
         .output()
         .expect("Failed to execute repotoire");
 

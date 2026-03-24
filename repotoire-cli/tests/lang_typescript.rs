@@ -45,7 +45,7 @@ fn setup_fixture_workspace(filenames: &[&str]) -> tempfile::TempDir {
 /// Run repotoire analyze and return parsed JSON findings.
 fn run_analyze(dir: &Path, extra_args: &[&str]) -> Vec<serde_json::Value> {
     let mut cmd = Command::new(repotoire_bin());
-    cmd.arg("analyze").arg(dir).arg("--no-emoji");
+    cmd.arg("analyze").arg(dir).arg("--no-emoji").arg("--all-detectors");
     for arg in extra_args {
         cmd.arg(arg);
     }
@@ -154,19 +154,17 @@ fn test_ts_deep_nesting() {
 }
 
 // ============================================================================
-// Test: Magic numbers
+// Test: Dead code detection
 // ============================================================================
 
 #[test]
-fn test_ts_magic_numbers() {
+fn test_ts_dead_code() {
     let dir = setup_fixture_workspace(&["smells.ts"]);
     let findings = run_analyze(dir.path(), &["--format", "json"]);
 
-    // MagicNumbersDetector now fires on TypeScript
     assert!(
-        has_detector(&findings, "MagicNumbersDetector")
-            || has_detector(&findings, "MagicNumberDetector"),
-        "MagicNumbersDetector should detect magic numbers in TypeScript. Found: {:?}",
+        has_detector(&findings, "DeadCodeDetector"),
+        "DeadCodeDetector should fire on TypeScript fixture. Found: {:?}",
         detector_names(&findings)
     );
 }

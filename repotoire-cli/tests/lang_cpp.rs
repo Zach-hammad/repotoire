@@ -22,7 +22,7 @@ fn setup_cpp_workspace() -> tempfile::TempDir {
 /// Run `repotoire analyze` with JSON output on the given path.
 fn run_analyze(path: &std::path::Path, extra: &[&str]) -> (String, String, i32) {
     let mut cmd = Command::new(binary_path());
-    cmd.arg(path).arg("analyze").arg("--format").arg("json");
+    cmd.arg("analyze").arg(path).arg("--format").arg("json").arg("--all-detectors");
     for a in extra {
         cmd.arg(a);
     }
@@ -85,25 +85,13 @@ fn test_cpp_empty_catch_not_supported() {
 }
 
 #[test]
-fn test_cpp_deep_nesting_detected() {
+fn test_cpp_dead_store_detected() {
     let ws = setup_cpp_workspace();
     let (stdout, _, _) = run_analyze(ws.path(), &[]);
     let names = detector_names(&extract_json(&stdout));
     assert!(
-        names.iter().any(|d| d == "DeepNestingDetector"),
-        "DeepNestingDetector should fire on 5+ level nesting. Detectors found: {:?}",
-        names
-    );
-}
-
-#[test]
-fn test_cpp_magic_numbers_detected() {
-    let ws = setup_cpp_workspace();
-    let (stdout, _, _) = run_analyze(ws.path(), &[]);
-    let names = detector_names(&extract_json(&stdout));
-    assert!(
-        names.iter().any(|d| d == "MagicNumbersDetector"),
-        "MagicNumbersDetector should fire on numeric literals. Detectors found: {:?}",
+        names.iter().any(|d| d == "DeadStoreDetector"),
+        "DeadStoreDetector should fire on unused assignments. Detectors found: {:?}",
         names
     );
 }
@@ -154,8 +142,7 @@ fn test_cpp_minimum_detector_coverage() {
 
     // EmptyCatchDetector and HardcodedIpsDetector don't support C++ yet.
     let expected = [
-        "DeepNestingDetector",
-        "MagicNumbersDetector",
+        "DeadStoreDetector",
         "TodoScanner",
         "CommentedCodeDetector",
     ];

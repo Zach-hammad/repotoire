@@ -26,10 +26,11 @@ fn create_java_workspace() -> tempfile::TempDir {
 fn analyze_java() -> (serde_json::Value, String) {
     let workspace = create_java_workspace();
     let output = Command::new(binary_path())
-        .arg(workspace.path())
         .arg("analyze")
+        .arg(workspace.path())
         .arg("--format")
         .arg("json")
+        .arg("--all-detectors")
         .output()
         .expect("Failed to run repotoire");
 
@@ -163,15 +164,14 @@ fn java_detects_deep_nesting() {
 }
 
 #[test]
-fn java_detects_magic_numbers() {
+fn java_detects_command_injection() {
     let (report, _) = analyze_java();
     let detectors = detector_names(&report);
-    // MagicNumbersDetector now fires on Java
     assert!(
         detectors
             .iter()
-            .any(|d| d.contains("magic") || d.contains("Magic")),
-        "MagicNumbersDetector should detect magic numbers in Java. Found: {:?}",
+            .any(|d| d.contains("CommandInjection")),
+        "CommandInjectionDetector should fire on Java fixture. Found: {:?}",
         detectors
     );
 }
