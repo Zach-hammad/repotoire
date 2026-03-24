@@ -627,6 +627,10 @@ impl Detector for DepAuditDetector {
         Ok(findings)
     }
 
+    fn is_network_bound(&self) -> bool {
+        true
+    }
+
     fn category(&self) -> &'static str {
         "security"
     }

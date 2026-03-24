@@ -439,6 +439,13 @@ pub trait Detector: Send + Sync {
         false
     }
 
+    /// Whether this detector makes network calls (e.g., API requests).
+    /// Network-bound detectors are skipped in incremental mode and their
+    /// cached findings are carried forward instead.
+    fn is_network_bound(&self) -> bool {
+        false
+    }
+
     /// Whether this detector's findings should bypass GBDT postprocessor filtering.
     /// High-precision pattern-based detectors should return true.
     fn bypass_postprocessor(&self) -> bool {

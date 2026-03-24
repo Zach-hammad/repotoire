@@ -308,9 +308,16 @@ fn detect_stage_incremental(
         }
     }
 
-    // 2. Run FileLocal detectors on CHANGED files only
-    if !file_local.is_empty() {
-        let (mut fl_findings, _) = run_detectors(&file_local, &scoped_ctx, input.workers);
+    // 2. Run FileLocal detectors on CHANGED files only.
+    //    Skip network-bound detectors (e.g., DepAuditDetector) — their cached
+    //    findings are already carried forward in step 1.
+    let file_local_fast: Vec<_> = file_local
+        .iter()
+        .filter(|d| !d.is_network_bound())
+        .cloned()
+        .collect();
+    if !file_local_fast.is_empty() {
+        let (mut fl_findings, _) = run_detectors(&file_local_fast, &scoped_ctx, input.workers);
         fl_findings = apply_hmm_context_filter(fl_findings, &scoped_ctx);
         filter_test_file_findings(&mut fl_findings);
         for f in &fl_findings {
