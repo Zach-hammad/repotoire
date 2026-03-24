@@ -58,7 +58,11 @@ pub struct DetectStats {
 
 /// Output from the detect stage.
 pub struct DetectOutput {
+    /// New findings that need postprocessing (dedup, suppression, GBDT filtering).
     pub findings: Vec<Finding>,
+    /// Already-postprocessed findings carried forward from cache.
+    /// These bypass the postprocessor and are merged after postprocessing.
+    pub cached_findings: Vec<Finding>,
     pub precomputed: PrecomputedAnalysis,
     pub findings_by_file: HashMap<PathBuf, Vec<Finding>>,
     /// Keyed by detector name for selective invalidation on incremental runs.
@@ -184,6 +188,7 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
 
     Ok(DetectOutput {
         findings,
+        cached_findings: Vec::new(), // cold path — everything goes through postprocessor
         precomputed,
         findings_by_file,
         graph_wide_findings,
@@ -289,7 +294,8 @@ fn detect_stage_incremental(
     let scoped_ctx = precomputed.to_context_scoped(graph, resolver, changed_files);
     let full_ctx = precomputed.to_context(graph, resolver);
 
-    let mut all_findings: Vec<Finding> = Vec::new();
+    let mut new_findings: Vec<Finding> = Vec::new();
+    let mut cached_findings_out: Vec<Finding> = Vec::new();
     let mut findings_by_file: HashMap<PathBuf, Vec<Finding>> = HashMap::new();
     let mut graph_wide_findings_out: HashMap<String, Vec<Finding>> = HashMap::new();
 
@@ -300,15 +306,15 @@ fn detect_stage_incremental(
         .map(|d| d.name().to_string())
         .collect();
 
-    // 1. Carry forward cached findings for UNCHANGED files
+    // 1. Carry forward cached findings for UNCHANGED files → cached (already postprocessed)
     for (file, findings) in cached_file_findings {
         if !changed_set.contains(file) {
             findings_by_file.insert(file.clone(), findings.clone());
-            all_findings.extend(findings.iter().cloned());
+            cached_findings_out.extend(findings.iter().cloned());
         }
     }
 
-    // 2. Run FileLocal detectors on CHANGED files only.
+    // 2. Run FileLocal detectors on CHANGED files only → new (needs postprocessing).
     //    Skip network-bound detectors (e.g., DepAuditDetector) — their cached
     //    findings are already carried forward in step 1.
     let file_local_fast: Vec<_> = file_local
@@ -328,19 +334,14 @@ fn detect_stage_incremental(
                     .push(f.clone());
             }
         }
-        all_findings.extend(fl_findings);
+        new_findings.extend(fl_findings);
     }
 
-    // 3. FileScopedGraph detectors: use scoped context if topology stable,
-    //    full context if topology changed
-    if !file_scoped_graph.is_empty() {
-        let ctx = if input.topology_changed {
-            &full_ctx
-        } else {
-            &scoped_ctx
-        };
-        let (mut fsg_findings, _) = run_detectors(&file_scoped_graph, ctx, input.workers);
-        fsg_findings = apply_hmm_context_filter(fsg_findings, ctx);
+    // 3. FileScopedGraph detectors: SKIP when topology unchanged (cached findings
+    //    from step 1 already cover them). Only re-run when topology changed.
+    if input.topology_changed && !file_scoped_graph.is_empty() {
+        let (mut fsg_findings, _) = run_detectors(&file_scoped_graph, &full_ctx, input.workers);
+        fsg_findings = apply_hmm_context_filter(fsg_findings, &full_ctx);
         filter_test_file_findings(&mut fsg_findings);
         for f in &fsg_findings {
             for file in &f.affected_files {
@@ -350,10 +351,10 @@ fn detect_stage_incremental(
                     .push(f.clone());
             }
         }
-        all_findings.extend(fsg_findings);
+        new_findings.extend(fsg_findings);
     }
 
-    // 4. GraphWide detectors: re-run if topology changed, else reuse cache
+    // 4. GraphWide detectors: re-run if topology changed → new, else reuse cache → cached
     if input.topology_changed {
         let (mut gw_findings, _) =
             run_detectors(&graph_wide_detectors, &full_ctx, input.workers);
@@ -365,18 +366,19 @@ fn detect_stage_incremental(
                 .or_default()
                 .push(f.clone());
         }
-        all_findings.extend(gw_findings);
+        new_findings.extend(gw_findings);
     } else {
         for (detector, findings) in cached_graph_wide_findings {
             graph_wide_findings_out.insert(detector.clone(), findings.clone());
-            all_findings.extend(findings.iter().cloned());
+            cached_findings_out.extend(findings.iter().cloned());
         }
     }
 
-    sort_findings_deterministic(&mut all_findings);
+    sort_findings_deterministic(&mut new_findings);
 
     Ok(DetectOutput {
-        findings: all_findings,
+        findings: new_findings,
+        cached_findings: cached_findings_out,
         precomputed,
         findings_by_file,
         graph_wide_findings: graph_wide_findings_out,

@@ -451,11 +451,15 @@ impl AnalysisEngine {
             })
         })?;
 
+        // Merge already-postprocessed cached findings (empty on cold path)
+        let mut final_findings = postprocess_out.findings;
+        final_findings.extend(detect_out.cached_findings);
+
         // Stage 8: Score — compute three-pillar health score
         let score_out = timed(&mut timings, "score", || {
             score::score_stage(&score::ScoreInput {
                 graph: frozen.graph.as_ref(),
-                findings: &postprocess_out.findings,
+                findings: &final_findings,
                 project_config: &self.project_config,
                 repo_path: &self.repo_path,
                 total_loc: parse_out.stats.total_loc,
@@ -495,13 +499,13 @@ impl AnalysisEngine {
             ngram_model: calibrate_out.ngram_model,
             findings_by_file: detect_out.findings_by_file,
             graph_wide_findings: detect_out.graph_wide_findings,
-            last_findings: postprocess_out.findings.clone(),
+            last_findings: final_findings.clone(),
             last_score: score_out.clone(),
             last_stats: stats.clone(),
         });
 
         Ok(AnalysisResult {
-            findings: postprocess_out.findings,
+            findings: final_findings,
             score: score_out,
             stats,
         })
@@ -657,7 +661,7 @@ impl AnalysisEngine {
         // Stage 7: Postprocess — deduplicate, suppress, filter findings
         let postprocess_out = timed(&mut timings, "postprocess", || {
             postprocess::postprocess_stage(postprocess::PostprocessInput {
-                findings: detect_out.findings,
+                findings: detect_out.findings,  // only NEW findings
                 project_config: &self.project_config,
                 graph: frozen.graph.as_ref(),
                 all_files: &all_files,
@@ -666,6 +670,10 @@ impl AnalysisEngine {
                 bypass_set: detect_out.bypass_set,
             })
         })?;
+
+        // Merge already-postprocessed cached findings with newly postprocessed findings
+        let mut final_findings = postprocess_out.findings;
+        final_findings.extend(detect_out.cached_findings);
 
         // Merge parse stats: delta parse stats + cached totals for full codebase picture.
         // The delta only parsed changed files, but stats should reflect the whole codebase.
@@ -683,7 +691,7 @@ impl AnalysisEngine {
         let score_out = timed(&mut timings, "score", || {
             score::score_stage(&score::ScoreInput {
                 graph: frozen.graph.as_ref(),
-                findings: &postprocess_out.findings,
+                findings: &final_findings,
                 project_config: &self.project_config,
                 repo_path: &self.repo_path,
                 total_loc,
@@ -723,13 +731,13 @@ impl AnalysisEngine {
             ngram_model,
             findings_by_file: detect_out.findings_by_file,
             graph_wide_findings: detect_out.graph_wide_findings,
-            last_findings: postprocess_out.findings.clone(),
+            last_findings: final_findings.clone(),
             last_score: score_out.clone(),
             last_stats: stats.clone(),
         });
 
         Ok(AnalysisResult {
-            findings: postprocess_out.findings,
+            findings: final_findings,
             score: score_out,
             stats,
         })
