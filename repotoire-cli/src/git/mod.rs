@@ -12,7 +12,7 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```ignore
 //! use repotoire::git::{GitHistory, GitEnricher};
 //! use repotoire::graph::GraphStore;
 //! use std::path::Path;
