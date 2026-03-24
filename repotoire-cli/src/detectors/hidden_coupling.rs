@@ -90,7 +90,7 @@ impl Detector for HiddenCouplingDetector {
 
         let mut findings = Vec::new();
         let min_weight: f32 = self.config.get_option_or("min_weight", 1.0);
-        let min_lift: f32 = self.config.get_option_or("min_lift", 1.5);
+        let min_lift: f32 = self.config.get_option_or("min_lift", 2.0);
 
         for &(file_a_idx, file_b_idx, weight, lift) in pairs {
             if weight < min_weight {

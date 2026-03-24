@@ -122,12 +122,32 @@ impl CoChangeMatrix {
         self.total_decay_weight
     }
 
-    /// Compute lift for a file pair: how much more they co-change than expected by chance.
+    /// Number of unique files tracked in this matrix.
+    pub fn file_count(&self) -> usize {
+        self.file_weights.len()
+    }
+
+    /// Compute Bayesian-smoothed lift for a file pair.
     ///
-    /// `lift(A,B) = co_change_weight(A,B) * total_decay_weight / (file_weight(A) * file_weight(B))`
+    /// Measures how much more two files co-change than expected by chance,
+    /// with Laplace smoothing to shrink toward 1.0 for low-evidence pairs.
     ///
-    /// Lift = 1.0 means co-change is exactly expected by chance.
-    /// Lift > 1.0 means more co-change than expected (real coupling signal).
+    /// ```text
+    /// smoothed_lift = (pair_weight + α) × (total_weight + α × N²)
+    ///               / ((file_weight_a + α × N) × (file_weight_b + α × N))
+    /// ```
+    ///
+    /// Where `α` = smoothing constant (0.1), `N` = number of unique files.
+    ///
+    /// **Why smoothing?** Naive lift = pair_weight × total / (weight_a × weight_b).
+    /// Files that changed 1-2 times have tiny weights, producing astronomical lift
+    /// (100x+) from a single co-change. The pseudocount adds prior evidence of
+    /// independence, naturally penalizing low-activity pairs without arbitrary filters.
+    ///
+    /// - Lift ≈ 1.0 → co-change is expected (or insufficient evidence)
+    /// - Lift > 2.0 → notably more co-change than expected
+    /// - Lift > 5.0 → strong coupling signal
+    ///
     /// Returns `None` if either file has no recorded changes or total weight is zero.
     pub fn lift(&self, a: StrKey, b: StrKey) -> Option<f32> {
         let pair_weight = self.weight(a, b)?;
@@ -136,7 +156,14 @@ impl CoChangeMatrix {
         if weight_a == 0.0 || weight_b == 0.0 || self.total_decay_weight == 0.0 {
             return None;
         }
-        Some(pair_weight * self.total_decay_weight / (weight_a * weight_b))
+
+        let n = self.file_weights.len() as f32;
+        let alpha: f32 = 1.0;
+
+        let numerator = (pair_weight + alpha) * (self.total_decay_weight + alpha * n * n);
+        let denominator = (weight_a + alpha * n) * (weight_b + alpha * n);
+
+        Some(numerator / denominator)
     }
 
     /// Iterate over all `((a, b), weight)` entries.
