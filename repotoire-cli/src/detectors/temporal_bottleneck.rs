@@ -141,21 +141,39 @@ impl Detector for TemporalBottleneckDetector {
             unweighted_percentiles[orig_idx] = (rank * 100) / n;
         }
 
-        let p95_threshold = self.percentile_threshold;
+        // Step 5: Build findings using the residual method (Clio / Wong & Cai, ICSE 2011).
+        //
+        // A function is a temporal bottleneck when its temporal centrality
+        // SIGNIFICANTLY EXCEEDS its structural centrality. The percentile gap
+        // measures "how much more temporally central is this function relative
+        // to its structural role?"
+        //
+        // Functions with high weighted AND high structural betweenness are just
+        // naturally central (dispatchers, entry points) — not bottlenecks.
+        // Only functions with a large positive residual are surprising.
+
+        let min_weighted_pct = self.percentile_threshold; // p97 default: must be temporally central
+        let min_gap: isize = 20; // minimum percentile gap (temporal - structural)
 
         debug!(
-            "TemporalBottleneckDetector: {} functions, p{} threshold (percentile-based)",
-            n, p95_threshold
+            "TemporalBottleneckDetector: {} functions, p{} threshold, min gap {}",
+            n, min_weighted_pct, min_gap
         );
 
-        // Step 5: Build findings for functions above the percentile threshold.
         let mut findings = Vec::new();
 
         for (i, &(func_idx, _weighted_bw)) in entries.iter().enumerate() {
             let weighted_pct = weighted_percentiles[i];
             let unweighted_pct = unweighted_percentiles[i];
 
-            if weighted_pct < p95_threshold {
+            // Must be temporally central
+            if weighted_pct < min_weighted_pct {
+                continue;
+            }
+
+            // Must be MORE temporally central than structurally central (the surprise signal)
+            let pct_gap = weighted_pct as isize - unweighted_pct as isize;
+            if pct_gap < min_gap {
                 continue;
             }
 
@@ -167,81 +185,63 @@ impl Detector for TemporalBottleneckDetector {
             let func_name = node.qn(gi);
             let file_path = node.path(gi);
 
-            let pct_gap = weighted_pct as isize - unweighted_pct as isize;
-
-            if weighted_pct > 99 && pct_gap > 30 {
-                // High severity: much more important temporally than structurally
-                findings.push(Finding {
-                    id: String::new(),
-                    detector: "temporal-bottleneck".to_string(),
-                    severity: Severity::High,
-                    confidence: Some(0.85),
-                    deterministic: true,
-                    title: format!(
-                        "Temporal bottleneck: {} (weighted p{}, structural p{}, +{} gap)",
-                        func_name, weighted_pct, unweighted_pct, pct_gap
-                    ),
-                    description: format!(
-                        "`{}` ranks at p{} by change-weighted betweenness but only p{} by \
-                         structural betweenness (+{} percentile gap). Changes cascade through \
-                         this function far more than static structure would predict.",
-                        func_name, weighted_pct, unweighted_pct, pct_gap
-                    ),
-                    affected_files: vec![PathBuf::from(file_path)],
-                    line_start: Some(node.line_start),
-                    line_end: Some(node.line_end),
-                    suggested_fix: Some(
-                        "Consider splitting this function's responsibilities, introducing \
-                         an interface/abstraction layer, or reducing the number of modules \
-                         that transitively depend on it through co-change patterns."
-                            .to_string(),
-                    ),
-                    category: Some("architecture".to_string()),
-                    why_it_matters: Some(
-                        "A temporal bottleneck amplifies change propagation beyond what \
-                         static structure suggests. Changes to this function cascade to \
-                         far more code than a dependency graph would predict, increasing \
-                         the risk of unintended side effects."
-                            .to_string(),
-                    ),
-                    ..Default::default()
-                });
-            } else {
-                // Medium severity: high weighted betweenness
-                findings.push(Finding {
-                    id: String::new(),
-                    detector: "temporal-bottleneck".to_string(),
-                    severity: Severity::Medium,
-                    confidence: Some(0.80),
-                    deterministic: true,
-                    title: format!(
-                        "Temporal bottleneck: {} (p{} weighted betweenness)",
-                        func_name, weighted_pct
-                    ),
-                    description: format!(
-                        "`{}` has high weighted betweenness centrality (p{}), indicating it sits \
-                         on frequently-used change propagation paths.",
-                        func_name, weighted_pct
-                    ),
-                    affected_files: vec![PathBuf::from(file_path)],
-                    line_start: Some(node.line_start),
-                    line_end: Some(node.line_end),
-                    suggested_fix: Some(
-                        "Monitor this function for cascading changes. Consider whether \
-                         its central position in co-change paths reflects a design issue \
-                         or a natural architectural role."
-                            .to_string(),
-                    ),
-                    category: Some("architecture".to_string()),
-                    why_it_matters: Some(
-                        "Functions with high weighted betweenness sit on frequently-used \
-                         change propagation paths. Changes to them are more likely to \
-                         require coordinated changes in other parts of the codebase."
-                            .to_string(),
-                    ),
-                    ..Default::default()
-                });
+            // Skip test functions — they naturally have high temporal but low structural
+            // betweenness because they co-change with the code they test but aren't
+            // called from production code.
+            let is_test = crate::detectors::base::is_test_file(std::path::Path::new(file_path))
+                || func_name.contains("test_")
+                || func_name.starts_with("test")
+                || func_name.contains("::tests::");
+            if is_test {
+                continue;
             }
+
+            // Severity based on gap magnitude (how surprising is this?)
+            let severity = if pct_gap >= 50 {
+                Severity::High   // Massively more temporal than structural
+            } else if pct_gap >= 30 {
+                Severity::Medium // Notably more temporal than structural
+            } else {
+                Severity::Low    // Somewhat surprising
+            };
+
+            let confidence_val = if pct_gap >= 50 { 0.90 } else if pct_gap >= 30 { 0.80 } else { 0.70 };
+
+            findings.push(Finding {
+                id: String::new(),
+                detector: "temporal-bottleneck".to_string(),
+                severity,
+                confidence: Some(confidence_val),
+                deterministic: true,
+                title: format!(
+                    "Temporal bottleneck: {} (temporal p{}, structural p{}, +{} gap)",
+                    func_name, weighted_pct, unweighted_pct, pct_gap
+                ),
+                description: format!(
+                    "`{}` ranks at p{} by change-weighted betweenness but only p{} by \
+                     structural betweenness (+{} percentile gap). Changes cascade through \
+                     this function far more than static structure would predict.",
+                    func_name, weighted_pct, unweighted_pct, pct_gap
+                ),
+                affected_files: vec![PathBuf::from(file_path)],
+                line_start: Some(node.line_start),
+                line_end: Some(node.line_end),
+                suggested_fix: Some(
+                    "Consider splitting this function's responsibilities, introducing \
+                     an interface/abstraction layer, or reducing the number of modules \
+                     that transitively depend on it through co-change patterns."
+                        .to_string(),
+                ),
+                category: Some("architecture".to_string()),
+                why_it_matters: Some(
+                    "A temporal bottleneck amplifies change propagation beyond what \
+                     static structure suggests. Changes to this function cascade to \
+                     far more code than a dependency graph would predict, increasing \
+                     the risk of unintended side effects."
+                        .to_string(),
+                ),
+                ..Default::default()
+            });
         }
 
         // Sort by severity (highest first).
