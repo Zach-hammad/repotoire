@@ -226,6 +226,42 @@ impl TaintPath {
     }
 }
 
+/// Result of taint analysis for a file or function
+#[derive(Debug, Clone)]
+pub struct TaintAnalysisResult {
+    /// All taint paths found
+    pub paths: Vec<TaintPath>,
+    /// Number of vulnerable paths (unsanitized)
+    pub vulnerable_count: usize,
+    /// Number of sanitized paths
+    pub sanitized_count: usize,
+}
+
+impl TaintAnalysisResult {
+    /// Create from a list of paths
+    pub fn from_paths(paths: Vec<TaintPath>) -> Self {
+        let vulnerable_count = paths.iter().filter(|p| p.is_vulnerable()).count();
+        let sanitized_count = paths.iter().filter(|p| p.is_sanitized).count();
+
+        Self {
+            paths,
+            vulnerable_count,
+            sanitized_count,
+        }
+    }
+
+    /// Get only vulnerable paths
+    pub fn vulnerable_paths(&self) -> Vec<&TaintPath> {
+        self.paths.iter().filter(|p| p.is_vulnerable()).collect()
+    }
+
+    /// Check if there are any vulnerabilities
+    #[allow(dead_code)] // Public API method, used in tests
+    pub fn has_vulnerabilities(&self) -> bool {
+        self.vulnerable_count > 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
