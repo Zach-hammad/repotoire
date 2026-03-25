@@ -241,10 +241,6 @@ mod tests {
             self.functions.clone()
         }
 
-        fn get_classes(&self) -> Vec<CodeNode> {
-            vec![]
-        }
-
         fn get_files(&self) -> Vec<CodeNode> {
             self.files.clone()
         }
@@ -258,52 +254,12 @@ mod tests {
                 .collect()
         }
 
-        fn get_classes_in_file(&self, _file_path: &str) -> Vec<CodeNode> {
-            vec![]
-        }
-
-        fn get_node(&self, _qn: &str) -> Option<CodeNode> {
-            None
-        }
-
-        fn get_callers(&self, _qn: &str) -> Vec<CodeNode> {
-            vec![]
-        }
-
-        fn get_callees(&self, _qn: &str) -> Vec<CodeNode> {
-            vec![]
-        }
-
         fn call_fan_in(&self, _qn: &str) -> usize {
             3
         }
 
         fn call_fan_out(&self, _qn: &str) -> usize {
             2
-        }
-
-        fn get_calls(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
-            vec![]
-        }
-
-        fn get_imports(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
-            vec![]
-        }
-
-        fn get_inheritance(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
-            vec![]
-        }
-
-        fn get_child_classes(&self, _qn: &str) -> Vec<CodeNode> {
-            vec![]
-        }
-
-        fn get_importers(&self, _qn: &str) -> Vec<CodeNode> {
-            vec![]
-        }
-
-        fn find_import_cycles(&self) -> Vec<Vec<String>> {
-            vec![]
         }
 
         fn stats(&self) -> std::collections::BTreeMap<String, i64> {

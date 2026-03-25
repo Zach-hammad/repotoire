@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use crate::classifier::thresholds::DetectorCategory;
-use crate::graph::traits::GraphQuery;
+use crate::graph::traits::{GraphQuery, GraphQueryExt};
 use crate::models::{Finding, Severity};
 
 /// Number of features produced by the V2 extractor.
@@ -442,7 +442,7 @@ fn category_ordinal(detector: &str) -> f64 {
 mod tests {
     use super::*;
     use crate::graph::store_models::CodeNode;
-    use crate::graph::traits::GraphQuery;
+    use crate::graph::traits::{GraphQuery, GraphQueryExt};
     use std::collections::HashMap;
     use std::path::PathBuf;
 
@@ -500,12 +500,11 @@ mod tests {
         fn get_functions(&self) -> Vec<CodeNode> {
             self.functions.clone()
         }
+
         fn get_classes(&self) -> Vec<CodeNode> {
             self.classes.clone()
         }
-        fn get_files(&self) -> Vec<CodeNode> {
-            Vec::new()
-        }
+
         fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
             let i = self.interner();
             self.functions
@@ -514,6 +513,7 @@ mod tests {
                 .cloned()
                 .collect()
         }
+
         fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
             let i = self.interner();
             self.classes
@@ -522,39 +522,19 @@ mod tests {
                 .cloned()
                 .collect()
         }
-        fn get_node(&self, _qn: &str) -> Option<CodeNode> {
-            None
-        }
-        fn get_callers(&self, _qn: &str) -> Vec<CodeNode> {
-            Vec::new()
-        }
-        fn get_callees(&self, _qn: &str) -> Vec<CodeNode> {
-            Vec::new()
-        }
+
         fn call_fan_in(&self, _qn: &str) -> usize {
             3 // fixed for tests
         }
+
         fn call_fan_out(&self, _qn: &str) -> usize {
             2 // fixed for tests
         }
-        fn get_calls(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
-            Vec::new()
-        }
-        fn get_imports(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
-            Vec::new()
-        }
-        fn get_inheritance(&self) -> Vec<(crate::graph::interner::StrKey, crate::graph::interner::StrKey)> {
-            Vec::new()
-        }
-        fn get_child_classes(&self, _qn: &str) -> Vec<CodeNode> {
-            Vec::new()
-        }
-        fn get_importers(&self, _qn: &str) -> Vec<CodeNode> {
-            Vec::new()
-        }
+
         fn find_import_cycles(&self) -> Vec<Vec<String>> {
             self.cycles.clone()
         }
+
         fn stats(&self) -> std::collections::BTreeMap<String, i64> {
             std::collections::BTreeMap::new()
         }
